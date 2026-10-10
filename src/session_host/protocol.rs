@@ -346,6 +346,9 @@ fn decode_host_frame(kind: u8, payload: Vec<u8>) -> Result<HostFrame, ProtocolEr
             let rows = u32::from_be_bytes(payload[4..8].try_into().expect("len checked"));
             let render_revision =
                 u64::from_be_bytes(payload[8..16].try_into().expect("len checked"));
+            if !resized_dimensions_acceptable(columns, rows) {
+                return Err(ProtocolError::InvalidPayload("resized"));
+            }
             Ok(HostFrame::Resized {
                 columns,
                 rows,
@@ -798,6 +801,53 @@ fn read_u32(reader: &mut impl Read) -> Result<u32, ProtocolError> {
     Ok(u32::from_be_bytes(bytes))
 }
 
+/// Upper bound on client-supplied resize dimensions. The wire protocol carries
+/// raw `u32` columns/rows and the socket is reachable by any same-user process,
+/// so the host must not trust them: unclamped, a hostile `Resize` frame
+/// (e.g. `0xFFFFFFFF × 0xFFFFFFFF`) drives `Terminal::resize` into a
+/// multi-exabyte grid allocation that aborts the host and kills the session for
+/// every attached client. 4096 columns/rows comfortably exceeds any real
+/// display while keeping the worst-case grid a few hundred MB. The per-axis
+/// bound alone is not enough: 4096 x 4096 is ~16.7M visible cells, four times
+/// the default snapshot decoder's total-cell cap, so an accepted resize could
+/// make the host emit snapshots its own consumers reject. Resizes are therefore
+/// also clamped to the total-cell budget derived from the decoder caps
+/// ([`SnapshotEnvelopeCaps::max_self_decodable_visible_cells`]).
+pub(crate) const MAX_CLIENT_RESIZE_DIM: usize = 4096;
+
+/// Clamp untrusted wire dimensions to the model bound. The socket is reachable
+/// by any same-user process, so raw `u32` columns/rows must be bounded before a
+/// resize allocates the grid. Beyond the per-axis bound, the total cell count
+/// is clamped to the largest visible grid the default snapshot decoder is
+/// guaranteed to accept: a grid past that budget would make every future
+/// snapshot of this session undecodable for its own attach/CLI consumers.
+/// Rows give way (columns are kept) because a shell reflows to narrow heights
+/// far more gracefully than to sub-width columns.
+pub(crate) fn clamp_client_dimensions(columns: u32, rows: u32) -> crate::core::Dimensions {
+    let columns = (columns as usize).min(MAX_CLIENT_RESIZE_DIM);
+    let rows = (rows as usize).min(MAX_CLIENT_RESIZE_DIM);
+    let budget = crate::core::SnapshotEnvelopeCaps::default().max_self_decodable_visible_cells();
+    let rows = match columns.checked_mul(rows) {
+        Some(cells) if cells <= budget => rows,
+        _ => (budget / columns.max(1)).clamp(1, rows),
+    };
+    crate::core::Dimensions::new(columns, rows)
+}
+
+/// Whether host-announced `Resized` dimensions are ones the host can have
+/// applied: [`clamp_client_dimensions`] leaves them unchanged. The host only
+/// ever resizes to clamped dimensions, so anything else on the wire is a
+/// malformed or hostile frame and is refused at decode, before a client
+/// mirror allocates a grid for it. Zero dimensions pass (the consumer ignores
+/// them).
+fn resized_dimensions_acceptable(columns: u32, rows: u32) -> bool {
+    if columns == 0 || rows == 0 {
+        return true;
+    }
+    let clamped = clamp_client_dimensions(columns, rows);
+    clamped.columns == columns as usize && clamped.rows == rows as usize
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1048,6 +1098,40 @@ mod tests {
             frame_reader.payload.capacity(),
             CLIENT_PAYLOAD_GROWTH_CHUNK
         );
+    }
+
+    /// A `Resized` frame naming dimensions the host could never have applied
+    /// (past the per-axis or total-cell bound) is refused at decode, before a
+    /// client mirror allocates a grid; every clamped size still decodes.
+    #[test]
+    fn resized_host_frame_outside_the_resize_bound_is_refused_at_decode() {
+        let resized = |columns: u32, rows: u32| {
+            let mut payload = Vec::with_capacity(16);
+            payload.extend_from_slice(&columns.to_be_bytes());
+            payload.extend_from_slice(&rows.to_be_bytes());
+            payload.extend_from_slice(&7u64.to_be_bytes());
+            decode_host_frame(6, payload)
+        };
+        let max = MAX_CLIENT_RESIZE_DIM as u32;
+        for (columns, rows) in [
+            (u32::MAX, u32::MAX),
+            (max + 1, 10),
+            (10, max + 1),
+            (max, max),
+        ] {
+            assert!(
+                matches!(
+                    resized(columns, rows),
+                    Err(ProtocolError::InvalidPayload("resized"))
+                ),
+                "{columns}x{rows}"
+            );
+        }
+        for (columns, rows) in [(80, 24), (0, 0), (max, 1)] {
+            assert!(resized(columns, rows).is_ok(), "{columns}x{rows}");
+        }
+        let clamped = clamp_client_dimensions(u32::MAX, u32::MAX);
+        assert!(resized(clamped.columns as u32, clamped.rows as u32).is_ok());
     }
 
     /// Regression: audit C-3 -- the `Resized` host frame round-trips its

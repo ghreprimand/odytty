@@ -306,9 +306,14 @@ impl FloatLayout {
             row: current.row.saturating_add_signed(d_row).min(max_row),
             ..current
         };
+        if next == current {
+            // A move that changes nothing (a key held against the grid edge)
+            // must not pin a cascade-default pane to a stored rectangle.
+            return false;
+        }
         self.normalize(leaves);
         self.set_rect(token, next);
-        next != current
+        true
     }
 
     /// Resize `token` by whole cells (the origin stays put unless the grid edge
@@ -333,9 +338,12 @@ impl FloatLayout {
             ..current
         }
         .clamped(grid_cols, grid_rows);
+        if next == current {
+            return false;
+        }
         self.normalize(leaves);
         self.set_rect(token, next);
-        next != current
+        true
     }
 }
 
@@ -616,6 +624,48 @@ mod tests {
         assert_eq!((at.cols, at.rows), (80, 24));
         // The other pane's rectangle did not change.
         assert!(!layout.move_by(&l, tok(0), tok(9), 1, 0, grid));
+    }
+
+    /// A move or resize that changes nothing leaves a cascade-default pane
+    /// (`rect: None`) following the cascade; only a real change stores a
+    /// rectangle.
+    #[test]
+    fn a_no_op_move_or_resize_keeps_the_cascade_default() {
+        let l = leaves(2);
+        let grid = (80, 24);
+        let fresh = || {
+            FloatLayout::from_entries(vec![
+                FloatEntry {
+                    token: tok(0),
+                    rect: None,
+                },
+                FloatEntry {
+                    token: tok(1),
+                    rect: None,
+                },
+            ])
+        };
+        let mut layout = fresh();
+        assert!(!layout.move_by(&l, tok(0), tok(0), 0, 0, grid));
+        assert!(!layout.resize_by(&l, tok(0), tok(0), 0, 0, grid));
+        assert_eq!(layout, fresh(), "a no-op changes no stored state");
+
+        // Held against the edge: pin the pane at the origin first, then push on.
+        let mut layout = fresh();
+        for _ in 0..200 {
+            layout.move_by(&l, tok(0), tok(0), -1, -1, grid);
+        }
+        let stored = layout.clone();
+        assert!(!layout.move_by(&l, tok(0), tok(0), -1, -1, grid));
+        assert_eq!(layout, stored, "pushing against the edge changes nothing");
+        // The other pane still follows its cascade default.
+        assert_eq!(layout.entries[1].rect, None);
+
+        // A real change stores the rectangle for that pane only.
+        let mut layout = fresh();
+        assert!(layout.move_by(&l, tok(0), tok(0), 0, 1, grid));
+        assert!(layout.entries[0].rect.is_some());
+        assert_eq!(layout.entries[1].rect, None);
     }
 
     #[test]

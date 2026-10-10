@@ -43,9 +43,9 @@ use winit::window::{CursorIcon, Window, WindowId};
 
 use super::bindings::{
     KeyBindings, PrefixEngine, PrefixOutcome, changed_window_title, chord_from_winit,
-    encode_native_focus_report, encode_native_mouse_report, map_keypad_physical_key, map_named_key,
-    map_win32_key_event, map_winit_mouse_button, motion_report_button, normalize_winit_editing_key,
-    prefix_chord_from_winit, wheel_report_button,
+    encode_native_focus_report, encode_native_mouse_report, encode_win32_key_records,
+    map_keypad_physical_key, map_named_key, map_winit_mouse_button, motion_report_button,
+    normalize_winit_editing_key, prefix_chord_from_winit, wheel_report_button,
 };
 use super::clipboard::{NativeClipboard, PasteError, read_clipboard_selection, write_paste_text};
 use super::cvd_theme::CvdThemeCache;

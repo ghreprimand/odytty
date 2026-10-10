@@ -218,6 +218,7 @@ mod context_menu_presentation;
 mod ctrl_click_open;
 mod cursor_icon;
 mod cvd_wiring;
+mod workspace_host_bind;
 // App-route file-drop tests use Unix paths and Unix shell quoting. Windows
 // refuses insertion at PtySession::file_drop_shell (src/pty/windows.rs); its
 // quoting coverage is the platform-neutral unit suite in native::tests::file_drop.

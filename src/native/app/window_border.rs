@@ -147,8 +147,16 @@ mod tests {
         Some(app)
     }
 
+    /// Padding a headless App has no GPU to report: an explicit logical band
+    /// and scale, so the bordered paths run instead of finding no room.
+    const PAD_LOGICAL: f32 = 8.0;
+
     fn ctx(app: &App) -> OverlayCtx {
-        app.overlay_ctx(
+        ctx_at(app, PAD_LOGICAL, 1.0)
+    }
+
+    fn ctx_at(app: &App, pad_logical: f32, scale: f32) -> OverlayCtx {
+        let mut ctx = app.overlay_ctx(
             app.scrollback_len(),
             CellSize {
                 width: CELL_W,
@@ -158,7 +166,10 @@ mod tests {
             Position { row: 0, column: 0 },
             true,
             Instant::now(),
-        )
+        );
+        ctx.window_padding = crate::native::WindowPadding::from_logical(pad_logical, scale);
+        ctx.scale = scale;
+        ctx
     }
 
     // --- T-ID4-1: off-path identity -----------------------------------------
@@ -183,10 +194,10 @@ mod tests {
         };
         app.settings.window_border = true;
         let c = ctx(&app);
-        // Need a padding band for an outward border to appear.
-        if c.window_padding.as_f32() <= 0.0 {
-            return;
-        }
+        assert!(
+            c.window_padding.as_f32() > 0.0,
+            "the fixture has a padding band"
+        );
         let mut quads = Vec::new();
         app.paint_window_border_quads(&c, &mut quads);
         assert_eq!(quads.len(), 4, "top/bottom/left/right");
@@ -212,13 +223,12 @@ mod tests {
         app.settings.window_border = true;
         let c = ctx(&app);
         let pad = c.window_padding.as_f32();
-        if pad <= 0.0 {
-            return;
-        }
+        assert!(pad > 0.0, "the fixture has a padding band");
         let content_x1 = pad + COLS as f32 * CELL_W as f32;
         let content_y1 = pad + ROWS as f32 * CELL_H as f32;
         let mut quads = Vec::new();
         app.paint_window_border_quads(&c, &mut quads);
+        assert_eq!(quads.len(), 4, "the ring is drawn");
         // No quad intrudes into the interior of the content rect: each quad is
         // either entirely in a padding band (outside [pad, content_x1] ×
         // [pad, content_y1]) along at least one axis.
@@ -244,14 +254,22 @@ mod tests {
         };
         app.settings.window_border = true;
         let pad = ctx(&app).window_padding.as_f32();
-        if pad <= 0.0 {
-            return;
-        }
+        assert!(pad > 0.0, "the fixture has a padding band");
         // Grow the grid; the right/bottom edges of the ring must follow.
         app.grid = Dimensions::new(COLS + 10, ROWS + 4);
         let mut quads = Vec::new();
         app.paint_window_border_quads(&ctx(&app), &mut quads);
+        assert_eq!(quads.len(), 4, "the ring is drawn");
         let content_x1 = pad + (COLS + 10) as f32 * CELL_W as f32;
+        let content_y1 = pad + (ROWS + 4) as f32 * CELL_H as f32;
+        let bottom = quads
+            .iter()
+            .max_by(|a, b| a.rect[1].partial_cmp(&b.rect[1]).unwrap())
+            .expect("a bottom border quad");
+        assert!(
+            (bottom.rect[1] - content_y1).abs() < 1.0,
+            "bottom border tracks the resized content rect"
+        );
         // The right-edge quad's inner edge sits at the new content_x1.
         let right = quads
             .iter()
@@ -261,6 +279,37 @@ mod tests {
             (right.rect[0] - content_x1).abs() < 1.0,
             "right border tracks the resized content rect"
         );
+    }
+
+    /// The ring is `1.5 * scale` physical pixels thick on a HiDPI surface,
+    /// and never thicker than the padding band leaves room for.
+    #[test]
+    fn border_thickness_scales_with_dpi_and_is_capped_by_the_padding() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        app.settings.window_border = true;
+        let thickness = |quads: &[SolidQuad]| quads[0].rect[3] - quads[0].rect[1];
+        let mut hidpi = Vec::new();
+        app.paint_window_border_quads(&ctx_at(&app, PAD_LOGICAL, 2.0), &mut hidpi);
+        assert_eq!(hidpi.len(), 4);
+        assert!(
+            (thickness(&hidpi) - 3.0).abs() < 1e-3,
+            "{}",
+            thickness(&hidpi)
+        );
+        let mut narrow = Vec::new();
+        app.paint_window_border_quads(&ctx_at(&app, 1.0, 2.0), &mut narrow);
+        assert_eq!(narrow.len(), 4);
+        let room = ctx_at(&app, 1.0, 2.0).window_padding.as_f32();
+        assert!(
+            thickness(&narrow) <= room + 1e-3,
+            "{} > {room}",
+            thickness(&narrow)
+        );
+        let mut none = Vec::new();
+        app.paint_window_border_quads(&ctx_at(&app, 0.0, 1.0), &mut none);
+        assert!(none.is_empty(), "no padding band leaves no room for a ring");
     }
 
     // --- split, zoomed and floating tabs keep the outer ring ---------------

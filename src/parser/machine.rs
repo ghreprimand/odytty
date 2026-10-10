@@ -119,9 +119,10 @@ pub(crate) enum ByteClass {
     Final,
     /// DEL (0x7F).
     Del,
-    /// 8-bit ST (0x9C). Acts as a string terminator in DCS passthrough; in
-    /// other states it is treated as an inert byte (raw C1 introducers are
-    /// disabled — see `super` module docs).
+    /// Raw 0x9C. Never a terminator: it is the last byte of many UTF-8 scalars
+    /// (U+0C9C is E0 B2 9C), so inside a string it is payload and elsewhere an
+    /// inert byte (raw C1 introducers and terminators are disabled; strings end
+    /// with `ESC \`, see `super` module docs).
     StringTerm8,
     /// Anything else (other 0x80..=0xFF bytes that aren't 0x9C).
     Other,
@@ -617,13 +618,10 @@ impl Machine {
                 self.state = S::Escape;
                 Action::DcsUnhook
             }
-            (S::DcsPassthrough, C::StringTerm8) => {
-                self.state = S::Ground;
-                Action::DcsUnhook
-            }
             (S::DcsPassthrough, C::Del) => Action::None,
             // All other bytes (C0, BEL, Intermediate, Digit, SubParamSep,
-            // ParamSep, ParamMarker, Final, Other) stream through put.
+            // ParamSep, ParamMarker, Final, StringTerm8, Other) stream through
+            // put. Raw 0x9C is payload, as in OSC: only `ESC \` ends a DCS.
             (S::DcsPassthrough, _) => Action::DcsPut(byte),
 
             // ---------------- DcsIgnore ----------------

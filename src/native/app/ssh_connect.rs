@@ -178,15 +178,22 @@ impl App {
     /// browser (FORM-UX). Filename heuristics ONLY — this reads directory-entry
     /// NAMES and never opens a key file, so no key material ever enters memory.
     /// Returns full paths, sorted; a missing or unreadable `~/.ssh` yields an
-    /// empty list and the browser shows a "type a path manually" hint. Windows:
-    /// `~/.ssh` resolves under `%USERPROFILE%` exactly as on Unix.
-    pub(in crate::native) fn gather_identity_key_candidates(&self) -> Vec<String> {
+    /// empty list and the browser shows a "type a path manually" hint. The scan
+    /// is bounded ([`IDENTITY_SCAN_ENTRIES`], [`IDENTITY_NAME_BYTES`],
+    /// [`IDENTITY_CANDIDATES`]); a truncated scan raises a notice that manual
+    /// entry still reaches any other key. Windows: `~/.ssh` resolves under
+    /// `%USERPROFILE%` exactly as on Unix.
+    pub(in crate::native) fn gather_identity_key_candidates(&mut self) -> Vec<String> {
         let Some(ssh_dir) =
             crate::native::persistence::restore_home_dir().map(|home| home.join(".ssh"))
         else {
             return Vec::new();
         };
-        gather_identity_key_candidates_in(&ssh_dir)
+        let scan = gather_identity_key_candidates_in(&ssh_dir);
+        if scan.truncated {
+            self.raise_open_notice(IDENTITY_SCAN_TRUNCATED_NOTICE.to_owned());
+        }
+        scan.candidates
     }
 
     /// Hand-off seam for the connection-manager overlay: consume a resolved
@@ -414,17 +421,20 @@ impl App {
         self.request_selection_redraw();
     }
 
-    /// Open the shared host picker (ODP-1B) seeded to bind the workspace at rail
-    /// index `idx` (RAIL-BIND). Same as [`Self::open_bind_workspace_picker`] but
-    /// the pick routes back to the CLICKED slot rather than the active
-    /// workspace, so a rail context menu can bind a workspace without switching
-    /// to it first.
-    pub(in crate::native) fn open_bind_workspace_at_picker(&mut self, idx: usize) {
+    /// Open the shared host picker (ODP-1B) seeded to bind the workspace with
+    /// creation identity `identity` (RAIL-BIND). Same as
+    /// [`Self::open_bind_workspace_picker`] but the pick routes back to the
+    /// CLICKED workspace rather than the active one, so a rail context menu can
+    /// bind a workspace without switching to it first.
+    pub(in crate::native) fn open_bind_workspace_at_picker(
+        &mut self,
+        identity: crate::native::session::SessionToken,
+    ) {
         let entries = self.load_connection_entries();
         self.reset_pointer_state_for_overlay();
         self.overlay.open_connections_for_purpose(
             entries,
-            crate::native::connection_overlay::ConnectionPickerPurpose::BindWorkspaceIndex(idx),
+            crate::native::connection_overlay::ConnectionPickerPurpose::BindWorkspaceAt(identity),
             Vec::new(),
         );
         self.request_selection_redraw();
@@ -755,17 +765,56 @@ fn workspace_bound_notice(alias: &str) -> String {
 /// naming the host that was unbound.
 const WORKSPACE_UNBOUND_NOTICE: &str = "Workspace unbound — new tabs open locally";
 
+/// Directory entries the key scan inspects at most; later entries are not read.
+const IDENTITY_SCAN_ENTRIES: usize = 4096;
+/// Longest entry name, in bytes, the key scan considers; longer names are
+/// skipped (no platform's file names exceed it in practice).
+const IDENTITY_NAME_BYTES: usize = 255;
+/// Candidates the key browser lists at most, after sorting.
+const IDENTITY_CANDIDATES: usize = 256;
+/// Notice raised when the key scan hit one of its bounds.
+const IDENTITY_SCAN_TRUNCATED_NOTICE: &str =
+    "~/.ssh has more entries than the key browser lists; type a path for any other key";
+
+/// A bounded `~/.ssh` scan: the listed candidates, and whether a bound cut
+/// the scan short.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct IdentityScan {
+    candidates: Vec<String>,
+    truncated: bool,
+}
+
 /// Directory scan behind [`App::gather_identity_key_candidates`], split out so a
 /// test can drive it against a synthetic `~/.ssh` of obviously-fake key names
 /// (never real key material). Reads entry NAMES only — never file contents —
-/// and skips subdirectories. Returns full paths, sorted for a stable list.
-fn gather_identity_key_candidates_in(ssh_dir: &std::path::Path) -> Vec<String> {
+/// and skips subdirectories. Returns full paths, sorted for a stable list,
+/// within the entry, name-length and candidate bounds above.
+fn gather_identity_key_candidates_in(ssh_dir: &std::path::Path) -> IdentityScan {
+    gather_identity_key_candidates_bounded(
+        ssh_dir,
+        IDENTITY_SCAN_ENTRIES,
+        IDENTITY_NAME_BYTES,
+        IDENTITY_CANDIDATES,
+    )
+}
+
+fn gather_identity_key_candidates_bounded(
+    ssh_dir: &std::path::Path,
+    max_entries: usize,
+    max_name_bytes: usize,
+    max_candidates: usize,
+) -> IdentityScan {
     let Ok(entries) = std::fs::read_dir(ssh_dir) else {
-        return Vec::new();
+        return IdentityScan::default();
     };
+    let mut truncated = false;
     let mut names: Vec<String> = Vec::new();
     let mut pub_stems: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for entry in entries.flatten() {
+    for (inspected, entry) in entries.flatten().enumerate() {
+        if inspected >= max_entries {
+            truncated = true;
+            break;
+        }
         // Skip subdirectories — a key is a file (or a symlink to one).
         if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
             continue;
@@ -773,6 +822,10 @@ fn gather_identity_key_candidates_in(ssh_dir: &std::path::Path) -> Vec<String> {
         let Ok(name) = entry.file_name().into_string() else {
             continue;
         };
+        if name.len() > max_name_bytes {
+            truncated = true;
+            continue;
+        }
         if let Some(stem) = name.strip_suffix(".pub") {
             pub_stems.insert(stem.to_owned());
         }
@@ -784,7 +837,14 @@ fn gather_identity_key_candidates_in(ssh_dir: &std::path::Path) -> Vec<String> {
         .map(|name| ssh_dir.join(name).to_string_lossy().into_owned())
         .collect();
     out.sort();
-    out
+    if out.len() > max_candidates {
+        out.truncate(max_candidates);
+        truncated = true;
+    }
+    IdentityScan {
+        candidates: out,
+        truncated,
+    }
 }
 
 /// Filename-only heuristic for a candidate SSH private key (FORM-UX). Given a
@@ -812,19 +872,24 @@ fn is_identity_key_candidate(name: &str, has_pub_sibling: bool) -> bool {
 
 #[cfg(test)]
 mod identity_key_candidate_tests {
-    use super::{gather_identity_key_candidates_in, is_identity_key_candidate};
+    use super::{
+        gather_identity_key_candidates_bounded, gather_identity_key_candidates_in,
+        is_identity_key_candidate,
+    };
     use std::fs;
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn temp_dir(prefix: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("{prefix}-{}-{nanos}", std::process::id()));
-        fs::create_dir_all(&path).expect("create synthetic temp dir");
-        path
+    /// A freshly created scratch directory, removed when the test ends,
+    /// pass or fail.
+    struct Scratch(PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn temp_dir(prefix: &str) -> Scratch {
+        Scratch(crate::test_dirs::fresh_temp_dir(&format!("{prefix}-")))
     }
 
     #[test]
@@ -851,7 +916,8 @@ mod identity_key_candidate_tests {
     #[test]
     fn scan_lists_private_keys_only_by_name_never_contents() {
         // Synthetic ~/.ssh with obviously-fake names — NOT real key material.
-        let dir = temp_dir("odytty-ssh-keys");
+        let scratch = temp_dir("odytty-ssh-keys");
+        let dir = &scratch.0;
         for (name, body) in [
             ("id_ed25519", "FAKE-NOT-A-KEY"),
             ("id_ed25519.pub", "FAKE-PUB"),
@@ -867,7 +933,9 @@ mod identity_key_candidate_tests {
         }
         fs::create_dir_all(dir.join("sockets")).expect("subdir");
 
-        let found = gather_identity_key_candidates_in(&dir);
+        let scan = gather_identity_key_candidates_in(dir);
+        assert!(!scan.truncated, "a small directory is listed whole");
+        let found = scan.candidates;
         let names: Vec<String> = found
             .iter()
             .map(|p| {
@@ -896,21 +964,55 @@ mod identity_key_candidate_tests {
             found.iter().all(|p| p.contains("odytty-ssh-keys")),
             "full paths"
         );
-
-        fs::remove_dir_all(dir).ok();
     }
 
     #[test]
     fn missing_ssh_dir_yields_empty() {
-        let dir = std::env::temp_dir().join(format!(
-            "odytty-ssh-absent-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        assert!(gather_identity_key_candidates_in(&dir).is_empty());
+        let scratch = temp_dir("odytty-ssh-absent");
+        let scan = gather_identity_key_candidates_in(&scratch.0.join("missing"));
+        assert!(scan.candidates.is_empty());
+        assert!(!scan.truncated);
+    }
+
+    /// Each bound cuts the scan short and reports it: the inspected entry
+    /// count, an over-long name, and the listed candidate count.
+    #[test]
+    fn scan_bounds_entries_names_and_candidates() {
+        let scratch = temp_dir("odytty-ssh-bounds");
+        let dir = &scratch.0;
+        for i in 0..6 {
+            fs::write(dir.join(format!("id_fake_{i}")), "FAKE-NOT-A-KEY").expect("write");
+        }
+        let all = gather_identity_key_candidates_bounded(dir, 64, 255, 64);
+        assert_eq!(all.candidates.len(), 6);
+        assert!(!all.truncated);
+
+        let few_entries = gather_identity_key_candidates_bounded(dir, 3, 255, 64);
+        assert!(
+            few_entries.candidates.len() <= 3,
+            "{:?}",
+            few_entries.candidates
+        );
+        assert!(few_entries.truncated, "an entry bound reports truncation");
+
+        let few_candidates = gather_identity_key_candidates_bounded(dir, 64, 255, 2);
+        assert_eq!(few_candidates.candidates.len(), 2);
+        assert!(
+            few_candidates.truncated,
+            "a candidate bound reports truncation"
+        );
+        assert!(
+            few_candidates.candidates[0].ends_with("id_fake_0"),
+            "sorted first"
+        );
+
+        fs::write(dir.join(format!("id_{}", "x".repeat(40))), "FAKE").expect("write");
+        let short_names = gather_identity_key_candidates_bounded(dir, 64, 20, 64);
+        assert_eq!(short_names.candidates.len(), 6, "the long name is skipped");
+        assert!(
+            short_names.truncated,
+            "a skipped long name reports truncation"
+        );
     }
 }
 

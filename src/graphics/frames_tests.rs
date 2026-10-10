@@ -692,3 +692,92 @@ fn alpha_blend_keeps_low_alpha_color_exact() {
         [80, 40, 173, 160]
     );
 }
+
+#[test]
+fn a_loading_animation_parks_before_gapless_tail_frames() {
+    let mut frames = ImageFrames::default();
+    let base = canvas([1, 1, 1, 255]);
+    frames
+        .transmit_frame(&base, 2, 2, full_update(&canvas([2, 2, 2, 255]), Some(-1)))
+        .expect("gapless tail frame");
+    frames.set_gap(1, 100).expect("root gap");
+    frames.set_state(AnimationState::RunLoading);
+    assert!(!frames.is_animating(), "only gapless data lies ahead");
+    assert!(!frames.advance(0));
+    assert!(!frames.advance(100));
+    assert_eq!(
+        frames.current_frame(),
+        Some(1),
+        "the gapless frame is never displayed"
+    );
+    assert_eq!(frames.current_rgba(), Some(&base[..]));
+    assert_eq!(frames.next_deadline_ms(), None, "parked, no wake scheduled");
+
+    // A displayable frame arriving later resumes playback through the gapless
+    // frame and lands on the new one.
+    frames
+        .transmit_frame(&base, 2, 2, full_update(&canvas([3, 3, 3, 255]), Some(40)))
+        .expect("frame 3");
+    assert!(frames.is_animating());
+    assert!(!frames.advance(200), "the first tick phases the clock");
+    assert_eq!(frames.next_deadline_ms(), Some(300));
+    assert!(frames.advance(300));
+    assert_eq!(frames.current_frame(), Some(3));
+}
+
+#[test]
+fn stored_frames_refuse_a_canvas_of_another_size() {
+    let mut frames = frames_with_two_frames();
+    let before = frames.clone();
+    // Same byte count, different row layout: 4x1 instead of 2x2.
+    let flat = canvas([9, 9, 9, 255]);
+    let update = FrameUpdate {
+        width: 4,
+        height: 1,
+        ..full_update(&flat, Some(30))
+    };
+    assert_eq!(
+        frames.transmit_frame(&flat, 4, 1, update),
+        Err(FrameError::OutOfBounds)
+    );
+    // Different byte count: 3x3 against stored 2x2 frames.
+    let big = [7, 7, 7, 255].repeat(9);
+    let update = FrameUpdate {
+        width: 3,
+        height: 3,
+        base_frame: Some(1),
+        ..full_update(&big, Some(30))
+    };
+    assert_eq!(
+        frames.transmit_frame(&big, 3, 3, update),
+        Err(FrameError::OutOfBounds)
+    );
+    let composition = FrameComposition {
+        source_frame: 1,
+        destination_frame: 2,
+        width: 0,
+        height: 0,
+        destination_x: 0,
+        destination_y: 0,
+        source_x: 0,
+        source_y: 0,
+        overwrite: true,
+    };
+    assert_eq!(
+        frames.compose(4, 1, composition),
+        Err(FrameError::OutOfBounds)
+    );
+    assert_eq!(frames, before, "a refused command changes nothing");
+
+    // Clearing the frames releases the geometry.
+    frames.clear();
+    frames
+        .transmit_frame(&big, 3, 3, {
+            FrameUpdate {
+                width: 3,
+                height: 3,
+                ..full_update(&big, Some(30))
+            }
+        })
+        .expect("a cleared list accepts a new canvas size");
+}

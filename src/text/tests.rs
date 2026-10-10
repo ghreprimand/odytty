@@ -61,7 +61,10 @@ fn enforce_contrast_rgba_seam_gates_on_the_global_floor() {
     set_min_contrast(4.5);
     let adj = enforce_contrast_rgba(fg, bg);
     assert_eq!(adj[3], fg[3], "alpha preserved");
-    let c = crate::color::wcag_contrast([adj[0], adj[1], adj[2]], [bg[0], bg[1], bg[2]]);
+    let c = crate::color::wcag_contrast(
+        crate::color::displayed_linear([adj[0], adj[1], adj[2]]),
+        crate::color::displayed_linear([bg[0], bg[1], bg[2]]),
+    );
     assert!(c >= 4.5 - 1e-3, "floor not met: {c}");
 
     // The explicit passthrough override remains exact.

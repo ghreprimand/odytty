@@ -33,8 +33,9 @@ pub(in crate::native) struct ReceiverInfo {
 pub(in crate::native) enum BroadcastPayload {
     /// Encoded key or IME bytes, written as-is.
     Bytes(Vec<u8>),
-    /// Paste text, encoded per receiver.
-    Paste(String),
+    /// Paste text, encoded per receiver. Shared, so queueing it for several
+    /// receivers in other windows holds one copy of the text, not one each.
+    Paste(std::sync::Arc<str>),
 }
 
 impl BroadcastPayload {

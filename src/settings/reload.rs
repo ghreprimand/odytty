@@ -154,6 +154,14 @@ impl SettingsReloader {
         keys
     }
 
+    /// Test seam: a reloader over a caller-owned config path (or none) with no
+    /// startup environment, so a timer test does not depend on the host's
+    /// config location. A path is only stat-ed; `None` schedules no poll.
+    #[cfg(test)]
+    pub(crate) fn with_path_for_test(path: Option<PathBuf>, now: Instant) -> Self {
+        Self::new(path, HashMap::new(), now)
+    }
+
     #[cfg(test)]
     pub(crate) fn set_env_values_for_test(&mut self, values: HashMap<&'static str, OsString>) {
         self.env_values = values;

@@ -15,7 +15,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::core::{
     Dimensions, SNAPSHOT_FORMAT_VERSION, SNAPSHOT_PROTOCOL_VERSION, SnapshotCaptureLimits,
-    SnapshotEnvelope, SnapshotEnvelopeCaps, Terminal,
+    SnapshotEnvelope, Terminal,
 };
 use crate::pty::PtySession;
 
@@ -24,7 +24,8 @@ use super::pty_writer::HostPtyWriter;
 use super::handshake::{DeadlineWriter, HandshakeProgress, PendingHandshake, reject_nonblocking};
 use super::protocol::{
     ClientFrame, ClientFramePoll, ClientFrameReader, ClientHello, HostFrame, HostHello,
-    ProtocolError, versions_compatible, write_host_frame, write_host_hello,
+    ProtocolError, clamp_client_dimensions, versions_compatible, write_host_frame,
+    write_host_hello,
 };
 use super::socket::{RuntimePaths, bind_listener, runtime_paths, validate_socket_parent};
 
@@ -81,19 +82,6 @@ const CLIENT_READ_POLL_TIMEOUT: Duration = Duration::from_secs(2);
 /// bounding the mid-frame stall releases the slot instead of wedging it.
 const CLIENT_FRAME_STALL_DEADLINE: Duration = Duration::from_secs(10);
 const STARTUP_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
-/// Upper bound on client-supplied resize dimensions. The wire protocol carries
-/// raw `u32` columns/rows and the socket is reachable by any same-user process,
-/// so the host must not trust them: unclamped, a hostile `Resize` frame
-/// (e.g. `0xFFFFFFFF × 0xFFFFFFFF`) drives `Terminal::resize` into a
-/// multi-exabyte grid allocation that aborts the host and kills the session for
-/// every attached client. 4096 columns/rows comfortably exceeds any real
-/// display while keeping the worst-case grid a few hundred MB. The per-axis
-/// bound alone is not enough: 4096 x 4096 is ~16.7M visible cells, four times
-/// the default snapshot decoder's total-cell cap, so an accepted resize could
-/// make the host emit snapshots its own consumers reject. Resizes are therefore
-/// also clamped to the total-cell budget derived from the decoder caps
-/// ([`SnapshotEnvelopeCaps::max_self_decodable_visible_cells`]).
-const MAX_CLIENT_RESIZE_DIM: usize = 4096;
 
 #[derive(Debug, Clone)]
 pub enum HostCommand {
@@ -847,25 +835,6 @@ fn next_client_event(client_rx: &Receiver<ClientEvent>, processed: usize) -> Opt
     client_rx.try_recv().ok()
 }
 
-/// Clamp untrusted wire dimensions to the model bound. The socket is reachable
-/// by any same-user process, so raw `u32` columns/rows must be bounded before a
-/// resize allocates the grid. Beyond the per-axis bound, the total cell count
-/// is clamped to the largest visible grid the default snapshot decoder is
-/// guaranteed to accept — a grid past that budget would make every future
-/// snapshot of this session undecodable for its own attach/CLI consumers.
-/// Rows give way (columns are kept) because a shell reflows to narrow heights
-/// far more gracefully than to sub-width columns.
-fn clamp_client_dimensions(columns: u32, rows: u32) -> Dimensions {
-    let columns = (columns as usize).min(MAX_CLIENT_RESIZE_DIM);
-    let rows = (rows as usize).min(MAX_CLIENT_RESIZE_DIM);
-    let budget = SnapshotEnvelopeCaps::default().max_self_decodable_visible_cells();
-    let rows = match columns.checked_mul(rows) {
-        Some(cells) if cells <= budget => rows,
-        _ => (budget / columns.max(1)).clamp(1, rows),
-    };
-    Dimensions::new(columns, rows)
-}
-
 /// Select the final resize in a drained batch whose client is still attached,
 /// clamped to the model bound. Only this one dimension is applied, collapsing a
 /// burst of resize frames into a single reflow.
@@ -1168,8 +1137,9 @@ enum ClientEvent {
 
 #[cfg(test)]
 mod hardening_tests {
-    use super::super::protocol::HOST_PROTOCOL_MAGIC;
+    use super::super::protocol::{HOST_PROTOCOL_MAGIC, MAX_CLIENT_RESIZE_DIM};
     use super::*;
+    use crate::core::SnapshotEnvelopeCaps;
     use std::io::Write;
     use std::os::unix::net::UnixStream;
 

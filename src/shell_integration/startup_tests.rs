@@ -42,6 +42,9 @@ trap 'printf "USER-HOOK:%s:%s\n" "$?" "$BASH_COMMAND"' DEBUG
 fn startup_fish_keeps_default_and_explicit_data_dirs() {
     const CASE: &str = "ODYTTY_TEST_SHELL_DATA_CASE";
     if let Ok(case) = std::env::var(CASE) {
+        // This child process runs only this test; holding the environment
+        // lock lets the spawn reader see the inherited XDG_DATA_DIRS.
+        let _env = crate::test_lock::test_env_lock();
         let dir = temp_integration_dir(&format!("startup-fish-{case}"));
         let mut command = crate::pty::CommandBuilder::new("fish");
         apply_spawn_integration_in_dir(&mut command, ShellKind::Fish, &dir);

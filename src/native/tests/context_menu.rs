@@ -1570,9 +1570,9 @@ fn cut_clipboard_failure_leaves_input_and_selection_intact() {
     );
 }
 
-/// Cut happy-path (when clipboard is available): same PTY bytes as Delete, plus
-/// the selection is cleared. This test is skipped gracefully when no clipboard
-/// or PTY is available in the test environment.
+/// Cut happy-path: same PTY bytes as Delete, plus the selection is cleared. The
+/// clipboard write is a hermetic recorded success under `cfg(test)` (the failure
+/// twin forces it to fail), so Cut that stops sending the edit bytes fails here.
 #[test]
 fn cut_selected_input_sends_edit_bytes_when_clipboard_succeeds() {
     let Some((mut app, bytes)) = app_with_recording_writer(
@@ -1591,12 +1591,6 @@ fn cut_selected_input_sends_edit_bytes_when_clipboard_succeeds() {
     assert!(!app.context_menu_open_for_test(), "menu closes on Cut");
 
     let written = bytes.lock().expect("bytes").clone();
-    if written.is_empty() {
-        // Clipboard unavailable in this environment — skip gracefully.
-        eprintln!("skipping: clipboard write failed (no display/clipboard daemon)");
-        return;
-    }
-
     // Same edit bytes as Delete: move to start, then delete characters.
     assert_eq!(
         written,

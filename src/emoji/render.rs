@@ -432,7 +432,7 @@ fn cluster_candidate(snapshot: &Snapshot, row: usize, column: usize) -> Option<C
     if is_regional_indicator(cell.ch) {
         let next = next_display_cell(snapshot, row, column)?;
         let next_cell = &snapshot.cells[row * cols + next];
-        if is_regional_indicator(next_cell.ch) {
+        if is_regional_indicator(next_cell.ch) && joins_cluster(cell, next_cell) {
             let mut cluster = text;
             cluster.push_str(&next_cell.grapheme());
             return Some(ClusterCandidate {
@@ -446,7 +446,7 @@ fn cluster_candidate(snapshot: &Snapshot, row: usize, column: usize) -> Option<C
         && let Some(next) = next_display_cell(snapshot, row, column)
     {
         let next_cell = &snapshot.cells[row * cols + next];
-        if is_emoji_modifier(next_cell.ch) {
+        if is_emoji_modifier(next_cell.ch) && joins_cluster(cell, next_cell) {
             let mut cluster = text;
             cluster.push_str(&next_cell.grapheme());
             return Some(ClusterCandidate {
@@ -463,6 +463,15 @@ fn cluster_candidate(snapshot: &Snapshot, row: usize, column: usize) -> Option<C
     None
 }
 
+/// Whether `next` may be drawn as part of the cluster that starts at `head`
+/// when the two arrive as separate cells (a snapshot that did not form the
+/// cluster as one owner). A hidden owner is never consumed, and cells whose
+/// renditions differ stay separate color runs, so a colour, hidden or
+/// hyperlink change inside the sequence is not painted away.
+fn joins_cluster(head: &crate::core::Cell, next: &crate::core::Cell) -> bool {
+    !next.attrs.hidden() && head.attrs == next.attrs
+}
+
 fn zwj_cluster_candidate(
     snapshot: &Snapshot,
     row: usize,
@@ -476,7 +485,7 @@ fn zwj_cluster_candidate(
     while text.ends_with('\u{200D}') {
         let next = next_display_cell_at_or_after(snapshot, row, covered_end)?;
         let next_cell = &snapshot.cells[row * cols + next];
-        if next_cell.attrs.hidden() {
+        if !joins_cluster(&snapshot.cells[row * cols + column], next_cell) {
             return None;
         }
         text.push_str(&next_cell.grapheme());

@@ -209,8 +209,8 @@ impl FontPicker {
             .filtered
             .iter()
             .map(|&i| match &self.entries[i] {
-                PickerEntry::Header(label) => label.chars().count(),
-                PickerEntry::Family(name) => name.chars().count(),
+                PickerEntry::Header(label) => cell_width(label),
+                PickerEntry::Family(name) => cell_width(&sanitize(name)),
             })
             .max()
             .unwrap_or(20);
@@ -272,8 +272,15 @@ impl FontPicker {
 
         if self.filtered.is_empty() {
             if lines.len() < body_height {
+                // A filter with no match says so; "no fonts found" is for an
+                // inventory that is empty before any filter text.
+                let text = if self.query.is_empty() {
+                    "  (no monospace fonts found)"
+                } else {
+                    "  (no family matches the filter)"
+                };
                 lines.push(FontPickerLine {
-                    text: "  (no monospace fonts found)".to_owned(),
+                    text: text.to_owned(),
                     focused: false,
                 });
             }
@@ -538,6 +545,12 @@ impl FontPicker {
         self.selected = self.selected.min(self.filtered.len() - 1);
         if self.selected < self.scroll {
             self.scroll = self.selected;
+            // Keep the group header attached to its first family: stepping up
+            // to the first selectable row must not scroll the header off and
+            // report "more above" for a row nothing can select.
+            while self.scroll > 0 && !self.is_selectable(self.scroll - 1) {
+                self.scroll -= 1;
+            }
         }
         // Before the first render `last_capacity` is 0; fall back to the
         // historical paging slack so opening the picker (which clamps before
@@ -587,12 +600,12 @@ fn wrap_words(text: &str, width: usize) -> Vec<String> {
     let mut current = String::new();
     for word in text.split_whitespace() {
         let separator = usize::from(!current.is_empty());
-        if current.chars().count() + separator + word.chars().count() > width {
+        if cell_width(&current) + separator + cell_width(word) > width {
             if !current.is_empty() {
                 lines.push(current);
                 current = String::new();
             }
-            if word.chars().count() > width {
+            if cell_width(word) > width {
                 lines.push(ellipsize(word, width));
                 continue;
             }
@@ -615,17 +628,25 @@ fn sanitize(text: &str) -> String {
     crate::native::display_text::sanitize_row_text(text)
 }
 
+/// Display width in terminal cells, by the terminal's own owner rules (the
+/// overlay painter's metric), so wide and combining text is measured as drawn.
+fn cell_width(text: &str) -> usize {
+    crate::native::overlay::text_display_width(text)
+}
+
+/// Cut `text` to at most `width` display cells, ending in `~` when shortened.
+/// Cuts fall between owners, never inside one.
 fn ellipsize(text: &str, width: usize) -> String {
     if width == 0 {
         return String::new();
     }
-    if text.chars().count() <= width {
+    if cell_width(text) <= width {
         return text.to_owned();
     }
     if width <= 1 {
         return "~".to_owned();
     }
-    let mut out = text.chars().take(width - 1).collect::<String>();
+    let mut out = crate::native::overlay::fit_chars(text, width - 1);
     out.push('~');
     out
 }
@@ -714,6 +735,137 @@ mod tests {
         let (above, below) = picker.scroll_indicator(10);
         assert!(!above, "not scrolled, nothing above");
         assert!(!below, "filtered list fits, no phantom rows below");
+    }
+
+    /// Pressing Home from a scrolled list returns to the very top, with the
+    /// group header in view and nothing reported above.
+    #[test]
+    fn home_from_a_scrolled_list_shows_the_first_group_header() {
+        let settings = Settings::default();
+        let names: Vec<String> = (0..40).map(|n| format!("Fam{n:02}")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut picker = FontPicker::new(&settings);
+        picker.open(&settings, make_families(&refs));
+        let _ = picker.visible_lines(60, 10);
+        let _ = picker.handle_input(OverlayInput::End);
+        let _ = picker.visible_lines(60, 10);
+        assert!(picker.scroll > 0, "End scrolls the list");
+
+        let _ = picker.handle_input(OverlayInput::Home);
+        let lines = picker.visible_lines(60, 10);
+        assert_eq!(picker.scroll, 0, "the header is not scrolled off");
+        // The opening message wraps onto the prefix rows; the header is the
+        // first entry row after them.
+        let header = lines
+            .iter()
+            .position(|line| line.text.contains("System Fonts"))
+            .unwrap_or_else(|| panic!("the group header is in view: {lines:?}"));
+        assert!(
+            lines[header + 1].text.contains("Fam00"),
+            "the first family follows its header: {lines:?}"
+        );
+        assert_eq!(picker.scroll_indicator(10), (false, true));
+    }
+
+    /// Stepping up onto the first family of a later group keeps that group's
+    /// header in view too.
+    #[test]
+    fn stepping_up_to_a_group_first_family_keeps_its_header() {
+        let settings = Settings::default();
+        let bundled: Vec<String> = (0..4).map(|n| format!("Bundled{n}")).collect();
+        let system: Vec<String> = (0..30).map(|n| format!("Sys{n:02}")).collect();
+        let mut picker = FontPicker::new(&settings);
+        picker.open(
+            &settings,
+            FontFamilyGroups {
+                bundled,
+                system: system.clone(),
+            },
+        );
+        let _ = picker.visible_lines(60, 8);
+        let _ = picker.handle_input(OverlayInput::End);
+        let _ = picker.visible_lines(60, 8);
+        // Walk up until the first system family is selected.
+        for _ in 0..40 {
+            let _ = picker.handle_input(OverlayInput::Up);
+            let _ = picker.visible_lines(60, 8);
+            if picker
+                .entries
+                .get(picker.filtered[picker.selected])
+                .and_then(PickerEntry::family)
+                == Some("Sys00")
+            {
+                break;
+            }
+        }
+        let lines = picker.visible_lines(60, 8);
+        assert!(
+            lines.iter().any(|line| line.text.contains("System Fonts")),
+            "the System Fonts header is visible with its first family: {lines:?}"
+        );
+    }
+
+    /// A filter with no match is not reported as "no fonts found".
+    #[test]
+    fn a_filter_with_no_match_says_so() {
+        let settings = Settings::default();
+        let mut picker = FontPicker::new(&settings);
+        picker.open(&settings, make_families(&["Hack", "Iosevka"]));
+        for ch in "zzzz".chars() {
+            let _ = picker.handle_input(OverlayInput::Char(ch));
+        }
+        let lines = picker.visible_lines(60, 10);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.text.contains("no family matches the filter")),
+            "{lines:?}"
+        );
+        assert!(
+            !lines
+                .iter()
+                .any(|line| line.text.contains("no monospace fonts")),
+            "the machine does have fonts: {lines:?}"
+        );
+        // An empty inventory with no filter keeps the original message.
+        let mut empty = FontPicker::new(&settings);
+        empty.open(&settings, FontFamilyGroups::default());
+        let lines = empty.visible_lines(60, 10);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.text.contains("no monospace fonts"))
+        );
+    }
+
+    /// Width budgets count terminal cells: a wide family name is cut where it
+    /// fills the row, never past it, and sizes the panel by its real width.
+    #[test]
+    fn wide_family_names_are_measured_and_cut_in_cells() {
+        let wide = "\u{ff2d}\u{ff33}".repeat(15); // 30 fullwidth chars, 60 cells
+        assert_eq!(cell_width(&wide), 60);
+        let cut = ellipsize(&wide, 7);
+        assert_eq!(cut, format!("{}~", "\u{ff2d}\u{ff33}\u{ff2d}"));
+        assert_eq!(cell_width(&cut), 7);
+        // A name that fits is untouched.
+        assert_eq!(ellipsize("Hack", 7), "Hack");
+        // Combining marks add no width: five scalars, four cells.
+        assert_eq!(cell_width("Cafe\u{0301}"), 4);
+        assert_eq!(ellipsize("Cafe\u{0301}", 4), "Cafe\u{0301}");
+
+        let settings = Settings::default();
+        let mut picker = FontPicker::new(&settings);
+        picker.open(&settings, make_families(&[wide.as_str()]));
+        assert_eq!(
+            picker.desired_width(200),
+            60 + 10,
+            "the panel is sized by the family's cell width"
+        );
+        let lines = picker.visible_lines(20, 6);
+        assert!(
+            lines.iter().all(|line| cell_width(&line.text) <= 20),
+            "{lines:?}"
+        );
     }
 
     // T-empty: an empty family list opens without panic; list is empty.

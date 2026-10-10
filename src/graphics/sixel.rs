@@ -38,8 +38,14 @@
 //! - An over-wide repeat run rejects the whole image with `TooLarge` (it is
 //!   not clamped to the remaining width).
 //! - Color registers: 0..=1024.
+//! - Payload: 1 MiB, the same cap the terminal applies to a captured DCS body.
+//!   A longer payload is rejected with `TooLarge` before any byte is read.
+//! - Parameters: eight values are kept per command; a longer list is consumed
+//!   and the excess dropped.
 
 use std::fmt;
+
+use super::placement::MAX_RAW_GRAPHICS_BYTES;
 
 // ---------------------------------------------------------------------------
 // Limits
@@ -64,6 +70,10 @@ const MAX_PAINT_CALLS: u64 = MAX_PIXELS;
 const MAX_COLOR_REG: u16 = 1024;
 /// Maximum numeric parameter value parsed from decimal digits.
 const MAX_PARAM: u32 = 99_999_999;
+/// Parameter values retained per command. Every command consumes at most five
+/// (`#Pc;Pu;Px;Py;Pz`); a longer list is read to its end but only this many
+/// values are kept, so a run of semicolons costs no memory.
+const MAX_PARAM_SLOTS: usize = 8;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -557,7 +567,8 @@ pub(crate) fn hls_to_rgb(h: u32, l: u32, s: u32) -> [u8; 3] {
 
 /// Parse a semicolon-delimited decimal parameter list from `payload[start..]`.
 /// Returns `(params, next_index)` where `next_index` is the first byte that
-/// is neither a digit nor a semicolon.
+/// is neither a digit nor a semicolon. At most [`MAX_PARAM_SLOTS`] values are
+/// kept; the rest of the list is consumed and dropped.
 pub(crate) fn parse_params(payload: &[u8], start: usize) -> (Vec<u32>, usize) {
     let mut params = Vec::with_capacity(8);
     let mut val: u32 = 0;
@@ -573,7 +584,9 @@ pub(crate) fn parse_params(payload: &[u8], start: usize) -> (Vec<u32>, usize) {
             has_val = true;
             i += 1;
         } else if b == b';' {
-            params.push(if has_val { val } else { 0 });
+            if params.len() < MAX_PARAM_SLOTS {
+                params.push(if has_val { val } else { 0 });
+            }
             val = 0;
             has_val = false;
             i += 1;
@@ -581,7 +594,7 @@ pub(crate) fn parse_params(payload: &[u8], start: usize) -> (Vec<u32>, usize) {
             break;
         }
     }
-    if has_val || !params.is_empty() {
+    if (has_val || !params.is_empty()) && params.len() < MAX_PARAM_SLOTS {
         params.push(if has_val { val } else { 0 });
     }
     (params, i)
@@ -600,7 +613,8 @@ pub(crate) fn parse_params(payload: &[u8], start: usize) -> (Vec<u32>, usize) {
 /// # Errors
 ///
 /// Returns [`SixelError::Empty`] if the payload contains no sixel data bytes,
-/// and [`SixelError::TooLarge`] if the image would exceed the hard pixel caps.
+/// and [`SixelError::TooLarge`] if the payload exceeds the capture cap or the
+/// image would exceed the hard pixel caps.
 ///
 /// # Panics
 ///
@@ -610,6 +624,12 @@ pub(crate) fn parse_params(payload: &[u8], start: usize) -> (Vec<u32>, usize) {
 pub fn decode_sixel(payload: &[u8], background: SixelBackground) -> Result<SixelImage, SixelError> {
     if payload.is_empty() {
         return Err(SixelError::Empty);
+    }
+    if payload.len() > MAX_RAW_GRAPHICS_BYTES {
+        return Err(SixelError::TooLarge {
+            width: 0,
+            height: 0,
+        });
     }
     let mut dec = Decoder::new(background);
     let mut i = 0;
@@ -657,7 +677,9 @@ pub fn decode_sixel(payload: &[u8], background: SixelBackground) -> Result<Sixel
             // Graphics new line.
             b'-' => {
                 dec.x = 0;
-                dec.y += 6;
+                // Past the height cap every later paint is refused, so the
+                // clamp changes no outcome and keeps the sum from overflowing.
+                dec.y = dec.y.saturating_add(6).min(MAX_HEIGHT);
                 i += 1;
             }
             // Unknown / whitespace / control - skip.

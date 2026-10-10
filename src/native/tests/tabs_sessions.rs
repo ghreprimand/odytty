@@ -3842,6 +3842,8 @@ fn rename_field_click_places_caret_and_drag_selects() {
     };
     let (cols, rows) = app.grid_dims_for_test();
     let (input_row, input_left) = rename_input_origin(cols, rows);
+    // The drag is delivered as a real pointer position, which needs a cell size.
+    app.set_test_cell_for_test(cell(8, 16));
 
     app.set_session_title_override_for_test(0, Some("hello world"));
     assert!(app.begin_rename_tab_for_test(0));
@@ -4584,16 +4586,20 @@ fn prefix_focus_next_cycles_panes() {
 /// is suppressed over a non-focused pane, so the latched span is stale/None until
 /// the click focuses the pane). A bogus editor override keeps the open a no-op
 /// (Command spawn fails NotFound before any process starts), so the test never
-/// spawns a real opener on the shared box. Returns the app + the left pane's id.
+/// spawns a real opener on the shared box. Returns the app, the left pane's id,
+/// and both panes' recorded PTY writes (left, right).
 #[cfg(test)]
-fn split_app_with_path_in_left_pane() -> Option<(App, usize)> {
+type SplitPathFixture = (App, usize, [Arc<Mutex<Vec<u8>>>; 2]);
+
+#[cfg(test)]
+fn split_app_with_path_in_left_pane() -> Option<SplitPathFixture> {
     let cols = 40usize;
     let rows = 20usize;
     let cw = 8u32;
     let ch = 16u32;
     let dims = Dimensions::new(cols, rows);
     // The left/original pane holds the path.
-    let (t_left, w_left, p_left, _b_left) = recorded_session(dims)?;
+    let (t_left, w_left, p_left, b_left) = recorded_session(dims)?;
     t_left
         .lock()
         .expect("left terminal")
@@ -4615,7 +4621,7 @@ fn split_app_with_path_in_left_pane() -> Option<(App, usize)> {
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
     // Split along columns; focus lands on the NEW (right) pane, so the left pane
     // with the path is the non-focused one.
-    let (t_right, w_right, p_right, _b_right) = recorded_session(dims)?;
+    let (t_right, w_right, p_right, b_right) = recorded_session(dims)?;
     let right_id = app.seed_split_pane_for_test(true, t_right, w_right, p_right);
     assert_ne!(right_id, left_id, "focus is on the new right pane");
     app.set_test_cell_for_test(cell(cw, ch));
@@ -4627,7 +4633,7 @@ fn split_app_with_path_in_left_pane() -> Option<(App, usize)> {
     // matrix, so this argv[0] is what Command tries to spawn -> NotFound, no
     // process, and the ladder still reports the path handled.
     app.set_interactive_paths_editor_for_test("odytty_test_no_such_opener");
-    Some((app, left_id))
+    Some((app, left_id, [b_left, b_right]))
 }
 
 /// The host open modifier: Cmd (super) on macOS, Ctrl on Linux/Windows.
@@ -4649,7 +4655,7 @@ fn ctrl_click_in_a_split_runs_the_open_ladder_instead_of_selecting() {
     // a Ctrl+click on a resolved path in a split focuses the pane, re-resolves the
     // hover span against it, and runs the ladder -- consuming the press so NO
     // selection begins.
-    let Some((mut app, left_id)) = split_app_with_path_in_left_pane() else {
+    let Some((mut app, left_id, written)) = split_app_with_path_in_left_pane() else {
         eprintln!("skipping: no PTY available");
         return;
     };
@@ -4674,6 +4680,19 @@ fn ctrl_click_in_a_split_runs_the_open_ladder_instead_of_selecting() {
         !app.selecting_for_test(),
         "the open ladder consumed the Ctrl+press, so no selection began"
     );
+    // Positive evidence that the ladder ran: the guaranteed-absent editor made
+    // the open fail, which raises the notice. A press that was merely swallowed
+    // (focus change, no selection, no open) raises none.
+    assert!(
+        app.open_notice_message_for_test().is_some(),
+        "the open ladder ran and reported the failed editor spawn"
+    );
+    for pane in &written {
+        assert!(
+            pane.lock().expect("bytes").is_empty(),
+            "the open press writes nothing to either pane's PTY"
+        );
+    }
     hold_open_modifier(&mut app, false);
     app.mouse_left_release_for_test();
 }
@@ -4683,7 +4702,7 @@ fn a_plain_click_in_a_split_still_begins_a_selection() {
     // The modifier-gated control: WITHOUT the open modifier, the ladder no-ops and
     // the split branch falls through to begin a selection exactly as before, so
     // plain click-drag selection in a split is unchanged.
-    let Some((mut app, left_id)) = split_app_with_path_in_left_pane() else {
+    let Some((mut app, left_id, _written)) = split_app_with_path_in_left_pane() else {
         eprintln!("skipping: no PTY available");
         return;
     };

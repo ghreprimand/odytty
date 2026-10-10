@@ -523,6 +523,7 @@ impl Session {
             search: SearchUi::default(),
             hints: None,
             copy_mode: None,
+            failed_nav_anchor: None,
             search_restore_viewport: None,
             last_scrollback_len: 0,
             last_scrollback_pushes,

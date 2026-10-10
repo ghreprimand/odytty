@@ -194,7 +194,7 @@ mod tests {
     }
 
     #[test]
-    fn cache_returns_equal_result_and_recomputes_on_key_change() {
+    fn cache_serves_the_stored_entry_and_recomputes_on_key_change() {
         let base = confusable_dark();
         let mut cache = CvdThemeCache::default();
 
@@ -202,17 +202,71 @@ mod tests {
         let first = cache.resolve(&base, CvdMode::Deutan, 1.0);
         assert_eq!(first, direct, "cache result matches the direct compute");
 
-        // Same key → same value (served from cache).
-        let second = cache.resolve(&base, CvdMode::Deutan, 1.0);
-        assert_eq!(second, first);
+        // Replace the stored value with a marked one under the same key: a
+        // cache that serves its entry returns the mark, one that recomputes
+        // (or never stores) returns `direct`.
+        let mut marked = direct;
+        marked.palette[3] = (1, 2, 3);
+        assert_ne!(marked, direct);
+        cache.cached.as_mut().expect("entry stored").1 = marked;
+        assert_eq!(
+            cache.resolve(&base, CvdMode::Deutan, 1.0),
+            marked,
+            "same key is served from the stored entry"
+        );
 
-        // Changing the mode is a new key → recompute, and off returns the
-        // authored theme.
-        let off = cache.resolve(&base, CvdMode::Off, 1.0);
-        assert_eq!(off, base);
-
-        // Changing strength is a new key as well.
+        // A different strength is a new key: recompute, replacing the mark.
         let weaker = cache.resolve(&base, CvdMode::Deutan, 0.5);
         assert_eq!(weaker, effective_theme(&base, CvdMode::Deutan, 0.5));
+        assert_eq!(
+            cache.resolve(&base, CvdMode::Deutan, 1.0),
+            direct,
+            "the old entry was replaced, so returning to it recomputes"
+        );
+
+        // Changing the mode is a new key as well; off returns the authored theme.
+        assert_eq!(cache.resolve(&base, CvdMode::Off, 1.0), base);
+    }
+
+    #[test]
+    fn each_mode_maps_to_its_own_adaptation() {
+        let base = confusable_dark();
+        let spec = {
+            let mut spec = ThemeSpec::from_theme(&base);
+            spec.appearance = appearance_from_background(base.background);
+            spec
+        };
+        for (mode, ty) in [
+            (CvdMode::Protan, CvdType::Protan),
+            (CvdMode::Deutan, CvdType::Deutan),
+            (CvdMode::Tritan, CvdType::Tritan),
+        ] {
+            let adapted = effective_theme(&base, mode, 1.0);
+            assert_eq!(
+                adapted,
+                cvd::adapt_palette(&spec, ty, 1.0).to_theme(),
+                "{mode:?}"
+            );
+            assert_ne!(adapted, base, "{mode:?} adapts the confusable palette");
+        }
+    }
+
+    #[test]
+    fn a_light_background_keeps_its_light_side_neutrals() {
+        let mut base = Theme::PLAIN;
+        base.background = (0xF5, 0xF5, 0xF0);
+        base.foreground = (0x20, 0x20, 0x20);
+        base.palette[7] = (0xE8, 0xE8, 0xE8);
+        base.palette[15] = (0xF8, 0xF8, 0xF8);
+        let adapted = effective_theme(&base, CvdMode::Deutan, 1.0);
+        assert_eq!(adapted.palette[7], base.palette[7]);
+        assert_eq!(adapted.palette[15], base.palette[15]);
+
+        // The inferred appearance is what keeps them: adapted as a dark theme,
+        // the same neutrals would be floored against the light background.
+        let mut spec = ThemeSpec::from_theme(&base);
+        spec.appearance = Appearance::Dark;
+        let as_dark = cvd::adapt_palette(&spec, CvdType::Deutan, 1.0).to_theme();
+        assert_ne!(as_dark.palette[7], base.palette[7]);
     }
 }

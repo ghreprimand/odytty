@@ -67,9 +67,9 @@ pub(super) fn parse_desktop_entry(text: &str) -> DesktopEntry {
             continue;
         }
         match key {
-            "Name" => entry.name = Some(value.to_owned()),
+            "Name" => entry.name = Some(unescape_string(value)),
             "Exec" => entry.exec = Some(value.to_owned()),
-            "Type" => entry.type_field = Some(value.to_owned()),
+            "Type" => entry.type_field = Some(unescape_string(value)),
             "NoDisplay" => entry.no_display = parse_bool(value),
             "Hidden" => entry.hidden = parse_bool(value),
             "Terminal" => entry.terminal = parse_bool(value),
@@ -126,17 +126,45 @@ fn group_header(line: &str) -> Option<&str> {
     rest.strip_suffix(']')
 }
 
-/// Split a `key=value` line at the first `=`. The key is trimmed; the value is
-/// taken verbatim after the `=` (Desktop-Entry values are not whitespace-trimmed
-/// on the right because trailing spaces can be significant, but we trim the key).
+/// Split a `key=value` line at the first `=`. The key is trimmed and so is the
+/// whitespace before the value (the spec ignores space around the `=`); the end
+/// of the value is kept, because trailing spaces can be significant.
 fn split_key_value(line: &str) -> Option<(&str, &str)> {
     let idx = line.find('=')?;
     let key = line[..idx].trim();
-    let value = &line[idx + 1..];
+    let value = line[idx + 1..].trim_start();
     if key.is_empty() {
         return None;
     }
     Some((key, value))
+}
+
+/// Decode the Desktop Entry `string` escapes: `\s` space, `\n` newline, `\t` tab,
+/// `\r` carriage return and `\\` backslash. Any other backslash sequence is kept
+/// as written, so a stray backslash never drops text. `Exec` is not decoded
+/// here: its own quoting layer (see `exec.rs`) owns backslashes.
+fn unescape_string(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        match chars.clone().next() {
+            Some('s') => out.push(' '),
+            Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some('r') => out.push('\r'),
+            Some('\\') => out.push('\\'),
+            _ => {
+                out.push('\\');
+                continue;
+            }
+        }
+        chars.next();
+    }
+    out
 }
 
 /// freedesktop booleans are the literal strings `true` / `false`; anything else
@@ -148,6 +176,29 @@ fn parse_bool(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn string_values_decode_only_the_defined_escapes() {
+        assert_eq!(unescape_string("a\\sb\\nc\\td\\re\\\\f"), "a b\nc\td\re\\f");
+        // Unknown escapes and a trailing backslash are kept as written.
+        assert_eq!(unescape_string("a\\qb\\"), "a\\qb\\");
+        assert_eq!(unescape_string("plain"), "plain");
+    }
+
+    #[test]
+    fn exec_keeps_its_backslashes_for_the_quoting_layer() {
+        let entry = parse_desktop_entry("[Desktop Entry]\nExec=app \"a\\\\b\" %f\n");
+        assert_eq!(entry.exec.as_deref(), Some("app \"a\\\\b\" %f"));
+    }
+
+    #[test]
+    fn whitespace_after_the_separator_is_ignored() {
+        let entry =
+            parse_desktop_entry("[Desktop Entry]\nType = Application\nName=  Spaced\nExec=app\n");
+        assert_eq!(entry.type_field.as_deref(), Some("Application"));
+        assert_eq!(entry.name.as_deref(), Some("Spaced"));
+        assert!(entry.is_offerable());
+    }
 
     #[test]
     fn parses_basic_desktop_entry() {

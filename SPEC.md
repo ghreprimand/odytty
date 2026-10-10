@@ -1282,8 +1282,9 @@ remain one command per prefix transaction.
 - Keyboard copy mode (`copy-mode` action, `Ctrl+Shift+Space` by default): a
   keyboard-driven scrollback selection mode. `h/j/k/l`, `w/b/e`, `0/^/$`,
   `gg/G` move the
-  caret; `v` and `V` start character and line selection; `y` / Enter yanks the
-  selected text to the clipboard; `Esc`/`q` cancel. Arrow keys, PageUp/Down,
+  caret (a run of wide glyphs is one word); `v` and `V` start character and line
+  selection; `y` / Enter yanks the selected text to the clipboard (with the caret
+  still on the anchor, the one character under it); `Esc`/`q` cancel. Arrow keys, PageUp/Down,
   Home/End, and `Ctrl-u/d/b/f` paging are also bound. Terminal state is never
   modified while copy mode is active.
 
@@ -1712,8 +1713,16 @@ that closed while the picker was open, including when names are duplicated.
     floor (range `1.0`–`21.0`); `1.0` disables the floor and is the exact
     passthrough opt-out. Higher values lift underpowered foregrounds toward
     legibility. The floor is measured
-    via WCAG relative luminance; the lift is applied by bisecting OKLab lightness
-    while preserving hue and chroma (`src/color.rs:enforce_min_contrast`).
+    via WCAG relative luminance on the displayed colour (channels clamped to the
+    sRGB cube and rounded to bytes). The lift is applied by bisecting OKLab
+    lightness while preserving hue. A colour that already meets the floor as
+    displayed is never changed, however saturated. Chroma is reduced toward
+    neutral only when the lightness move alone cannot reach the floor; if no
+    colour can, pure black or pure white is used
+    (`src/color.rs:enforce_min_contrast`). Theme generation, CVD adaptation and
+    the theme author floor roles with the unclamped search
+    (`enforce_min_contrast_unclamped`) and then gamut-map and re-check the
+    bytes themselves, so their results are unchanged.
   - **Stem darkening** (`ODYTTY_STEM_DARKEN`, `stem_darken`): a coverage boost
     that keeps glyph stroke weight on light-on-dark displays. Default `0.7`;
     range `0.0`–`1.0`, where `0.0` is the
@@ -3049,6 +3058,9 @@ pixels, keyed by `(font identity, glyph-or-cluster id, physical px size,
 scale, cell span)` rather than by character. Insertion requires matching key
 and bitmap spans. Both atlas dimensions must fit the bound device limit;
 oversized atlases decline lookups and inserts while preserving resident data.
+The texture built for such an atlas is clamped to the limit and holds only its
+in-limit corner, so construction neither panics nor raises a GPU validation
+error.
 Growth stops at the last complete page within the limit. Slots span one or
 two terminal cells; wide color glyphs draw once from the lead cell and
 continuation cells emit nothing.

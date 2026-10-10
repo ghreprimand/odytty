@@ -97,6 +97,12 @@ fn as_search_row_borrows_cells_and_wrapped() {
     assert_eq!(borrowed.cells.len(), rows[0].cells.len());
     // The borrowed view points at the owned row's cells.
     assert_eq!(borrowed.cells.first().map(|c| c.ch), Some('a'));
+    assert!(std::ptr::eq(borrowed.cells, rows[0].cells.as_slice()));
+    assert_eq!(borrowed.cells, rows[0].cells.as_slice());
+    let final_row = rows[1].as_search_row();
+    assert!(!final_row.wrapped);
+    assert!(std::ptr::eq(final_row.cells, rows[1].cells.as_slice()));
+    assert_eq!(final_row.cells, rows[1].cells.as_slice());
 }
 
 #[test]

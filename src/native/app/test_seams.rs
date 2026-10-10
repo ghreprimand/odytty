@@ -3279,14 +3279,21 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn commit_rename_for_test(&mut self, text: &str) {
         use winit::keyboard::{Key as WinitKey, NamedKey};
-        // Replace whatever seed the field carried.
-        while self
+        // Replace whatever seed the field carried, wherever its caret or
+        // selection sits: End collapses both to the end, then one Backspace per
+        // scalar (a bound, since each press removes at least one) empties it.
+        self.rename_key(&WinitKey::Named(NamedKey::End));
+        let seed_scalars = self
             .rename_state
             .as_ref()
-            .is_some_and(|s| !s.text.is_empty())
-        {
+            .map_or(0, |s| s.text.chars().count());
+        for _ in 0..seed_scalars {
             self.rename_key(&WinitKey::Named(NamedKey::Backspace));
         }
+        assert!(
+            self.rename_state.as_ref().is_none_or(|s| s.text.is_empty()),
+            "the seeded rename field must be empty before the replacement is typed"
+        );
         for ch in text.chars() {
             self.rename_key(&WinitKey::Character(ch.to_string().into()));
         }
@@ -3413,6 +3420,13 @@ impl App {
         Some(s.selection.range().is_none() && s.copy_mode.is_none() && s.hovered_url.is_none())
     }
 
+    /// Drive a character key through the production key path with an invented
+    /// `KeyA` physical identity.
+    /// Logical-routing only: the physical key identity is invented (see the
+    /// helper body), so this is no evidence for native or physical protocols
+    /// (Win32 input mode scan codes, enhanced and keypad keys). Use
+    /// [`Self::drive_raw_key_event_for_test`] with the real logical, base and
+    /// physical identities for those.
     #[cfg(test)]
     pub(in crate::native) fn drive_text_key_for_test(&mut self, text: &str) {
         let logical = WinitKey::Character(text.to_owned().into());
@@ -3424,6 +3438,13 @@ impl App {
         );
     }
 
+    /// Drive a named key through the production key path with an invented
+    /// `Enter` physical identity.
+    /// Logical-routing only: the physical key identity is invented (see the
+    /// helper body), so this is no evidence for native or physical protocols
+    /// (Win32 input mode scan codes, enhanced and keypad keys). Use
+    /// [`Self::drive_raw_key_event_for_test`] with the real logical, base and
+    /// physical identities for those.
     #[cfg(test)]
     pub(in crate::native) fn drive_named_key_for_test(&mut self, key: NamedKey) {
         let logical = WinitKey::Named(key);
@@ -3437,7 +3458,9 @@ impl App {
 
     /// Drive a named key with explicit ctrl/shift modifiers through the
     /// production key path (e.g. `Ctrl+Shift+PageDown` for workspace cycling).
-    /// Restores the prior modifier state after.
+    /// Restores the prior modifier state after. The physical identity is an
+    /// invented `Enter`: logical-routing only, as for
+    /// [`Self::drive_named_key_for_test`].
     #[cfg(test)]
     pub(in crate::native) fn drive_named_key_with_mods_for_test(
         &mut self,
@@ -3480,7 +3503,9 @@ impl App {
 
     /// Test seam (§7 K2): drive a character key with explicit ctrl/shift
     /// modifiers through the production `handle_key_event_with_text` path (so the prefix
-    /// engine sees the real chord). Restores the prior modifier state after.
+    /// engine sees the real chord). Restores the prior modifier state after. The
+    /// physical identity is an invented `KeyB`: logical-routing only, as for
+    /// [`Self::drive_text_key_for_test`].
     #[cfg(test)]
     pub(in crate::native) fn drive_char_with_mods_for_test(
         &mut self,
@@ -3901,6 +3926,17 @@ impl App {
         self.rename_state.as_ref().map(|state| state.text.clone())
     }
 
+    /// Place the rename caret at a character index with no selection, as a Home
+    /// or arrow press would, so a test can start from a field whose caret is
+    /// not at the end.
+    #[cfg(test)]
+    pub(in crate::native) fn rename_place_caret_for_test(&mut self, cursor: usize) {
+        if let Some(state) = self.rename_state.as_mut() {
+            state.cursor = cursor.min(state.text.chars().count());
+            state.anchor = None;
+        }
+    }
+
     /// F4-RENAME-MOUSE: the rename caret position (character index).
     #[cfg(test)]
     pub(in crate::native) fn rename_cursor_for_test(&self) -> Option<usize> {
@@ -3925,14 +3961,26 @@ impl App {
     }
 
     /// F4-RENAME-MOUSE: simulate pointer motion during a live rename drag,
-    /// routed through the real `update_pointer_cell` dispatch. Uses cell-sized
-    /// pixels so the mapped cell equals `(row, column)` on the single-pane path.
+    /// routed through the real `update_pointer_cell` dispatch with the centre
+    /// pixel of the target cell (cell size from the resolved test cell, window
+    /// padding from the GPU state or zero, tab-chrome offset included). Motion routing, the window-modal
+    /// capture and the pixel-to-cell mapping are therefore exercised, not
+    /// bypassed.
     #[cfg(test)]
     pub(in crate::native) fn rename_pointer_drag_for_test(&mut self, row: usize, column: usize) {
-        self.pointer_cell = Some(CellPoint { row, column });
-        if self.rename_dragging {
-            self.rename_drag_extend();
-        }
+        let cell = self
+            .resolved_cell()
+            .expect("the rename drag seam needs a resolved cell size");
+        let padding = self
+            .gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO);
+        let (chrome_dx, chrome_dy) = self.tab_chrome_offset_px(cell);
+        let pad = f64::from(padding.physical_px());
+        let x = pad + chrome_dx + (column as f64 + 0.5) * f64::from(cell.width);
+        let y = pad + chrome_dy + (row as f64 + 0.5) * f64::from(cell.height);
+        self.update_pointer_cell(x, y);
     }
 
     /// F4-RENAME-MOUSE: simulate the left-button release that ends a drag,

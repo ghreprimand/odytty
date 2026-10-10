@@ -1156,3 +1156,33 @@ fn win32_physical_mapper_matches_neutral_ctrl_unicode_units() {
         );
     }
 }
+
+/// Win32 input mode emits one record per UTF-16 unit of the produced text: a
+/// supplementary scalar sends both surrogates and composed text sends every
+/// scalar, all on the key-down; the release and a Ctrl chord stay one record.
+#[test]
+fn win32_records_carry_every_utf16_unit_of_the_produced_text() {
+    let encode = |text: &str, mods: Modifiers, event_type: KeyEventType| {
+        super::super::bindings::encode_win32_key_records(
+            PhysicalKey::Code(KeyCode::KeyA),
+            &WinitKey::Character(text.into()),
+            &WinitKey::Character("a".into()),
+            mods,
+            event_type,
+        )
+    };
+    let record = |unit: u16, down: u8| format!("\x1b[65;30;{unit};{down};0;1_").into_bytes();
+
+    let emoji = encode("\u{1F600}", Modifiers::NONE, KeyEventType::Press);
+    assert_eq!(emoji, [record(0xD83D, 1), record(0xDE00, 1)].concat());
+    let composed = encode("ab", Modifiers::NONE, KeyEventType::Repeat);
+    assert_eq!(composed, [record(97, 1), record(98, 1)].concat());
+    let released = encode("\u{1F600}", Modifiers::NONE, KeyEventType::Release);
+    assert_eq!(released, record(0xD83D, 0), "a release is one record");
+    let ctrl = encode("ab", Modifiers::CTRL, KeyEventType::Press);
+    assert_eq!(
+        ctrl.iter().filter(|&&byte| byte == b'_').count(),
+        1,
+        "a Ctrl chord keeps one control-code record"
+    );
+}

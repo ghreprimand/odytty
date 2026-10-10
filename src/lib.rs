@@ -281,10 +281,37 @@ pub(crate) mod test_lock {
     /// recovered with `into_inner` so a panicking test does not wedge the rest
     /// of the suite; each caller is responsible for restoring the variables it
     /// changed before releasing the guard.
-    pub(crate) fn test_env_lock() -> MutexGuard<'static, ()> {
-        TEST_ENV_LOCK
+    ///
+    /// The guard also marks the current thread as holding the lock, so
+    /// spawn-time readers ([`crate::settings::spawn_env_var`]) read the live
+    /// environment only on a thread that cannot race a redirect.
+    pub(crate) fn test_env_lock() -> EnvLockGuard {
+        let guard = TEST_ENV_LOCK
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        ENV_LOCK_HELD.with(|held| held.set(true));
+        EnvLockGuard(Some(guard))
+    }
+
+    thread_local! {
+        static ENV_LOCK_HELD: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// Guard returned by [`test_env_lock`]; clears the thread's held mark
+    /// before releasing the mutex.
+    pub(crate) struct EnvLockGuard(Option<MutexGuard<'static, ()>>);
+
+    impl Drop for EnvLockGuard {
+        fn drop(&mut self) {
+            ENV_LOCK_HELD.with(|held| held.set(false));
+            drop(self.0.take());
+        }
+    }
+
+    /// Whether the current thread holds [`test_env_lock`]. The mutex is not
+    /// re-entrant, so a thread holds at most one guard and a flag suffices.
+    pub(crate) fn current_thread_holds_env_lock() -> bool {
+        ENV_LOCK_HELD.with(Cell::get)
     }
 
     static CATALOG_COUNT_LOCK: Mutex<()> = Mutex::new(());

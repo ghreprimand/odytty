@@ -41,7 +41,7 @@
 //! 5. The RV1 validation pass floors every readable role against its surface.
 
 use crate::color::{
-    self, LinearRgb, Oklch, enforce_min_contrast, linear_to_oklab, linear_to_srgb_u8,
+    self, LinearRgb, Oklch, enforce_min_contrast_unclamped, linear_to_oklab, linear_to_srgb_u8,
     oklab_to_linear, oklab_to_oklch, oklch_to_oklab, srgb_to_linear,
 };
 use crate::text::DEFAULT_ANSI_SRGB;
@@ -304,7 +304,7 @@ pub fn generate(seed: Srgb, appearance: Appearance, floor: f32) -> ThemeSpec {
 ///   here would be both redundant and aesthetically harmful. The far neutral
 ///   pair (nearest the foreground) clears the floor naturally and stays floored.
 ///
-/// [`enforce_min_contrast`] only nudges OKLab lightness (preserving hue and
+/// [`enforce_min_contrast_unclamped`] only nudges OKLab lightness (preserving hue and
 /// chroma) and is idempotent, so this preserves every hue identity built above
 /// while making the output RV1-valid by construction for all primary text.
 fn validate(spec: &mut ThemeSpec, floor: f32) {
@@ -345,7 +345,7 @@ pub(crate) fn bg_side_neutral_slots(appearance: Appearance) -> [usize; 2] {
 /// Floor one role (as `Srgb`) against a linear surface, returning the adjusted
 /// `Srgb` whose **quantized bytes** clear `floor`.
 ///
-/// [`enforce_min_contrast`] guarantees the floor in *linear* space, but two
+/// [`enforce_min_contrast_unclamped`] guarantees the floor in *linear* space, but two
 /// downstream steps can nibble contrast back below it: rounding the result to
 /// 8-bit bytes, and gamut-mapping a saturated lift back into the sRGB cube. So
 /// after enforcing, we gamut-map (hue-preserving) and quantize, then *re-check*
@@ -353,7 +353,7 @@ pub(crate) fn bg_side_neutral_slots(appearance: Appearance) -> [usize; 2] {
 /// This makes the guarantee hold on the bytes that are actually emitted.
 ///
 /// `floor <= 1.0` is the passthrough no-op (the validation pass leaves the role
-/// untouched, bit-for-bit), matching [`enforce_min_contrast`]'s contract.
+/// untouched, bit-for-bit), matching [`enforce_min_contrast_unclamped`]'s contract.
 ///
 /// This is the single source of the floor/re-check algorithm: `cvd::floor_role`
 /// delegates here and `theme_author::snap_to_floor` wraps it (converting its
@@ -367,7 +367,7 @@ pub(crate) fn floor_role(role: Srgb, surface: LinearRgb, floor: f32) -> Srgb {
     let mut target = floor;
     let mut best = role;
     for _ in 0..8 {
-        let adjusted = enforce_min_contrast(role_lin, surface, target);
+        let adjusted = enforce_min_contrast_unclamped(role_lin, surface, target);
         let mapped = oklch_to_linear_gamut(oklab_to_oklch(linear_to_oklab(adjusted)));
         best = from_linear(mapped);
         if color::wcag_contrast(to_linear(best), surface) >= floor {

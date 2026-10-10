@@ -73,16 +73,15 @@ impl Vertex {
 pub const VERTS_PER_QUAD: usize = 6;
 /// Number of CPU/GPU instance records per quad.
 pub const INSTANCES_PER_QUAD: usize = 1;
-/// OKLab dim amount for the SGR-dim/faint attribute, chosen for perceived
-/// parity with the historical linear ×0.5 halving. OKLab lightness scales as
-/// the cube root of linear luminance, so the old linear ×0.5 lowered perceived
-/// lightness to `0.5^(1/3) ≈ 0.7937` of the original; matching that means
-/// scaling OKLab L by the same factor, i.e. an amount of `1 - 0.5^(1/3) ≈
-/// 0.2063`. Using [`crate::color::dim_perceptual`] at this amount keeps the
-/// established dim *brightness* while upgrading the model to be hue-preserving
-/// and chroma-aware (dimmer light desaturates), unlike the old per-channel
-/// linear scale which could skew hue.
-pub(super) const DIM_PERCEPTUAL_AMOUNT: f32 = 0.206_299_47;
+/// OKLab dim amount for the SGR-dim/faint attribute, chosen for exact parity
+/// with the historical linear ×0.5 halving. OKLab lightness scales as the cube
+/// root of linear luminance, so a linear ×0.5 is an OKLab scale by
+/// `0.5^(1/3) ≈ 0.7937`, i.e. an amount of `1 - 0.5^(1/3) ≈ 0.2063`. A uniform
+/// OKLab scale is algebraically the same as a uniform linear scale (see the
+/// honesty note on [`crate::color::dim_perceptual`]), so the result equals the
+/// old halving and keeps hue exactly; it is not a perceptual change. The value
+/// is the shared [`crate::color::DEFAULT_DIM_AMOUNT`].
+pub(super) const DIM_PERCEPTUAL_AMOUNT: f32 = crate::color::DEFAULT_DIM_AMOUNT;
 pub(super) const LINE_DECORATION_THICKNESS_DIVISOR: f32 = 16.0;
 
 /// A solid pixel-space overlay quad appended after terminal-cell geometry.

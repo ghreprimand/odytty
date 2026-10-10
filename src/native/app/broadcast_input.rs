@@ -213,7 +213,7 @@ impl App {
             self.trace_empty_fanout("paste", text.len());
             return;
         }
-        self.broadcast_to_receivers(BroadcastPayload::Paste(text.to_owned()));
+        self.broadcast_to_receivers(BroadcastPayload::Paste(std::sync::Arc::from(text)));
     }
 
     /// Diagnostics only: record that input reached fan-out with no receivers.

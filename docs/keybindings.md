@@ -286,7 +286,7 @@ from the scrollback without the mouse.
 | `0` | Start of line |
 | `^` | First non-blank character |
 | `$` | Last non-blank character |
-| `w` / `b` / `e` | Word forward / back / end |
+| `w` / `b` / `e` | Word forward / back / end (a run of wide CJK glyphs is one word) |
 | `g` `g` | Top of scrollback |
 | `G` | Bottom (live edge) |
 | `Ctrl+u` / `Ctrl+d` | Half page up / down |
@@ -295,7 +295,7 @@ from the scrollback without the mouse.
 | `v` | Toggle character-wise selection |
 | `V` | Toggle line-wise selection |
 | `o` | Swap the selection ends |
-| `y` or `Enter` | Yank (copy) the selection and exit |
+| `y` or `Enter` | Yank (copy) the selection and exit; with the caret still on the anchor, the one character under it |
 | `Esc` / `q` | Clear the selection, or exit copy mode if there is none |
 
 Rectangular/block selection and numeric motion counts are not implemented yet.

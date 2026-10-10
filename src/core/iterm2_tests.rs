@@ -306,8 +306,8 @@ fn iterm2_inline_image_extent_is_clamped_to_the_screen() {
     );
     let visible = t.visible_graphics(0);
     assert_eq!(visible.len(), 1);
-    assert!(visible[0].display_columns <= 40);
-    assert!(visible[0].display_rows <= 12);
+    assert_eq!(visible[0].display_columns, 40);
+    assert_eq!(visible[0].display_rows, 12);
 }
 
 #[test]
@@ -404,19 +404,47 @@ fn iterm2_missing_payload_separator_is_rejected() {
 
 #[test]
 fn iterm2_over_cap_payload_is_rejected_whole() {
-    // The OSC accumulator caps at 128 KiB and silently drops the tail, so a
-    // command that reaches the cap must be refused rather than decoded from a
-    // truncated prefix.
-    let mut t = Terminal::new(40, 12);
-    let mut sequence = b"\x1b]1337;File=inline=1:".to_vec();
-    sequence.extend(std::iter::repeat_n(b'A', 200 * 1024));
-    sequence.push(0x07);
-    t.advance(&sequence);
-    assert!(t.visible_graphics(0).is_empty());
-    assert_cursor(&t, 0, 0);
-    // The parser is not wedged: ordinary text after the giant OSC still lands.
-    t.advance(b"ok");
-    assert_cursor(&t, 0, 2);
+    let cap = crate::parser::MAX_OSC_RAW;
+    let mut args = "inline=1;name=".to_owned();
+    while !(b"1337;File=".len() + args.len() + 1).is_multiple_of(4) {
+        args.push('A');
+    }
+    let header_len = b"1337;File=".len() + args.len() + 1;
+    let exact_payload_len = (cap - header_len) / 4 * 3;
+    let mut payload = png_rgba(1, 1);
+    // PNG permits trailing bytes after IEND. The capped prefix remains a
+    // complete, decodable image and its base64 ends on a four-byte boundary.
+    payload.resize(exact_payload_len + 3, 0);
+    let decoded = image::load_from_memory(&payload[..exact_payload_len]).unwrap();
+    assert_eq!((decoded.width(), decoded.height()), (1, 1));
+
+    for (length, accepted) in [
+        (exact_payload_len - 3, true),
+        (exact_payload_len, false),
+        (exact_payload_len + 3, false),
+    ] {
+        let sequence = file_osc(&args, &payload[..length]);
+        assert_eq!(sequence.len() - 3, header_len + length.div_ceil(3) * 4);
+        let mut t = Terminal::new(40, 12);
+        t.advance(&sequence);
+        assert_eq!(
+            t.graphics().store().len(),
+            usize::from(accepted),
+            "length={length}"
+        );
+        if accepted {
+            let placement = &t.visible_graphics(0)[0];
+            let image = t.graphics().store().get(placement.image_id).unwrap();
+            assert_eq!((image.width, image.height), (1, 1));
+            assert_eq!(image.rgba, [255; 4]);
+        } else {
+            assert!(t.visible_graphics(0).is_empty());
+            assert_cursor(&t, 0, 0);
+        }
+        t.advance(b"ok");
+        assert_eq!(t.screen().cell(t.screen().cursor().row, 0).unwrap().ch, 'o');
+        assert_eq!(t.screen().cell(t.screen().cursor().row, 1).unwrap().ch, 'k');
+    }
 }
 
 #[test]

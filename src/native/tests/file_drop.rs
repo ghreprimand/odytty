@@ -417,9 +417,10 @@ fn unix_quotes_backslashes_exactly_per_shell_family() {
 }
 
 #[test]
-fn unix_quotes_unicode_combining_rtl_and_emoji_as_literal_utf8() {
-    // Combining acute on e, RTL override, grinning face.
-    let path = "/tmp/e\u{0301}-\u{202E}name-\u{1F600}";
+fn unix_quotes_unicode_combining_marks_and_emoji_as_literal_utf8() {
+    // Combining acute on e, a left-to-right mark (not an override), grinning
+    // face: none reorders a command line, so all stay literal.
+    let path = "/tmp/e\u{0301}-\u{200E}name-\u{1F600}";
     let expected_bash = format!("'{path}'");
     assert_eq!(
         quote_unix(path.as_bytes(), ShellKind::Bash).unwrap(),
@@ -437,6 +438,34 @@ fn unix_quotes_unicode_combining_rtl_and_emoji_as_literal_utf8() {
         quote_powershell(&format!("C:\\{path}")).unwrap(),
         format!("'C:\\{path}'")
     );
+}
+
+#[test]
+fn direction_overrides_and_isolates_are_escaped_visibly_or_refused() {
+    // Embedding, override and isolate controls can display a name reordered
+    // while the shell receives the logical bytes.
+    for control in [
+        '\u{202A}', '\u{202B}', '\u{202C}', '\u{202D}', '\u{202E}', '\u{2066}', '\u{2067}',
+        '\u{2068}', '\u{2069}',
+    ] {
+        let path = format!("/tmp/x{control}gpj.exe");
+        let bytes = path.as_bytes();
+        let escaped: String = bytes.iter().map(|byte| format!("\\x{byte:02x}")).collect();
+        for shell in [ShellKind::Bash, ShellKind::Zsh] {
+            let quoted = quote_unix(bytes, shell).unwrap();
+            assert_eq!(quoted, format!("$'{escaped}'"), "{control:?} {shell:?}");
+            assert!(!quoted.contains(control), "no literal control in the line");
+        }
+        let fish = quote_unix(bytes, ShellKind::Fish).unwrap();
+        let fish_escaped: String = bytes.iter().map(|byte| format!("\\X{byte:02x}")).collect();
+        assert_eq!(fish, fish_escaped, "{control:?}");
+        assert!(!fish.contains(control));
+        assert_eq!(
+            quote_powershell(&format!("C:\\{path}")),
+            Err(DropError::UnsupportedPath),
+            "PowerShell refuses what it cannot reconstruct visibly: {control:?}"
+        );
+    }
 }
 
 #[test]

@@ -462,9 +462,20 @@ with Rust 1.97.1; the package checkpoint is complete without repeating MSRV test
       documentation-only foundation and changes no runtime behavior.
 - [x] Add one cross-platform policy for risky non-bracketed text paste while
       preserving ordinary single-line and child-enabled bracketed paste.
+- [x] Dropped file paths containing direction embedding, override or isolate
+      controls insert as visible byte escapes (PowerShell refuses them), so a
+      reordered name cannot hide what the shell receives.
+- [x] Copy mode: word motions treat a run of wide glyphs as one word (visible
+      and off-screen rows), and `v` then `y` copies the character under the
+      caret instead of nothing.
+- [x] Font picker measures family names in cells, reports a filter with no
+      match accurately, and keeps the group header in view at the top; a
+      no-op floating move or resize no longer pins a pane's rectangle.
 - [x] Add select, copy, scoped-search, failed-command navigation, and safe
       plain-text export actions over verified OSC 133 command ranges, including
       same-logical-line soft-wrap boundary collisions without text inference.
+      Repeated previous/next failed-command jumps step through each failure
+      instead of re-finding the block the last jump landed on.
 - [x] Add bounded command completion, progress, activity, silence, failure, and
       notification presentation without changing BEL semantics or stealing
       focus.
@@ -1319,6 +1330,9 @@ a floor; surpassing it is the standing ambition.
   - [x] Emoji clusters: flags, keycaps, skin-tone modifiers, ZWJ
         sequences; regression fixtures per category; defined fallback for
         unsupported clusters.
+  - [x] Legacy cross-cell color clusters (flag pairs, modifiers, ZWJ) never
+        consume a hidden next cell and keep differing renditions as separate
+        runs, with a project-authored fixture font.
   - [x] ColorGlyphAtlas device admission: check both texture dimensions and
         key/bitmap cell-span agreement before insertion or cached reuse.
   - [x] ColorGlyphAtlas capacity audit: bounded growth to 4096 slots,
@@ -1342,14 +1356,17 @@ a floor; surpassing it is the standing ambition.
 - [x] Perceptual color pipeline: linear-space blending active in the render
       path; OKLab / OKLCH helpers (`dim_perceptual`, `mix_oklab`, `src/color.rs`)
       used by the minimum-contrast lift and the SGR dim-text resolve step.
-      SGR dim now uses `dim_perceptual` (hue-preserving, chroma-aware, calibrated
-      to match the perceived brightness of the prior linear ×0.5).
+      SGR dim now uses `dim_perceptual` at the amount that equals the prior
+      linear ×0.5 (a uniform OKLab scale is a uniform linear scale, so hue is
+      kept exactly and the output is unchanged).
 - [x] Minimum-contrast floor (`ODYTTY_MIN_CONTRAST`, `min_contrast`):
       configurable WCAG contrast ratio floor applied at render time. Default
       `17.0` is the fresh-install readability floor; `1.0` is the exact
       passthrough opt-out. The floor is measured via WCAG
-      relative luminance; the lift bisects OKLab lightness while preserving hue
-      and chroma (`src/color.rs:enforce_min_contrast`).
+      relative luminance on the displayed (clamped, byte-rounded) colour; the
+      lift bisects OKLab lightness while preserving hue, reducing chroma only
+      when lightness alone cannot reach the floor
+      (`src/color.rs:enforce_min_contrast`).
   - [x] Universal legibility guarantee: the contrast floor now provably
         covers every text color. The glyph path is color-type-agnostic, so
         256-color and truecolor foregrounds already pass through the same single
@@ -1559,6 +1576,9 @@ feature validates against.
         item, to open an in-window viewer; `Esc` or click-outside dismisses it.
   - [x] Linux Open With association precedence: lower-priority removals
         preserve higher-priority added and cached handlers.
+  - [x] Linux Open With desktop entries: spaces around `=` are ignored, `Name`
+        and `Type` decode string escapes, and ids resolve directory names that
+        contain dashes.
   - [x] Path right-click menu: Open, Open in OdyTTY (images), Open With… (the
         `xdg-mime` / macOS app-picker overlay), Copy Path, Copy File, and Reveal
         in File Manager. See [`docs/keybindings.md`](docs/keybindings.md) for the chord reference.

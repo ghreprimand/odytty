@@ -1,0 +1,6 @@
+Project-authored outlines, color values and ligature rules.
+
+SPDX-License-Identifier: GPL-3.0-only
+
+The complete license is provided in the adjacent LICENSE.txt.
+No font or text data was copied from an installed or external font.

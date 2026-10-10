@@ -205,7 +205,9 @@ impl App {
         // 1:1 physical: one cell-height of finger travel = one row. `pos_y > 0`
         // = scroll up toward history (matches `wheel_delta_notches`'s sign).
         let mut d_rows = (pos_y as f32 / cell_h) * self.settings.scroll_pixel_speed;
-        if d_rows == 0.0 {
+        // A nonfinite delta (a malformed driver value, or one past `f32`'s
+        // range) is refused before any viewport or remainder mutation.
+        if !d_rows.is_finite() || d_rows == 0.0 {
             return;
         }
         // Defensive: cap a single malformed giant PixelDelta at one viewport
@@ -219,7 +221,14 @@ impl App {
             let Some(session) = self.sessions.get_mut(token) else {
                 return;
             };
-            carry_scroll_frac(session.scroll_frac_rows, d_rows)
+            // A remainder that is somehow not finite restarts from rest
+            // rather than poisoning every later event.
+            let frac = if session.scroll_frac_rows.is_finite() {
+                session.scroll_frac_rows
+            } else {
+                0.0
+            };
+            carry_scroll_frac(frac, d_rows)
         };
         // Carry whole rows into the integer offset (clamped by the viewport).
         if whole != 0
@@ -518,6 +527,33 @@ mod tests {
             "sub-row glide advanced: {}",
             app.scroll_frac_offset
         );
+    }
+
+    #[test]
+    fn continuous_scroll_refuses_nonfinite_travel_and_recovers_a_bad_remainder() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        seed_scrollback(&app);
+        let token = app.sessions.active_id();
+        app.drive_continuous_scroll(token, 40.0, 16);
+        let (offset, frac, px) = (
+            app.viewport.offset(),
+            app.scroll_frac_rows,
+            app.scroll_frac_offset,
+        );
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 1e300] {
+            app.drive_continuous_scroll(token, bad, 16);
+            assert_eq!(app.viewport.offset(), offset, "{bad}: offset kept");
+            assert_eq!(app.scroll_frac_rows, frac, "{bad}: remainder kept");
+            assert_eq!(app.scroll_frac_offset, px, "{bad}: pixel offset kept");
+        }
+        // A remainder that is already not finite restarts from rest.
+        app.scroll_frac_rows = f32::NAN;
+        app.drive_continuous_scroll(token, 4.0, 16);
+        assert!(app.scroll_frac_rows.is_finite(), "{}", app.scroll_frac_rows);
+        assert!((app.scroll_frac_rows - 0.25).abs() < 1e-3);
+        assert!(app.scroll_frac_offset.is_finite());
     }
 
     #[test]

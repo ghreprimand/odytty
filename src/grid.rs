@@ -116,10 +116,10 @@ pub fn font_style_for_attrs(attrs: &Attrs) -> FontStyle {
 /// Apply SGR dim/faint to an effective foreground color.
 ///
 /// Dims perceptually in OKLab via [`crate::color::dim_perceptual`] at
-/// [`DIM_PERCEPTUAL_AMOUNT`] (hue-preserving, chroma-aware), preserving the
-/// alpha channel. The amount is calibrated to the perceived brightness of the
-/// historical linear ×0.5 halving, so dim text stays as legible as before while
-/// no longer skewing hue.
+/// [`DIM_PERCEPTUAL_AMOUNT`], preserving the alpha channel. The amount makes the
+/// result equal the historical linear ×0.5 halving (a uniform OKLab scale is a
+/// uniform linear scale, so hue is kept exactly), so dim text is as legible as
+/// before.
 pub fn dim_color(color: [f32; 4]) -> [f32; 4] {
     let dimmed =
         crate::color::dim_perceptual([color[0], color[1], color[2]], DIM_PERCEPTUAL_AMOUNT);
@@ -1776,5 +1776,7 @@ fn rgb_from_tuple(color: (u8, u8, u8)) -> RgbColor {
 
 #[cfg(test)]
 mod bidi_tests;
+#[cfg(test)]
+mod clipping_tests;
 #[cfg(test)]
 mod tests;

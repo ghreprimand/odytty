@@ -130,8 +130,16 @@ fn quote_path(path: &Path, shell: ShellKind) -> Result<String, DropError> {
     }
 }
 
+/// A scalar that must not reach the command line literally: a control, a line
+/// or paragraph separator, or a direction embedding, override or isolate
+/// control (the predicate the paste preview uses). The last can make a name
+/// such as `x<U+202E>gpj.exe` display reordered while the shell receives the
+/// logical bytes, so it takes the visible byte-escape path (or, for
+/// PowerShell, is refused) instead of being inserted as an invisible scalar.
 fn unsafe_insertion_scalar(ch: char) -> bool {
-    ch.is_control() || matches!(ch, '\u{2028}' | '\u{2029}')
+    ch.is_control()
+        || matches!(ch, '\u{2028}' | '\u{2029}')
+        || crate::native::display_text::is_bidi_override_or_isolate(ch)
 }
 
 #[cfg(any(unix, test))]

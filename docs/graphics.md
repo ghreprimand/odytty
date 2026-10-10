@@ -169,8 +169,10 @@ and drops them once they age past the scrollback limit. A margin scroll that
 does not feed scrollback moves only placements wholly inside the region and
 removes one when any part leaves it; a placement crossing a margin is removed, and
 placements wholly outside the region, such as a header or footer, stay where
-they are. Top-anchored margin scrolls feeding scrollback move placements anchored
-through the bottom margin into history as whole placements. Erase in display
+they are. Top-anchored margin scrolls feeding scrollback move placements wholly
+above or on the bottom margin, and those already in history, as whole
+placements; a placement crossing the bottom margin is removed and a footer
+wholly below it stays. Erase in display
 removes placements that overlap the erased cells:
 `ED 0` the cursor row from the cursor on plus every later row, `ED 1` every
 earlier row plus the cursor row through the cursor. `ED 2` removes active
@@ -234,7 +236,9 @@ delay in milliseconds before the next frame, and a negative `z=` marks a
 composed from it. Playback clamps the effective gap to the 10ms..60s range, so a
 1ms gap cannot pin the render loop at its frame ceiling. The root starts with a
 zero gap and is skipped until a client assigns it a positive gap; later frames
-default to 40ms when no usable gap is supplied.
+default to 40ms when no usable gap is supplied. A `s=2` animation waits on its
+last *displayable* frame: trailing gapless frames are never stepped onto, so
+they are not shown while waiting for the frames they are the base of.
 
 What animation costs and what it does not:
 

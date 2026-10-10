@@ -140,7 +140,9 @@ sessions.
   integration](docs/features.md#shell-integration) prompt and command-output
   actions, with [notifications](docs/notifications.md) and pane monitors.
   Malformed edit reports disable prompt edits until geometry is known again.
-  Linux Open With preserves higher-priority MIME handlers against lower removals.
+  Linux Open With preserves higher-priority MIME handlers against lower removals,
+  reads desktop entries with spaces around `=` and string escapes in `Name`, and
+  finds ids whose directory names contain dashes.
 - **Workspaces and remote work:** tabs, panes, named workspaces, layouts,
   restore, [named launch profiles](docs/profiles.md), Unix detached sessions,
   an SSH connection manager, optional `tmux` persistence, a searchable

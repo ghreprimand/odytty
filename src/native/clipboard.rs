@@ -296,15 +296,8 @@ impl NativeClipboard {
                     return None;
                 }
             };
-            let image = match clipboard.get_image() {
-                Ok(image) => image,
-                Err(err) => {
-                    // No image on the clipboard is the common case (a text or
-                    // empty clipboard), so this stays at debug — not a warning.
-                    tracing::debug!("clipboard image read failed: {err}");
-                    return None;
-                }
-            };
+            let result = clipboard.get_image();
+            let image = settle_image_read(&mut self.slot, result)?;
             encode_rgba_to_png(image.width, image.height, &image.bytes)
         }
     }
@@ -315,6 +308,29 @@ impl NativeClipboard {
 
     pub(super) fn write_primary_text(&mut self, text: &str) -> Option<()> {
         self.write_primary_selection_text(text)
+    }
+}
+
+/// Settle one image read from the clipboard. No image on the clipboard (a
+/// text or empty clipboard) is the common case: it keeps the cached handle
+/// and logs at debug. Any other backend error invalidates the handle, as a
+/// text read does, so the next image paste reconnects instead of reusing a
+/// failed backend.
+fn settle_image_read<T, V>(
+    slot: &mut ClipboardSlot<T>,
+    result: Result<V, arboard::Error>,
+) -> Option<V> {
+    match result {
+        Ok(image) => Some(image),
+        Err(arboard::Error::ContentNotAvailable) => {
+            tracing::debug!("clipboard holds no image");
+            None
+        }
+        Err(err) => {
+            tracing::warn!("clipboard image read failed: {err}");
+            slot.clear();
+            None
+        }
     }
 }
 
@@ -515,8 +531,56 @@ pub(super) fn write_paste_text(
             });
         }
     }
-    let chunks = encode_paste_chunks(text, bracketed_paste, PASTE_CHUNK_SIZE);
-    write_chunks_blocking(writer, &chunks).map_err(PasteError::Write)
+    if bracketed_paste {
+        let chunks = encode_paste_chunks(text, true, PASTE_CHUNK_SIZE);
+        return write_chunks_blocking(writer, &chunks).map_err(PasteError::Write);
+    }
+    // Plain paste streams: one normalized chunk is built and written at a
+    // time, so a long clipboard text is never copied whole (normalized) and
+    // then again (chunked) before it reaches the bounded outbound queue. The
+    // chunks are byte-for-byte the ones `encode_paste_chunks` produces.
+    let Ok(mut sink) = writer.lock() else {
+        return Err(PasteError::Write(io::Error::other(
+            "pty writer lock poisoned",
+        )));
+    };
+    for_each_plain_paste_chunk(text, PASTE_CHUNK_SIZE, |chunk| sink.write_all(chunk))
+        .and_then(|()| sink.flush())
+        .map_err(PasteError::Write)
+}
+
+/// Normalize `text` for a plain paste (CRLF and LF become CR) and hand it to
+/// `emit` in consecutive chunks of `chunk_size` bytes, the last possibly
+/// shorter, holding at most one chunk at a time.
+fn for_each_plain_paste_chunk(
+    text: &str,
+    chunk_size: usize,
+    mut emit: impl FnMut(&[u8]) -> io::Result<()>,
+) -> io::Result<()> {
+    let chunk_size = chunk_size.max(1);
+    let mut chunk = Vec::with_capacity(chunk_size.min(text.len()));
+    let mut bytes = text.as_bytes().iter().copied().peekable();
+    while let Some(byte) = bytes.next() {
+        let out = match byte {
+            b'\r' => {
+                if bytes.peek() == Some(&b'\n') {
+                    bytes.next();
+                }
+                b'\r'
+            }
+            b'\n' => b'\r',
+            _ => byte,
+        };
+        chunk.push(out);
+        if chunk.len() == chunk_size {
+            emit(&chunk)?;
+            chunk.clear();
+        }
+    }
+    if !chunk.is_empty() {
+        emit(&chunk)?;
+    }
+    Ok(())
 }
 
 pub(super) fn encode_paste_chunks(
@@ -548,9 +612,11 @@ pub(super) fn encode_paste_chunks(
         // bounded outbound queue can shed oldest chunks under a wedged
         // consumer (documented bounded degradation) without pinning the whole
         // payload.
-        let normalized = normalize_plain_paste(text);
         let mut chunks = Vec::new();
-        push_chunked(&mut chunks, &normalized, chunk_size);
+        let _ = for_each_plain_paste_chunk(text, chunk_size, |chunk| {
+            chunks.push(chunk.to_vec());
+            Ok(())
+        });
         chunks
     }
 }
@@ -558,10 +624,6 @@ pub(super) fn encode_paste_chunks(
 #[cfg(test)]
 pub(super) fn flatten_chunks(chunks: &[Vec<u8>]) -> Vec<u8> {
     chunks.iter().flatten().copied().collect()
-}
-
-fn push_chunked(chunks: &mut Vec<Vec<u8>>, bytes: &[u8], chunk_size: usize) {
-    chunks.extend(bytes.chunks(chunk_size).map(<[u8]>::to_vec));
 }
 
 /// Strip every embedded bracketed-paste end marker from clipboard bytes.
@@ -578,24 +640,6 @@ fn sanitize_bracketed_paste(text: &[u8]) -> Vec<u8> {
         output.push(byte);
         if output.ends_with(BRACKETED_PASTE_END) {
             output.truncate(output.len() - BRACKETED_PASTE_END.len());
-        }
-    }
-    output
-}
-
-fn normalize_plain_paste(text: &str) -> Vec<u8> {
-    let mut output = Vec::with_capacity(text.len());
-    let mut bytes = text.as_bytes().iter().copied().peekable();
-    while let Some(byte) = bytes.next() {
-        match byte {
-            b'\r' => {
-                if bytes.peek() == Some(&b'\n') {
-                    bytes.next();
-                }
-                output.push(b'\r');
-            }
-            b'\n' => output.push(b'\r'),
-            _ => output.push(byte),
         }
     }
     output
@@ -639,6 +683,56 @@ mod tests {
             !slot.is_retaining_handle(),
             "a backend error drops the handle"
         );
+    }
+
+    /// An image read that finds no image keeps the handle so the text fallback
+    /// reuses it; a genuine backend error drops it, and the next read starts a
+    /// fresh handle that can succeed.
+    #[test]
+    fn image_reads_drop_the_handle_only_on_a_backend_error() {
+        let mut slot = ClipboardSlot::<u8>::new();
+        slot.get_or_try_init(|| Ok::<u8, ()>(1)).unwrap();
+        assert_eq!(
+            settle_image_read::<u8, u8>(&mut slot, Err(arboard::Error::ContentNotAvailable)),
+            None
+        );
+        assert!(slot.is_retaining_handle(), "no image keeps the handle");
+        assert_eq!(
+            settle_image_read::<u8, u8>(&mut slot, Err(arboard::Error::ClipboardOccupied)),
+            None
+        );
+        assert!(!slot.is_retaining_handle(), "a backend error drops it");
+        let fresh = slot.get_or_try_init(|| Ok::<u8, ()>(2)).copied();
+        assert_eq!(fresh, Ok(2), "the next read creates a new handle");
+        assert_eq!(settle_image_read::<u8, u8>(&mut slot, Ok(7)), Some(7));
+        assert!(slot.is_retaining_handle());
+    }
+
+    /// Plain paste written through the streaming path is byte-for-byte and
+    /// chunk-for-chunk what the chunk encoder produces, including CRLF pairs
+    /// that straddle a chunk boundary.
+    #[test]
+    fn plain_paste_streams_the_encoder_chunks() {
+        for (text, size) in [
+            ("a\r\nb\nc\rd", 1),
+            ("ab\r\ncd", 2),
+            ("abc\r\n", 3),
+            ("\r\n\r\n\n\r", 2),
+            ("", 4),
+            ("x", 4),
+        ] {
+            let mut streamed: Vec<Vec<u8>> = Vec::new();
+            for_each_plain_paste_chunk(text, size, |chunk| {
+                assert!(chunk.len() <= size && !chunk.is_empty());
+                streamed.push(chunk.to_vec());
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(streamed, encode_paste_chunks(text, false, size), "{text:?}");
+            let joined: Vec<u8> = streamed.concat();
+            let expected = text.replace("\r\n", "\r").replace('\n', "\r");
+            assert_eq!(joined, expected.as_bytes(), "{text:?}");
+        }
     }
 
     /// Twin of `input::sanitize_paste`: deleting a match can reassemble a fresh

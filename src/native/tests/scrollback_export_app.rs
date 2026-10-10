@@ -181,3 +181,37 @@ fn busy_dialog_is_rejected_before_scrollback_capture() {
         Some("A save dialog is already open.")
     );
 }
+
+/// HTML export of a profile pane uses that pane's presented theme, matching
+/// an App whose global theme is the profile theme; a plain pane keeps the
+/// global theme.
+#[test]
+fn html_export_of_a_profile_pane_uses_the_profile_theme() {
+    let _render_globals = crate::test_lock::render_globals_lock();
+    let global = Theme::ODYSSEY;
+    let profile = Theme::PLAIN;
+    let render = |theme: Theme, profile_theme: Option<Theme>| {
+        let (mut app, terminal) = headless_app_with(
+            NativeOptions::default(),
+            Dimensions::new(20, 4),
+            Settings {
+                theme,
+                ..Settings::default()
+            },
+        );
+        if let Some(profile_theme) = profile_theme {
+            app.set_active_profile_theme_for_test(Some(profile_theme));
+        }
+        feed(&terminal, b"\x1b[31mred\x1b[0m plain");
+        app.capture_scrollback_export(ScrollbackFormat::Html)
+            .expect("under the cap")
+    };
+    let plain = render(global, None);
+    let expected = render(profile, None);
+    assert_ne!(plain, expected, "the two themes export different colors");
+    assert_eq!(
+        render(global, Some(profile)),
+        expected,
+        "a profile pane exports its own theme"
+    );
+}

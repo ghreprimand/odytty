@@ -84,6 +84,29 @@ fn a_top_anchored_region_scroll_moves_history_placements_too() {
     );
 }
 
+/// Fails before the fix: the bounded history variant moved a placement whose
+/// lower rows reached into the footer, although the footer rows stay fixed.
+/// The removal rule matches the unbounded margin scroll: a placement crossing
+/// the bottom margin is removed, a footer wholly below it stays, and one wholly
+/// above it (or already in history) still moves.
+#[test]
+fn a_top_anchored_region_scroll_removes_a_placement_crossing_the_bottom_margin() {
+    let mut scene = scene();
+    let image = image(&mut scene, None);
+    let history = place(&mut scene, image, 0, 5, (1, 1));
+    scene.scroll_full_up(1, 100);
+    let inside = place(&mut scene, image, 3, 0, (2, 1));
+    let touching = place(&mut scene, image, 6, 0, (2, 2));
+    let straddling = place(&mut scene, image, 6, 3, (3, 3));
+    let footer = place(&mut scene, image, 8, 0, (2, 2));
+    scene.scroll_region_up_into_scrollback(7, 1, 100);
+    assert_eq!(anchor_row(&scene, history), Some(-2));
+    assert_eq!(anchor_row(&scene, inside), Some(2));
+    assert_eq!(anchor_row(&scene, touching), Some(5), "ends on the margin");
+    assert_eq!(anchor_row(&scene, straddling), None, "crosses the margin");
+    assert_eq!(anchor_row(&scene, footer), Some(8), "wholly below stays");
+}
+
 /// Fails before the fix: the header and footer were removed although they
 /// sit outside the scrolled region and did not move.
 #[test]
@@ -314,4 +337,79 @@ fn alternate_ed2_and_ed3_leave_primary_history_placements_intact() {
     assert_eq!(anchor_row(&scene, alternate_history), None);
     scene.leave_alternate();
     assert_eq!(scene.visible_placements(1, 4, 8, 16).len(), 1);
+}
+
+fn virtual_scene() -> (ImageScene, StoredImageId) {
+    let mut scene = scene();
+    let image = image(&mut scene, Some(7));
+    assert!(scene.place_virtual(image, 7, Some(3), 2, 2, 0));
+    (scene, image)
+}
+
+/// Deleting a virtual placement by image id makes its image a freeing
+/// candidate: `d=I` with `p=` frees it once nothing else references it, and a
+/// `p=` that matches no placement touches nothing.
+#[test]
+fn capital_delete_by_image_id_frees_an_image_held_only_by_a_virtual_placement() {
+    let (mut scene, image) = virtual_scene();
+    scene.delete_by_image_id_and_free(7, Some(4));
+    assert!(scene.store().contains(image), "no placement matched p=4");
+    assert!(scene.has_virtual_placements());
+    scene.delete_by_image_id_and_free(7, Some(3));
+    assert!(!scene.has_virtual_placements());
+    assert!(!scene.store().contains(image), "last reference is gone");
+}
+
+/// The image outlives a deleted virtual placement while a real placement still
+/// shows it, and is freed with the real placement's own deletion.
+#[test]
+fn capital_delete_by_image_id_keeps_an_image_a_real_placement_still_shows() {
+    let (mut scene, image) = virtual_scene();
+    scene
+        .place(
+            PlacementRequest::new(image, GraphicsProtocol::Kitty, 0, 0, 1, 1)
+                .with_protocol_ids(Some(7), Some(5)),
+        )
+        .expect("placed");
+    scene.delete_by_image_id_and_free(7, Some(3));
+    assert!(!scene.has_virtual_placements());
+    assert!(scene.store().contains(image), "the real placement remains");
+    scene.delete_by_image_id_and_free(7, Some(5));
+    assert!(!scene.store().contains(image), "now unreferenced");
+}
+
+/// The reverse order: deleting the real placement keeps an image the virtual
+/// prototype still needs, because the prototype counts as a reference.
+#[test]
+fn capital_delete_by_image_id_keeps_an_image_a_virtual_placement_still_needs() {
+    let (mut scene, image) = virtual_scene();
+    scene
+        .place(
+            PlacementRequest::new(image, GraphicsProtocol::Kitty, 0, 0, 1, 1)
+                .with_protocol_ids(Some(7), Some(5)),
+        )
+        .expect("placed");
+    scene.delete_by_image_id_and_free(7, Some(5));
+    assert!(scene.has_virtual_placements());
+    assert!(
+        scene.store().contains(image),
+        "the prototype keeps it alive"
+    );
+}
+
+/// Without `p=` every placement of the image goes, virtual ones included, and
+/// the image is freed; lowercase `d=i` removes the prototype but keeps the data.
+#[test]
+fn delete_by_image_id_without_a_placement_id_removes_virtual_placements() {
+    let (mut scene, image) = virtual_scene();
+    let other = self::image(&mut scene, Some(8));
+    assert!(scene.place_virtual(other, 8, None, 1, 1, 0));
+    scene.delete_by_image_id(7, None);
+    assert_eq!(scene.virtual_placements().len(), 1, "only image 7 goes");
+    assert!(scene.store().contains(image), "d=i never frees data");
+
+    scene.delete_by_image_id_and_free(7, None);
+    assert!(!scene.store().contains(image));
+    assert!(scene.store().contains(other));
+    assert_eq!(scene.virtual_placements().len(), 1);
 }

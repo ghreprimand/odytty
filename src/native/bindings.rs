@@ -1080,6 +1080,39 @@ pub(super) fn map_win32_key_event(
     })
 }
 
+/// Encode one physical key event as Win32 input-mode records. The first
+/// record carries the key's first UTF-16 unit; when its logical text needs
+/// more units (a supplementary scalar's low surrogate, or the rest of
+/// multi-scalar composed text), each further unit follows as its own record
+/// with the same key identity, so no produced text is cut. A release carries
+/// only the first record: the text was already delivered on the key-down.
+/// Ctrl chords keep their single control-code record.
+pub(super) fn encode_win32_key_records(
+    physical: PhysicalKey,
+    logical: &WinitKey,
+    base_logical: &WinitKey,
+    mods: Modifiers,
+    event_type: KeyEventType,
+) -> Vec<u8> {
+    let Some(event) = map_win32_key_event(physical, logical, base_logical, mods, event_type) else {
+        return Vec::new();
+    };
+    let mut bytes = crate::input::encode_win32_key_event(event, event_type);
+    if event_type != KeyEventType::Release
+        && !mods.ctrl
+        && let WinitKey::Character(text) = logical
+    {
+        for unit in text.encode_utf16().skip(1) {
+            let record = Win32KeyEvent {
+                unicode_char: unit,
+                ..event
+            };
+            bytes.extend(crate::input::encode_win32_key_event(record, event_type));
+        }
+    }
+    bytes
+}
+
 fn win32_virtual_key_from_logical(logical: &WinitKey) -> Option<u16> {
     let WinitKey::Character(text) = logical else {
         return None;

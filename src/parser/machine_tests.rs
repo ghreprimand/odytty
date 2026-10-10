@@ -70,12 +70,14 @@ fn osc_cancel_emits_cancel_then_execute() {
 }
 
 #[test]
-fn dcs_passthrough_unhook_on_st8() {
+fn dcs_passthrough_keeps_a_raw_st8_byte_as_payload() {
     let mut m = Machine::new();
     m.state = State::DcsPassthrough;
     assert_eq!(m.step(b'a'), Action::DcsPut(b'a'));
-    assert_eq!(m.step(0x9C), Action::DcsUnhook);
-    assert_eq!(m.state, State::Ground);
+    assert_eq!(m.step(0x9C), Action::DcsPut(0x9C));
+    assert_eq!(m.state, State::DcsPassthrough);
+    assert_eq!(m.step(0x1B), Action::DcsUnhook, "ESC still ends the string");
+    assert_eq!(m.state, State::Escape);
 }
 
 #[test]

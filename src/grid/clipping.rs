@@ -188,11 +188,16 @@ pub(crate) enum OcclusionCut {
 /// How `hole` (`[left, top, right, bottom]`) cuts the axis-aligned quad `rect`.
 ///
 /// A quad is a single rectangle, so the result is the largest single rectangle
-/// that still avoids the hole: when the hole spans the quad's full height the
-/// quad is cropped horizontally, when it spans the full width it is cropped
-/// vertically, and a corner overlap crops along whichever axis keeps more area.
-/// Floating panes sit on a shared cell lattice, so cells fall wholly inside or
-/// outside a hole and only a glyph's overhang is ever cropped.
+/// that still avoids the hole. Whatever the hole's position, the remainder is
+/// covered by four strips, the full-height ones left and right of the hole and
+/// the full-width ones above and below it; the largest non-empty strip is kept.
+/// A hole spanning the full height therefore crops horizontally, one spanning
+/// the full width crops vertically, a corner or an edge-middle overlap keeps
+/// the larger remainder, and a hole strictly inside the quad leaves the
+/// largest surrounding strip rather than showing through it. Equal strips
+/// prefer left, right, top, bottom in that order. Floating panes sit on a
+/// shared cell lattice, so cells fall wholly inside or outside a hole and only
+/// a glyph's overhang is ever cropped.
 pub(crate) fn occlusion_cut(rect: [f32; 4], hole: [f32; 4]) -> OcclusionCut {
     let ix0 = rect[0].max(hole[0]);
     let iy0 = rect[1].max(hole[1]);
@@ -204,53 +209,21 @@ pub(crate) fn occlusion_cut(rect: [f32; 4], hole: [f32; 4]) -> OcclusionCut {
     if ix0 <= rect[0] && ix1 >= rect[2] && iy0 <= rect[1] && iy1 >= rect[3] {
         return OcclusionCut::Collapse;
     }
-    // The widest strip left once the hole's x interval is removed (only when it
-    // spans the full height), and likewise for y.
-    let x_crop = (iy0 <= rect[1] && iy1 >= rect[3]).then(|| {
-        let left = ix0 - rect[0];
-        let right = rect[2] - ix1;
-        if left >= right {
-            [rect[0], rect[1], ix0, rect[3]]
-        } else {
-            [ix1, rect[1], rect[2], rect[3]]
-        }
-    });
-    let y_crop = (ix0 <= rect[0] && ix1 >= rect[2]).then(|| {
-        let top = iy0 - rect[1];
-        let bottom = rect[3] - iy1;
-        if top >= bottom {
-            [rect[0], rect[1], rect[2], iy0]
-        } else {
-            [rect[0], iy1, rect[2], rect[3]]
-        }
-    });
+    let strips = [
+        [rect[0], rect[1], ix0, rect[3]],
+        [ix1, rect[1], rect[2], rect[3]],
+        [rect[0], rect[1], rect[2], iy0],
+        [rect[0], iy1, rect[2], rect[3]],
+    ];
     let area = |r: [f32; 4]| (r[2] - r[0]) * (r[3] - r[1]);
-    match (x_crop, y_crop) {
-        (Some(x), Some(y)) => OcclusionCut::Crop(if area(x) >= area(y) { x } else { y }),
-        (Some(r), None) | (None, Some(r)) => OcclusionCut::Crop(r),
-        // A corner overlap: crop along the axis that keeps more of the quad.
-        (None, None) => {
-            let keep_x = if ix0 <= rect[0] {
-                [ix1, rect[1], rect[2], rect[3]]
-            } else if ix1 >= rect[2] {
-                [rect[0], rect[1], ix0, rect[3]]
-            } else {
-                return OcclusionCut::Keep;
-            };
-            let keep_y = if iy0 <= rect[1] {
-                [rect[0], iy1, rect[2], rect[3]]
-            } else if iy1 >= rect[3] {
-                [rect[0], rect[1], rect[2], iy0]
-            } else {
-                return OcclusionCut::Keep;
-            };
-            OcclusionCut::Crop(if area(keep_x) >= area(keep_y) {
-                keep_x
-            } else {
-                keep_y
-            })
+    let mut best: Option<[f32; 4]> = None;
+    for strip in strips {
+        if area(strip) > 0.0 && best.is_none_or(|kept| area(strip) > area(kept)) {
+            best = Some(strip);
         }
     }
+    // The hole overlaps the quad without covering it, so some strip has area.
+    best.map_or(OcclusionCut::Collapse, OcclusionCut::Crop)
 }
 
 /// Cut every occluding rectangle out of every quad in `instances`: a pane drawn

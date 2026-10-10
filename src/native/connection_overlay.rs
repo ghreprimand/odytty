@@ -123,10 +123,12 @@ pub(super) enum ConnectionPickerPurpose {
     /// Bind the active workspace to the chosen saved host (ODP-6B). Ad-hoc /
     /// unsaved rows are not offered — a workspace binds by saved-host alias.
     BindWorkspace,
-    /// Bind the workspace at this rail index to the chosen saved host
-    /// (RAIL-BIND). Like [`Self::BindWorkspace`] but targets the CLICKED slot
-    /// from the rail context menu instead of the active workspace.
-    BindWorkspaceIndex(usize),
+    /// Bind the workspace with this creation identity to the chosen saved
+    /// host (RAIL-BIND). Like [`Self::BindWorkspace`] but targets the CLICKED
+    /// slot from the rail context menu instead of the active workspace; the
+    /// identity, not the rail index, survives workspaces closing or moving
+    /// while the picker is open.
+    BindWorkspaceAt(SessionToken),
     /// Open the chosen saved host in a NEW tab positioned right after the tab
     /// that owns this token (ODP-5D "Connect to host ▸"). The clicked tab is
     /// left untouched — the new remote tab reads as "connect from here".
@@ -441,7 +443,7 @@ impl ConnectionOverlay {
                 // pickers offer saved hosts only, so an empty selection is inert.
                 // The App routes the pick per the carried purpose.
                 ConnectionPickerPurpose::BindWorkspace
-                | ConnectionPickerPurpose::BindWorkspaceIndex(_)
+                | ConnectionPickerPurpose::BindWorkspaceAt(_)
                 | ConnectionPickerPurpose::ConnectTabAfter(_)
                 | ConnectionPickerPurpose::ReplaceTab(_) => match self.selected_entry() {
                     Some(entry) => {

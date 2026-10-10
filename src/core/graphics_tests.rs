@@ -28,12 +28,26 @@ fn place_test_image(
 fn kitty_apc_payloads_route_to_graphics_scene_without_printing() {
     let mut terminal = Terminal::new(20, 3);
 
-    terminal.advance(b"\x1b_Gf=32,a=T;AAAA\x1b\\text");
-
-    // The APC is routed to the graphics scene and never echoed to the grid;
-    // only the trailing plain text prints. (This payload carries no valid
-    // dimensions, so it stores no image, but it must still be consumed.)
-    assert_eq!(terminal.screen().plain_text(), "text\n\n");
+    terminal.advance(b"\x1b_Gf=32,a=T,s=1,v=1,i=41;AQIDBA==\x1b\\");
+    assert_eq!(terminal.graphics().store().len(), 1);
+    let placements = terminal.visible_graphics(0);
+    assert_eq!(placements.len(), 1);
+    let placement = &placements[0];
+    assert_eq!(placement.protocol, GraphicsProtocol::Kitty);
+    assert_eq!((placement.row, placement.column), (0, 0));
+    assert_eq!((placement.display_columns, placement.display_rows), (1, 1));
+    let image = terminal.graphics().store().get(placement.image_id).unwrap();
+    assert_eq!((image.width, image.height), (1, 1));
+    assert_eq!(image.rgba, [1, 2, 3, 4]);
+    assert_eq!(terminal.take_host_output(), b"\x1b_Gi=41;OK\x1b\\");
+    // Displaying an image moves the cursor past it (Kitty without C=1), so the
+    // text that follows starts one cell in; the APC itself printed nothing.
+    assert_eq!(
+        terminal.screen().cursor(),
+        crate::core::Position { row: 0, column: 1 }
+    );
+    terminal.advance(b"text");
+    assert_eq!(terminal.screen().plain_text(), " text\n\n");
 }
 
 #[test]

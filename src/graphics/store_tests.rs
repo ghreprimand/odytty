@@ -133,3 +133,38 @@ fn an_unnumbered_insert_allocates_no_id() {
     );
     assert_eq!(store.get(inserted.id).unwrap().protocol_number, None);
 }
+
+#[test]
+fn frame_growth_through_the_guard_enters_the_byte_accounting() {
+    use super::frames::{FrameUpdate, ImageFrames};
+    let mut store = ImageStore::default();
+    let id = store.insert_rgba(None, 2, 2, rgba(2, 2, 1)).unwrap().id;
+    assert_eq!(store.decoded_bytes(), 16);
+    assert!(store.animated_ids().is_empty());
+    {
+        let mut guard = store.frames_mut(id).expect("image");
+        let canvas = guard.canvas().to_vec();
+        let data = rgba(2, 2, 9);
+        let update = FrameUpdate {
+            data: &data,
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 2,
+            base_frame: None,
+            edit_frame: None,
+            gap_ms: Some(40),
+            overwrite: true,
+            background: 0,
+        };
+        let frames: &mut ImageFrames = guard.frames_mut();
+        frames.transmit_frame(&canvas, 2, 2, update).expect("frame");
+    }
+    // The image's own pixels, the captured root frame, and the new frame.
+    assert_eq!(store.decoded_bytes(), 16 * 3);
+    assert!(store.animated_ids().contains(&id));
+    assert_eq!(
+        store.budget_remaining(),
+        store.limits().max_decoded_bytes - 48
+    );
+}

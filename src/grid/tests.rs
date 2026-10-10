@@ -792,8 +792,12 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
     // Precondition: the doubly-dimmed pair really is below the AAA floor, so
     // case 3 proves the floor - not the inputs - does the lifting.
     let combo_base_contrast = crate::color::wcag_contrast(
-        [combo_unfloored[0], combo_unfloored[1], combo_unfloored[2]],
-        [combo_bg[0], combo_bg[1], combo_bg[2]],
+        crate::color::displayed_linear([
+            combo_unfloored[0],
+            combo_unfloored[1],
+            combo_unfloored[2],
+        ]),
+        crate::color::displayed_linear([combo_bg[0], combo_bg[1], combo_bg[2]]),
     );
     assert!(
         combo_base_contrast < 7.0,
@@ -821,8 +825,8 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
         "body: raised floor must change fg"
     );
     let body_ratio = crate::color::wcag_contrast(
-        [body_floored[0], body_floored[1], body_floored[2]],
-        [body_bg[0], body_bg[1], body_bg[2]],
+        crate::color::displayed_linear([body_floored[0], body_floored[1], body_floored[2]]),
+        crate::color::displayed_linear([body_bg[0], body_bg[1], body_bg[2]]),
     );
     assert!(body_ratio >= 7.0 - 1e-3, "body floor not met: {body_ratio}");
 
@@ -833,8 +837,8 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
         "cursor under-glyph: raised floor must change the under-glyph color"
     );
     let cur_ratio = crate::color::wcag_contrast(
-        [cur_floored[0], cur_floored[1], cur_floored[2]],
-        [block_color[0], block_color[1], block_color[2]],
+        crate::color::displayed_linear([cur_floored[0], cur_floored[1], cur_floored[2]]),
+        crate::color::displayed_linear([block_color[0], block_color[1], block_color[2]]),
     );
     assert!(
         cur_ratio >= 7.0 - 1e-3,
@@ -849,8 +853,8 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
         "combined: floor must lift fg"
     );
     let combo_ratio = crate::color::wcag_contrast(
-        [combo_floored[0], combo_floored[1], combo_floored[2]],
-        [combo_bg[0], combo_bg[1], combo_bg[2]],
+        crate::color::displayed_linear([combo_floored[0], combo_floored[1], combo_floored[2]]),
+        crate::color::displayed_linear([combo_bg[0], combo_bg[1], combo_bg[2]]),
     );
     assert!(
         combo_ratio >= 7.0 - 1e-3,
@@ -866,8 +870,8 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
         "underline color: raised floor must lift the explicit SGR-58 color"
     );
     let uline_ratio = crate::color::wcag_contrast(
-        [uline_floored[0], uline_floored[1], uline_floored[2]],
-        [uline_bg[0], uline_bg[1], uline_bg[2]],
+        crate::color::displayed_linear([uline_floored[0], uline_floored[1], uline_floored[2]]),
+        crate::color::displayed_linear([uline_bg[0], uline_bg[1], uline_bg[2]]),
     );
     assert!(
         uline_ratio >= 7.0 - 1e-3,
@@ -915,8 +919,8 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
         "256-color underline: raised floor must lift the indexed color"
     );
     let uidx_ratio = crate::color::wcag_contrast(
-        [uidx_floored[0], uidx_floored[1], uidx_floored[2]],
-        [uidx_bg[0], uidx_bg[1], uidx_bg[2]],
+        crate::color::displayed_linear([uidx_floored[0], uidx_floored[1], uidx_floored[2]]),
+        crate::color::displayed_linear([uidx_bg[0], uidx_bg[1], uidx_bg[2]]),
     );
     assert!(
         uidx_ratio >= 7.0 - 1e-3,
@@ -1366,8 +1370,8 @@ fn resolve_floor_must_run_after_both_dims() {
         [r, g, b, fg_dim[3]]
     };
     let live_contrast = crate::color::wcag_contrast(
-        [live_fg[0], live_fg[1], live_fg[2]],
-        [bg_dim[0], bg_dim[1], bg_dim[2]],
+        crate::color::displayed_linear([live_fg[0], live_fg[1], live_fg[2]]),
+        crate::color::displayed_linear([bg_dim[0], bg_dim[1], bg_dim[2]]),
     );
     assert!(
         live_contrast + 1e-3 >= ratio,
@@ -1383,8 +1387,8 @@ fn resolve_floor_must_run_after_both_dims() {
     };
     let swapped_fg = text::dim_linear_rgba(floored_first, focus);
     let swapped_contrast = crate::color::wcag_contrast(
-        [swapped_fg[0], swapped_fg[1], swapped_fg[2]],
-        [bg_dim[0], bg_dim[1], bg_dim[2]],
+        crate::color::displayed_linear([swapped_fg[0], swapped_fg[1], swapped_fg[2]]),
+        crate::color::displayed_linear([bg_dim[0], bg_dim[1], bg_dim[2]]),
     );
     assert!(
         swapped_contrast < ratio - 1e-2,
@@ -3968,9 +3972,13 @@ fn text_brightness_never_darkens_floored_hdr_glyph_pixels() {
     let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
     let theme = crate::theme::Theme::ODYSSEY_DEFAULT;
     let mut term = Terminal::new(1, 1);
+    // A saturated foreground on a dark backdrop: the floored value leaves the sRGB
+    // cube here, which is the HDR ink this test covers. The check runs on the
+    // displayed colour, so a neutral grey or a dark-green backdrop meets the floor
+    // inside the cube and would not exercise this path.
     term.set_base_colors(
-        crate::core::RgbColor::new(theme.foreground.0, theme.foreground.1, theme.foreground.2),
-        crate::core::RgbColor::new(theme.background.0, theme.background.1, theme.background.2),
+        crate::core::RgbColor::new(0xff, 0x00, 0xff),
+        crate::core::RgbColor::new(0x0c, 0x0e, 0x14),
         crate::core::RgbColor::new(theme.cursor.0, theme.cursor.1, theme.cursor.2),
     );
     term.advance(b"\x1b[?25lA");

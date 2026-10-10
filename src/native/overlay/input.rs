@@ -980,8 +980,8 @@ impl OverlayUi {
                         OverlayOutcome::BindWorkspaceToHost(host.alias)
                     }
                     // RAIL-BIND: bind the clicked rail slot to the picked host.
-                    ConnectionPickerPurpose::BindWorkspaceIndex(idx) => {
-                        OverlayOutcome::BindWorkspaceAtToHost(idx, host.alias)
+                    ConnectionPickerPurpose::BindWorkspaceAt(identity) => {
+                        OverlayOutcome::BindWorkspaceAtToHost(identity, host.alias)
                     }
                     // ODP-5D: open the picked host in a new tab adjacent to the
                     // clicked tab, or replace that tab (App gates the destructive

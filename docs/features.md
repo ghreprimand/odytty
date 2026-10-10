@@ -202,7 +202,10 @@ application enables both protocols (fish does), non-zero Kitty flags win.
 On Windows, a console application can request ConPTY Win32 input with DEC
 private mode 9001. While that mode is active, OdyTTY sends complete Win32 key
 records, including key-up state, virtual-key and scan codes, Unicode text,
-modifier flags, and repeat counts. This preserves input such as
+modifier flags, and repeat counts. A key whose text needs more than one
+UTF-16 unit (an emoji or other supplementary character, or composed text)
+sends one key-down record per unit with the same key identity; its key-up is
+one record. This preserves input such as
 `Ctrl+Backspace` word deletion in PowerShell and distinct `Shift+Enter`.
 The application requests the mode; there is no OdyTTY setting, and the mode is
 inert on Unix. When it is inactive, Kitty, modifyOtherKeys, and legacy input
@@ -295,6 +298,12 @@ OdyTTY handles OS file-drop events as path text, not as open, read,
 upload, or execute. Dropped local paths share the paste-safety confirmation
 path above: bounded preview, explicit **Paste** or **Cancel**, and never an
 appended Enter. **Paste as One Line** is not offered for file-drop batches.
+A path with a control character, a line or paragraph separator, or a direction
+embedding, override or isolate control (U+202A..U+202E, U+2066..U+2069) is
+inserted as visible byte escapes in Bash, Zsh and Fish, so the command line
+shows what the shell receives; PowerShell refuses such a path. Other Unicode,
+including combining marks, emoji and the left-to-right and right-to-left marks,
+stays literal. Paste keeps its own preview rules.
 
 Linux and macOS insert only when an eligible local launch shell owns and is the
 sole member of the PTY foreground group and its current executable still
@@ -338,7 +347,9 @@ A bracketed paste whose complete framed payload exceeds
 with a failure notice. The limit equals the attached-session input frame
 limit, so local and attached sessions accept the same pastes. Plain,
 non-bracketed paste has no comparable whole-payload rejection and remains
-deliberately chunked. Input that is lost after it was written (the outbound
+deliberately chunked; it is normalized and written one chunk at a time, so
+the text is not copied whole before it reaches the outbound queue, and a
+broadcast paste shares one copy of the text among receivers in other windows. Input that is lost after it was written (the outbound
 queue overflowing behind a stalled program, or an attached session dropping a
 frame while its host is not reading) raises an "Input lost" notice with the
 byte count, and the log records `pty_write_overflow` or `pty_input_dropped`. With child bracketed-paste mode off, original multiline or
@@ -392,7 +403,10 @@ height `1.0`. JetBrains Mono is also bundled and selectable through
 The font picker separates always-available **Bundled Fonts** from host
 **System Fonts**. Its bundled symbol fallback is a chain of Nerd Fonts v3 and
 v2 faces, so PUA prompt icons work without a host-installed Nerd font and
-remain compatible with configs from either Nerd Font era.
+remain compatible with configs from either Nerd Font era. Family names are
+measured and cut in terminal cells (wide and combining names fit their row), a
+filter with no match reads "no family matches the filter", and moving back to
+the top keeps the **Bundled Fonts** header in view.
 
 Bundled and discovered system families both resolve without hand-written
 configuration. A partial family name filters to fixed-pitch faces, then chooses
@@ -693,6 +707,12 @@ owners. VS15 does not demote; standalone regional indicators and keycaps
 without VS16 stay one cell. Those compatibility choices differ from the
 frozen Python wcwidth reference.
 
+When a flag pair, modifier sequence or ZWJ sequence reaches the renderer as
+separate cells, the next cell joins the color cluster only while it is not
+hidden and has the same rendition (colours, attributes, hyperlink) as the
+first; otherwise each cell keeps its own run, so a hidden or restyled part of
+a sequence is not painted away. Source-owned clusters are unaffected.
+
 VS16 keycaps resolve the font's base-plus-enclosing-keycap color ligature
 when present. The selector remains in logical text and cluster identity;
 missing ligatures retain visible fallback. This shared path applies on Linux
@@ -960,7 +980,9 @@ at a default position in front. A frame is drawn around every pane, brighter
 for the focused one, and a frame is cut away where a pane in front covers it.
 A rectangle is at least 8 columns by 2 rows and always stays inside the content
 area. Shrinking the window moves and resizes rectangles to fit and never
-removes a pane; growing it again uses the stored rectangles.
+removes a pane; growing it again uses the stored rectangles. A move or resize
+that changes nothing (a key held against the content edge) stores nothing, so a
+pane that follows the default position keeps following it.
 
 **Arrange Floating Pane** arms a keyboard mode on a floating tab. While it is
 armed, `←` `→` `↑` `↓` move the focused pane one cell, `Shift` with an arrow
@@ -1104,7 +1126,8 @@ runs.
 - **HTML** is one self-contained file. It has a single style block and a
   Content-Security-Policy that blocks scripts and network fetches. Text is
   escaped, and colors and bold, dim, italic, underline, and strikethrough are
-  kept. There are no scripts, event handlers, frames, embedded objects, images,
+  kept. Default and ANSI colors resolve against the focused pane's theme, so
+  a pane opened from a profile with its own theme exports that theme. There are no scripts, event handlers, frames, embedded objects, images,
   external stylesheets, or fonts. OSC 8 links become clickable only for `http`
   and `https` URLs that have a host and no embedded user name or password.
   Every other link, including `file:` and `javascript:`, stays plain text. Plain
@@ -1694,7 +1717,7 @@ latest complete command when no selection exists:
 | Copy Command Output | Copy visible output only |
 | Copy Command With Prompt | Copy the prompt, command line, and visible output |
 | Search Command Output | Open search restricted to that output range |
-| Jump To Previous/Next Failed Command | Navigate only explicit nonzero OSC 133 exit statuses |
+| Jump To Previous/Next Failed Command | Navigate only explicit nonzero OSC 133 exit statuses; repeating the action steps through each failure in turn while the view stays where the last jump left it |
 | Export Command Output | Choose a native save destination and write bounded plain text |
 
 Each range-targeting action revalidates an opaque, generation-bound handle
@@ -1850,7 +1873,9 @@ ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager" odytty
 
 Hosts come from OdyTTY's `hosts.conf`. When `ssh_config_hosts = on`, the manager
 also shows name-only entries from the OpenSSH config; while it is off, OdyTTY
-does not reference `~/.ssh`.
+does not reference `~/.ssh`. As in OpenSSH, the first value of a keyword wins
+and `Host` blocks naming the same alias are merged; a config longer than the
+read limit is read up to its last whole line.
 
 The manager is presentation-only. Selecting a host starts the system `ssh`
 client in a new session.
@@ -1876,7 +1901,10 @@ the selected OdyTTY-owned host. OpenSSH-imported rows are read-only.
 | Appearance | Theme, font, and title |
 
 The identity-key browser scrolls to keep its selected candidate visible. Only
-visible candidate rows accept a click; its prompt and footer are inert.
+visible candidate rows accept a click; its prompt and footer are inert. The
+`~/.ssh` scan reads at most 4,096 directory entries, skips names over 255
+bytes, and lists at most 256 candidates; when a bound cuts the scan short, a
+notice says so, and typing a path still reaches any other key.
 
 In short windows, the form scrolls to keep the focused control visible,
 including expanded Advanced fields and Save / Cancel. Help collapses before
@@ -2037,7 +2065,12 @@ Dismiss the lightbox with `Esc` or a click outside. A click hint and the path
 menu expose Open, **Open With…**, Copy Path, Copy File, and Reveal in File
 Manager. Linux Open With keeps higher-priority added and cached MIME
 handlers when a lower-priority file removes them. Same-file removals retain
-the established refusal policy, and defaults stay first. macOS uses
+the established refusal policy, and defaults stay first. A desktop entry may
+put spaces around `=`, and `Name` decodes the `\s`, `\n`, `\t`, `\r` and `\\`
+escapes; `Exec` keeps its own quoting rules. An id such as
+`foo-bar-editor.desktop` also resolves to `foo-bar/editor.desktop` (up to six
+dashes are tried independently, longer ids only as a leading prefix of
+separators). macOS uses
 `NSWorkspace`; Windows application enumeration remains unsupported.
 
 Holding the open modifier over a detected path underlines it, in single-pane,

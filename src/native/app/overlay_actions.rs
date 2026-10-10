@@ -580,8 +580,11 @@ impl App {
             // closed itself; open the shared host picker seeded for the slot.
             OverlayOutcome::ContextMenuBindWorkspaceAt(idx) => {
                 self.flush_pending_overlay_settings();
-                if let Some(idx) = self.revalidated_workspace_slot(idx) {
-                    self.open_bind_workspace_at_picker(idx);
+                if let Some(identity) = self
+                    .revalidated_workspace_slot(idx)
+                    .and_then(|idx| self.sessions.workspace_identity(idx))
+                {
+                    self.open_bind_workspace_at_picker(identity);
                 }
             }
             // RAIL-BIND: unbind the CLICKED rail workspace directly.
@@ -593,9 +596,11 @@ impl App {
             }
             // RAIL-BIND: the shared host picker closed itself; bind the clicked
             // rail slot to the chosen saved-host alias.
-            OverlayOutcome::BindWorkspaceAtToHost(idx, alias) => {
+            // The picker carries the clicked workspace's identity: it binds
+            // that workspace wherever it now sits, or nothing once it closed.
+            OverlayOutcome::BindWorkspaceAtToHost(identity, alias) => {
                 self.flush_pending_overlay_settings();
-                if let Some(idx) = self.revalidated_workspace_slot(idx) {
+                if let Some(idx) = self.sessions.workspace_index_of(identity) {
                     self.bind_workspace_at_to_host_alias(idx, alias);
                 }
             }
@@ -898,7 +903,8 @@ impl App {
             // FORM-UX: the IdentityFile field asked to browse. Scan ~/.ssh for
             // candidate private keys (filename heuristics only — never key
             // contents) and seed the in-form browser. An empty scan still opens
-            // the browser, which shows a "type a path manually" hint.
+            // the browser, which shows a "type a path manually" hint; a scan cut
+            // short by its bounds also raises a notice.
             OverlayOutcome::BrowseIdentityKeys => {
                 let candidates = self.gather_identity_key_candidates();
                 self.overlay.open_identity_key_browse(candidates);

@@ -38,3 +38,7 @@ mod tests;
 #[cfg(all(test, unix))]
 #[path = "shell_integration/startup_tests.rs"]
 mod startup_tests;
+
+#[cfg(all(test, unix))]
+#[path = "shell_integration/spawn_env_tests.rs"]
+mod spawn_env_tests;

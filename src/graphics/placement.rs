@@ -833,7 +833,8 @@ impl ImageScene {
     /// path when a full-screen TUI reserves a bottom input composer via a
     /// top-anchored DECSTBM region: the content above the margin is real
     /// history, so placements scrolling off the top are retained into
-    /// scrollback rather than dropped.
+    /// scrollback rather than dropped. A placement crossing the bottom margin
+    /// is removed, because its footer rows stay while the rest would move.
     pub fn scroll_region_up_into_scrollback(
         &mut self,
         bottom: usize,
@@ -955,21 +956,29 @@ impl ImageScene {
         visible
     }
 
-    /// Move active placements anchored at or above `bottom` (all of them when
-    /// `None`) by `delta` rows, into scrollback history for a negative delta.
-    /// Placements already in history move too; a footer below `bottom` stays.
+    /// Move active placements by `delta` rows, into scrollback history for a
+    /// negative delta. With a `bottom` margin, a footer wholly below it stays,
+    /// and a placement crossing it is removed, as in [`Self::scroll_region`]:
+    /// its footer rows do not move, so it cannot move whole. Placements already
+    /// in history, or wholly above the margin, all move.
     fn shift_into_history(&mut self, bottom: Option<isize>, delta: isize) {
         let active = self.active;
-        for placement in self
-            .placements
-            .iter_mut()
-            .filter(|placement| placement.buffer == active)
-        {
-            if bottom.is_some_and(|bottom| placement.anchor.row > bottom) {
-                continue;
+        self.placements.retain_mut(|placement| {
+            if placement.buffer != active {
+                return true;
+            }
+            if let Some(bottom) = bottom {
+                let (start, end) = row_span(placement);
+                if start > bottom {
+                    return true;
+                }
+                if end > bottom {
+                    return false;
+                }
             }
             placement.anchor.row += delta;
-        }
+            true
+        });
     }
 
     /// Scroll the region `top..=bottom` by `delta` rows. Placements wholly

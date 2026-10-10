@@ -12,11 +12,8 @@
 //! until a second window is created.
 //!
 //! These accessors are consumed by `crate::native::window_owner` and by the
-//! process event loop ([`crate::native::app::MultiWindowHost`]). They are
-//! exercised by the headless owner/host tests; the `dead_code` allowance covers
-//! the few seams reachable only through a live second window (which the headless
-//! harness cannot open) so the non-test build's deny-warnings gate stays green.
-#![allow(dead_code)]
+//! process event loop ([`crate::native::app::MultiWindowHost`]), and exercised
+//! by the headless owner/host tests.
 
 use super::*;
 use crate::core::{Attrs, Cell, Color, Snapshot};
@@ -386,12 +383,18 @@ impl App {
             return;
         }
         self.merge_picker_moves = moves;
+        // Same rebuild contract as the numeral and the origin banner: the
+        // wording is painted, so a change on its own must reach the screen.
         self.last_render_signature = None;
         self.needs_rebuild = true;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
     }
 
     /// The temporary merge-picker numeral this window currently paints, if any.
-    /// The frame path reads this to draw the candidate badge.
+    /// Test-only: the frame path reads the field directly.
+    #[cfg(test)]
     pub(in crate::native) fn merge_numeral(&self) -> Option<u8> {
         self.merge_numeral
     }
@@ -419,6 +422,7 @@ impl App {
     }
 
     /// The candidate count this window paints as a merge-picker origin, if any.
+    #[cfg(test)]
     pub(in crate::native) fn merge_origin_candidates(&self) -> Option<u8> {
         self.merge_origin_candidates
     }
@@ -518,6 +522,15 @@ impl App {
         let row = if rows >= 3 { 1 } else { 0 };
         let attrs = merge_numeral_attrs();
         let row_start = row * columns;
+        // A wide character the badge cuts through would leave half of its
+        // pair under the badge: blank the half that stays outside it.
+        let end_col = start_col + width;
+        if start_col > 0 && snapshot.cells[row_start + start_col].wide_continuation {
+            snapshot.cells[row_start + start_col - 1] = Cell::new(' ', Attrs::default());
+        }
+        if end_col < columns && snapshot.cells[row_start + end_col].wide_continuation {
+            snapshot.cells[row_start + end_col] = Cell::new(' ', Attrs::default());
+        }
         for (offset, ch) in label.into_iter().enumerate() {
             snapshot.cells[row_start + start_col + offset] = Cell::new(ch, attrs);
         }
@@ -573,9 +586,9 @@ fn merge_origin_banner(candidates: u8, moves: bool) -> String {
     }
 }
 
-/// Bold, high-contrast attributes for the merge-target numeral badge: bright
-/// foreground on the default index-0 background, reverse-video so it stands off
-/// the terminal content on any theme.
+/// Bold, high-contrast attributes for the merge-target numeral badge: palette
+/// color 0 on palette color 15, bold, so it stands off the terminal content on
+/// any theme.
 fn merge_numeral_attrs() -> Attrs {
     let mut attrs = Attrs::default();
     attrs.foreground = Color::Indexed(0);
@@ -720,6 +733,35 @@ mod tests {
         let untouched = snapshot.clone();
         app.paint_merge_numeral_cells(&mut snapshot);
         assert_eq!(snapshot, untouched);
+    }
+
+    /// A badge that cuts through a wide character on either edge blanks the
+    /// half left outside it, so no orphan lead or continuation remains.
+    #[test]
+    fn the_badge_never_leaves_half_a_wide_character() {
+        let (mut app, _t) = headless_app_for_test();
+        app.set_merge_numeral(Some(1));
+        let text = " Press 1 to merge here ";
+        let columns = 40;
+        let start = (columns - text.len()) / 2;
+        let end = start + text.len();
+        let mut snapshot = blank(columns, 8);
+        let row = columns;
+        for lead in [start - 1, end - 1] {
+            snapshot.cells[row + lead] = Cell::new('\u{4E2D}', Attrs::default());
+            snapshot.cells[row + lead + 1] = Cell::wide_spacer(Attrs::default());
+        }
+        app.paint_merge_numeral_cells(&mut snapshot);
+        assert_eq!(row_text(&snapshot, 1)[start..end].to_string(), text);
+        assert_eq!(
+            snapshot.cells[row + start - 1].ch,
+            ' ',
+            "orphan lead blanked"
+        );
+        assert!(
+            !snapshot.cells[row + end].wide_continuation,
+            "orphan continuation blanked"
+        );
     }
 
     #[test]

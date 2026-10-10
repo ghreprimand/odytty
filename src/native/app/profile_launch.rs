@@ -32,9 +32,7 @@ pub(crate) fn resolve_startup_launch(
     ) else {
         return (settings, None, Vec::new());
     };
-    let catalog = load_profile_catalog();
-    let cli = launch_cli_from_options(options, Some(profile_name));
-    let effective = resolve_effective_launch(&catalog, &cli, &RestoredLaunchOverrides::default());
+    let effective = resolve_startup_with_catalog(options, profile_name, &load_profile_catalog());
     let plan = LocalLaunchPlan::from_effective(&effective);
     (effective.settings, Some(plan), effective.warnings)
 }
@@ -43,6 +41,26 @@ pub(crate) fn load_profile_catalog() -> ProfileCatalog {
     profiles_dir_path()
         .map(|dir| load_catalog_from_dir(&dir))
         .unwrap_or_default()
+}
+
+/// Resolve the startup launch for `profile_name` against `catalog`. A
+/// command-line working directory outranks every source below the live UI, so
+/// the exact OS path the user passed replaces the precedence result: the
+/// Unicode profile schema carries it only as lossy text, which would name a
+/// different directory for a non-UTF-8 Unix path or a Windows path with an
+/// unpaired surrogate.
+fn resolve_startup_with_catalog(
+    options: &NativeOptions,
+    profile_name: &str,
+    catalog: &ProfileCatalog,
+) -> EffectiveLaunch {
+    let cli = launch_cli_from_options(options, Some(profile_name));
+    let mut effective =
+        resolve_effective_launch(catalog, &cli, &RestoredLaunchOverrides::default());
+    if let Some(dir) = options.working_directory.as_ref() {
+        effective.working_directory = Some(dir.clone());
+    }
+    effective
 }
 
 pub(crate) fn launch_cli_from_options(
@@ -321,15 +339,22 @@ pub(crate) fn spawn_restored_local_leaf(
 }
 
 fn load_config_values() -> Option<ConfigValues> {
-    let path = crate::settings::config_file_path()?;
+    let path = crate::settings::spawn_config_file_path()?;
     let contents = crate::settings::fs_read::read_capped(&path).ok()?;
     Some(ConfigValues::parse(&contents, |_| {}))
+}
+
+/// Test seam: the config values and setting environment a launch resolved
+/// on this thread would read.
+#[cfg(test)]
+pub(crate) fn launch_inputs_for_test() -> (bool, HashMap<&'static str, OsString>) {
+    (load_config_values().is_some(), process_env_for_settings())
 }
 
 fn process_env_for_settings() -> HashMap<&'static str, OsString> {
     SETTING_ENV_KEYS
         .iter()
-        .filter_map(|&key| std::env::var_os(key).map(|value| (key, value)))
+        .filter_map(|&key| crate::settings::spawn_env_var(key).map(|value| (key, value)))
         .collect()
 }
 
@@ -511,6 +536,38 @@ mod tests {
         );
     }
 
+    /// A command-line working directory that is not valid Unicode reaches
+    /// the startup plan byte for byte when a profile is selected.
+    #[test]
+    fn startup_profile_launch_keeps_a_non_unicode_cli_working_directory() {
+        #[cfg(unix)]
+        let dir = {
+            use std::os::unix::ffi::OsStrExt;
+            PathBuf::from(std::ffi::OsStr::from_bytes(b"/odytty-test/\xff-dir"))
+        };
+        #[cfg(windows)]
+        let dir = {
+            use std::os::windows::ffi::OsStringExt;
+            let wide: Vec<u16> = r"C:\odytty-test\"
+                .encode_utf16()
+                .chain([0xD800, 0x64])
+                .collect();
+            PathBuf::from(std::ffi::OsString::from_wide(&wide))
+        };
+        assert!(dir.to_str().is_none(), "the fixture path is not Unicode");
+        let options = crate::native::options::NativeOptions {
+            working_directory: Some(dir.clone()),
+            ..crate::native::options::NativeOptions::default()
+        };
+        let mut catalog = ProfileCatalog::default();
+        let mut profile = LaunchProfile::new("dev").expect("profile");
+        profile.launch.working_directory = Some("/from/profile".to_owned());
+        catalog.profiles.insert("dev".to_owned(), profile);
+        let effective = super::resolve_startup_with_catalog(&options, "dev", &catalog);
+        assert_eq!(effective.working_directory, Some(dir));
+        assert_eq!(effective.profile_name.as_deref(), Some("dev"));
+    }
+
     #[test]
     fn missing_cwd_falls_back_to_home_with_warning() {
         // A resolved profile cwd that does not exist must not reach the spawn:
@@ -525,8 +582,22 @@ mod tests {
         let key = "USERPROFILE";
         #[cfg(not(windows))]
         let key = "HOME";
-        let previous = std::env::var_os(key);
-        // SAFETY: held under `test_env_lock`; restored before the guard drops.
+        /// Restores the variable on drop, pass or fail, before the lock
+        /// guard declared above it is released.
+        struct Restore(&'static str, Option<std::ffi::OsString>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                // SAFETY: still under `test_env_lock` (dropped after this).
+                unsafe {
+                    match self.1.take() {
+                        Some(value) => std::env::set_var(self.0, value),
+                        None => std::env::remove_var(self.0),
+                    }
+                }
+            }
+        }
+        let _restore = Restore(key, std::env::var_os(key));
+        // SAFETY: held under `test_env_lock`; `_restore` puts it back.
         unsafe {
             std::env::set_var(key, &home);
         }
@@ -552,12 +623,6 @@ mod tests {
             }),
             "a missing cwd must record a profile notice without either path"
         );
-        unsafe {
-            match previous {
-                Some(value) => std::env::set_var(key, value),
-                None => std::env::remove_var(key),
-            }
-        }
     }
 
     #[test]

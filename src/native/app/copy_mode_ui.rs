@@ -92,9 +92,11 @@ impl App {
                 if vrow >= snap.dimensions.rows {
                     return None;
                 }
-                let chars: Vec<char> = snap.cells[vrow * cols..(vrow + 1) * cols]
-                    .iter()
-                    .map(|c| c.ch)
+                // Wide-continuation spacers resolve to their lead, as in the
+                // visible rows, so a CJK run is one word off screen too.
+                let row = &snap.cells[vrow * cols..(vrow + 1) * cols];
+                let chars: Vec<char> = (0..cols)
+                    .map(|column| crate::selection::row_word_char(row, column).unwrap_or(' '))
                     .collect();
                 let ch = chars.get(p.column).copied();
                 *row_memo.borrow_mut() = Some((p.row, chars));
@@ -261,22 +263,12 @@ impl App {
                     };
                     (start_col, end_col)
                 };
-                let line = row
-                    .cells
-                    .get(start_col..=end_col)
-                    .map(|cells| {
-                        let text = cells
-                            .iter()
-                            .filter(|cell| !cell.wide_continuation && !cell.layout_padding)
-                            .flat_map(selection::cell_grapheme_chars)
-                            .collect::<String>();
-                        if row.wrapped && !block {
-                            text
-                        } else {
-                            text.trim_end().to_owned()
-                        }
-                    })
-                    .unwrap_or_default();
+                let line = selection::selected_row_text(
+                    &row.cells,
+                    start_col,
+                    end_col,
+                    !row.wrapped || block,
+                );
                 if have_previous && (block || !previous_wrapped) {
                     text.push('\n');
                 }
@@ -763,6 +755,31 @@ mod tests {
         assert_eq!(text, "hello", "char-wise yank copies the exact run");
     }
 
+    /// The live copy choke point keeps a row's real trailing space-like
+    /// scalars: only the grid's own ASCII-space padding is trimmed.
+    #[test]
+    fn absolute_selection_keeps_trailing_non_pad_whitespace() {
+        let Some(app) = build_app() else {
+            return;
+        };
+        seed(&app, "ab\u{3000}\u{a0}");
+        let scrollback_len = app.scrollback_len();
+        let range = AbsoluteSelectionRange {
+            start: AbsoluteCellPoint {
+                row: scrollback_len,
+                column: 0,
+            },
+            end: AbsoluteCellPoint {
+                row: scrollback_len,
+                column: 19,
+            },
+        };
+        let text = app
+            .absolute_selection_text(range, false)
+            .expect("selection yields text");
+        assert_eq!(text, "ab\u{3000}\u{a0}");
+    }
+
     /// The live copy choke point (mouse PRIMARY/CLIPBOARD/copy-on-select and
     /// the copy-mode yank both route here) preserves stored combining marks:
     /// a decomposed cluster copies as the same decomposed bytes rather than
@@ -971,6 +988,29 @@ mod tests {
         app.copy_mode_key(&WinitKey::Character("l".into()));
         app.copy_mode_key(&WinitKey::Character("y".into()));
         assert!(!app.copy_mode_active(), "yank exits the modal");
+    }
+
+    /// `v` then `y` with the caret still on the anchor copies the one character
+    /// under the caret (inclusive keyboard selection) instead of copying nothing.
+    #[test]
+    fn v_then_y_copies_the_character_under_the_caret() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        seed(&app, "hello");
+        let scrollback_len = app.scrollback_len();
+        app.copy_mode = Some(CopyModeState::new(AbsoluteCellPoint {
+            row: scrollback_len,
+            column: 1,
+        }));
+        app.copy_mode_key(&WinitKey::Character("v".into()));
+        app.copy_mode_key(&WinitKey::Character("y".into()));
+        assert!(!app.copy_mode_active(), "yank exits the modal");
+        assert_eq!(
+            app.clipboard.last_clipboard_write.as_deref(),
+            Some("e"),
+            "the character under the caret reaches the clipboard"
+        );
     }
 
     #[test]

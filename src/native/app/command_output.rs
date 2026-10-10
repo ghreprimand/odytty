@@ -307,14 +307,15 @@ impl App {
                 .saturating_sub(1),
         );
         drop(terminal);
-        let reference = self.selection.range().map_or_else(
-            || {
-                scrollback_len
-                    .saturating_sub(self.viewport.offset())
-                    .saturating_add(dimensions.rows / 2)
-            },
-            |selection| selection.start.row,
-        );
+        let top_row = scrollback_len.saturating_sub(self.viewport.offset());
+        // The previous jump's landing row while the view has not moved since;
+        // else the selection start; else the middle of the view.
+        let reference = self
+            .failed_nav_anchor
+            .filter(|&(_, anchored_top)| anchored_top == top_row)
+            .map(|(row, _)| row)
+            .or_else(|| self.selection.range().map(|selection| selection.start.row))
+            .unwrap_or_else(|| top_row.saturating_add(dimensions.rows / 2));
         let Some(target) = failed_command_target(&ranges, reference, direction) else {
             self.raise_open_notice(match direction {
                 CommandDirection::Prev => "No previous failed command.".to_owned(),
@@ -326,6 +327,10 @@ impl App {
         if self.viewport.jump_to(offset, scrollback_len) {
             self.on_viewport_changed();
         }
+        self.failed_nav_anchor = Some((
+            target,
+            scrollback_len.saturating_sub(self.viewport.offset()),
+        ));
         self.request_selection_redraw();
     }
 

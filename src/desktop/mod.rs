@@ -237,35 +237,67 @@ fn is_safe_desktop_id(id: &str) -> bool {
         && !Path::new(id).is_absolute()
 }
 
+/// Most dashes of one id that are expanded as independent path separators. Each
+/// dash is either a separator or part of a directory or file name, so an id with
+/// `n` dashes has up to `2^n` candidates; beyond this many dashes only the
+/// progressive prefix ladder (the first `k` dashes become separators) is tried,
+/// which bounds the reads one hostile id can cause.
+const MAX_INDEPENDENT_DASHES: usize = 6;
+
 /// Candidate relative paths (under `applications/`) for a desktop id: the
-/// literal name first, then the progressive dash→slash subdirectory forms.
+/// literal name first, then the subdirectory forms.
 ///
 /// C15: the freedesktop desktop-entry spec derives a file's id by replacing
 /// every path separator under `applications/` with `-`, so resolution must
 /// walk the ladder in reverse - `org-gnome-eog.desktop` may live at
 /// `org-gnome-eog.desktop`, `org/gnome-eog.desktop`, or `org/gnome/eog.desktop`.
-/// Candidates convert the first `k` dashes to slashes for `k = 0..=n`,
-/// shallowest first (the literal name wins a tie, matching the id-priority
-/// convention).
+/// A directory or file name may itself contain a dash, so
+/// `foo-bar-editor.desktop` may also live at `foo-bar/editor.desktop`.
 ///
-/// A derived candidate is produced only while every `/`-separated component
-/// is a nonempty normal name: a dash next to `..` or `.` would derive a parent
-/// or current-directory component, a leading dash an absolute path, and a
-/// doubled or trailing dash an empty component that resolves a different id.
-/// Each later candidate extends the earlier one's components, so the ladder
-/// stops at the first refused form.
+/// Candidates are ordered by how many dashes become separators (none first, so
+/// the literal name wins a tie, matching the id-priority convention) and, within
+/// one count, by the earliest dashes first. An id with more than
+/// [`MAX_INDEPENDENT_DASHES`] dashes gets only the progressive form for each
+/// count.
+///
+/// A derived candidate is produced only when every `/`-separated component is a
+/// nonempty normal name: a dash next to `..` or `.` would derive a parent or
+/// current-directory component, a leading dash an absolute path, and a doubled
+/// or trailing dash an empty component that resolves a different id. A refused
+/// form is skipped; later forms are checked independently.
 fn desktop_relpaths(id: &str) -> Vec<String> {
+    let dashes: Vec<usize> = id.match_indices('-').map(|(at, _)| at).collect();
     let mut out = vec![id.to_owned()];
-    let mut candidate = id.to_owned();
-    let mut from = 0;
-    while let Some(pos) = candidate[from..].find('-') {
-        let at = from + pos;
-        candidate.replace_range(at..=at, "/");
-        from = at + 1;
-        if !is_contained_relpath(&candidate) {
-            break;
+    let derive = |chosen: &[usize]| {
+        let mut candidate = id.to_owned();
+        for &at in chosen {
+            candidate.replace_range(at..=at, "/");
         }
-        out.push(candidate.clone());
+        candidate
+    };
+    if dashes.len() <= MAX_INDEPENDENT_DASHES {
+        let mut masks: Vec<u32> = (1..(1u32 << dashes.len())).collect();
+        // Fewest separators first; the sort is stable over ascending masks, so
+        // within a count the earliest dashes come first.
+        masks.sort_by_key(|mask| mask.count_ones());
+        for mask in masks {
+            let chosen: Vec<usize> = (0..dashes.len())
+                .filter(|bit| mask & (1 << bit) != 0)
+                .map(|bit| dashes[bit])
+                .collect();
+            let candidate = derive(&chosen);
+            if is_contained_relpath(&candidate) {
+                out.push(candidate);
+            }
+        }
+    } else {
+        for count in 1..=dashes.len() {
+            let candidate = derive(&dashes[..count]);
+            if !is_contained_relpath(&candidate) {
+                break;
+            }
+            out.push(candidate);
+        }
     }
     out
 }
@@ -562,15 +594,21 @@ mod tests {
         );
         assert_eq!(
             desktop_relpaths("kde-..-..-evil.desktop"),
-            vec!["kde-..-..-evil.desktop", "kde/..-..-evil.desktop"]
+            vec![
+                "kde-..-..-evil.desktop",
+                "kde/..-..-evil.desktop",
+                "kde-../..-evil.desktop",
+                "kde-..-../evil.desktop",
+                "kde/..-../evil.desktop"
+            ]
         );
         assert_eq!(
             desktop_relpaths("a-.-b.desktop"),
-            vec!["a-.-b.desktop", "a/.-b.desktop"]
+            vec!["a-.-b.desktop", "a/.-b.desktop", "a-./b.desktop"]
         );
         assert_eq!(
             desktop_relpaths("a--b.desktop"),
-            vec!["a--b.desktop", "a/-b.desktop"]
+            vec!["a--b.desktop", "a/-b.desktop", "a-/b.desktop"]
         );
         assert_eq!(desktop_relpaths("-lead.desktop"), vec!["-lead.desktop"]);
         assert_eq!(desktop_relpaths("trail-"), vec!["trail-"]);
@@ -579,6 +617,7 @@ mod tests {
             vec![
                 "foo-bar-editor.desktop",
                 "foo/bar-editor.desktop",
+                "foo-bar/editor.desktop",
                 "foo/bar/editor.desktop"
             ]
         );
@@ -617,8 +656,9 @@ mod tests {
         assert!(read_desktop_file(&env, &data_dirs, "..-outside.desktop").is_none());
     }
 
-    /// C15: the candidate ladder is literal first, then progressively deeper -
-    /// so a literally-installed dash-named file wins over a nested twin.
+    /// C15: the candidate ladder is literal first, then by how many dashes become
+    /// separators - so a literally-installed dash-named file wins over a nested
+    /// twin, and a directory name that itself holds a dash is reachable.
     #[test]
     fn desktop_relpaths_ladder_is_progressive() {
         assert_eq!(desktop_relpaths("foo.desktop"), vec!["foo.desktop"]);
@@ -631,9 +671,28 @@ mod tests {
             vec![
                 "org-gnome-eog.desktop",
                 "org/gnome-eog.desktop",
+                "org-gnome/eog.desktop",
                 "org/gnome/eog.desktop"
             ]
         );
+    }
+
+    /// An id with more dashes than [`MAX_INDEPENDENT_DASHES`] cannot multiply
+    /// into hundreds of reads: only the progressive prefix forms remain.
+    #[test]
+    fn desktop_relpaths_bound_independent_dash_choices() {
+        let few = format!("{}x.desktop", "a-".repeat(MAX_INDEPENDENT_DASHES));
+        assert_eq!(
+            desktop_relpaths(&few).len(),
+            1 << MAX_INDEPENDENT_DASHES,
+            "every subset of dashes is a candidate up to the bound"
+        );
+        let many = format!("{}x.desktop", "a-".repeat(MAX_INDEPENDENT_DASHES + 1));
+        let rels = desktop_relpaths(&many);
+        assert_eq!(rels.len(), MAX_INDEPENDENT_DASHES + 2);
+        assert_eq!(rels[0], many);
+        assert_eq!(rels[1], many.replacen('-', "/", 1));
+        assert_eq!(rels[MAX_INDEPENDENT_DASHES + 1], many.replace('-', "/"));
     }
 
     #[test]

@@ -82,11 +82,13 @@ pub(super) fn apply_spawn_integration_in_dir(
                 // The child's own HOME when the command sets one (a test
                 // build's child home, or a profile override), else the
                 // inherited one.
-                let original = std::env::var_os("ZDOTDIR");
+                // Test builds read these through the lock-aware spawn reader,
+                // never another test's redirected environment.
+                let original = crate::settings::spawn_env_var("ZDOTDIR");
                 let home = command
                     .env_value("HOME")
                     .map(std::ffi::OsStr::to_os_string)
-                    .or_else(|| std::env::var_os("HOME"));
+                    .or_else(|| crate::settings::spawn_env_var("HOME"));
                 command.env(
                     "ODYTTY_ORIGINAL_ZDOTDIR_SET",
                     if original.is_some() { "1" } else { "" },
@@ -106,7 +108,7 @@ pub(super) fn apply_spawn_integration_in_dir(
                 && write_if_needed(&vendor.join("odytty.fish"), fish_conf()).is_ok()
             {
                 let mut data_dirs = base.into_os_string();
-                let existing = std::env::var_os("XDG_DATA_DIRS")
+                let existing = crate::settings::spawn_env_var("XDG_DATA_DIRS")
                     .filter(|value| !value.is_empty())
                     .unwrap_or_else(|| "/usr/local/share:/usr/share".into());
                 data_dirs.push(":");

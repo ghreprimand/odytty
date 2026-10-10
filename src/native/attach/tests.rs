@@ -765,7 +765,7 @@ fn transient_send_timeout_drops_frame_and_keeps_input_flowing() {
     }
     let client = Arc::new(Mutex::new(AttachClient {
         stream: ours,
-        detached: true, // suppress the Drop detach frame; irrelevant here
+        detach: DetachState::Sent, // suppress the Drop detach frame; irrelevant here
         poisoned: false,
     }));
     let mut writer = AttachInputWriter {
@@ -814,7 +814,7 @@ fn poisoned_attach_client_does_not_report_input_as_delivered() {
     let (ours, _peer) = UnixStream::pair().expect("socketpair");
     let client = Arc::new(Mutex::new(AttachClient {
         stream: ours,
-        detached: true,
+        detach: DetachState::Sent,
         poisoned: false,
     }));
     let poison = Arc::clone(&client);
@@ -838,7 +838,7 @@ fn oversized_input_rejection_does_not_poison_the_next_keystroke() {
     let (ours, mut peer) = UnixStream::pair().expect("socketpair");
     let mut client = AttachClient {
         stream: ours,
-        detached: true,
+        detach: DetachState::Sent,
         poisoned: false,
     };
     let oversized = vec![b'x'; MAX_CLIENT_INPUT_LEN + 1];
@@ -875,7 +875,7 @@ fn partial_write_timeout_tears_session_down() {
         .expect("set write timeout");
     let client = Arc::new(Mutex::new(AttachClient {
         stream: ours,
-        detached: true,
+        detach: DetachState::Sent,
         poisoned: false,
     }));
     let mut writer = AttachInputWriter { client };
@@ -899,7 +899,7 @@ fn broken_pipe_on_input_write_stays_fatal() {
     drop(theirs);
     let client = Arc::new(Mutex::new(AttachClient {
         stream: ours,
-        detached: true,
+        detach: DetachState::Sent,
         poisoned: false,
     }));
     let mut writer = AttachInputWriter { client };
@@ -1426,7 +1426,7 @@ fn resize_truncated_write_poisons_client_against_further_writes() {
         .expect("set write timeout");
     let mut client = AttachClient {
         stream: ours,
-        detached: true,
+        detach: DetachState::Sent,
         poisoned: false,
     };
     // Reliable partial-progress path (same shape as the input-writer regression):
@@ -1471,7 +1471,7 @@ fn detach_truncated_write_poisons_client_against_further_writes() {
         .expect("set write timeout");
     let mut client = AttachClient {
         stream: ours,
-        detached: false,
+        detach: DetachState::Pending,
         poisoned: false,
     };
     let oversized = vec![b'x'; 8 * 1024 * 1024];
@@ -1528,7 +1528,7 @@ fn nonblocking_resize_retry_never_waits_and_recovers_after_the_host_drains() {
         .expect("write timeout");
     let mut client = AttachClient {
         stream: ours,
-        detached: true,
+        detach: DetachState::Sent,
         poisoned: false,
     };
 
@@ -1548,7 +1548,9 @@ fn nonblocking_resize_retry_never_waits_and_recovers_after_the_host_drains() {
     let mut buffer = [0u8; 4096];
     while drained < filled {
         let want = (filled - drained).min(buffer.len());
-        drained += std::io::Read::read(&mut &theirs, &mut buffer[..want]).expect("drain");
+        let read = std::io::Read::read(&mut &theirs, &mut buffer[..want]).expect("drain");
+        assert_ne!(read, 0, "the client end closed before the backlog drained");
+        drained += read;
     }
     client.try_resize_now(100, 30).expect("retry succeeds");
     let mut reader = &theirs;

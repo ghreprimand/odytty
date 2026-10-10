@@ -717,3 +717,48 @@ fn color_introducer_with_only_a_register_selects_without_redefining() {
         "register 1 keeps the color it was defined with"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Exported-decoder input bounds
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_long_parameter_list_keeps_only_the_slots_a_command_can_use() {
+    let mut payload = vec![b';'; 100_000];
+    payload.push(b'7');
+    payload.push(b'~');
+    let (params, next) = parse_params(&payload, 0);
+    assert!(params.len() <= 8, "kept {} values", params.len());
+    assert_eq!(next, 100_001, "the whole list is still consumed");
+
+    let (params, _) = parse_params(b"1;2;3;4;5;6;7;8;9;10~", 0);
+    assert_eq!(params, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+}
+
+#[test]
+fn a_payload_over_the_capture_cap_is_refused_before_decoding() {
+    use crate::graphics::placement::MAX_RAW_GRAPHICS_BYTES;
+    let mut payload = vec![b' '; MAX_RAW_GRAPHICS_BYTES + 1];
+    payload[0] = b'~';
+    assert!(matches!(
+        decode_sixel(&payload, SixelBackground::Transparent),
+        Err(SixelError::TooLarge { .. })
+    ));
+
+    // A payload exactly at the cap still decodes.
+    let mut payload = vec![b' '; MAX_RAW_GRAPHICS_BYTES];
+    payload[0] = b'~';
+    let image = decode_sixel(&payload, SixelBackground::Transparent).expect("at the cap");
+    assert_eq!((image.width, image.height), (1, 6));
+}
+
+#[test]
+fn repeated_graphics_new_lines_past_the_height_cap_are_refused_without_overflow() {
+    // 1 MiB of new lines is 6 MiB of rows, far past the 10 000 row cap.
+    let mut payload = vec![b'-'; 1024 * 1024 - 1];
+    payload.push(b'~');
+    assert!(matches!(
+        decode_sixel(&payload, SixelBackground::Transparent),
+        Err(SixelError::TooLarge { .. })
+    ));
+}

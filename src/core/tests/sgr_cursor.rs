@@ -342,6 +342,7 @@ fn private_marker_sequences_still_route_after_fix() {
     // it consumes the sequence as a private-marker control, leaving no host
     // reply and not corrupting subsequent printable text.
     terminal.advance(b"\x1b[=1u");
+    assert_eq!(terminal.keyboard_modes().kitty_keyboard_flags, 1);
     assert!(terminal.take_host_output().is_empty());
     terminal.advance(b"Z");
     assert_eq!(terminal.screen().cell(0, 1).unwrap().ch, 'Z');
@@ -602,6 +603,8 @@ fn completion_pager_redraw_clears_stale_rows() {
     terminal.advance(b"\x1b[12C u\x1b[J");
 
     let text = terminal.screen().plain_text();
+    assert_eq!(text, "> less build u\n\n\n\n\n");
+    assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 14 });
     assert!(
         !text.contains("Backups/") && !text.contains("busy.log"),
         "stale completion candidates remained:\n{text}"

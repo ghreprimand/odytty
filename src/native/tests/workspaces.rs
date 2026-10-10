@@ -340,6 +340,25 @@ fn rename_workspace_action_opens_overlay_and_commits_the_active_name() {
     );
 }
 
+/// The replacement helper must empty a seeded field wherever the caret sits;
+/// it used to loop forever when the caret was at the start or the middle of a
+/// nonempty field.
+#[test]
+fn commit_rename_replaces_the_seed_from_any_caret_position() {
+    for caret in [0usize, 4, 11] {
+        let mut app = headless_app();
+        app.dispatch_workspace_action_for_test(BindableAction::RenameWorkspace);
+        assert_eq!(app.rename_text_for_test().as_deref(), Some("Workspace 1"));
+        app.rename_place_caret_for_test(caret);
+        app.commit_rename_for_test("infra");
+        assert_eq!(
+            app.workspace_names_for_test(),
+            vec!["infra".to_owned()],
+            "caret at {caret}"
+        );
+    }
+}
+
 #[test]
 fn empty_rename_leaves_the_workspace_name_unchanged() {
     let mut app = headless_app();

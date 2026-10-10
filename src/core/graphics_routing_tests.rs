@@ -267,23 +267,39 @@ fn sixel_spam_stays_within_store_limits() {
     };
     *t.graphics_mut() = crate::graphics::ImageScene::new(limits);
 
-    // Each 16×6 block is 16*6*4 = 384 bytes RGBA. max_images=4.
-    for _ in 0..20 {
+    // Project-authored solid rasters are admitted before saturating the cap.
+    t.advance(b"\x1b[?80h");
+    let mut admitted = Vec::new();
+    for index in 0..20 {
         t.advance(&solid_16x6_red());
+        let id = t.graphics().placements().last().unwrap().image_id;
+        admitted.push(id);
+        assert!(t.graphics().store().contains(id));
+        assert_eq!(t.graphics().store().len(), (index + 1).min(4));
+        assert_eq!(
+            t.graphics().store().decoded_bytes(),
+            (index + 1).min(4) * 384
+        );
     }
-
-    assert!(
-        t.graphics().store().len() <= 4,
-        "store should not exceed max_images"
+    let retained = &admitted[16..];
+    assert_eq!(
+        t.graphics()
+            .store()
+            .iter_ids()
+            .collect::<std::collections::BTreeSet<_>>(),
+        retained
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
     );
-    assert!(
-        t.graphics().store().decoded_bytes() <= 4096,
-        "store should not exceed max_decoded_bytes"
+    let visible = t.visible_graphics(0);
+    assert_eq!(
+        visible.iter().map(|p| p.image_id).collect::<Vec<_>>(),
+        retained
     );
-    assert!(
-        t.visible_graphics(0).len() <= 4,
-        "visible placements should not exceed store capacity"
-    );
+    for id in &admitted[..16] {
+        assert!(!t.graphics().store().contains(*id));
+    }
 }
 
 #[test]
@@ -295,16 +311,33 @@ fn eviction_removes_oldest_sixel_placements() {
     };
     *t.graphics_mut() = crate::graphics::ImageScene::new(limits);
 
-    t.advance(b"\x1b[1;1H");
-    t.advance(&solid_16x6_red());
-    t.advance(b"\x1b[5;1H");
-    t.advance(&solid_16x6_red());
-    t.advance(b"\x1b[10;1H");
-    t.advance(&solid_16x6_red());
-
+    t.advance(b"\x1b[?80h");
+    let mut admitted = Vec::new();
+    for row in [0, 4, 9] {
+        t.advance(format!("\x1b[{};1H", row + 1).as_bytes());
+        t.advance(&solid_16x6_red());
+        admitted.push(t.graphics().placements().last().unwrap().image_id);
+    }
     assert_eq!(t.graphics().store().len(), 2);
+    assert_eq!(t.graphics().store().decoded_bytes(), 2 * 384);
+    assert!(!t.graphics().store().contains(admitted[0]));
+    assert_eq!(
+        t.graphics()
+            .store()
+            .iter_ids()
+            .collect::<std::collections::BTreeSet<_>>(),
+        admitted[1..]
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
+    );
     let vis = t.visible_graphics(0);
-    assert_eq!(vis.len(), 2);
+    assert_eq!(
+        vis.iter()
+            .map(|p| (p.image_id, p.row, p.column))
+            .collect::<Vec<_>>(),
+        [(admitted[1], 4, 0), (admitted[2], 9, 0)]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -395,26 +428,24 @@ fn default_cell_metrics_are_8x16() {
 
 #[test]
 fn sixel_display_rows_clamp_to_screen_like_columns() {
-    // Sibling of kitty_display_rows_clamp_to_screen_like_columns / iTerm2's
-    // extent clamp: a tall Sixel must store display_rows within screen bounds
-    // from the cursor, not only clamp columns.
-    let mut t = Terminal::new(20, 4);
-    t.set_cell_metrics(8, 8);
-    // 48x36 px -> 6x5 cells at 8x8; screen has only 4 rows from row 0.
-    t.advance(&solid_48x36_red());
-
-    let stored = t.graphics().placements();
-    assert_eq!(stored.len(), 1, "expected one stored placement");
-    assert!(
-        stored[0].display_columns <= 20,
-        "columns clamp to screen; got {}",
-        stored[0].display_columns
-    );
-    assert!(
-        stored[0].display_rows <= 4,
-        "rows must clamp to screen bounds like Kitty/iTerm2; got {}",
-        stored[0].display_rows
-    );
+    for (row, column, expected) in [(0, 0, (6, 4)), (2, 18, (2, 2))] {
+        let mut t = Terminal::new(20, 4);
+        t.set_cell_metrics(8, 8);
+        t.advance(b"\x1b[?80h");
+        t.advance(format!("\x1b[{};{}H", row + 1, column + 1).as_bytes());
+        t.advance(&solid_48x36_red());
+        let stored = t.graphics().placements();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(
+            (stored[0].anchor.row, stored[0].anchor.column),
+            (row as isize, column)
+        );
+        assert_eq!(
+            (stored[0].display_columns, stored[0].display_rows),
+            expected
+        );
+        assert_eq!(t.screen().cursor(), Position { row, column });
+    }
 }
 
 #[test]

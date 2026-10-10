@@ -606,11 +606,7 @@ impl App {
             // modifier releases. It therefore precedes Kitty and
             // modifyOtherKeys; application chords and modal UI were already
             // consumed above, and paste uses its separate byte path.
-            if let Some(event) =
-                map_win32_key_event(physical, &logical, &binding_key, mods, event_type)
-            {
-                bytes = input::encode_win32_key_event(event, event_type);
-            }
+            bytes = encode_win32_key_records(physical, &logical, &binding_key, mods, event_type);
         } else if let Some(key) = map_keypad_physical_key(physical) {
             bytes =
                 input::encode_key_event_with_text(key, mods, key_modes, event_type, generated_text);

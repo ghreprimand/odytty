@@ -184,6 +184,10 @@ impl RailAutohide {
         match self.phase {
             Phase::Revealing(since) => merge(since + SHOW_DEBOUNCE),
             Phase::HideGrace(since) if !self.suspend_hide => merge(since + HIDE_GRACE),
+            // Revealed with the pointer outside the band (a fast follow-through
+            // that only crossed the edge): the next pass starts the hide grace,
+            // so it is due now.
+            Phase::Revealed if !self.in_band => merge(now),
             _ => {}
         }
         if let Some(until) = self.flash_until {
@@ -322,6 +326,35 @@ mod tests {
         let revealed = start + SHOW_DEBOUNCE;
         assert!(m.poll(revealed), "confirm elapses → revealed");
         assert!(m.is_visible(revealed));
+    }
+
+    #[test]
+    fn fast_follow_through_hides_on_returned_deadlines_alone() {
+        // A reveal reached through segment crossing alone ends Revealed with
+        // the pointer outside the band. With no further pointer event, polling
+        // only at the deadlines `wake_deadline` returns must still reach Hidden.
+        let start = t0();
+        let mut m = RailAutohide::default();
+        m.on_pointer(true, true, start);
+        m.on_pointer(true, false, start + SHOW_DEBOUNCE / 3);
+        let mut now = start + SHOW_DEBOUNCE;
+        assert!(m.poll(now), "confirm elapses → revealed");
+        for _ in 0..4 {
+            let Some(next) = m.wake_deadline(now) else {
+                break;
+            };
+            now = next;
+            m.poll(now);
+        }
+        assert!(
+            !m.is_visible(now),
+            "the rail hides without another pointer event"
+        );
+        assert!(
+            now <= start + SHOW_DEBOUNCE + HIDE_GRACE,
+            "the grace timing is kept"
+        );
+        assert_eq!(m.wake_deadline(now), None, "nothing stays scheduled");
     }
 
     #[test]

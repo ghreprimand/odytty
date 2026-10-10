@@ -60,7 +60,7 @@ pub(crate) enum Action {
     OscParamBoundary,
     /// OSC terminated; driver dispatches the accumulated params via
     /// [`super::VtDispatch::osc_dispatch`]. `bell` distinguishes BEL (`0x07`)
-    /// from ST (`ESC \` or `0x9C`).
+    /// from ST (`ESC \`); raw `0x9C` is payload.
     OscEnd { bell: bool },
     /// OSC cancelled by CAN/SUB: the driver discards the buffered string
     /// without dispatching it, then executes the cancel byte itself.

@@ -7,7 +7,7 @@
 //! concrete `Host` aliases plus optional `HostName`, `User`, and `Port`.
 //! Key material directives such as `IdentityFile` are ignored.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::Path;
 
@@ -110,14 +110,24 @@ pub fn parse_ssh_config_bytes_with_limits(
         return Vec::new();
     }
 
-    let capped_len = bytes.len().min(limits.max_bytes as usize);
-    let text = String::from_utf8_lossy(&bytes[..capped_len]);
+    let cap = usize::try_from(limits.max_bytes).unwrap_or(usize::MAX);
+    let mut kept = &bytes[..bytes.len().min(cap)];
+    if bytes.len() > cap {
+        // The cap cut the input: its last line may be partial, and a partial
+        // `HostName` would surface a host that does not exist. Keep complete
+        // lines only.
+        kept = &kept[..kept
+            .iter()
+            .rposition(|&byte| byte == b'\n')
+            .map_or(0, |i| i + 1)];
+    }
+    let text = String::from_utf8_lossy(kept);
     parse_ssh_config_text(&text, limits)
 }
 
 fn parse_ssh_config_text(text: &str, limits: SshConfigReadLimits) -> Vec<SshHostEntry> {
     let mut entries = Vec::new();
-    let mut seen = HashSet::new();
+    let mut seen = HashMap::new();
     let mut current = None;
     let mut in_match = false;
 
@@ -142,18 +152,25 @@ fn parse_ssh_config_text(text: &str, limits: SshConfigReadLimits) -> Vec<SshHost
             }
             "include" => {}
             _ if in_match => {}
+            // OpenSSH keeps the first value it obtains for a keyword.
             "hostname" => {
                 if let (Some(block), Some(value)) = (current.as_mut(), first_arg(&args)) {
-                    block.host_name = Some(trim_chars(value, limits.max_field_chars));
+                    block
+                        .host_name
+                        .get_or_insert_with(|| trim_chars(value, limits.max_field_chars));
                 }
             }
             "user" => {
                 if let (Some(block), Some(value)) = (current.as_mut(), first_arg(&args)) {
-                    block.user = Some(trim_chars(value, limits.max_field_chars));
+                    block
+                        .user
+                        .get_or_insert_with(|| trim_chars(value, limits.max_field_chars));
                 }
             }
             "port" => {
-                if let (Some(block), Some(value)) = (current.as_mut(), first_arg(&args)) {
+                if let (Some(block), Some(value)) = (current.as_mut(), first_arg(&args))
+                    && block.port.is_none()
+                {
                     block.port = value.parse::<u16>().ok();
                 }
             }
@@ -178,7 +195,11 @@ fn read_bounded_prefix(path: &Path, max_bytes: u64) -> Option<Vec<u8>> {
     // include path must not freeze the caller.
     let file = crate::bounded_io::open_regular(path).ok()?;
     let mut bytes = Vec::with_capacity(max_bytes.min(8192) as usize);
-    file.take(max_bytes).read_to_end(&mut bytes).ok()?;
+    // One byte past the cap, so the parser can tell a file that ends at the cap
+    // from one the cap cut.
+    file.take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .ok()?;
     Some(bytes)
 }
 
@@ -240,10 +261,18 @@ fn directive(tokens: Vec<String>) -> Option<(String, Vec<String>)> {
             tokens.iter().skip(2).cloned().collect(),
         ));
     }
-    Some((
-        first.to_ascii_lowercase(),
-        tokens.into_iter().skip(1).collect(),
-    ))
+    let keyword = first.to_ascii_lowercase();
+    let mut args: Vec<String> = tokens.into_iter().skip(1).collect();
+    // `keyword =value`: the separator may sit at the start of the first value.
+    if let Some(first_value) = args.first_mut()
+        && let Some(rest) = first_value.strip_prefix('=')
+    {
+        *first_value = rest.to_string();
+        if first_value.is_empty() {
+            args.remove(0);
+        }
+    }
+    Some((keyword, args))
 }
 
 fn concrete_aliases(args: &[String], max_chars: usize) -> Vec<String> {
@@ -271,7 +300,7 @@ fn first_arg(args: &[String]) -> Option<&str> {
 
 fn flush_block(
     entries: &mut Vec<SshHostEntry>,
-    seen: &mut HashSet<String>,
+    seen: &mut HashMap<String, usize>,
     block: Option<HostBlock>,
     max_entries: usize,
 ) {
@@ -279,12 +308,25 @@ fn flush_block(
         return;
     };
     for alias in block.aliases {
+        // ssh merges blocks naming the same alias, the first value of each
+        // keyword winning: a repeat fills only the fields still unset.
+        if let Some(&index) = seen.get(&alias) {
+            let entry = &mut entries[index];
+            if entry.host_name.is_none() {
+                entry.host_name.clone_from(&block.host_name);
+            }
+            if entry.user.is_none() {
+                entry.user.clone_from(&block.user);
+            }
+            if entry.port.is_none() {
+                entry.port = block.port;
+            }
+            continue;
+        }
         if entries.len() >= max_entries {
             break;
         }
-        if !seen.insert(alias.clone()) {
-            continue;
-        }
+        seen.insert(alias.clone(), entries.len());
         entries.push(SshHostEntry {
             alias,
             host_name: block.host_name.clone(),
@@ -486,6 +528,109 @@ mod tests {
             entries[2].host_name.as_deref(),
             Some("second.example.invalid")
         );
+    }
+
+    #[test]
+    fn a_cap_that_cuts_a_line_drops_the_partial_line() {
+        let cut = SshConfigReadLimits {
+            max_bytes: 31,
+            ..limits()
+        };
+        // 31 bytes end inside `long.example.invalid`: the half-read HostName
+        // must not become a host that does not exist.
+        let text = b"Host a\nHostName long.example.invalid\n";
+        assert_eq!(&text[..31], b"Host a\nHostName long.example.in");
+        let entries = parse_ssh_config_bytes_with_limits(text, cut);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].alias, "a");
+        assert_eq!(entries[0].host_name, None);
+        // A cut `Host` line surfaces no truncated alias either.
+        let entries = parse_ssh_config_bytes_with_limits(
+            b"Host first\nHost second.example.invalid\n",
+            SshConfigReadLimits {
+                max_bytes: 25,
+                ..limits()
+            },
+        );
+        assert_eq!(
+            entries.iter().map(|e| e.alias.as_str()).collect::<Vec<_>>(),
+            vec!["first"]
+        );
+        // Input that ends exactly at the cap is complete, even without a final
+        // newline.
+        let exact = parse_ssh_config_bytes_with_limits(
+            b"Host a\nHostName h",
+            SshConfigReadLimits {
+                max_bytes: 17,
+                ..limits()
+            },
+        );
+        assert_eq!(exact[0].host_name.as_deref(), Some("h"));
+    }
+
+    #[test]
+    fn a_file_longer_than_the_cap_is_cut_at_a_whole_line() {
+        let dir = temp_dir("odytty-ssh-config-cut");
+        let config = dir.join("config");
+        fs::write(&config, b"Host a\nHostName long.example.invalid\n").expect("write config");
+        let entries = read_ssh_config_with_limits(
+            &config,
+            SshConfigReadLimits {
+                max_bytes: 31,
+                ..limits()
+            },
+        );
+        assert_eq!(entries[0].host_name, None);
+        // The same file with a cap that holds it whole keeps the host name.
+        let entries = read_ssh_config_with_limits(
+            &config,
+            SshConfigReadLimits {
+                max_bytes: 37,
+                ..limits()
+            },
+        );
+        assert_eq!(
+            entries[0].host_name.as_deref(),
+            Some("long.example.invalid")
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_first_value_of_a_keyword_wins_like_openssh() {
+        let entries = parse(
+            b"Host a\n HostName first.invalid\n HostName second.invalid\n User one\n User two\n Port 22\n Port nope\n Port 2200\n",
+        );
+        assert_eq!(entries[0].host_name.as_deref(), Some("first.invalid"));
+        assert_eq!(entries[0].user.as_deref(), Some("one"));
+        assert_eq!(
+            entries[0].port,
+            Some(22),
+            "a later bad or other port is ignored"
+        );
+        // A bad first port does not block a later good one.
+        let entries = parse(b"Host b\n Port nope\n Port 2200\n");
+        assert_eq!(entries[0].port, Some(2200));
+    }
+
+    #[test]
+    fn blocks_naming_one_alias_merge_with_the_first_value_winning() {
+        let entries = parse(
+            b"Host dup\n HostName h1.invalid\nHost other\n HostName o.invalid\nHost dup\n HostName h2.invalid\n User late\n Port 2201\n",
+        );
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].alias, "dup");
+        assert_eq!(entries[0].host_name.as_deref(), Some("h1.invalid"));
+        assert_eq!(entries[0].user.as_deref(), Some("late"));
+        assert_eq!(entries[0].port, Some(2201));
+    }
+
+    #[test]
+    fn an_equals_sign_may_lead_the_value() {
+        let entries = parse(b"Host a\n HostName =x.invalid\n User = u\n Port=22\n");
+        assert_eq!(entries[0].host_name.as_deref(), Some("x.invalid"));
+        assert_eq!(entries[0].user.as_deref(), Some("u"));
+        assert_eq!(entries[0].port, Some(22));
     }
 
     #[test]

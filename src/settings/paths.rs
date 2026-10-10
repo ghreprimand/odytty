@@ -33,10 +33,57 @@ pub(crate) fn spawn_writer_config_dir() -> Option<PathBuf> {
     Some(redirected.unwrap_or_else(|| test_process_base().join(CONFIG_DIR_NAME)))
 }
 
+/// The value of `key` a spawn-time reader uses (shell-integration wrappers,
+/// profile launch resolution). Release builds read the live environment.
+#[cfg(not(test))]
+pub(crate) fn spawn_env_var(key: &str) -> Option<OsString> {
+    std::env::var_os(key)
+}
+
+/// Test builds read the live environment only on a thread that holds the
+/// shared environment lock, where no other test can be redirecting it. Every
+/// other thread (another test, or a thread a lock holder spawned) gets the
+/// process-owned value instead: the test child home for `HOME` on Unix, and
+/// unset for everything else, so it never sees another test's redirected base
+/// or the real home's settings.
+#[cfg(test)]
+pub(crate) fn spawn_env_var(key: &str) -> Option<OsString> {
+    if crate::test_lock::current_thread_holds_env_lock() {
+        return std::env::var_os(key);
+    }
+    #[cfg(unix)]
+    if key == "HOME" {
+        return Some(test_child_home().into_os_string());
+    }
+    None
+}
+
+/// The config file a spawn-time reader loads launch settings from. Release
+/// builds use [`config_file_path`].
+#[cfg(not(test))]
+pub(crate) fn spawn_config_file_path() -> Option<PathBuf> {
+    config_file_path()
+}
+
+/// Test builds resolve [`config_file_path`] only on a thread holding the
+/// shared environment lock; any other thread gets a path inside this test
+/// process's own base, where no test writes a config file.
+#[cfg(test)]
+pub(crate) fn spawn_config_file_path() -> Option<PathBuf> {
+    if crate::test_lock::current_thread_holds_env_lock() {
+        return config_file_path();
+    }
+    Some(
+        test_process_base()
+            .join(CONFIG_DIR_NAME)
+            .join(CONFIG_FILE_NAME),
+    )
+}
+
 /// One scratch directory owned by this test process, created on first use.
 /// Test-build writers that would otherwise resolve a location from the live
 /// environment without the shared environment lock use it instead.
-#[cfg(all(unix, test))]
+#[cfg(test)]
 pub(crate) fn test_process_base() -> &'static Path {
     static PROCESS_OWNED: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     PROCESS_OWNED.get_or_init(|| crate::test_dirs::fresh_temp_dir("odytty-test-config-"))

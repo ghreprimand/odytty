@@ -45,7 +45,7 @@ use winit::event_loop::EventLoopProxy;
 use crate::core::{SnapshotEnvelope, SnapshotEnvelopeCaps, Terminal};
 use crate::session_host::protocol::{
     ClientFrame, ClientHello, HostFrame, HostFrameReader, MAX_CLIENT_INPUT_LEN, ProtocolError,
-    read_host_frame, read_host_hello, write_client_frame, write_client_hello, write_client_input,
+    read_host_hello, write_client_frame, write_client_hello, write_client_input,
 };
 use crate::session_host::{
     SocketReadDeadline, existing_runtime_dir, session_socket_path, validate_socket_parent,
@@ -95,10 +95,22 @@ impl AttachEventSink for EventLoopProxy<UserEvent> {
 /// The write half of an attach connection: the App thread sends input, resize,
 /// and detach frames through it. Reading is done by the [`AttachReader`] pump on
 /// a separate thread over a clone of the same socket.
+/// Where this client's clean `Detach` stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DetachState {
+    /// Not sent yet, or only a send timeout that wrote nothing: may be tried.
+    Pending,
+    /// Sent whole; later calls succeed without sending again.
+    Sent,
+    /// Refused or cut off; later calls report the same failure and never
+    /// resend, since a partly written frame must not be followed by another.
+    Failed(String),
+}
+
 #[derive(Debug)]
 pub(super) struct AttachClient {
     stream: UnixStream,
-    detached: bool,
+    detach: DetachState,
     /// Set once a non-transient write error (a `ProtocolError::TruncatedWrite`
     /// after a partial kernel write, or a dead-link fd error) leaves a truncated
     /// frame on the wire. All three write paths (input, resize, detach) share
@@ -184,17 +196,22 @@ impl AttachClient {
         // for no reason — the pump re-clears the timeout before its first read, so
         // nothing is lost. On Linux the call succeeds and ignoring success is a
         // no-op → byte-identical.
+        // A residual timeout is harmless there: the pump reads through the
+        // resumable frame reader, which keeps a partial frame across one.
         let _ = read_stream.set_read_timeout(None);
         // C-4: bound every write to the host so a stopped host can never park the
         // main thread (resize) or the mutex-holding writer thread indefinitely.
-        // Best-effort, like the read-timeout clear above: on macOS setting a
-        // timeout on a `try_clone`d peer-closed socket can return EINVAL, which
-        // must not fail an otherwise-good attach.
-        let _ = stream.set_write_timeout(Some(ATTACH_WRITE_TIMEOUT));
+        // The bound is mandatory, so only the documented peer-closed case may
+        // pass unset: macOS reports EINVAL for a timeout on a `try_clone`d
+        // socket whose peer already closed, and every write to such a socket
+        // fails at once rather than blocking. Any other failure refuses the
+        // attach instead of leaving writes unbounded.
+        accept_write_timeout_setup(stream.set_write_timeout(Some(ATTACH_WRITE_TIMEOUT)))
+            .context("bound session-host attach writes")?;
         Ok((
             Self {
                 stream,
-                detached: false,
+                detach: DetachState::Pending,
                 poisoned: false,
             },
             AttachReader {
@@ -281,20 +298,30 @@ impl AttachClient {
 
     /// Send a clean `Detach`: this client leaves but the hosted PTY + terminal
     /// model stay alive for later attach by id. Idempotent — repeated calls (and
-    /// the `Drop` best-effort detach) send at most one frame.
+    /// the `Drop` best-effort detach) send at most one frame, and report the
+    /// same outcome: once sent, `Ok`; once refused or cut off, the same error.
+    /// Only a send timeout that wrote nothing leaves it pending, so the `Drop`
+    /// attempt can still deliver it.
     pub(super) fn detach(&mut self) -> Result<()> {
-        if self.detached {
-            return Ok(());
+        match &self.detach {
+            DetachState::Sent => return Ok(()),
+            DetachState::Failed(message) => bail!("{message}"),
+            DetachState::Pending => {}
         }
-        self.detached = true;
         // A stream already desynced by a truncated write cannot carry a clean
-        // Detach frame; skipping it is fatal-visible (the host tears the session
-        // down when this socket closes). Propagate the error like the input
-        // writer rather than swallowing it.
-        self.guard_not_poisoned()?;
-        let result = write_client_frame(&mut self.stream, &ClientFrame::Detach)
-            .context("write session-host detach frame");
+        // Detach frame. The host then sees the socket close without a Detach
+        // and removes this client; the error is propagated like the input
+        // writer's rather than swallowed.
+        let result = self.guard_not_poisoned().and_then(|()| {
+            write_client_frame(&mut self.stream, &ClientFrame::Detach)
+                .context("write session-host detach frame")
+        });
         self.note_write_result(&result);
+        self.detach = match &result {
+            Ok(()) => DetachState::Sent,
+            Err(error) if is_transient_send_timeout(error) => DetachState::Pending,
+            Err(error) => DetachState::Failed(format!("{error:#}")),
+        };
         result
     }
 }
@@ -499,6 +526,16 @@ pub(super) struct AttachReader {
     stream: UnixStream,
 }
 
+/// Settle the attach write-timeout setup: success, or the EINVAL a socket whose
+/// peer already closed reports on macOS, is accepted; any other failure is
+/// returned, because an unset send timeout would leave writes unbounded.
+fn accept_write_timeout_setup(result: io::Result<()>) -> io::Result<()> {
+    match result {
+        Err(error) if error.kind() == io::ErrorKind::InvalidInput => Ok(()),
+        other => other,
+    }
+}
+
 /// Read frames until the host's initial [`HostFrame::Snapshot`] arrives, or the
 /// absolute `end` instant passes. Per the contract the snapshot is the first
 /// frame, but any `Output`/`Invalidate` seen first is tolerated and ignored;
@@ -568,10 +605,14 @@ fn run_attach_pump(
 ) {
     let mut stream = reader.stream;
     // Blocking reads on the dedicated pump thread: a clean EOF surfaces as an
-    // UnexpectedEof disconnect and ends the loop.
+    // UnexpectedEof disconnect and ends the loop. Clearing the timeout is
+    // best-effort; frames go through the resumable reader, so a timeout that
+    // stays set only returns control between slices and never drops the
+    // bytes of a partly read frame.
     let _ = stream.set_read_timeout(None);
+    let mut frame_reader = HostFrameReader::default();
     loop {
-        match read_host_frame(&mut stream) {
+        match frame_reader.read(&mut stream) {
             Ok(HostFrame::Output(bytes)) => {
                 {
                     let mut term = crate::native::lock_recover(&terminal);
@@ -606,11 +647,21 @@ fn run_attach_pump(
             Ok(HostFrame::Snapshot(bytes)) => {
                 // Per the contract only one snapshot is sent (at attach), but if
                 // the host ever re-snapshots mid-stream, restore from it rather
-                // than mis-applying envelope bytes as raw output.
-                if let Ok(envelope) =
-                    SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default())
-                {
-                    let _ = crate::native::lock_recover(&terminal).restore_from_envelope(&envelope);
+                // than mis-applying envelope bytes as raw output. A snapshot that
+                // does not decode or restore leaves the mirror out of step with
+                // the host, so the attachment ends visibly, as a protocol error
+                // does, instead of redrawing a stale mirror as if it were live.
+                let restored = SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default())
+                    .map_err(anyhow::Error::from)
+                    .and_then(|envelope| {
+                        crate::native::lock_recover(&terminal)
+                            .restore_from_envelope(&envelope)
+                            .map_err(anyhow::Error::from)
+                    });
+                if let Err(error) = restored {
+                    eprintln!("odytty: session-host snapshot not applied: {error}");
+                    sink.exited(session);
+                    break;
                 }
                 sink.redraw(session);
             }
@@ -658,5 +709,7 @@ fn is_interrupted(err: &ProtocolError) -> bool {
     )
 }
 
+#[cfg(test)]
+mod pump_tests;
 #[cfg(test)]
 mod tests;

@@ -81,14 +81,82 @@ fn scoped_search_excludes_matching_text_outside_the_command() {
     assert_eq!(app.command_search_match_count_for_test(), 1);
 }
 
+/// Two successful commands, two failed ones (exit 7, then exit 3) and thirty
+/// filler lines inside each failed command's output, so both failures scroll
+/// off the 24-row grid. Prompt rows: ok 0, bad 2, ok 34, bad 36; final prompt 68.
+fn failed_and_successful_commands() -> Vec<u8> {
+    let pad = "pad\r\n".repeat(30);
+    let mut stream = Vec::new();
+    for (name, status, filler) in [
+        ("ok0", 0, false),
+        ("bad7", 7, true),
+        ("ok2", 0, false),
+        ("bad3", 3, true),
+    ] {
+        stream.extend_from_slice(
+            format!(
+                "\x1b]133;A\x07$ {name}\r\n\x1b]133;C\x07out\r\n{}\x1b]133;D;{status}\x07",
+                if filler { pad.as_str() } else { "" }
+            )
+            .as_bytes(),
+        );
+    }
+    stream.extend_from_slice(b"\x1b]133;A\x07$ ");
+    stream
+}
+
+/// The absolute row shown at the top of the viewport.
+fn top_visible_row(app: &App) -> usize {
+    app.scrollback_len_for_test() - app.viewport_offset_for_test()
+}
+
 #[test]
 fn failed_navigation_uses_only_explicit_nonzero_statuses() {
-    let bytes = b"\x1b]133;A\x07$ one\r\n\x1b]133;C\x07bad\r\n\x1b]133;D;7\x07\x1b]133;A\x07$ two\r\n\x1b]133;C\x07ok\r\n\x1b]133;D;0\x07\x1b]133;A\x07$ ";
-    let (mut app, _) = app_with(bytes);
+    let (mut app, _) = app_with(&failed_and_successful_commands());
+    assert_eq!(app.scrollback_len_for_test(), 45, "fixture scrolls 45 rows");
+    // From the live bottom, previous lands on the nearest failure (exit 3, prompt
+    // row 36), never on the exit-0 command at row 34 or the later prompt.
     app.jump_failed_command_for_test(false);
-    assert!(
-        app.open_notice_message_for_test()
-            .is_none_or(|message| !message.contains("No previous failed"))
+    assert_eq!(
+        top_visible_row(&app),
+        36,
+        "previous failed: the exit 3 block"
+    );
+    assert!(app.open_notice_message_for_test().is_none());
+}
+
+#[test]
+fn failed_navigation_steps_through_each_failure_and_stops_at_the_ends() {
+    let (mut app, _) = app_with(&failed_and_successful_commands());
+    app.jump_failed_command_for_test(false);
+    assert_eq!(top_visible_row(&app), 36);
+    app.jump_failed_command_for_test(false);
+    assert_eq!(
+        top_visible_row(&app),
+        2,
+        "a second previous steps to the exit 7 block, skipping the exit 0 ones"
+    );
+    app.jump_failed_command_for_test(false);
+    assert_eq!(
+        top_visible_row(&app),
+        2,
+        "no earlier failure: the view stays"
+    );
+    assert_eq!(
+        app.open_notice_message_for_test().as_deref(),
+        Some("No previous failed command.")
+    );
+    app.jump_failed_command_for_test(true);
+    assert_eq!(
+        top_visible_row(&app),
+        36,
+        "next steps forward to the exit 3 block"
+    );
+    app.jump_failed_command_for_test(true);
+    assert_eq!(top_visible_row(&app), 36);
+    assert_eq!(
+        app.open_notice_message_for_test().as_deref(),
+        Some("No next failed command.")
     );
 }
 

@@ -429,10 +429,20 @@ fn word_walk_char(snapshot: &Snapshot, point: CellPoint) -> Option<char> {
     if point.row >= snapshot.dimensions.rows || point.column >= snapshot.dimensions.columns {
         return None;
     }
-    let index = point.row * snapshot.dimensions.columns + point.column;
-    let cell = snapshot.cells.get(index)?;
-    if cell.wide_continuation && point.column > 0 {
-        return snapshot.cells.get(index - 1).map(|lead| lead.ch);
+    let row_start = point.row * snapshot.dimensions.columns;
+    let row = snapshot
+        .cells
+        .get(row_start..row_start + snapshot.dimensions.columns)?;
+    row_word_char(row, point.column)
+}
+
+/// [`word_walk_char`] over one row's cells: the character at `column`, with a
+/// wide-continuation spacer resolved to its lead. Shared by the mouse word walk
+/// and copy-mode word motions so both see a CJK run as one word.
+pub(crate) fn row_word_char(row: &[crate::core::Cell], column: usize) -> Option<char> {
+    let cell = row.get(column)?;
+    if cell.wide_continuation && column > 0 {
+        return row.get(column - 1).map(|lead| lead.ch);
     }
     Some(cell.ch)
 }
@@ -559,45 +569,76 @@ fn autoscroll_rows(overshoot_px: f64, cell_height: f64, max_rows: isize) -> isiz
 }
 
 pub fn selected_text(snapshot: &Snapshot, range: SelectionRange) -> String {
-    let mut lines = Vec::new();
-    let start_row = range
-        .start
-        .row
-        .min(snapshot.dimensions.rows.saturating_sub(1));
-    let end_row = range
-        .end
-        .row
-        .min(snapshot.dimensions.rows.saturating_sub(1));
+    let range = ordered_range(range);
+    let columns = snapshot.dimensions.columns;
+    let last_column = columns.saturating_sub(1);
+    let last_row = snapshot.dimensions.rows.saturating_sub(1);
+    let start_row = range.start.row.min(last_row);
+    let end_row = range.end.row.min(last_row);
 
+    let mut lines = Vec::new();
     for row in start_row..=end_row {
         let start_column = if row == start_row {
-            range
-                .start
-                .column
-                .min(snapshot.dimensions.columns.saturating_sub(1))
+            range.start.column.min(last_column)
         } else {
             0
         };
         let end_column = if row == end_row {
-            range
-                .end
-                .column
-                .min(snapshot.dimensions.columns.saturating_sub(1))
+            range.end.column.min(last_column)
         } else {
-            snapshot.dimensions.columns.saturating_sub(1)
+            last_column
         };
-        let offset = row * snapshot.dimensions.columns;
-        let line = snapshot.cells[offset + start_column..=offset + end_column]
-            .iter()
-            .filter(|cell| !cell.wide_continuation && !cell.layout_padding)
-            .flat_map(cell_grapheme_chars)
-            .collect::<String>()
-            .trim_end()
-            .to_owned();
-        lines.push(line);
+        let cells = row
+            .checked_mul(columns)
+            .and_then(|offset| snapshot.cells.get(offset..offset.checked_add(columns)?))
+            .unwrap_or_default();
+        lines.push(selected_row_text(cells, start_column, end_column, true));
     }
 
     lines.join("\n")
+}
+
+/// Put a range's two corners in reading order. Ranges built by
+/// [`normalize_range`] already are; the fields are public, and a reversed
+/// range must copy the same text as its ordered form rather than panic.
+fn ordered_range(range: SelectionRange) -> SelectionRange {
+    if (range.start.row, range.start.column) <= (range.end.row, range.end.column) {
+        range
+    } else {
+        SelectionRange {
+            start: range.end,
+            end: range.start,
+        }
+    }
+}
+
+/// The text of the inclusive column span `start..=end` of one grid row, shared
+/// by every copy extractor so they cannot drift. A wide glyph copies with its
+/// lead cell; a span holding only the continuation half copies nothing, the
+/// same rule for CJK and shaped owners. Spacer and layout-padding
+/// cells contribute nothing. With `trim_pad`, only the grid's own padding
+/// (ASCII space) is trimmed from the end: a row that really ends in U+00A0,
+/// U+3000, a tab or another space-like scalar keeps it. A span outside the row
+/// is empty.
+pub(crate) fn selected_row_text(
+    cells: &[crate::core::Cell],
+    start: usize,
+    end: usize,
+    trim_pad: bool,
+) -> String {
+    let Some(span) = cells.get(start..=end) else {
+        return String::new();
+    };
+    let text = span
+        .iter()
+        .filter(|cell| !cell.wide_continuation && !cell.layout_padding)
+        .flat_map(cell_grapheme_chars)
+        .collect::<String>();
+    if trim_pad {
+        text.trim_end_matches(' ').to_owned()
+    } else {
+        text
+    }
 }
 
 /// The characters a copied cell contributes: its base char followed by any
@@ -626,28 +667,20 @@ pub(crate) fn cell_grapheme_chars(cell: &crate::core::Cell) -> impl Iterator<Ite
 /// is a visible-space range whose two corner columns define the band.
 pub fn selected_text_block(snapshot: &Snapshot, range: SelectionRange) -> String {
     let (lo, hi) = block_column_bounds(range);
-    let start_row = range
-        .start
-        .row
-        .min(snapshot.dimensions.rows.saturating_sub(1));
-    let end_row = range
-        .end
-        .row
-        .min(snapshot.dimensions.rows.saturating_sub(1));
-    let lo = lo.min(snapshot.dimensions.columns.saturating_sub(1));
-    let hi = hi.min(snapshot.dimensions.columns.saturating_sub(1));
+    let columns = snapshot.dimensions.columns;
+    let last_row = snapshot.dimensions.rows.saturating_sub(1);
+    let start_row = range.start.row.min(range.end.row).min(last_row);
+    let end_row = range.start.row.max(range.end.row).min(last_row);
+    let lo = lo.min(columns.saturating_sub(1));
+    let hi = hi.min(columns.saturating_sub(1));
 
     let mut lines = Vec::new();
     for row in start_row..=end_row {
-        let offset = row * snapshot.dimensions.columns;
-        let line = snapshot.cells[offset + lo..=offset + hi]
-            .iter()
-            .filter(|cell| !cell.wide_continuation && !cell.layout_padding)
-            .flat_map(cell_grapheme_chars)
-            .collect::<String>()
-            .trim_end()
-            .to_owned();
-        lines.push(line);
+        let cells = row
+            .checked_mul(columns)
+            .and_then(|offset| snapshot.cells.get(offset..offset.checked_add(columns)?))
+            .unwrap_or_default();
+        lines.push(selected_row_text(cells, lo, hi, true));
     }
 
     lines.join("\n")
@@ -685,34 +718,45 @@ pub fn apply_highlight(
     range: SelectionRange,
     themed: Option<SelectionStyle>,
 ) {
-    let start_row = range
-        .start
-        .row
-        .min(snapshot.dimensions.rows.saturating_sub(1));
-    let end_row = range
-        .end
-        .row
-        .min(snapshot.dimensions.rows.saturating_sub(1));
+    let range = ordered_range(range);
+    let columns = snapshot.dimensions.columns;
+    let last_column = columns.saturating_sub(1);
+    let last_row = snapshot.dimensions.rows.saturating_sub(1);
+    let start_row = range.start.row.min(last_row);
+    let end_row = range.end.row.min(last_row);
 
     for row in start_row..=end_row {
         let start_column = if row == start_row {
-            range
-                .start
-                .column
-                .min(snapshot.dimensions.columns.saturating_sub(1))
+            range.start.column.min(last_column)
         } else {
             0
         };
         let end_column = if row == end_row {
-            range
-                .end
-                .column
-                .min(snapshot.dimensions.columns.saturating_sub(1))
+            range.end.column.min(last_column)
         } else {
-            snapshot.dimensions.columns.saturating_sub(1)
+            last_column
         };
-        let offset = row * snapshot.dimensions.columns;
-        for cell in &mut snapshot.cells[offset + start_column..=offset + end_column] {
+        highlight_span(snapshot, row, start_column, end_column, themed);
+    }
+}
+
+/// Paint one row's inclusive column span. A span outside the stored cells,
+/// such as a zero-column grid, paints nothing instead of panicking.
+fn highlight_span(
+    snapshot: &mut Snapshot,
+    row: usize,
+    start: usize,
+    end: usize,
+    themed: Option<SelectionStyle>,
+) {
+    let Some(offset) = row.checked_mul(snapshot.dimensions.columns) else {
+        return;
+    };
+    let (Some(first), Some(last)) = (offset.checked_add(start), offset.checked_add(end)) else {
+        return;
+    };
+    if let Some(cells) = snapshot.cells.get_mut(first..=last) {
+        for cell in cells {
             highlight_cell(cell, themed);
         }
     }
@@ -759,22 +803,15 @@ pub fn apply_highlight_block(
     themed: Option<SelectionStyle>,
 ) {
     let (lo, hi) = block_column_bounds(range);
-    let start_row = range
-        .start
-        .row
-        .min(snapshot.dimensions.rows.saturating_sub(1));
-    let end_row = range
-        .end
-        .row
-        .min(snapshot.dimensions.rows.saturating_sub(1));
-    let lo = lo.min(snapshot.dimensions.columns.saturating_sub(1));
-    let hi = hi.min(snapshot.dimensions.columns.saturating_sub(1));
+    let last_row = snapshot.dimensions.rows.saturating_sub(1);
+    let start_row = range.start.row.min(range.end.row).min(last_row);
+    let end_row = range.start.row.max(range.end.row).min(last_row);
+    let last_column = snapshot.dimensions.columns.saturating_sub(1);
+    let lo = lo.min(last_column);
+    let hi = hi.min(last_column);
 
     for row in start_row..=end_row {
-        let offset = row * snapshot.dimensions.columns;
-        for cell in &mut snapshot.cells[offset + lo..=offset + hi] {
-            highlight_cell(cell, themed);
-        }
+        highlight_span(snapshot, row, lo, hi, themed);
     }
 }
 
@@ -1446,6 +1483,74 @@ mod tests {
             end: CellPoint { row: 0, column: 3 },
         };
         assert_eq!(selected_text_block(&snapshot, from_spacer), "b");
+    }
+
+    #[test]
+    fn copy_trims_only_the_grids_own_padding() {
+        // The grid pads with ASCII space. A row that really ends in a no-break
+        // space, an ideographic space, an em space or a tab keeps them.
+        let snapshot = snapshot(&["ab\u{3000}\u{a0}\u{2003}\t   "], 12);
+        let range = SelectionRange {
+            start: CellPoint { row: 0, column: 0 },
+            end: CellPoint { row: 0, column: 11 },
+        };
+        let kept = "ab\u{3000}\u{a0}\u{2003}\t";
+        assert_eq!(selected_text(&snapshot, range), kept);
+        assert_eq!(selected_text_block(&snapshot, range), kept);
+    }
+
+    #[test]
+    fn copy_and_highlight_accept_reversed_ranges_and_empty_grids() {
+        let grid = snapshot(&["abcdef", "ghijkl"], 6);
+        let ordered = SelectionRange {
+            start: CellPoint { row: 0, column: 1 },
+            end: CellPoint { row: 1, column: 2 },
+        };
+        let reversed = SelectionRange {
+            start: ordered.end,
+            end: ordered.start,
+        };
+        assert_eq!(
+            selected_text(&grid, reversed),
+            selected_text(&grid, ordered)
+        );
+        assert_eq!(selected_text(&grid, ordered), "bcdef\nghi");
+        let same_row_reversed = SelectionRange {
+            start: CellPoint { row: 0, column: 4 },
+            end: CellPoint { row: 0, column: 1 },
+        };
+        assert_eq!(selected_text(&grid, same_row_reversed), "bcde");
+        assert_eq!(selected_text_block(&grid, reversed), "bc\nhi");
+
+        let mut painted = grid.clone();
+        apply_highlight(&mut painted, reversed, None);
+        let mut expected = grid.clone();
+        apply_highlight(&mut expected, ordered, None);
+        assert_eq!(painted.cells, expected.cells);
+
+        // A grid with no columns or no cells has nothing to copy or paint.
+        for dimensions in [Dimensions::new(0, 3), Dimensions::new(4, 0)] {
+            let mut empty = Snapshot {
+                dimensions,
+                cursor: Position::default(),
+                cursor_visible: true,
+                colors: crate::core::DynamicColors::default(),
+                cells: Vec::new(),
+            };
+            let range = SelectionRange {
+                start: CellPoint { row: 0, column: 0 },
+                end: CellPoint { row: 2, column: 3 },
+            };
+            // Rows without cells contribute empty lines, never text.
+            assert!(selected_text(&empty, range).chars().all(|ch| ch == '\n'));
+            assert!(
+                selected_text_block(&empty, range)
+                    .chars()
+                    .all(|ch| ch == '\n')
+            );
+            apply_highlight(&mut empty, range, None);
+            apply_highlight_block(&mut empty, range, None);
+        }
     }
 
     #[test]

@@ -182,7 +182,11 @@ impl ImageStore {
     /// re-derives that image's byte cost when it drops, which is the single
     /// place frame growth enters the store's budget accounting, and keeps the
     /// animated-image set in step with whether frames remain.
-    pub fn frames_mut(&mut self, id: StoredImageId) -> Option<FramesGuard<'_>> {
+    ///
+    /// Crate-private because the guard records growth but does not admit it:
+    /// the caller checks [`Self::budget_remaining`] before adding a frame, as
+    /// the scene's frame commands do. Outside callers have no unadmitted path.
+    pub(crate) fn frames_mut(&mut self, id: StoredImageId) -> Option<FramesGuard<'_>> {
         let image = self.images.get_mut(&id)?;
         let before = image.decoded_bytes();
         Some(FramesGuard {
@@ -422,7 +426,9 @@ impl FramesGuard<'_> {
         &self.image.frames
     }
 
-    pub fn frames_mut(&mut self) -> &mut ImageFrames {
+    /// Raw frame mutation; see [`ImageStore::frames_mut`] for the admission
+    /// contract.
+    pub(crate) fn frames_mut(&mut self) -> &mut ImageFrames {
         &mut self.image.frames
     }
 

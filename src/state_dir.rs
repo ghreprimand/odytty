@@ -9,7 +9,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // Unix owner-only mode bits. The Windows path uses inherited ACLs and never
 // references these, so they are scoped to the platforms that apply them.
@@ -221,6 +221,31 @@ fn clamp_config_mode(mode: u32) -> u32 {
     if mode & !0o644 == 0 { mode } else { 0o644 }
 }
 
+/// The file a config path ultimately names: `path` itself unless it is a
+/// symlink, then the final target of the chain, a relative link read against
+/// the directory holding it. A dangling link resolves to its missing target so a
+/// first write creates it there. A chain longer than 40 links, or any read
+/// error, leaves the original path, which keeps the plain replace behavior.
+fn follow_config_link(path: &Path) -> PathBuf {
+    let mut current = path.to_path_buf();
+    for _ in 0..40 {
+        let is_link = fs::symlink_metadata(&current)
+            .map(|meta| meta.file_type().is_symlink())
+            .unwrap_or(false);
+        if !is_link {
+            return current;
+        }
+        let Ok(target) = fs::read_link(&current) else {
+            return path.to_path_buf();
+        };
+        current = match current.parent() {
+            Some(parent) => parent.join(target),
+            None => target,
+        };
+    }
+    path.to_path_buf()
+}
+
 /// Atomically write `bytes` to `path` under `mode`.
 ///
 /// Creates the parent directory, writes a uniquely-named exclusive sibling temp,
@@ -230,6 +255,10 @@ fn clamp_config_mode(mode: u32) -> u32 {
 /// renamed-but-empty target. The rename is atomic and replaces an existing target
 /// on both Unix and Windows.
 ///
+/// A symlinked `Config` path is written through: the target is replaced and the
+/// link stays (Windows resolves links the same way; the behavior is tested on
+/// Unix only).
+///
 /// Windows: ordinary config and state files retain their existing inherited-ACL
 /// behavior, while export creates an owner-restricted sibling and moves that
 /// security descriptor with the file. The Unix mode-preservation step is a
@@ -237,6 +266,17 @@ fn clamp_config_mode(mode: u32) -> u32 {
 /// directory handle for `File::sync_all` is unsupported.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8], mode: WriteMode) -> io::Result<()> {
     use std::io::Write as _;
+
+    // A config that is a symlink (a dotfile manager's layout) is updated where
+    // it points: renaming a temp over the link would replace the link itself and
+    // cut the file from the repository it was linked to.
+    let followed;
+    let path = if matches!(mode, WriteMode::Config) {
+        followed = follow_config_link(path);
+        followed.as_path()
+    } else {
+        path
+    };
 
     let parent = path
         .parent()
@@ -806,6 +846,70 @@ mod tests {
         assert!(!unix::owner_policy_accepts_only_the_effective_uid(
             uid.wrapping_add(1)
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_atomic_config_writes_through_a_symlink_and_keeps_the_link() {
+        use std::os::unix::fs::symlink;
+        let root = temp_dir("cfg-link");
+        let repo = root.join("repo");
+        fs::create_dir(&repo).expect("repo dir");
+        let target = repo.join("odytty.conf");
+        fs::write(&target, "old = 1\n").expect("seed target");
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).expect("chmod 600");
+        let link = root.join("odytty.conf");
+        symlink("repo/odytty.conf", &link).expect("relative link");
+
+        write_atomic(&link, b"new = 2\n", WriteMode::Config).expect("write config");
+
+        assert!(
+            fs::symlink_metadata(&link)
+                .expect("link metadata")
+                .file_type()
+                .is_symlink(),
+            "the link must survive the writeback"
+        );
+        assert_eq!(
+            fs::read_to_string(&target).expect("read target"),
+            "new = 2\n"
+        );
+        assert_eq!(mode(&target), 0o600, "the target's own mode is kept");
+        // A link to a link, and an absolute link, resolve to the same file.
+        let outer = root.join("outer.conf");
+        symlink(&link, &outer).expect("chained link");
+        write_atomic(&outer, b"chain = 3\n", WriteMode::Config).expect("write via chain");
+        assert_eq!(fs::read_to_string(&target).expect("read"), "chain = 3\n");
+        assert!(
+            fs::symlink_metadata(&outer)
+                .expect("outer metadata")
+                .file_type()
+                .is_symlink()
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_atomic_config_creates_the_target_of_a_dangling_link() {
+        use std::os::unix::fs::symlink;
+        let root = temp_dir("cfg-dangling");
+        let link = root.join("odytty.conf");
+        symlink("elsewhere/odytty.conf", &link).expect("dangling link");
+
+        write_atomic(&link, b"first = 1\n", WriteMode::Config).expect("write config");
+
+        assert!(
+            fs::symlink_metadata(&link)
+                .expect("link metadata")
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("elsewhere/odytty.conf")).expect("created target"),
+            "first = 1\n"
+        );
+        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]

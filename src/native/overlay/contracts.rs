@@ -187,7 +187,7 @@ pub(in crate::native) enum OverlayOutcome {
     ContextMenuUnbindWorkspace,
     /// Bind the workspace at this rail index to a host (RAIL-BIND). The rail
     /// context menu targets the CLICKED slot; the App opens the shared host
-    /// picker seeded for the `BindWorkspaceIndex` purpose.
+    /// picker seeded for the `BindWorkspaceAt` purpose.
     ContextMenuBindWorkspaceAt(usize),
     /// Unbind the workspace at this rail index (RAIL-BIND). The App clears the
     /// clicked slot's binding directly.
@@ -196,10 +196,11 @@ pub(in crate::native) enum OverlayOutcome {
     /// Emitted by the shared host picker when opened for the BindWorkspace
     /// purpose; the App calls the frozen `set_active_workspace_default_profile`.
     BindWorkspaceToHost(String),
-    /// Bind the workspace at this rail index to the saved host with this alias
-    /// (RAIL-BIND). Emitted by the shared host picker when opened for the
-    /// `BindWorkspaceIndex` purpose; the App binds the clicked slot.
-    BindWorkspaceAtToHost(usize, String),
+    /// Bind the workspace with this creation identity to the saved host with
+    /// this alias (RAIL-BIND). Emitted by the shared host picker when opened
+    /// for the `BindWorkspaceAt` purpose; the App binds that workspace at its
+    /// current rail position, or does nothing once it has closed.
+    BindWorkspaceAtToHost(crate::native::session::SessionToken, String),
     /// Open the shared host picker for the tab holding this token, seeded for
     /// the ODP-5D "Connect to host" purpose (a new adjacent remote tab). The
     /// menu closed itself; the App opens the picker.

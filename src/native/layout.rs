@@ -1292,34 +1292,6 @@ mod tests {
         );
     }
 
-    /// The absorbed origin must keep pointer→cell mapping consistent: a pixel at
-    /// the center of cell (c, r) inside a pane maps back to (c, r) when the
-    /// pane's grid origin is folded in. Uses the same flooring a consumer does.
-    #[test]
-    fn pointer_to_cell_round_trips_through_absorbed_origin() {
-        let (cell_w, cell_h, divider_px) = (8u32, 16u32, 1.0f32);
-        let content = PaneRect::new(0.0, 0.0, 101.0, 64.0);
-        let tree = PaneNode::Split {
-            axis: SplitAxis::Columns,
-            ratio: 0.5,
-            first: Box::new(PaneNode::Leaf(tok(0))),
-            second: Box::new(PaneNode::Leaf(tok(1))),
-        };
-        let rects = layout_rects(&tree, content, divider_px);
-        // The left pane carries the absorbed x-offset (its grid is pushed right
-        // to sit flush against the divider), so it is the interesting case.
-        let left = rects[0].1;
-        let (cols, rows) = grid_dims_for_rect(left, cell_w, cell_h);
-        let [ox, oy] = pane_grid_origin(left, content, cell_w, cell_h);
-        for (c, r) in [(0usize, 0usize), (2, 1), (cols - 1, rows - 1)] {
-            let px = ox + (c as f32 + 0.5) * cell_w as f32;
-            let py = oy + (r as f32 + 0.5) * cell_h as f32;
-            let col = ((px - ox).max(0.0) as u32 / cell_w) as usize;
-            let row = ((py - oy).max(0.0) as u32 / cell_h) as usize;
-            assert_eq!((col, row), (c, r), "round-trip failed at cell ({c},{r})");
-        }
-    }
-
     // ----- pane_inner_rect: per-divider padding (breathing room) -----
 
     /// Zero padding is a strict identity: the inner rect equals the tiled rect
@@ -1435,8 +1407,9 @@ mod tests {
 
     /// Helper: far-pane (second-child) outer-margin remainder for a 2-pane split
     /// after a drag-release-snap to `drag_px`. Returns the far margin in pixels;
-    /// the regression guard asserts it is constant across release positions and
-    /// that the first child lands on an exact whole-cell boundary.
+    /// the regression guard asserts it is constant across release positions. The
+    /// helper itself asserts the first child lands on an exact whole-cell
+    /// boundary.
     fn far_margin_after_snap(
         axis: SplitAxis,
         content: PaneRect,
@@ -1444,7 +1417,7 @@ mod tests {
         cell_h: u32,
         divider_px: f32,
         drag_px: f32,
-    ) -> (f32, f32) {
+    ) -> f32 {
         // Build a fresh 2-pane split, drag it to `drag_px`, then snap on release.
         let mut tree = PaneNode::Split {
             axis,
@@ -1462,12 +1435,11 @@ mod tests {
         let (first, second) = (rects[0].1, rects[1].1);
         // First child's grid extent along the axis (must be a whole-cell
         // multiple → zero remainder → flush both sides).
-        let (first_extent, first_remainder, far_margin) = match axis {
+        let (first_remainder, far_margin) = match axis {
             SplitAxis::Columns => {
                 let (cols, _) = grid_dims_for_rect(first, cell_w, cell_h);
                 let (cols2, _) = grid_dims_for_rect(second, cell_w, cell_h);
                 (
-                    first.w,
                     first.w - cols as f32 * cell_w as f32,
                     second.w - cols2 as f32 * cell_w as f32,
                 )
@@ -1476,19 +1448,17 @@ mod tests {
                 let (_, rows) = grid_dims_for_rect(first, cell_w, cell_h);
                 let (_, rows2) = grid_dims_for_rect(second, cell_w, cell_h);
                 (
-                    first.h,
                     first.h - rows as f32 * cell_h as f32,
                     second.h - rows2 as f32 * cell_h as f32,
                 )
             }
         };
-        let _ = first_extent;
         // The first child must be flush (no sub-cell remainder) post-snap.
         assert_eq!(
             first_remainder, 0.0,
             "release-snap must land the divider on a whole-cell boundary"
         );
-        (first_remainder, far_margin)
+        far_margin
     }
 
     /// THE release-snap regression guard (column split): dragging the divider to
@@ -1498,8 +1468,8 @@ mod tests {
     #[test]
     fn column_release_snap_gives_constant_outer_margin() {
         let content = PaneRect::new(0.0, 0.0, 101.0, 64.0);
-        let (_, m_a) = far_margin_after_snap(SplitAxis::Columns, content, 8, 16, 1.0, 37.0);
-        let (_, m_b) = far_margin_after_snap(SplitAxis::Columns, content, 8, 16, 1.0, 61.0);
+        let m_a = far_margin_after_snap(SplitAxis::Columns, content, 8, 16, 1.0, 37.0);
+        let m_b = far_margin_after_snap(SplitAxis::Columns, content, 8, 16, 1.0, 61.0);
         assert_eq!(
             m_a, m_b,
             "outer margin must be identical across two release positions"
@@ -1512,8 +1482,8 @@ mod tests {
     #[test]
     fn row_release_snap_gives_constant_outer_margin() {
         let content = PaneRect::new(0.0, 0.0, 80.0, 101.0);
-        let (_, m_a) = far_margin_after_snap(SplitAxis::Rows, content, 8, 16, 1.0, 33.0);
-        let (_, m_b) = far_margin_after_snap(SplitAxis::Rows, content, 8, 16, 1.0, 71.0);
+        let m_a = far_margin_after_snap(SplitAxis::Rows, content, 8, 16, 1.0, 33.0);
+        let m_b = far_margin_after_snap(SplitAxis::Rows, content, 8, 16, 1.0, 71.0);
         assert_eq!(
             m_a, m_b,
             "outer margin must be identical across two release positions"
@@ -1645,8 +1615,11 @@ mod tests {
     #[test]
     fn focus_move_picks_a_right_pane_across_a_split_column() {
         // Left pane (0) full height; right column split into two rows (1 top, 2
-        // bottom). Moving Right from 0 must land on one of the right panes, not
-        // None (both are the same distance; either is an acceptable neighbor).
+        // bottom). Both right panes are the same distance from 0. The 600-pixel
+        // content minus the 1-pixel divider leaves 599 pixels, which the rows
+        // split unevenly, so the lower pane has the larger perpendicular overlap
+        // and wins the tie-break. The exact token is pinned so a changed
+        // tie-break (or an unspecified choice between the two) is caught.
         let tree = PaneNode::Split {
             axis: SplitAxis::Columns,
             ratio: 0.5,
@@ -1660,7 +1633,7 @@ mod tests {
         };
         let rects = layout_rects(&tree, content(), 1.0);
         let got = focus_move(&rects, tok(0), FocusDir::Right);
-        assert!(got == Some(tok(1)) || got == Some(tok(2)));
+        assert_eq!(got, Some(tok(2)));
     }
 
     // ----- tree transforms: split / close / equalize -----

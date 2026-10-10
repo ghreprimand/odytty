@@ -165,6 +165,9 @@ struct Unit {
 struct Candidate {
     start: usize,
     end: usize,
+    /// First index that is part of the body: a candidate whose trimmed end does
+    /// not pass it has no body left (a URL's scheme alone is not a URL).
+    body_start: usize,
     kind: HintKind,
 }
 
@@ -254,7 +257,7 @@ fn scan_line(units: &[Unit], unit_text: &[String], kinds: HintKinds, out: &mut V
     for c in &mut candidates {
         c.end = trim_trailing(&chars, c.start, c.end);
     }
-    candidates.retain(|c| c.end > c.start);
+    candidates.retain(|c| c.end > c.body_start);
 
     for c in resolve_overlaps(candidates) {
         let start_unit = &units[owners[c.start]];
@@ -313,6 +316,7 @@ fn find_urls(chars: &[char], out: &mut Vec<Candidate>) {
                 out.push(Candidate {
                     start: i,
                     end: j,
+                    body_start: i + slen,
                     kind: HintKind::Url,
                 });
                 i = j;
@@ -376,6 +380,7 @@ fn find_paths(chars: &[char], owners: &[usize], out: &mut Vec<Candidate>) {
                 out.push(Candidate {
                     start: i,
                     end: j,
+                    body_start: i,
                     kind: HintKind::Path,
                 });
                 i = j;
@@ -429,6 +434,7 @@ fn find_shas(chars: &[char], out: &mut Vec<Candidate>) {
                 out.push(Candidate {
                     start: i,
                     end: j,
+                    body_start: i,
                     kind: HintKind::Sha,
                 });
             }
@@ -714,6 +720,16 @@ mod tests {
         assert!(only_text("xhttp://a.b").is_empty());
         // A bare scheme with no body is not a URL.
         assert!(only_text("http://").is_empty());
+    }
+
+    #[test]
+    fn a_scheme_whose_body_is_all_trimmed_punctuation_is_not_a_url() {
+        for text in ["http://.", "see https://... ok", "(mailto:,)", "ftp://;:"] {
+            assert!(only_text(text).is_empty(), "{text:?}");
+        }
+        // A body that survives the trim keeps its scheme and is unchanged.
+        assert_eq!(only_text("go http://a."), vec!["http://a"]);
+        assert_eq!(only_text("mailto:x."), vec!["mailto:x"]);
     }
 
     #[test]

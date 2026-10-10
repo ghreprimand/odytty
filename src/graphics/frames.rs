@@ -15,7 +15,7 @@
 //! The render loop asks for [`ImageFrames::next_deadline_ms`] and calls
 //! [`ImageFrames::advance`] when that deadline arrives; a stopped animation, an
 //! animation with a single frame, and a `RunLoading` animation parked on its
-//! last frame all report no deadline, so an idle terminal schedules no wake.
+//! last displayable frame all report no deadline, so an idle terminal schedules no wake.
 
 /// Live frames per image. Bounds the per-image frame list independently of the
 /// byte budget so a flood of tiny frames cannot grow bookkeeping without end.
@@ -83,6 +83,9 @@ struct AnimationFrame {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ImageFrames {
     frames: Vec<AnimationFrame>,
+    /// Canvas size every stored frame was built for, set when the root frame
+    /// is captured and cleared with the frame list.
+    canvas: Option<(u32, u32)>,
     /// Zero-based index of the frame currently displayed.
     current: usize,
     state: AnimationState,
@@ -205,6 +208,7 @@ impl ImageFrames {
     /// removed, rather than for `d=f`, which deletes one selected frame.
     pub fn clear(&mut self) {
         self.frames.clear();
+        self.canvas = None;
         self.current = 0;
         self.state = AnimationState::Stopped;
         self.max_loops = None;
@@ -237,6 +241,7 @@ impl ImageFrames {
         if canvas.len() != canvas_bytes {
             return Err(FrameError::OutOfBounds);
         }
+        self.check_canvas(canvas_width, canvas_height)?;
         validate_rect(
             canvas_width,
             canvas_height,
@@ -284,7 +289,7 @@ impl ImageFrames {
             }
         }
 
-        self.ensure_root(canvas);
+        self.ensure_root(canvas, (canvas_width, canvas_height));
 
         if let Some(edited) = update.edit_frame {
             let index = self.frame_index(edited).ok_or(FrameError::FrameNotFound)?;
@@ -348,6 +353,7 @@ impl ImageFrames {
         canvas_height: u32,
         composition: FrameComposition,
     ) -> Result<(), FrameError> {
+        self.check_canvas(canvas_width, canvas_height)?;
         let source = self
             .frame_index(composition.source_frame)
             .ok_or(FrameError::FrameNotFound)?;
@@ -475,14 +481,19 @@ impl ImageFrames {
         }
         match self.state {
             AnimationState::Stopped => false,
-            AnimationState::RunLoading => self.current + 1 < self.frames.len(),
+            // A loading animation can move only onto a frame that will be
+            // shown. Trailing gapless frames are base data for frames still to
+            // come, so stepping onto them would display them.
+            AnimationState::RunLoading => {
+                (self.current + 1..self.frames.len()).any(|i| self.playback_gap_ms(i).is_some())
+            }
             AnimationState::Running => true,
         }
     }
 
     /// Clock reading at which the current frame should be replaced, or `None`
     /// when nothing is scheduled (stopped, single-frame, or a loading animation
-    /// parked on its last frame waiting for more frames).
+    /// parked on its last displayable frame waiting for more frames).
     pub fn next_deadline_ms(&self) -> Option<u64> {
         if !self.is_animating() {
             return None;
@@ -613,12 +624,23 @@ impl ImageFrames {
     /// Take the root frame from the image's transmitted pixels the first time a
     /// frame command touches this image. The root frame has a zero gap, which
     /// the protocol says a client must set explicitly via the control command.
-    fn ensure_root(&mut self, canvas: &[u8]) {
+    fn ensure_root(&mut self, canvas: &[u8], dimensions: (u32, u32)) {
         if self.frames.is_empty() {
+            self.canvas = Some(dimensions);
             self.frames.push(AnimationFrame {
                 rgba: canvas.to_vec(),
                 gap_ms: 0,
             });
+        }
+    }
+
+    /// Refuse a canvas size other than the one the stored frames were built
+    /// for: composing against a different size would read and write rows at the
+    /// wrong stride or skip them.
+    fn check_canvas(&self, width: u32, height: u32) -> Result<(), FrameError> {
+        match self.canvas {
+            Some(stored) if stored != (width, height) => Err(FrameError::OutOfBounds),
+            _ => Ok(()),
         }
     }
 

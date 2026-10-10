@@ -748,7 +748,7 @@ fn modifiers_forwarding_caches_state_and_gates_the_open_modifier_repaint() {
 }
 
 fn build_idle_app() -> Option<App> {
-    let dims = Dimensions::new(24, 80);
+    let dims = Dimensions::new(80, 24);
     let (app, _terminal) = crate::native::test_support::headless_app_with(
         NativeOptions::default(),
         dims,
@@ -780,7 +780,7 @@ impl std::io::Write for RecordingWriter {
 /// keeps activity-policy tests at the production key-routing seam without
 /// writing to a real shell.
 fn build_recording_app() -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
-    let dims = Dimensions::new(24, 80);
+    let dims = Dimensions::new(80, 24);
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
@@ -920,10 +920,16 @@ fn config_reload_wake_is_suppressed_while_unfocused() {
     let Some(mut app) = build_idle_app() else {
         return;
     };
-    // No resolvable config path on this host ⇒ no deadline to gate; skip.
-    let Some(config_deadline) = app.settings_reloader.deadline() else {
-        return;
-    };
+    // A reloader over an owned path always has a deadline, whatever the host's
+    // config location resolves to, so the focus gate is always exercised.
+    app.settings_reloader = crate::settings::SettingsReloader::with_path_for_test(
+        Some(std::path::PathBuf::from("synthetic-config/odytty.conf")),
+        Instant::now(),
+    );
+    let config_deadline = app
+        .settings_reloader
+        .deadline()
+        .expect("an owned config path schedules the reload poll");
 
     app.focused = true;
     assert_eq!(
@@ -1081,6 +1087,13 @@ fn follower_cell() -> CellSize {
 }
 
 fn follower_snapshot(app: &App, column: usize) -> Snapshot {
+    // A real cursor sample is inside its grid; a column past the row would let a
+    // timing test pass for a jump no terminal can report.
+    assert!(
+        column < app.grid.columns,
+        "synthetic cursor column {column} is outside the {}-column grid",
+        app.grid.columns
+    );
     Snapshot {
         dimensions: app.grid,
         cursor: Position { row: 0, column },
@@ -1452,9 +1465,13 @@ fn desktop_file_startup_wm_class_matches_app_id() {
 
 #[test]
 fn onboarding_opens_only_on_first_run_or_override() {
-    // Absent config ⇒ first run ⇒ show.
-    let missing = std::path::Path::new("/nonexistent/odytty/odytty.conf");
-    assert!(should_show_onboarding(false, Some(missing)));
+    // Absent config ⇒ first run ⇒ show. The path is an absent child of a
+    // directory this test owns, so absence is established, not assumed.
+    let owned = crate::test_dirs::fresh_temp_dir("odytty-onboarding-");
+    let missing = owned.join("odytty.conf");
+    assert!(!missing.exists());
+    assert!(should_show_onboarding(false, Some(missing.as_path())));
+    let _ = std::fs::remove_dir(&owned);
     // A path that exists ⇒ NOT first run ⇒ do not show. Cargo guarantees
     // this manifest is present during the test.
     let present = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
@@ -2122,6 +2139,10 @@ fn armed_hatch_enters_the_wake_set() {
     app.focused = true;
     app.window_minimized = false;
     app.window_occluded = false;
+    // No config path, so the reload poll (the other focused wake source) is
+    // absent and the hatch is the only eligible wake.
+    app.settings_reloader =
+        crate::settings::SettingsReloader::with_path_for_test(None, Instant::now());
     app.frame_callback_hatch_presentation_active_for_test = Some(true);
     app.wayland_surface_present_for_test = Some(true);
     let owed = Instant::now();
@@ -2134,22 +2155,24 @@ fn armed_hatch_enters_the_wake_set() {
         Some(owed + FRAME_CALLBACK_STALE_AFTER),
         "armed owed Wayland surface exposes its stale-bound hatch deadline"
     );
-    let wake = app.next_wake_deadline_for_surface_for_test(true);
-    assert!(
-        wake.is_some(),
-        "the wake set must include the hatch instant"
-    );
-    assert!(
-        wake.unwrap() <= hatch_deadline.unwrap(),
-        "the wake set must not park past the hatch-eligible instant"
+    assert_eq!(
+        app.next_wake_deadline_for_surface_for_test(true),
+        hatch_deadline,
+        "with no other source the wake set is exactly the hatch instant"
     );
 
-    // Occluding the surface removes the hatch contribution.
+    // Occluding the surface removes the hatch contribution, and with it the
+    // only wake: the wake set follows the hatch gate.
     app.window_occluded = true;
     assert_eq!(
         app.next_frame_callback_hatch_deadline(),
         None,
         "an occluded surface never schedules a hatch wake"
+    );
+    assert_eq!(
+        app.next_wake_deadline_for_surface_for_test(true),
+        None,
+        "removing the hatch removes the wake"
     );
 }
 

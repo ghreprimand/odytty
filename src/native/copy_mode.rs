@@ -95,8 +95,8 @@ pub enum CopyModeKey {
 pub enum CopyModeResponse {
     /// Stay in copy mode; state was updated in place.
     Continue,
-    /// Yank requested: the host should copy [`CopyModeState::range`] (which may
-    /// be `None` for a degenerate range) and then exit copy mode.
+    /// Yank requested: the host should copy [`CopyModeState::range`] (which is
+    /// `None` when nothing is anchored) and then exit copy mode.
     Yank,
     /// Exit copy mode without copying.
     Exit,
@@ -166,11 +166,10 @@ impl CopyModeContext<'_> {
             return None;
         }
         if let Some(vrow) = self.visible_row(p.row) {
-            return self
-                .snapshot
-                .cells
-                .get(vrow * cols + p.column)
-                .map(|c| c.ch);
+            // A wide glyph's trailing spacer resolves to its lead, so a CJK run
+            // is one word as it is for the mouse word walk.
+            let row = self.snapshot.cells.get(vrow * cols..(vrow + 1) * cols)?;
+            return crate::selection::row_word_char(row, p.column);
         }
         self.offscreen_cell.and_then(|fetch| fetch(p))
     }
@@ -286,14 +285,25 @@ impl CopyModeState {
     }
 
     /// The current selection range derived from `(anchor, cursor, mode)`, or
-    /// `None` for no / degenerate selection. Character-wise uses the shared
-    /// [`normalize_absolute_range`]; line-wise spans full rows with the
+    /// `None` when nothing is anchored. Character-wise uses the shared
+    /// [`normalize_absolute_range`] (a caret on the anchor is the one-cell
+    /// range); line-wise spans full rows with the
     /// [`LINE_END_COLUMN`] sentinel the host clamps. Pure function of state —
     /// it does not consult the viewport, so it survives scrollback growth.
     pub fn range(&self) -> Option<AbsoluteSelectionRange> {
         let anchor = self.anchor?;
         match self.mode {
-            SelectKind::Char => normalize_absolute_range(anchor, self.cursor),
+            // The keyboard selection is inclusive of the caret cell, so with the
+            // caret still on the anchor the range is that one cell (`v` then
+            // `y` copies the character under the caret). The mouse rule that a
+            // click with no drag selects nothing does not apply here: the user
+            // asked for a selection explicitly.
+            SelectKind::Char => {
+                normalize_absolute_range(anchor, self.cursor).or(Some(AbsoluteSelectionRange {
+                    start: anchor,
+                    end: self.cursor,
+                }))
+            }
             SelectKind::Line => {
                 let (top, bot) = if anchor.row <= self.cursor.row {
                     (anchor.row, self.cursor.row)
@@ -711,6 +721,53 @@ mod tests {
         assert_eq!(s.cursor(), at(0, 6)); // 'r' end of bar
     }
 
+    /// Snapshot rows where each `(char, wide)` pair is one glyph: a wide glyph
+    /// is its lead cell plus a continuation spacer, as the grid stores it.
+    fn wide_snapshot(glyphs: &[(char, bool)], columns: usize) -> Snapshot {
+        let mut cells = Vec::new();
+        for &(ch, wide) in glyphs {
+            cells.push(Cell::new(ch, Attrs::default()));
+            if wide {
+                cells.push(Cell::wide_spacer(Attrs::default()));
+            }
+        }
+        cells.resize(columns, Cell::new(' ', Attrs::default()));
+        Snapshot {
+            dimensions: Dimensions::new(columns, 1),
+            cursor: Position::default(),
+            cursor_visible: true,
+            colors: DynamicColors::default(),
+            cells,
+        }
+    }
+
+    /// A run of wide glyphs is one word: the spacer after each lead is not a
+    /// separator, so `w`, `b` and `e` move over the run, not one glyph at a time.
+    #[test]
+    fn word_motions_treat_a_cjk_run_as_one_word() {
+        // columns: 0 1 2 3 4 5 6 7 8 9
+        //          漢 _ 字 _ ' ' a b c  (wide glyphs take two cells)
+        let snap = wide_snapshot(
+            &[
+                ('漢', true),
+                ('字', true),
+                (' ', false),
+                ('a', false),
+                ('b', false),
+                ('c', false),
+            ],
+            9,
+        );
+        let c = ctx(&snap);
+        let mut s = CopyModeState::new(at(0, 0));
+        s.apply(CopyModeKey::WordForward, &c);
+        assert_eq!(s.cursor(), at(0, 5), "w skips the whole CJK run to 'a'");
+        s.apply(CopyModeKey::WordBackward, &c);
+        assert_eq!(s.cursor(), at(0, 0), "b returns to the start of the run");
+        s.apply(CopyModeKey::WordEnd, &c);
+        assert_eq!(s.cursor(), at(0, 3), "e stops on the run's last cell");
+    }
+
     #[test]
     fn word_forward_crosses_rows() {
         // Padded to 4 cols: row 0 = "foo ", row 1 = "bar " — the trailing pad
@@ -785,9 +842,10 @@ mod tests {
         };
         let mut s = CopyModeState::new(at(1, 0));
         s.apply(CopyModeKey::WordBackward, &c);
-        // Steps into abs row 0 are allowed (the caret may be placed anywhere),
-        // but the scan finds no word chars there and settles at its edge.
-        assert!(s.cursor().row <= 1, "no panic, bounded motion");
+        // The step back enters abs row 0 at its last column; that row is opaque
+        // (no provider), so no separator skip or word walk continues and the
+        // caret settles on that edge cell.
+        assert_eq!(s.cursor(), at(0, 3));
     }
 
     #[test]
@@ -841,15 +899,22 @@ mod tests {
     }
 
     #[test]
-    fn char_selection_range_and_degenerate_none() {
+    fn char_selection_range_is_inclusive_of_the_caret_cell() {
         let snap = snapshot(&["abcdef"], 6);
         let c = ctx(&snap);
         let mut s = CopyModeState::new(at(0, 1));
 
         s.apply(CopyModeKey::ToggleCharSelect, &c);
         assert!(s.is_selecting());
-        // Single cell (anchor == cursor) is degenerate -> None.
-        assert_eq!(s.range(), None);
+        // Anchor == cursor is the one cell under the caret, so `v` then `y`
+        // copies it (inclusive keyboard selection).
+        assert_eq!(
+            s.range(),
+            Some(AbsoluteSelectionRange {
+                start: at(0, 1),
+                end: at(0, 1),
+            })
+        );
 
         s.apply(CopyModeKey::MoveRight, &c);
         s.apply(CopyModeKey::MoveRight, &c);
@@ -1033,13 +1098,26 @@ mod tests {
             scrollback_len: 9,
             offscreen_cell: None,
         };
-        let _ = grown; // range() does not consult the context.
         assert_eq!(s.range(), before);
+        // The same key under both contexts must land identically: the caret and
+        // the range are absolute state, whatever the scrollback depth.
+        let (mut live, mut scrolled) = (s, s);
+        live.apply(CopyModeKey::MoveRight, &c);
+        scrolled.apply(CopyModeKey::MoveRight, &grown);
+        assert_eq!(live.cursor(), scrolled.cursor());
+        assert_eq!(live.range(), scrolled.range());
+        assert_eq!(
+            live.range(),
+            Some(AbsoluteSelectionRange {
+                start: at(2, 0),
+                end: at(2, 3),
+            })
+        );
     }
 
     #[test]
-    fn block_seam_is_inert() {
-        // The default mode never derives a range; the Block seam is reserved.
+    fn moving_without_selecting_derives_no_range() {
+        // The default mode never derives a range, however the caret moves.
         let snap = snapshot(&["abc"], 3);
         let c = ctx(&snap);
         let mut s = CopyModeState::new(at(0, 0));

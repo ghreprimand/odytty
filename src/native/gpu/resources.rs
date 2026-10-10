@@ -80,6 +80,9 @@ fn install_gpu_error_handlers(
 }
 
 #[cfg(test)]
+mod color_atlas_upload_tests;
+
+#[cfg(test)]
 mod availability_tests {
     use super::*;
 
@@ -146,13 +149,19 @@ fn create_atlas_texture(
 
 // CPU atlas admission does not make GPU allocation or upload fallible here.
 // Growth recreates and uploads the whole texture under existing GPU error handling.
+//
+// An atlas wider or taller than the device limit is a supported, declining
+// state: every lookup and insert refuses, so nothing samples the texture. The
+// texture is clamped to the limit and only the in-limit corner is uploaded,
+// read with the atlas's own row stride. The monochrome atlas is exempt from
+// this: its builder bounds the geometry by the device limit before allocating,
+// so `create_atlas_texture` keeps asserting that the extent is unclamped.
 fn create_color_atlas_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     atlas: &ColorGlyphAtlas,
 ) -> wgpu::Texture {
     let extent = crate::native::texture_limits::extent_2d(device, atlas.width, atlas.height);
-    debug_assert_eq!((extent.width, extent.height), (atlas.width, atlas.height));
     let atlas_texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("odytty-color-glyph-atlas"),
         size: extent,

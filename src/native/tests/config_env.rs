@@ -463,3 +463,43 @@ fn ssh_control_dir_stays_out_of_a_redirected_state_base() {
     );
     assert!(dir.is_dir());
 }
+
+/// Launch resolution on a thread that does not hold the environment lock
+/// reads neither the config file nor the setting variables another test has
+/// redirected; the lock-holding thread still reads both.
+#[test]
+fn launch_inputs_on_another_thread_ignore_a_redirected_config() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let root = crate::test_dirs::fresh_temp_dir("odytty-launch-inputs-");
+    let _cleanup = Cleanup(root.clone());
+    let base = root.join("redirected");
+    let key = crate::settings::FONT_SIZE_ENV;
+    with_config_base(&base, true, || {
+        let config = crate::settings::config_file_path().expect("a redirected config path");
+        std::fs::create_dir_all(config.parent().expect("config dir")).expect("config dir");
+        std::fs::write(&config, "font_size = 13\n").expect("write config");
+        let previous = std::env::var_os(key);
+        // SAFETY: `with_config_base` holds the shared environment lock.
+        unsafe { std::env::set_var(key, "13") };
+        let here = crate::native::app::profile_launch::launch_inputs_for_test();
+        let there = std::thread::spawn(crate::native::app::profile_launch::launch_inputs_for_test)
+            .join()
+            .expect("the resolving thread completes");
+        // SAFETY: still under the shared environment lock.
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+        assert!(here.0, "the lock holder reads the redirected config");
+        assert!(here.1.contains_key(key), "the lock holder reads {key}");
+        assert!(!there.0, "another thread read the redirected config");
+        assert!(!there.1.contains_key(key), "another thread read {key}");
+    });
+}

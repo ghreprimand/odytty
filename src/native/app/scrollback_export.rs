@@ -102,7 +102,10 @@ impl App {
     ) -> Result<String, CommandExportError> {
         #[cfg(test)]
         SCROLLBACK_CAPTURES.with(|count| count.set(count.get() + 1));
-        let palette = ExportPalette::from_theme(&self.effective_theme);
+        // The focused pane's presented theme: a profile pane exports its own
+        // colors, a plain pane the global effective theme.
+        let theme = self.active_session_presentation_theme();
+        let palette = ExportPalette::from_theme(&theme);
         let mut document = BoundedDocument::new(format, &palette, limit)?;
         let terminal = crate::native::lock_recover(&self.terminal);
         let dimensions = terminal.screen().dimensions();

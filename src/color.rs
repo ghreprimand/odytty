@@ -146,10 +146,11 @@ pub fn oklch_to_oklab(lch: Oklch) -> Oklab {
 // Perceptual operations
 // ---------------------------------------------------------------------------
 
-/// The default perceptual-dim amount, the OKLab-L analog of the historical
-/// naive linear `×0.5` SGR-dim scale. Tuned so dimmed body text reads as
-/// "clearly fainter but still legible" rather than the harsher linear halving.
-pub const DEFAULT_DIM_AMOUNT: f32 = 0.40;
+/// The perceptual-dim amount for the SGR dim/faint attribute: `1 - 0.5^(1/3)`,
+/// the amount for which [`dim_perceptual`] equals the historical linear `x0.5`
+/// scale (see its note: a uniform OKLab scale by `k` is a linear scale by
+/// `k^3`, so `k = 0.5^(1/3)`). The grid's SGR-dim path uses this constant.
+pub const DEFAULT_DIM_AMOUNT: f32 = 0.206_299_47;
 
 /// Dim a linear color by scaling it toward black in OKLab.
 ///
@@ -315,6 +316,27 @@ pub fn wcag_contrast(a: LinearRgb, b: LinearRgb) -> f32 {
 /// than the 8-bit output quantum.
 const CONTRAST_BISECT_STEPS: u32 = 24;
 
+/// Chroma scales tried, in order, when the lightness move alone cannot reach the
+/// floor at full chroma. Each step keeps the hue direction; `0.0` is neutral.
+const CONTRAST_CHROMA_SCALES: [f32; 4] = [1.0, 0.5, 0.25, 0.0];
+
+/// The colour a display shows for `c`: each channel clamped to the sRGB cube and
+/// rounded to its byte, then decoded back to linear. Contrast is checked on this
+/// value so the floor holds for the pixels that are actually drawn.
+pub fn displayed_linear(c: LinearRgb) -> LinearRgb {
+    [
+        srgb_to_linear(linear_to_srgb_u8(c[0])),
+        srgb_to_linear(linear_to_srgb_u8(c[1])),
+        srgb_to_linear(linear_to_srgb_u8(c[2])),
+    ]
+}
+
+/// The lightness-only floor on the float (unclamped) luminance metric: the
+/// search [`enforce_min_contrast`] starts from, kept for callers that gamut-map
+/// and re-check the result on bytes themselves (see
+/// `palette_gen::floor_role`). The result may lie outside the sRGB cube, so its
+/// displayed colour can contrast less than the returned float value does.
+///
 /// Adjust `fg` so its WCAG contrast against `bg` meets at least `ratio`, moving
 /// only OKLab lightness and preserving hue and chroma direction.
 ///
@@ -336,7 +358,7 @@ const CONTRAST_BISECT_STEPS: u32 = 24;
 ///   in-gamut endpoint is returned.
 /// - Idempotent: a second application is a no-op, because the first result
 ///   already meets the floor.
-pub fn enforce_min_contrast(fg: LinearRgb, bg: LinearRgb, ratio: f32) -> LinearRgb {
+pub fn enforce_min_contrast_unclamped(fg: LinearRgb, bg: LinearRgb, ratio: f32) -> LinearRgb {
     // Passthrough: non-finite targets and values at or below unity have no floor.
     if !ratio.is_finite() || ratio <= 1.0 {
         return fg;
@@ -409,6 +431,115 @@ pub fn enforce_min_contrast(fg: LinearRgb, bg: LinearRgb, ratio: f32) -> LinearR
         b: lab.b,
     });
     if wcag_contrast(white, bg) >= wcag_contrast(black, bg) {
+        white
+    } else {
+        black
+    }
+}
+
+/// Adjust `fg` so its WCAG contrast against `bg` meets at least `ratio`, moving
+/// only OKLab lightness and preserving hue.
+///
+/// Metric: the WCAG 2.x relative-luminance contrast ratio (the established,
+/// user-expected legibility measure) computed via [`wcag_contrast`] on the
+/// displayed colours (see [`displayed_linear`]), so clamping and byte rounding
+/// are part of the check. The adjustment is perceptual: it walks fg's OKLab L
+/// toward black or white with the `a`/`b` opponent values fixed. When that move
+/// cannot reach the floor inside the sRGB cube, chroma is reduced toward neutral
+/// along the same hue direction until it can.
+///
+/// Guarantees:
+/// - A non-finite ratio or `ratio <= 1.0` returns `fg` unchanged (passthrough, the
+///   default-setting no-op that keeps the plain path byte-identical).
+/// - If `fg`/`bg` already meet the floor as displayed, `fg` is returned unchanged
+///   (a colour that passes never moves, however saturated).
+/// - A colour that fails moves by the smallest full-chroma lightness step that
+///   clears the floor as displayed; chroma is reduced only when no such step
+///   exists inside the sRGB cube.
+/// - Whenever the floor is reachable, the returned colour meets it as displayed.
+///   Full chroma is kept whenever the lightness move alone suffices.
+/// - The search keeps the existing fg-vs-bg polarity (lighter text stays the
+///   lighter color) when that direction can satisfy the floor; otherwise it
+///   flips to the only feasible direction.
+/// - Best-effort cap: if no colour reaches `ratio` against this `bg` (a
+///   near-mid-grey background), pure black or pure white is returned, whichever
+///   contrasts more.
+/// - Idempotent: a second application is a no-op, because the first result
+///   already meets the floor.
+pub fn enforce_min_contrast(fg: LinearRgb, bg: LinearRgb, ratio: f32) -> LinearRgb {
+    // Default / passthrough: non-finite or <= 1 never adjusts anything.
+    if !ratio.is_finite() || ratio <= 1.0 {
+        return fg;
+    }
+    let shown_bg = displayed_linear(bg);
+    let meets =
+        |candidate: LinearRgb| wcag_contrast(displayed_linear(candidate), shown_bg) >= ratio;
+    if meets(fg) {
+        return fg;
+    }
+
+    let lab = linear_to_oklab(fg);
+    let lum_fg = relative_luminance(displayed_linear(fg)).clamp(0.0, 1.0);
+    let lum_bg = relative_luminance(shown_bg).clamp(0.0, 1.0);
+    let at = |l: f32, scale: f32| {
+        oklab_to_linear(Oklab {
+            l,
+            a: lab.a * scale,
+            b: lab.b * scale,
+        })
+    };
+    // Smallest lightness move toward `bound_l` for which `ok` holds, or `None`
+    // when even the bound fails. `ok` is monotonic along the move.
+    let bisect = |bound_l: f32, scale: f32, ok: &dyn Fn(LinearRgb) -> bool| {
+        if !ok(at(bound_l, scale)) {
+            return None;
+        }
+        let mut near = lab.l; // does not (yet) meet the floor
+        let mut far = bound_l; // meets the floor
+        for _ in 0..CONTRAST_BISECT_STEPS {
+            let mid = 0.5 * (near + far);
+            if ok(at(mid, scale)) {
+                far = mid;
+            } else {
+                near = mid;
+            }
+        }
+        Some(at(far, scale))
+    };
+
+    // Pick the lightness direction. Default to preserving polarity: if fg is the
+    // lighter color, push it lighter (toward L = 1); otherwise push it darker
+    // (toward L = 0). If the preferred direction can't reach the floor but the
+    // opposite can, use the opposite.
+    let lighten_first = lum_fg >= lum_bg;
+    let directions = [lighten_first, !lighten_first];
+
+    // First choice: the smallest full-chroma lightness move that clears the
+    // floor on the float luminance. Wherever that colour also clears it as
+    // displayed, it is the result, so every colour this pass handled before
+    // keeps its exact value.
+    let legacy = enforce_min_contrast_unclamped(fg, bg, ratio);
+    if meets(legacy) {
+        return legacy;
+    }
+
+    // The float move left the displayed floor unmet (out-of-gamut clamping or
+    // byte rounding cost contrast). Search again on the displayed colours,
+    // reducing chroma along the same hue only as far as the floor needs.
+    for scale in CONTRAST_CHROMA_SCALES {
+        for toward_white in directions {
+            let bound_l = if toward_white { 1.0 } else { 0.0 };
+            if let Some(adjusted) = bisect(bound_l, scale, &meets) {
+                return adjusted;
+            }
+        }
+    }
+
+    // Best effort: no colour reaches the floor against this background. Return
+    // pure white or pure black, whichever contrasts more.
+    let white = [1.0, 1.0, 1.0];
+    let black = [0.0, 0.0, 0.0];
+    if wcag_contrast(white, shown_bg) >= wcag_contrast(black, shown_bg) {
         white
     } else {
         black
@@ -806,7 +937,8 @@ mod tests {
                 let alpha = step as f32 / 10.0;
                 let effective = composite_over(fill, backdrop, alpha);
                 let floored = enforce_min_contrast(base_fg, effective, ratio);
-                let got = wcag_contrast(floored, effective);
+                // The floor is guaranteed on the displayed (byte-rounded) colours.
+                let got = wcag_contrast(displayed_linear(floored), displayed_linear(effective));
                 assert!(
                     got + 1e-3 >= ratio,
                     "fg not legible at alpha {alpha} over {effective:?}: contrast {got}"
@@ -941,6 +1073,17 @@ mod tests {
     }
 
     // --- dim_perceptual depth ---------------------------------------
+
+    /// The documented default amount is the one that equals the historical
+    /// linear x0.5 halving (the grid's SGR-dim amount is this same constant).
+    #[test]
+    fn default_dim_amount_is_the_linear_half() {
+        for rgb in [[0.6, 0.35, 0.2], [0.9, 0.9, 0.9], [0.05, 0.4, 0.8]] {
+            let dimmed = dim_perceptual(rgb, DEFAULT_DIM_AMOUNT);
+            let half = [rgb[0] * 0.5, rgb[1] * 0.5, rgb[2] * 0.5];
+            assert!(rgb_close(dimmed, half, 1e-4), "{dimmed:?} vs {half:?}");
+        }
+    }
 
     /// Dimming is monotonic in `amount`: increasing the amount strictly lowers
     /// both the OKLab lightness and the WCAG relative luminance, with no
@@ -1241,6 +1384,158 @@ mod tests {
         // It at least improved over the near-zero starting contrast.
         assert!(c > wcag_contrast(fg, bg));
         assert!(c.is_finite());
+    }
+
+    /// Displayed (byte-rounded) WCAG contrast of `fg` over `bg`.
+    fn shown_contrast(fg: LinearRgb, bg: LinearRgb) -> f32 {
+        wcag_contrast(displayed_linear(fg), displayed_linear(bg))
+    }
+
+    #[test]
+    fn saturated_text_on_black_meets_the_default_floor_as_displayed() {
+        // Magenta leaves the sRGB cube when only its lightness moves; the floor
+        // must hold for the bytes that are drawn, not for the float value.
+        let fg = linear_of(0xff, 0x00, 0xff);
+        let bg = linear_of(0x00, 0x00, 0x00);
+        let adj = enforce_min_contrast(fg, bg, 17.0);
+        assert!(
+            shown_contrast(adj, bg) >= 17.0,
+            "displayed contrast {}",
+            shown_contrast(adj, bg)
+        );
+    }
+
+    #[test]
+    fn saturated_text_on_dark_grey_falls_back_to_pure_white_when_infeasible() {
+        // White is the most contrasting colour available on this background
+        // (about 16.7:1), so 17:1 is unreachable. The documented best effort is
+        // pure white, not a tinted extreme that clamps to a lower contrast.
+        let fg = linear_of(0xcd, 0x00, 0x00);
+        let bg = linear_of(0x1e, 0x1e, 0x1e);
+        let adj = enforce_min_contrast(fg, bg, 17.0);
+        assert_eq!(adj, [1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn saturated_palette_meets_floor_wherever_it_is_reachable() {
+        let colours: [(u8, u8, u8); 16] = [
+            (0, 0, 0),
+            (205, 0, 0),
+            (0, 205, 0),
+            (205, 205, 0),
+            (0, 0, 238),
+            (205, 0, 205),
+            (0, 205, 205),
+            (229, 229, 229),
+            (127, 127, 127),
+            (255, 0, 0),
+            (0, 255, 0),
+            (255, 255, 0),
+            (92, 92, 255),
+            (255, 0, 255),
+            (0, 255, 255),
+            (255, 255, 255),
+        ];
+        let backgrounds = [
+            (0x00, 0x00, 0x00),
+            (0x1e, 0x1e, 0x1e),
+            (0x2a, 0x2a, 0x2a),
+            (0x70, 0x70, 0x70),
+            (0xb0, 0xb0, 0xb0),
+            (0xff, 0xff, 0xff),
+        ];
+        for ratio in [4.5_f32, 7.0, 17.0] {
+            for &(r, g, b) in &backgrounds {
+                let bg = linear_of(r, g, b);
+                let ceiling =
+                    shown_contrast([1.0, 1.0, 1.0], bg).max(shown_contrast([0.0, 0.0, 0.0], bg));
+                for &(fr, fgc, fb) in &colours {
+                    let fg = linear_of(fr, fgc, fb);
+                    let adj = enforce_min_contrast(fg, bg, ratio);
+                    let got = shown_contrast(adj, bg);
+                    if ceiling >= ratio {
+                        assert!(
+                            got >= ratio,
+                            "fg {:?} on {:?} at {ratio}: displayed {got}",
+                            (fr, fgc, fb),
+                            (r, g, b)
+                        );
+                    }
+                    assert_eq!(
+                        enforce_min_contrast(adj, bg, ratio),
+                        adj,
+                        "idempotent for {:?} on {:?}",
+                        (fr, fgc, fb),
+                        (r, g, b)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn colours_just_above_the_displayed_floor_pass_through_byte_identical() {
+        // For each hue direction, the darkest byte colour that clears the floor
+        // as displayed must come back exactly; the step below it must move and
+        // then clear the floor. Saturated and neutral directions are both here.
+        let backgrounds = [(0x08, 0x0c, 0x10), (0x00, 0x00, 0x00), (0x1e, 0x1e, 0x1e)];
+        let directions: [(f32, f32, f32); 8] = [
+            (1.0, 1.0, 1.0),
+            (0.31, 0.42, 1.0),
+            (1.0, 0.0, 1.0),
+            (0.0, 0.0, 1.0),
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.7, 0.55, 0.0),
+            (0.0, 0.8, 0.8),
+        ];
+        let scaled = |d: (f32, f32, f32), k: u32| -> (u8, u8, u8) {
+            let f = k as f32 / 255.0;
+            let q = |v: f32| (v * f * 255.0).round().clamp(0.0, 255.0) as u8;
+            (q(d.0), q(d.1), q(d.2))
+        };
+        let mut checked = 0;
+        for &(br, bgc, bb) in &backgrounds {
+            let bg = linear_of(br, bgc, bb);
+            for &dir in &directions {
+                for ratio in [4.5_f32, 7.0] {
+                    let Some(k) = (0..=255).find(|&k| {
+                        let (r, g, b) = scaled(dir, k);
+                        shown_contrast(linear_of(r, g, b), bg) >= ratio
+                    }) else {
+                        continue;
+                    };
+                    let (r, g, b) = scaled(dir, k);
+                    let passing = linear_of(r, g, b);
+                    assert_eq!(
+                        enforce_min_contrast(passing, bg, ratio),
+                        passing,
+                        "passing {:?} on {:?} at {ratio} must not move",
+                        (r, g, b),
+                        (br, bgc, bb)
+                    );
+                    checked += 1;
+                    if k > 0 {
+                        let (r, g, b) = scaled(dir, k - 1);
+                        let failing = linear_of(r, g, b);
+                        if shown_contrast(failing, bg) < ratio {
+                            let moved = enforce_min_contrast(failing, bg, ratio);
+                            assert!(shown_contrast(moved, bg) >= ratio);
+                        }
+                    }
+                }
+            }
+        }
+        assert!(checked >= 20, "only {checked} cases exercised");
+    }
+
+    #[test]
+    fn deutan_blue_that_clears_the_floor_keeps_its_bytes() {
+        // 4.56:1 as displayed against the 4.5 floor on the CVD fixture surface.
+        let bg = linear_of(0x08, 0x0c, 0x10);
+        let blue = linear_of(79, 107, 255);
+        assert!(shown_contrast(blue, bg) >= 4.5);
+        assert_eq!(enforce_min_contrast(blue, bg, 4.5), blue);
     }
 
     // --- Readability scrim -----------------------------------

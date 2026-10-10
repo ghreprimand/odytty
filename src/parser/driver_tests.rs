@@ -373,6 +373,32 @@ fn dcs_hook_put_unhook() {
 }
 
 #[test]
+fn dcs_payload_may_end_a_utf8_scalar_on_the_raw_st8_byte() {
+    // U+0C9C is E0 B2 9C. The final byte must not end the string mid-scalar.
+    assert_eq!(
+        drive(b"\x1bPq\xe0\xb2\x9c!\x1b\\"),
+        vec![
+            Action::Hook {
+                params: vec![vec![0]],
+                intermediates: vec![],
+                ignore: false,
+                action: 'q',
+            },
+            Action::Put(0xe0),
+            Action::Put(0xb2),
+            Action::Put(0x9c),
+            Action::Put(b'!'),
+            Action::Unhook,
+            Action::Esc {
+                intermediates: vec![],
+                ignore: false,
+                byte: b'\\',
+            },
+        ]
+    );
+}
+
+#[test]
 fn apc_payload_is_surfaced() {
     assert_eq!(
         drive(b"\x1b_Gf=100;data\x1b\\"),
