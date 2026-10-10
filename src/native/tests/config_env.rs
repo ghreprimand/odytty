@@ -172,3 +172,109 @@ fn config_fixture_redirects_every_platform_state_and_layout_directory() {
         }
     }
 }
+
+#[test]
+fn listing_saved_layouts_does_not_create_state_directories() {
+    let root = crate::test_dirs::fresh_temp_dir("odytty-layout-listing-");
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let base = root.join("uncreated-state");
+    with_config_base(&base, true, || {
+        let layouts = crate::native::persistence::layouts_dir();
+        assert!(layouts.starts_with(&base));
+        assert!(crate::native::persistence::list_layouts().names.is_empty());
+        assert!(crate::native::persistence::list_layout_names().is_empty());
+        assert!(!base.exists(), "listing must leave the state tree absent");
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 0);
+        let (mut app, _) = super::headless_app_with(
+            crate::native::options::NativeOptions::default(),
+            super::Dimensions::new(80, 24),
+            crate::settings::Settings::default(),
+        );
+        app.drive_char_with_mods_for_test('p', true, true);
+        assert!(
+            app.overlay_open_for_test(),
+            "the palette opens through its key binding"
+        );
+        app.drive_named_key_for_test(winit::keyboard::NamedKey::Escape);
+        assert!(
+            !base.exists(),
+            "opening the palette must leave state absent"
+        );
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn listing_saved_layouts_preserves_existing_directory_and_file_modes() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = crate::test_dirs::fresh_temp_dir("odytty-layout-listing-modes-");
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    with_config_base(&root, true, || {
+        let layouts = crate::native::persistence::layouts_dir();
+        std::fs::create_dir_all(&layouts).unwrap();
+        let file = layouts.join("sample.json");
+        std::fs::write(&file, b"{}").unwrap();
+        std::fs::set_permissions(&layouts, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(crate::native::persistence::list_layout_names(), ["sample"]);
+        assert!(crate::native::persistence::layout_stamp("sample").is_some());
+        let (mut app, _) = super::headless_app_with(
+            crate::native::options::NativeOptions::default(),
+            super::Dimensions::new(80, 24),
+            crate::settings::Settings::default(),
+        );
+        app.drive_char_with_mods_for_test('p', true, true);
+        assert!(app.overlay_open_for_test());
+        app.drive_named_key_for_test(winit::keyboard::NamedKey::Escape);
+        assert_eq!(
+            std::fs::metadata(&layouts).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        assert_eq!(
+            std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o644
+        );
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn layout_discovery_rejects_a_symlinked_state_leaf() {
+    use std::os::unix::fs::symlink;
+    let root = crate::test_dirs::fresh_temp_dir("odytty-layout-listing-link-");
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    with_config_base(&root.join("config"), true, || {
+        let state = crate::logging::state_log_dir();
+        let target = root.join("link-target");
+        std::fs::create_dir_all(target.join("layouts")).unwrap();
+        std::fs::write(target.join("layouts/sample.json"), b"{}").unwrap();
+        std::fs::create_dir_all(state.parent().unwrap()).unwrap();
+        symlink(&target, &state).unwrap();
+        assert!(crate::native::persistence::list_layout_names().is_empty());
+        assert!(crate::native::persistence::layout_stamp("sample").is_none());
+        assert!(
+            std::fs::symlink_metadata(&state)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+    });
+}

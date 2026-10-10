@@ -207,7 +207,8 @@ claim acceptance on other platforms. The release notes are in
       entries of any kind and reuses the parsed catalog while the profile
       file stamps are unchanged (Windows stamps miss ACL-only changes; see
       docs/profiles.md), so per-prompt working-directory reports no longer
-      reparse it; the saved-layout list examines at most 1,024 entries; font
+      reparse it; the saved-layout list examines at most 1,024 entries without
+      creating state directories or changing permissions; font
       discovery bounds entries examined and directories read, visits entries
       in name order after admission, and includes symlinks to regular font files without
       following directory symlinks. Each truncation is reported.

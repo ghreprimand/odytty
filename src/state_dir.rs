@@ -31,7 +31,8 @@ pub(crate) fn prepare_private_dir(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Validate an existing state leaf without creating it.
+/// Validate an existing state leaf without creating it or changing its mode.
+/// Unix also requires ownership and rejects a final-component symlink.
 pub(crate) fn validate_private_dir(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -56,7 +57,21 @@ pub(crate) fn validate_private_dir(path: &Path) -> io::Result<()> {
 pub(crate) fn open_existing_sensitive(path: &Path) -> io::Result<File> {
     #[cfg(unix)]
     {
-        unix::open_existing_sensitive(path, false, false, false)
+        unix::open_existing_sensitive(path, false, false, false, true)
+    }
+    #[cfg(not(unix))]
+    {
+        OpenOptions::new().read(true).open(path)
+    }
+}
+
+/// Inspect an existing sensitive regular file without changing its mode.
+/// Unix checks ownership and rejects final-component symlinks and nonregular files.
+/// Windows uses the same inherited-ACL read path as sensitive state reads.
+pub(crate) fn inspect_existing_sensitive(path: &Path) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        unix::open_existing_sensitive(path, false, false, false, false)
     }
     #[cfg(not(unix))]
     {
@@ -69,7 +84,7 @@ pub(crate) fn open_existing_sensitive(path: &Path) -> io::Result<File> {
 pub(crate) fn open_append_sensitive(path: &Path) -> io::Result<File> {
     #[cfg(unix)]
     {
-        unix::open_existing_sensitive(path, true, false, true)
+        unix::open_existing_sensitive(path, true, false, true, true)
     }
     #[cfg(not(unix))]
     {
@@ -82,7 +97,7 @@ pub(crate) fn open_append_sensitive(path: &Path) -> io::Result<File> {
 pub(crate) fn open_read_write_sensitive(path: &Path) -> io::Result<File> {
     #[cfg(unix)]
     {
-        unix::open_existing_sensitive(path, false, true, true)
+        unix::open_existing_sensitive(path, false, true, true, true)
     }
     #[cfg(not(unix))]
     {
@@ -396,7 +411,7 @@ mod unix {
         options.open(path)
     }
 
-    fn validate_private_dir_handle(dir: &File) -> io::Result<()> {
+    fn validate_private_dir_handle(dir: &File, repair_mode: bool) -> io::Result<()> {
         let metadata = dir.metadata()?;
         if !metadata.file_type().is_dir() {
             return Err(invalid("persistent state path is not a directory"));
@@ -404,7 +419,7 @@ mod unix {
         if !owned_by_current_user(metadata.uid()) {
             return Err(invalid("persistent state path is not owned by this user"));
         }
-        if metadata.mode() & 0o777 != PRIVATE_DIR_MODE {
+        if repair_mode && metadata.mode() & 0o777 != PRIVATE_DIR_MODE {
             // On macOS this is an fchmod of the opened descriptor: BSD mode
             // bits are tightened without stripping any extended ACL entries.
             dir.set_permissions(fs::Permissions::from_mode(PRIVATE_DIR_MODE))?;
@@ -431,15 +446,15 @@ mod unix {
         }
 
         let dir = open_dir_no_follow(path)?;
-        validate_private_dir_handle(&dir)
+        validate_private_dir_handle(&dir, true)
     }
 
     pub(super) fn validate_private_dir(path: &Path) -> io::Result<()> {
         let dir = open_dir_no_follow(path)?;
-        validate_private_dir_handle(&dir)
+        validate_private_dir_handle(&dir, false)
     }
 
-    fn validate_sensitive_file_handle(file: &File) -> io::Result<()> {
+    fn validate_sensitive_file_handle(file: &File, repair_mode: bool) -> io::Result<()> {
         let metadata = file.metadata()?;
         if !metadata.file_type().is_file() {
             return Err(invalid("persistent state path is not a regular file"));
@@ -447,7 +462,7 @@ mod unix {
         if !owned_by_current_user(metadata.uid()) {
             return Err(invalid("persistent state file is not owned by this user"));
         }
-        if metadata.mode() & 0o777 != PRIVATE_FILE_MODE {
+        if repair_mode && metadata.mode() & 0o777 != PRIVATE_FILE_MODE {
             // File::set_permissions is descriptor-based on Unix.  This repairs
             // the opened object rather than a pathname that might have changed;
             // macOS ACL entries are preserved rather than replaced.
@@ -461,6 +476,7 @@ mod unix {
         append: bool,
         write: bool,
         create: bool,
+        repair_mode: bool,
     ) -> io::Result<File> {
         let mut options = OpenOptions::new();
         options.read(!append || !write);
@@ -471,7 +487,7 @@ mod unix {
         // while `O_NOFOLLOW` continues to reject a final-component symlink.
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
         let file = options.open(path)?;
-        validate_sensitive_file_handle(&file)?;
+        validate_sensitive_file_handle(&file, repair_mode)?;
         Ok(file)
     }
 
@@ -480,7 +496,7 @@ mod unix {
         options.create_new(true).write(true).mode(PRIVATE_FILE_MODE);
         options.custom_flags(libc::O_NOFOLLOW);
         let file = options.open(path)?;
-        validate_sensitive_file_handle(&file)?;
+        validate_sensitive_file_handle(&file, true)?;
         Ok(file)
     }
 
@@ -735,6 +751,7 @@ mod tests {
         let leaf_link = root.join("state");
         symlink(&target, &leaf_link).expect("leaf link");
         assert!(prepare_private_dir(&leaf_link).is_err());
+        assert!(validate_private_dir(&leaf_link).is_err());
 
         let leaf = root.join("real-state");
         prepare_private_dir(&leaf).expect("prepare leaf");
@@ -743,6 +760,7 @@ mod tests {
         let file_link = leaf.join("state.json");
         symlink(&target_file, &file_link).expect("file link");
         assert!(open_existing_sensitive(&file_link).is_err());
+        assert!(inspect_existing_sensitive(&file_link).is_err());
         assert_eq!(
             fs::read_to_string(&target_file).expect("target contents"),
             "keep"
@@ -772,6 +790,7 @@ mod tests {
         fs::create_dir(&directory_at_file_path).expect("create wrong type");
 
         assert!(open_existing_sensitive(&directory_at_file_path).is_err());
+        assert!(inspect_existing_sensitive(&directory_at_file_path).is_err());
         assert!(
             directory_at_file_path.is_dir(),
             "wrong type stays untouched"

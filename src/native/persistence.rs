@@ -780,7 +780,7 @@ fn list_layout_names_in(dir: &Path) -> LayoutListing {
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
-        if crate::state_dir::open_existing_sensitive(&path).is_err() {
+        if crate::state_dir::inspect_existing_sensitive(&path).is_err() {
             continue;
         }
         // Only stems that name their own file are listed: open and delete
@@ -803,10 +803,12 @@ pub(crate) fn list_layout_names() -> Vec<String> {
 }
 
 /// [`list_layout_names`] plus whether the directory listing was truncated.
+/// Listing never creates state directories or repairs existing permissions.
 pub(crate) fn list_layouts() -> LayoutListing {
-    prepared_layouts_dir()
-        .map(|dir| list_layout_names_in(&dir))
-        .unwrap_or_default()
+    if crate::state_dir::validate_private_dir(&state_log_dir()).is_err() {
+        return LayoutListing::default();
+    }
+    list_layout_names_in(&layouts_dir())
 }
 
 /// Read and classify a named layout from `dir` (WP3 core).
@@ -877,10 +879,14 @@ fn layout_stamp_in(dir: &Path, name: &str) -> Option<LayoutStamp> {
 }
 
 /// The current [`LayoutStamp`] of layout `name`, or `None` when it is absent.
+/// Capturing palette targets never creates directories or repairs permissions.
 pub(crate) fn layout_stamp(name: &str) -> Option<LayoutStamp> {
-    prepared_layouts_dir()
-        .ok()
-        .and_then(|dir| layout_stamp_in(&dir, name))
+    crate::state_dir::validate_private_dir(&state_log_dir()).ok()?;
+    let dir = layouts_dir();
+    crate::state_dir::validate_private_dir(&dir).ok()?;
+    let path = layout_path_in(&dir, name)?;
+    crate::state_dir::inspect_existing_sensitive(&path).ok()?;
+    layout_stamp_in(&dir, name)
 }
 
 /// What [`delete_layout_if_unchanged`] did.

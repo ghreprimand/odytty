@@ -1654,7 +1654,9 @@ that closed while the picker was open, including when names are duplicated.
   most once a minute, so a crash restores recent working directories without
   a write per directory change. A profile rename or delete in any window
   updates the workspace bindings of every open window. Named layouts persist
-  the same shape under a chosen name.
+  the same shape under a chosen name. Listing named layouts never creates state
+  directories or changes existing permissions; save and open retain private-state
+  preparation.
 
   Opening a
   layout onto a window that already holds real state prompts for how it lands -
