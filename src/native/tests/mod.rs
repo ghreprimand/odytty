@@ -263,6 +263,7 @@ mod overlay_release_ownership;
 mod overlay_rendered_rows;
 mod overlay_small_window;
 mod palette_follow_recovery;
+mod palette_status_redraw;
 mod palette_targets;
 mod pane_theme_roles;
 mod pointer_write_failure;

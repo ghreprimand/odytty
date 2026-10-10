@@ -141,17 +141,31 @@ impl SettingsPanel {
 
     /// Patch the read-only external-palette follower status row from live App
     /// state (after apply, poll, or startup sync).
-    pub(in crate::native) fn sync_external_palette_status(&mut self, display: &str) {
-        for entry in &mut self.all_entries {
-            if entry.key == "external_palette_status" {
+    /// The displayed external-palette status value, when the row is present.
+    #[cfg(test)]
+    pub(in crate::native) fn external_palette_status_value(&self) -> Option<&str> {
+        self.entries
+            .iter()
+            .find(|entry| entry.key == "external_palette_status")
+            .map(|entry| entry.value.as_str())
+    }
+
+    /// Returns `true` when the displayed value changed, so the caller can
+    /// request a repaint: a status change alone does not wake the window.
+    pub(in crate::native) fn sync_external_palette_status(&mut self, display: &str) -> bool {
+        let mut changed = false;
+        for entry in self
+            .all_entries
+            .iter_mut()
+            .chain(self.entries.iter_mut())
+            .filter(|entry| entry.key == "external_palette_status")
+        {
+            if entry.value != display {
                 entry.value = display.to_owned();
+                changed = true;
             }
         }
-        for entry in &mut self.entries {
-            if entry.key == "external_palette_status" {
-                entry.value = display.to_owned();
-            }
-        }
+        changed
     }
 
     /// Reconcile externally-applied settings from a picker or reload into the edit

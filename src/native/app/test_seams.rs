@@ -841,6 +841,29 @@ impl App {
     /// trimmed). Lets an end-to-end test assert that the *rendered* rows shift
     /// when scroll/focus changes — proving the live repaint, not just geometry.
     #[cfg(test)]
+    /// Test seam: arm and refresh the external-palette follower as a settings
+    /// change does.
+    pub(in crate::native) fn sync_palette_follow_for_test(&mut self, now: std::time::Instant) {
+        self.sync_external_palette_follow(now);
+    }
+
+    /// Test seam: one maintenance poll of the external-palette follower.
+    pub(in crate::native) fn poll_palette_follow_for_test(&mut self, now: std::time::Instant) {
+        self.poll_external_palette_follow(now);
+    }
+
+    /// Test seam: the Settings status row text as the overlay holds it.
+    pub(in crate::native) fn palette_status_row_for_test(&self) -> Option<String> {
+        self.overlay
+            .external_palette_status_value()
+            .map(str::to_owned)
+    }
+
+    /// Test seam: repaint requests issued by palette status changes.
+    pub(in crate::native) fn palette_status_redraws_for_test(&self) -> usize {
+        self.palette_status_redraws
+    }
+
     pub(in crate::native) fn render_overlay_rows_for_test(
         &mut self,
         cols: usize,

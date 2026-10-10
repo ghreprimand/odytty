@@ -150,8 +150,18 @@ impl App {
     }
 
     pub(super) fn sync_settings_external_palette_status(&mut self) {
-        self.overlay
-            .sync_external_palette_status(&self.external_palette_follow.status().as_display());
+        let display = self.external_palette_follow.status().as_display();
+        if self.overlay.sync_external_palette_status(&display) {
+            // The status row is painted only when a frame is requested, so a
+            // poll that changes it must wake the window.
+            #[cfg(test)]
+            {
+                self.palette_status_redraws += 1;
+            }
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
     }
 
     /// Re-resolve and republish the active theme after an OS appearance change

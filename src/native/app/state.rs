@@ -418,6 +418,10 @@ pub(in crate::native) struct App {
     /// External palette following watcher. Armed only when
     /// [`Settings::follow_external_palette`] is on with an explicit path.
     pub(super) external_palette_follow: crate::external_palette::ExternalPaletteFollow,
+    /// Repaint requests issued because the followed palette status changed
+    /// on screen (test observation of the redraw path).
+    #[cfg(test)]
+    pub(super) palette_status_redraws: usize,
     /// CLOSE-CONFIRM: set when the confirmation dialog is accepted (or the
     /// non-confirming close path decides to exit) so `window_event` can exit the
     /// loop after the overlay outcome is applied — `apply_overlay_outcome` only
@@ -917,6 +921,8 @@ impl App {
             deadline: None,
             os_theme: None,
             external_palette_follow: crate::external_palette::ExternalPaletteFollow::new(),
+            #[cfg(test)]
+            palette_status_redraws: 0,
             pending_exit: false,
             pending_image_paste: None,
             pending_text_paste: None,

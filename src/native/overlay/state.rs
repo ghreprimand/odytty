@@ -276,8 +276,14 @@ impl OverlayUi {
         self.panel.set_diagnostics_copy_result(copied);
     }
 
-    pub(in crate::native) fn sync_external_palette_status(&mut self, display: &str) {
-        self.panel.sync_external_palette_status(display);
+    /// Test observation of the Settings status row text.
+    #[cfg(test)]
+    pub(in crate::native) fn external_palette_status_value(&self) -> Option<&str> {
+        self.panel.external_palette_status_value()
+    }
+
+    pub(in crate::native) fn sync_external_palette_status(&mut self, display: &str) -> bool {
+        self.panel.sync_external_palette_status(display)
     }
 
     pub(in crate::native) fn close(&mut self) {
