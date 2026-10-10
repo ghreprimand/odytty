@@ -110,7 +110,7 @@ impl App {
     }
 
     /// C9: finalize an IME commit under the SAME overlay/search/modal gate the
-    /// typed-`Character` path enforces in `handle_key_event`. Without this, a
+    /// typed-`Character` path enforces in `handle_key_event_with_text`. Without this, a
     /// composed commit (CJK, dead-key accents) bypasses every field and leaks
     /// straight to the PTY behind a settings panel, picker, search box, rename
     /// field, or modal. The finalized text is routed to whichever surface owns

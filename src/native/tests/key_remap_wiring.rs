@@ -96,7 +96,7 @@ fn esc_while_capturing_cancels_without_binding() {
 #[test]
 fn settings_chord_reaches_capture_instead_of_toggling_overlay() {
     // C10: the Settings chord (Ctrl+Shift+,) resolves to SettingsPanel and is
-    // checked ABOVE the overlay-open guard in handle_key_event. Before the fix
+    // checked ABOVE the overlay-open guard in handle_key_event_with_text. Before the fix
     // that pre-empted chord capture — arming a remap row and pressing the
     // Settings chord toggled the Settings panel instead of capturing, so
     // Ctrl+Shift+, could never be assigned to any action. The fix gates the

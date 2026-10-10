@@ -1714,7 +1714,7 @@ mod tests {
         // REGRESSION (v0.3.0): the live winit path feeds the prefix engine a
         // chord built from BOTH `logical` (the shifted character) and
         // `binding_key` (`key_without_modifiers()`), via `prefix_chord_from_winit`
-        // — exactly as `handle_key_event` does. On a US layout Shift+5 yields
+        // - exactly as `handle_key_event_with_text` does. On a US layout Shift+5 yields
         // `logical = '%'` but `binding_key = '5'`, and Shift+' yields
         // `logical = '"'` but `binding_key = '''`. The earlier test injected a
         // pre-shifted `%` straight into the engine, so it passed while the real

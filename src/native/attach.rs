@@ -393,7 +393,7 @@ fn send_buffer_has_room(fd: std::os::fd::RawFd) -> io::Result<bool> {
 ///
 /// This is the key to byte-identity: an attached session is given a [`PtyWriter`]
 /// (`Arc<Mutex<Box<dyn Write + Send>>>`) wrapping this writer, so **every**
-/// app-side input site (`handle_key_event`, IME, paste, bracketed-paste) writes
+/// app-side input site (`handle_key_event_with_text`, IME, paste, bracketed-paste) writes
 /// through the exact same `self.writer` path as a local PTY — the input routing
 /// code is unchanged and the local path is untouched. Only the boxed sink
 /// differs: a local session boxes the PTY master, an attached session boxes this.

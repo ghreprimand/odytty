@@ -1213,7 +1213,7 @@ impl App {
 
     /// Test seam (SMART-CTRLC): set the `smart_ctrl_c` policy so the plain-Ctrl+C
     /// copy-or-interrupt branch (and its byte-identical off path) can be pinned
-    /// through the production `handle_key_event` path.
+    /// through the production `handle_key_event_with_text` path.
     #[cfg(test)]
     pub(in crate::native) fn set_smart_ctrl_c_for_test(
         &mut self,
@@ -3432,7 +3432,7 @@ impl App {
     }
 
     /// Test seam (§7 K2): drive a character key with explicit ctrl/shift
-    /// modifiers through the production `handle_key_event` path (so the prefix
+    /// modifiers through the production `handle_key_event_with_text` path (so the prefix
     /// engine sees the real chord). Restores the prior modifier state after.
     #[cfg(test)]
     pub(in crate::native) fn drive_char_with_mods_for_test(
@@ -3457,7 +3457,7 @@ impl App {
         self.modifiers = prev;
     }
 
-    /// Test seam (C22): drive a character chord through `handle_key_event` with
+    /// Test seam (C22): drive a character chord through `handle_key_event_with_text` with
     /// an explicit `KeyEventType` (Press vs Repeat), so a test can prove a held
     /// (auto-repeating) Settings/ThemePicker chord does not repeat-toggle its
     /// overlay. Restores the prior modifier state after.
@@ -3508,7 +3508,7 @@ impl App {
 
     /// Test seam (§7 K2-zoom): whether the active tab is rendering one pane
     /// full-bleed (zoom mode), so a chord-driven toggle can be asserted through
-    /// the production `handle_key_event` path.
+    /// the production `handle_key_event_with_text` path.
     #[cfg(test)]
     pub(in crate::native) fn active_is_zoomed_for_test(&self) -> bool {
         self.sessions.active_is_zoomed()

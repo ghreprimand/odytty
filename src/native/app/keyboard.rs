@@ -2,7 +2,7 @@
 //! Keyboard routing for the native app: key precedence, command dispatch, PTY
 //! encoding, and held-exit behavior.
 //!
-//! `handle_key_event` remains the single ordered precedence chain -- held exit,
+//! `handle_key_event_with_text` remains the single ordered precedence chain -- held exit,
 //! activity and drag settlement, OSC 52 prompt, prefix, global overlay toggles,
 //! active overlay input, launchers and search, modal prompts, configured
 //! actions, smart interrupt and selection deletion, image and reconnect
@@ -16,6 +16,33 @@ use super::platform_opener::OpenerOs;
 use super::*;
 
 impl App {
+    #[cfg(test)]
+    pub(super) fn handle_key_event(
+        &mut self,
+        logical: WinitKey,
+        binding_key: WinitKey,
+        physical: PhysicalKey,
+        event_type: KeyEventType,
+    ) {
+        let text = match &logical {
+            WinitKey::Character(text)
+                if event_type != KeyEventType::Release
+                    && !self.modifiers.ctrl
+                    && !self.modifiers.alt =>
+            {
+                Some(text.clone())
+            }
+            _ => None,
+        };
+        self.handle_key_event_with_text(
+            logical,
+            binding_key,
+            physical,
+            event_type,
+            text.as_deref(),
+        );
+    }
+
     /// Route one key event through local UI, or encode it and write its bytes
     /// to the PTY.
     ///
@@ -25,12 +52,13 @@ impl App {
     /// stayed local. A release whose press reached the encoder is still
     /// encoded. Local UI keeps receiving repeats, so held navigation inside
     /// the search field still works.
-    pub(super) fn handle_key_event(
+    pub(super) fn handle_key_event_with_text(
         &mut self,
         logical: WinitKey,
         binding_key: WinitKey,
         physical: PhysicalKey,
         event_type: KeyEventType,
+        generated_text: Option<&str>,
     ) {
         self.sessions.reconcile_active_tab_scrollback_trims();
         let consumed_locally = match event_type {
@@ -47,7 +75,14 @@ impl App {
             }
         };
         self.key_reached_pty_encoder = false;
-        self.route_key_event(logical, binding_key, physical, event_type, consumed_locally);
+        self.route_key_event(
+            logical,
+            binding_key,
+            physical,
+            event_type,
+            consumed_locally,
+            generated_text,
+        );
         if event_type == KeyEventType::Press && !self.key_reached_pty_encoder {
             self.locally_consumed_keys.push(physical);
         }
@@ -65,6 +100,7 @@ impl App {
         physical: PhysicalKey,
         event_type: KeyEventType,
         consumed_locally: bool,
+        generated_text: Option<&str>,
     ) {
         // Physical identity is the stable source for editing keys. KDE/KWin can
         // report Ctrl+Backspace as Character(BS), while Mutter and other stacks
@@ -576,24 +612,39 @@ impl App {
                 bytes = input::encode_win32_key_event(event, event_type);
             }
         } else if let Some(key) = map_keypad_physical_key(physical) {
-            bytes = input::encode_key_event(key, mods, key_modes, event_type);
+            bytes =
+                input::encode_key_event_with_text(key, mods, key_modes, event_type, generated_text);
         } else {
             match &logical {
                 // `Key::Character` may carry more than one char (composed input);
-                // encode each so multi-char text still reaches the shell intact.
+                // Legacy encoding keeps each scalar; Kitty associated text carries
+                // the complete generated string in one event.
                 WinitKey::Character(text) => {
-                    for ch in text.chars() {
-                        bytes.extend_from_slice(&input::encode_key_event(
+                    let combined_text = key_modes.kitty_keyboard_flags
+                        & (input::KITTY_REPORT_ALL_KEYS | input::KITTY_REPORT_ASSOCIATED_TEXT)
+                        == (input::KITTY_REPORT_ALL_KEYS | input::KITTY_REPORT_ASSOCIATED_TEXT);
+                    for (index, ch) in text.chars().enumerate() {
+                        bytes.extend_from_slice(&input::encode_key_event_with_text(
                             Key::Char(ch),
                             mods,
                             key_modes,
                             event_type,
+                            if index == 0 { generated_text } else { None },
                         ));
+                        if combined_text {
+                            break;
+                        }
                     }
                 }
                 WinitKey::Named(named) => {
                     if let Some(key) = map_named_key(*named, mods.shift) {
-                        bytes = input::encode_key_event(key, mods, key_modes, event_type);
+                        bytes = input::encode_key_event_with_text(
+                            key,
+                            mods,
+                            key_modes,
+                            event_type,
+                            generated_text,
+                        );
                     }
                 }
                 // Dead keys / unidentified: nothing to send.
@@ -1332,17 +1383,21 @@ impl App {
             ElementState::Released => KeyEventType::Release,
         };
         let binding_key = event.key_without_modifiers();
+        // The ordinary text field ignores Ctrl; the supplement retains the
+        // platform's actual generated text, including control translations.
+        let generated_text = event.text_with_all_modifiers().map(str::to_owned);
         key_event_diagnostics::log_keyboard_event(
             &event,
             &binding_key,
             self.modifiers,
             self.super_key,
         );
-        self.handle_key_event(
+        self.handle_key_event_with_text(
             event.logical_key,
             binding_key,
             event.physical_key,
             event_type,
+            generated_text.as_deref(),
         );
     }
 }

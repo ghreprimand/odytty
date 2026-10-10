@@ -2,7 +2,7 @@
 //! SMART-CTRLC: App-level wiring tests for the `smart_ctrl_c` copy-or-interrupt
 //! policy.
 //!
-//! These drive the production `handle_key_event` path headlessly to pin the
+//! These drive the production `handle_key_event_with_text` path headlessly to pin the
 //! WIRING, not the pure decision (the chord/selection predicate lives inline in
 //! `smart_ctrl_c_intercept`): that a plain Ctrl+C under the copy-or-interrupt
 //! policy copies + clears a local selection, that the default (off) policy

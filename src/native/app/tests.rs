@@ -2458,3 +2458,109 @@ fn a_press_after_a_lost_rail_drag_release_ends_the_stale_gesture() {
     app.mouse_left_release_for_test();
     assert_eq!(app.workspace_names_for_test(), names, "no stale reorder");
 }
+
+#[test]
+fn kitty_associated_text_release_has_no_generated_text() {
+    let (mut app, bytes) = build_recording_app().expect("headless app");
+    app.terminal.lock().expect("terminal").advance(b"\x1b[>26u");
+    let logical = WinitKey::Character("a".into());
+    app.handle_key_event(
+        logical.clone(),
+        logical,
+        PhysicalKey::Code(winit::keyboard::KeyCode::KeyA),
+        KeyEventType::Release,
+    );
+    assert_eq!(
+        bytes.lock().expect("recorded bytes").as_slice(),
+        b"\x1b[97;1:3u"
+    );
+}
+
+#[test]
+fn kitty_associated_text_ctrl_without_text_is_not_printable() {
+    let (mut app, bytes) = build_recording_app().expect("headless app");
+    app.terminal.lock().expect("terminal").advance(b"\x1b[>26u");
+    app.modifiers = Modifiers::CTRL;
+    let logical = WinitKey::Character("d".into());
+    app.handle_key_event(
+        logical.clone(),
+        logical,
+        PhysicalKey::Code(winit::keyboard::KeyCode::KeyD),
+        KeyEventType::Press,
+    );
+    assert_eq!(
+        bytes.lock().expect("recorded bytes").as_slice(),
+        b"\x1b[100;5u"
+    );
+}
+
+#[test]
+fn kitty_associated_text_composition_is_one_event() {
+    let (mut app, bytes) = build_recording_app().expect("headless app");
+    app.terminal.lock().expect("terminal").advance(b"\x1b[>26u");
+    let logical = WinitKey::Character("e\u{301}".into());
+    app.handle_key_event(
+        logical.clone(),
+        logical,
+        PhysicalKey::Code(winit::keyboard::KeyCode::KeyE),
+        KeyEventType::Press,
+    );
+    assert_eq!(
+        bytes.lock().expect("recorded bytes").as_slice(),
+        b"\x1b[101;;101:769u"
+    );
+}
+
+#[test]
+fn kitty_associated_text_uses_the_separate_generated_payload() {
+    let (mut app, bytes) = build_recording_app().expect("headless app");
+    app.terminal.lock().expect("terminal").advance(b"\x1b[>26u");
+    let physical = PhysicalKey::Code(winit::keyboard::KeyCode::KeyE);
+    app.handle_key_event_with_text(
+        WinitKey::Character("e".into()),
+        WinitKey::Character("e".into()),
+        physical,
+        KeyEventType::Press,
+        Some("e\u{301}"),
+    );
+    assert_eq!(
+        bytes.lock().expect("recorded bytes").as_slice(),
+        b"\x1b[101;;101:769u"
+    );
+    bytes.lock().expect("recorded bytes").clear();
+    app.handle_key_event_with_text(
+        WinitKey::Character("e".into()),
+        WinitKey::Character("e".into()),
+        physical,
+        KeyEventType::Repeat,
+        Some("e\u{301}"),
+    );
+    assert_eq!(
+        bytes.lock().expect("recorded bytes").as_slice(),
+        b"\x1b[101;1:2;101:769u"
+    );
+    bytes.lock().expect("recorded bytes").clear();
+    app.handle_key_event_with_text(
+        WinitKey::Character("e".into()),
+        WinitKey::Character("e".into()),
+        physical,
+        KeyEventType::Release,
+        Some("e\u{301}"),
+    );
+    assert_eq!(
+        bytes.lock().expect("recorded bytes").as_slice(),
+        b"\x1b[101;1:3u"
+    );
+    bytes.lock().expect("recorded bytes").clear();
+    app.handle_key_event_with_text(
+        WinitKey::Character("e".into()),
+        WinitKey::Character("e".into()),
+        physical,
+        KeyEventType::Press,
+        None,
+    );
+    assert_eq!(
+        bytes.lock().expect("recorded bytes").as_slice(),
+        b"\x1b[101u"
+    );
+}
