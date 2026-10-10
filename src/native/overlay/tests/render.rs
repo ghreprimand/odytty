@@ -656,3 +656,85 @@ fn write_text_paints_wide_tails_and_attaches_zero_width_marks() {
         "a cut keeps the mark with its base"
     );
 }
+
+/// Overlay rows measure, cut and paint terminal owners: an emoji ZWJ
+/// sequence, a VS16-promoted symbol, a modified emoji and a Thai SARA AM
+/// cluster each take the cells the terminal gives them, and a narrow cut
+/// keeps or drops an owner whole. Every case is compared, cell by cell,
+/// with a terminal that printed the same text.
+#[test]
+fn overlay_rows_paint_terminal_owners() {
+    use super::super::render::{chunk_by_columns, write_text};
+    for text in [
+        "a\u{1f469}\u{200d}\u{1f4bb}b",
+        "a\u{2764}\u{fe0f}b",
+        "a\u{1f44d}\u{1f3fd}b",
+        "a\u{e01}\u{e33}b",
+        "a\u{1f1fa}\u{1f1f8}b",
+    ] {
+        let mut terminal = crate::core::Terminal::new(20, 1);
+        terminal.advance(text.as_bytes());
+        let expected = terminal.snapshot();
+        let mut snap = snapshot(20, 1);
+        write_text(&mut snap, 0, 0, 20, text, Attrs::default());
+        for column in 0..4 {
+            let (painted, cell) = (snap.cells[column], expected.cells[column]);
+            assert_eq!(painted.ch, cell.ch, "{text:?} column {column}");
+            assert_eq!(painted.combining(), cell.combining(), "{text:?} {column}");
+            assert_eq!(
+                painted.wide_continuation, cell.wide_continuation,
+                "{text:?}"
+            );
+        }
+        assert_eq!(text_display_width(text), 4, "{text:?}");
+        // Two columns hold "a" and nothing of the two-cell owner.
+        assert_eq!(fit_chars(text, 2), "a", "{text:?}");
+        let owner: String = text.chars().skip(1).take_while(|&ch| ch != 'b').collect();
+        assert_eq!(fit_chars(text, 3), format!("a{owner}"), "{text:?}");
+        assert_eq!(
+            chunk_by_columns(text, 2, 3),
+            (vec!["a".to_owned(), owner.clone(), "b".to_owned()], false),
+            "{text:?}"
+        );
+        // A cut through the owner leaves it out whole.
+        let mut snap = snapshot(20, 1);
+        write_text(&mut snap, 0, 0, 2, text, Attrs::default());
+        assert_eq!(snap.cells[0].ch, 'a');
+        assert_eq!(
+            snap.cells[1].ch, '.',
+            "the cell is left unpainted: {text:?}"
+        );
+    }
+}
+
+/// The replay preview paints the recorded owners: emoji ZWJ, VS16, modifier
+/// and Thai SARA AM owners take the cells they took in the recorded frame,
+/// with their scalars and wide tails, cell for cell.
+#[test]
+fn replay_preview_paints_the_recorded_owners() {
+    let text =
+        "Q\u{1f469}\u{200d}\u{1f4bb}\u{2764}\u{fe0f}\u{1f44d}\u{1f3fd}\u{e01}\u{e33}e\u{301}Z";
+    let mut terminal = crate::core::Terminal::new(40, 6);
+    terminal.advance(text.as_bytes());
+    let recorded = terminal.snapshot();
+    let width = recorded.cursor.column;
+    assert_eq!(width, 11, "the recorded owners take eleven cells");
+    let mut overlay = OverlayUi::default();
+    overlay.open_replay(vec![recorded.clone()]);
+    let mut rendered = snapshot(80, 20);
+    apply_overlay(&mut rendered, &mut overlay);
+    let start = rendered
+        .cells
+        .iter()
+        .position(|cell| cell.ch == 'Q')
+        .expect("the recorded row is painted");
+    for column in 0..width {
+        let (painted, cell) = (rendered.cells[start + column], recorded.cells[column]);
+        assert_eq!(painted.ch, cell.ch, "column {column}");
+        assert_eq!(painted.combining(), cell.combining(), "column {column}");
+        assert_eq!(
+            painted.wide_continuation, cell.wide_continuation,
+            "column {column}"
+        );
+    }
+}

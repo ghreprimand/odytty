@@ -192,9 +192,8 @@ pub(in crate::native) struct MultiWindowHost {
     #[cfg(target_os = "linux")]
     wayland_docked_drag: Option<live_tab_drag::wayland::Docked>,
     shared: Arc<WatchdogShared>,
-    /// Presented frames per stable window id at the last report to the
-    /// watchdog (see `watchdog_probe::report_present_for_windows`).
-    frame_baseline: Vec<(u64, u64)>,
+    /// Per-window frame and redraw bookkeeping for the freeze watchdog.
+    watchdog: super::watchdog_probe::WatchdogLedger,
     factory: SiblingFactory,
     /// Builds a window around moved content (no shell spawn).
     adopt: AdoptFactory,
@@ -305,7 +304,7 @@ impl MultiWindowHost {
             #[cfg(target_os = "linux")]
             wayland_docked_drag: None,
             shared,
-            frame_baseline: Vec::new(),
+            watchdog: Default::default(),
             factory,
             adopt,
             picker: None,
@@ -578,36 +577,28 @@ impl MultiWindowHost {
         }
     }
 
-    /// Mirror aggregate app state into the freeze watchdog after a delegated
-    /// event. A grown TOTAL frame counter across all windows means a frame
-    /// presented since last time, which clears the pending latch. The stored
-    /// state snapshot is the primary window's (a representative surface for the
-    /// human-readable log); the frame-progress signal is the aggregate.
+    /// Mirror app state into the freeze watchdog after a delegated event (see
+    /// `watchdog_probe::publish_progress`): a frame presented by every window
+    /// that owes one clears the pending latch, and the mirrored state is the
+    /// stuck window's when one is stuck.
     fn refresh(&mut self) {
         #[cfg(target_os = "linux")]
         self.publish_wayland_tab_regions();
         self.service_broadcast();
         self.sync_peer_attached_sessions();
-        let progress: Vec<super::watchdog_probe::WindowProgress> = self
-            .windows
-            .iter()
-            .map(|app| super::watchdog_probe::WindowProgress {
-                id: app.process_window_id().0,
-                frames: app.frames_presented(),
-                owes_frame: app.watchdog_owes_visible_frame(),
-            })
-            .collect();
-        if super::watchdog_probe::report_present_for_windows(&mut self.frame_baseline, &progress) {
-            self.shared.note_present();
-        }
-        // Mirror the stuck window when one is stuck, else the first window
-        // that is not a live-drag source, as before.
-        let subject = super::watchdog_probe::stalled_window(&self.frame_baseline, &progress)
-            .and_then(|idx| self.windows.get(idx))
-            .filter(|app| !app.live_drag_source)
-            .or_else(|| self.windows.iter().find(|app| !app.live_drag_source));
-        if let Some(subject) = subject {
-            self.shared.store_state(&subject.watchdog_state());
+        let progress = super::watchdog_probe::window_progress(&self.windows);
+        super::watchdog_probe::publish_progress(&self.shared, &mut self.watchdog, &progress, |i| {
+            let app = &self.windows[i];
+            (!app.live_drag_source).then(|| app.watchdog_state())
+        });
+    }
+
+    /// Latch pending work for the freeze watchdog; a newly opened episode
+    /// records every window's redraw count as its baseline.
+    fn note_watchdog_activity(&mut self) {
+        if self.shared.note_activity() {
+            let progress = super::watchdog_probe::window_progress(&self.windows);
+            self.watchdog.open_episode(&progress);
         }
     }
 
@@ -1674,7 +1665,7 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
             self.expire_live_focus(Instant::now());
         }
         if implies_pending_work(&event) {
-            self.shared.note_activity();
+            self.note_watchdog_activity();
         }
 
         let Some(idx) = window_index_for(&self.windows, window_id) else {
@@ -1766,7 +1757,7 @@ impl ApplicationHandler<UserEvent> for MultiWindowHost {
             return;
         }
         // A PTY pump wake or session event implies a redraw is wanted.
-        self.shared.note_activity();
+        self.note_watchdog_activity();
         // v0.15.0 A: a global-shortcut summon is not session-scoped. Drive the
         // quick-terminal toggle directly on the main thread (same path the
         // command palette uses through `service_quick_toggle`).

@@ -22,13 +22,6 @@ use crate::core::{Attrs, Cell, Snapshot, UnderlineStyle};
 
 use super::*;
 
-/// How long a composition that ended on another pane keeps refusing a
-/// commit on the active pane. A platform delivers a cancelled composition's
-/// late commit together with the edge that ended it; a commit after this
-/// window (an emoji picker, a voice or on-screen keyboard insertion without a
-/// pre-edit) belongs to the active pane.
-pub(super) const IME_LATE_COMMIT_WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
-
 fn preedit_needs_cursor_area(text: &str) -> bool {
     !text.is_empty()
 }
@@ -56,7 +49,6 @@ impl App {
                     // Composition text is shown on the active pane, so a new
                     // composition starts there and settles any earlier one.
                     self.ime_settled_owner = None;
-                    self.ime_settled_at = None;
                     if self.ime_session.is_none() {
                         self.ime_session = Some(self.sessions.active_id());
                     }
@@ -73,16 +65,15 @@ impl App {
             Ime::Commit(text) => {
                 let active = self.sessions.active_id();
                 let origin = self.ime_session.take();
-                let settled_at = self.ime_settled_at.take();
-                let settled = self
-                    .ime_settled_owner
-                    .take()
-                    .filter(|_| settled_at.is_some_and(|at| at.elapsed() < IME_LATE_COMMIT_WINDOW));
                 let accepts_commit = match origin {
                     Some(owner) => owner == active,
                     // A composition that ended on another pane can still
-                    // deliver its commit late; it never reaches this pane.
-                    None => settled.is_none_or(|owner| owner == active),
+                    // deliver its commit late, however long that takes; it
+                    // never reaches this pane. The refusal stays until an
+                    // explicit transition here (see
+                    // `note_ime_input_transition`), so a direct commit is
+                    // delivered only after one.
+                    None => self.ime_settled_owner.is_none_or(|owner| owner == active),
                 };
                 if !text.is_empty() && accepts_commit {
                     self.note_cursor_keyboard_activity(std::time::Instant::now());
@@ -96,22 +87,26 @@ impl App {
     }
 
     /// End the current composition (an empty pre-edit or an enable/disable
-    /// edge). An owner other than the active pane is kept as settled, so a
-    /// commit delivered with the edge is still refused on this pane. A new
-    /// composition here, or [`IME_LATE_COMMIT_WINDOW`] passing, lifts it.
+    /// edge). An owner other than the active pane is kept as settled, so its
+    /// commit, however late, is still refused on this pane. Elapsed time
+    /// never lifts the refusal: a new composition here or an explicit input
+    /// transition does.
     fn end_ime_composition(&mut self) {
         if let Some(owner) = self.ime_session.take()
             && owner != self.sessions.active_id()
         {
             self.ime_settled_owner = Some(owner);
-            self.ime_settled_at = Some(std::time::Instant::now());
         }
     }
 
-    /// Age the settled composition's edge, as if `by` had passed since it.
-    #[cfg(test)]
-    pub(in crate::native) fn age_ime_settled_edge_for_test(&mut self, by: std::time::Duration) {
-        self.ime_settled_at = self.ime_settled_at.and_then(|at| at.checked_sub(by));
+    /// A key press, pointer press or window focus change happened in this
+    /// window. It is the user acting on the pane that is active now, so a
+    /// commit that arrives after it without a pre-edit (an emoji picker, a
+    /// voice or on-screen keyboard insertion) belongs to that pane: the
+    /// refusal kept for a composition that ended on another pane is lifted.
+    /// A composition still in progress keeps its owner.
+    pub(super) fn note_ime_input_transition(&mut self) {
+        self.ime_settled_owner = None;
     }
 
     /// C9: finalize an IME commit under the SAME overlay/search/modal gate the
@@ -247,6 +242,12 @@ impl App {
         self.ime_cursor_area_sent
     }
 
+    /// Test seam: the candidate-window area last sent to the platform.
+    #[cfg(test)]
+    pub(in crate::native) fn ime_cursor_area_sent_for_test(&self) -> Option<([f32; 2], [u32; 2])> {
+        self.ime_cursor_area_sent
+    }
+
     /// Window pixel position of the cursor cell the candidate window anchors
     /// at. In a split, zoomed, stacked or floating tab this is the focused
     /// pane's drawn grid origin (which already includes padding and tab
@@ -296,7 +297,7 @@ impl App {
     /// so it reads as provisional. Clamped to the cursor row; no-op when no
     /// composition is in progress.
     ///
-    /// The text is laid out by a scratch one-row terminal with the pane's
+    /// The text is laid out by a scratch terminal with the pane's
     /// ambiguous-width setting, so the preview owns cells exactly as the
     /// committed text will: a decomposed accent or emoji sequence is one owner
     /// with its marks retained, a wide owner carries a real wide tail, and an
@@ -352,17 +353,26 @@ fn project_preedit_cells(text: &str, columns: usize, ambiguous_wide: bool) -> Ve
     if columns == 0 {
         return Vec::new();
     }
-    let printable: String = text
-        .chars()
-        .filter(|ch| !ch.is_control())
-        .take(PREEDIT_MAX_SCALARS)
-        .collect();
     // Two spare columns let the last owner that crosses `columns` land whole
     // on the scratch row, so the cut below is always at an owner boundary.
     let width = columns + 2;
     let mut scratch = crate::core::Terminal::new(width, 2);
     scratch.set_ambiguous_wide(ambiguous_wide);
-    scratch.advance(printable.as_bytes());
+    // Feed one scalar at a time and stop at the first owner that wraps to the
+    // second row: every owner on the first row is then complete (a later
+    // scalar can only extend the newest owner), and a long composition can
+    // never scroll the first row away.
+    let mut utf8 = [0u8; 4];
+    for ch in text
+        .chars()
+        .filter(|ch| !ch.is_control())
+        .take(PREEDIT_MAX_SCALARS)
+    {
+        scratch.advance(ch.encode_utf8(&mut utf8).as_bytes());
+        if scratch.screen().cursor().row > 0 {
+            break;
+        }
+    }
     let snapshot = scratch.snapshot();
     let written = if snapshot.cursor.row == 0 {
         snapshot.cursor.column
@@ -549,6 +559,51 @@ mod tests {
         assert_eq!(snapshot.cells[3].ch, 'a');
         assert_eq!(snapshot.cells[4].ch, ' ', "the uncovered tail is blanked");
         assert!(!snapshot.cells[4].wide_continuation);
+    }
+
+    /// A composition longer than the scratch layout's two rows keeps its
+    /// prefix: near the right edge the preview shows the first owners of the
+    /// text, cut at an owner boundary, exactly as a wide terminal lays them
+    /// out, never a later part of the text.
+    #[test]
+    fn a_long_preedit_near_the_edge_keeps_its_prefix() {
+        let (mut app, _written) = build_app();
+        for (text, remaining) in [
+            ("abcdefg".to_owned(), 1),
+            ("abcdefghijklmnop".repeat(8), 3),
+            (format!("ab\u{4e00}{}", "xy".repeat(30)), 3),
+            (format!("ab\u{4e00}{}", "xy".repeat(30)), 4),
+            (format!("abe\u{301}{}", "\u{4e8c}".repeat(30)), 3),
+            (
+                format!("a\u{1f469}\u{200d}\u{1f4bb}{}", "\u{e01}\u{e33}".repeat(30)),
+                3,
+            ),
+        ] {
+            app.handle_ime(Ime::Preedit(text.clone(), None));
+            let start = COLS - remaining;
+            let mut terminal = Terminal::new(COLS, ROWS);
+            terminal.advance(format!("\x1b[1;{}H", start + 1).as_bytes());
+            let mut snapshot = terminal.snapshot();
+            app.paint_ime_preedit_cells(&mut snapshot, false);
+            let mut reference = Terminal::new(COLS, ROWS);
+            reference.advance(text.as_bytes());
+            let reference = reference.snapshot();
+            let mut fits = remaining;
+            if reference.cells[remaining].wide_continuation {
+                fits -= 1;
+            }
+            for column in 0..remaining {
+                let painted = snapshot.cells[start + column];
+                if column < fits {
+                    let expected = reference.cells[column];
+                    assert_eq!(painted.ch, expected.ch, "{text:?} column {column}");
+                    assert_eq!(painted.combining(), expected.combining(), "{text:?}");
+                    assert_eq!(painted.wide_continuation, expected.wide_continuation);
+                } else {
+                    assert_eq!(painted.ch, ' ', "{text:?}: a cut owner is left out");
+                }
+            }
+        }
     }
 
     #[test]

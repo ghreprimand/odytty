@@ -1040,7 +1040,13 @@ full repaint per composition keystroke); it is never sent to the shell until
 commit. The preview lays the text out with the terminal's own cluster and width
 rules, so combining marks, emoji sequences and script clusters occupy the same
 cells they will after commit, and an owner that does not fit before the right
-edge is left out whole. This makes CJK input methods and compose-key/dead-key accents work.
+edge is left out whole; a composition longer than the remaining columns keeps
+its first owners. Each redraw moves the candidate area to the cursor cell that
+frame draws while composition text exists. A composition that ended on another
+pane never commits into the active pane: its late commit is refused until a
+key press, pointer press or window focus change, after which a commit without
+a pre-edit (an emoji picker, an on-screen keyboard) is delivered. This makes CJK
+input methods and compose-key/dead-key accents work.
 
 With no composition in progress the pre-edit is empty and the render path is
 unchanged.
@@ -2014,7 +2020,11 @@ that closed while the picker was open, including when names are duplicated.
   `←`/`→` step, `PgUp`/`PgDn` jump ten, `Home`/`End` go to the ring ends. Replay
   cache identity includes retained cluster scalars, continuation ownership, and
   layout padding, so reopening an equal-length ring distinguishes changed owners.
-  The monochrome preview still emits base characters only. Replay
+  The monochrome preview paints each recorded cell's owner with its retained
+  marks and cluster scalars, measured and cut by the terminal's own owner
+  rules, so an emoji sequence or script cluster takes the same cells as on
+  screen (a cluster the recording split with a control sequence is joined);
+  attributes and colors are not reproduced. Replay
   is presentation-only - it never mutates live core terminal state, so the live
   frame is byte-identical whether or not the overlay is active. Recording is
   local-only: frames live only in memory, never written to disk or sent over the

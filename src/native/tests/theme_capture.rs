@@ -165,11 +165,11 @@ fn capture_is_reachable_from_the_command_palette() {
     );
 }
 
-/// Outside the palette, the capture is reached from Settings: Settings ->
-/// Themes -> Open Theme Builder opens the builder, whose `C` key requests the
-/// same capture. Pinned so the Settings route cannot silently disappear.
+/// The theme builder's `C` key requests the capture. This is the builder's
+/// own outcome; the Settings route to the builder is pinned by the App test
+/// below.
 #[test]
-fn capture_is_reachable_from_settings_through_the_theme_builder() {
+fn theme_builder_c_key_requests_the_capture() {
     use crate::native::overlay::{OverlayInput, OverlayOutcome, OverlayUi};
     let mut overlay = OverlayUi::default();
     let settings = Settings::default();
@@ -177,6 +177,62 @@ fn capture_is_reachable_from_settings_through_the_theme_builder() {
     assert_eq!(
         overlay.handle_input(OverlayInput::Char('c')),
         OverlayOutcome::CaptureThemeColors
+    );
+}
+
+/// Outside the palette, the capture is reached from Settings, all through
+/// App key input: the Settings shortcut opens the panel, Enter opens the
+/// Themes section, the Open Theme Builder row opens the builder, and `C`
+/// feeds the pane's live colors (here a program-set background) into the
+/// builder's draft. Removing the Settings launcher fails this test.
+#[test]
+fn capture_is_reachable_from_settings_through_app_input() {
+    use winit::keyboard::{Key as WinitKey, NamedKey};
+    let _guard = crate::test_lock::render_globals_lock();
+    let (mut app, terminal) = crate::native::test_support::headless_app_with(
+        NativeOptions::default(),
+        Dimensions::new(80, 24),
+        Settings::default(),
+    );
+    terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"\x1b]11;rgb:12/34/56\x1b\\");
+    let key = |app: &mut App, name: NamedKey| {
+        app.drive_overlay_key_for_test(WinitKey::Named(name), false, false);
+    };
+    app.drive_char_with_mods_for_test(',', true, true);
+    assert!(
+        app.overlay_open_for_test(),
+        "the Settings shortcut opens Settings"
+    );
+    for _ in 0..app.overlay_signature_for_test().panel.section_selected {
+        key(&mut app, NamedKey::ArrowUp);
+    }
+    key(&mut app, NamedKey::Enter);
+    let panel = app.overlay_signature_for_test().panel;
+    let target = panel
+        .entries
+        .iter()
+        .position(|entry| entry.key == "__action_open_theme_builder")
+        .expect("the Themes section offers Open Theme Builder");
+    for _ in panel.selected..target {
+        key(&mut app, NamedKey::ArrowDown);
+    }
+    assert!(app.theme_builder_draft_for_test().is_none(), "not open yet");
+    key(&mut app, NamedKey::Enter);
+    let draft = app
+        .theme_builder_draft_for_test()
+        .expect("the builder opens");
+    assert_ne!(draft.background, (0x12, 0x34, 0x56));
+    app.drive_overlay_key_for_test(WinitKey::Character("c".into()), false, false);
+    let draft = app
+        .theme_builder_draft_for_test()
+        .expect("the builder stays");
+    assert_eq!(
+        draft.background,
+        (0x12, 0x34, 0x56),
+        "the capture took the pane's live background"
     );
 }
 

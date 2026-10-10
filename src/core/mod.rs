@@ -40,6 +40,7 @@ mod scrollback;
 mod search;
 mod snapshot_envelope;
 mod stored_cell;
+mod text_owners;
 mod types;
 
 #[cfg(test)]
@@ -133,6 +134,7 @@ pub use snapshot_envelope::{
     SnapshotEnvelopeCaps, SnapshotEnvelopeError, SnapshotLayoutState, SnapshotMetadata,
     SnapshotPromptMark, SnapshotRow, SnapshotScrollRegion, SnapshotTerminalState,
 };
+pub(crate) use text_owners::text_owners;
 pub use types::{
     Attrs, Cell, CellMetrics, CharsetModes, ClipboardRequest, ClipboardSelection, Color,
     CursorStyle, Dimensions, DirtyRegion, DynamicColors, KeyboardModes, LinkId, MouseButton,

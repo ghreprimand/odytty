@@ -80,10 +80,12 @@ fn read_wsl_distro_names() -> Vec<String> {
     )
 }
 
-/// Serve a fresh cached answer, or run `query` with the cache unlocked, so a
-/// slow `wsl.exe` blocks only the caller that started it and never a picker
-/// opening in another window, and store its answer. `query` returns `None`
-/// for a failed run.
+/// Serve a fresh cached answer, or run `query` with the cache unlocked and
+/// store its answer. `query` returns `None` for a failed run. Releasing the
+/// lock means a caller never waits on the cache itself; the enumeration still
+/// runs synchronously, so it blocks the calling event loop (and every window
+/// it serves) for up to the two-second listing deadline, and a second caller
+/// that misses the cache meanwhile runs its own query.
 #[cfg(any(windows, test))]
 fn cached_wsl_distro_names(
     cache: &WslListCache,

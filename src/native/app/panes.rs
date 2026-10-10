@@ -1143,6 +1143,12 @@ impl App {
             // pane, so the hovered span is in that pane's own coordinates.
             if is_focused {
                 self.paint_armed_path_underline_cells(&mut pane.snapshot);
+                // IME pre-edit: the composition shows inline at the focused
+                // pane's cursor, as in a single-pane tab; that row then draws
+                // in logical order like every overlay-painted row.
+                let ambiguous_wide =
+                    crate::native::lock_recover(&session.terminal).ambiguous_wide();
+                self.paint_ime_preedit_cells(&mut pane.snapshot, ambiguous_wide);
             }
             if let Some(baseline) = secure_baseline {
                 super::secure_input::paint_secure_input_label_clear_of(

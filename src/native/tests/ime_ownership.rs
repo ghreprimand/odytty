@@ -2,8 +2,10 @@
 //! A composition that began on one pane never commits into another, through
 //! the real IME handler with recording writers: switching panes and then an
 //! empty pre-edit or an IME enable/disable edge ends the composition without
-//! handing its late commit to the newly active pane, while a composition that
-//! starts on the new pane commits there.
+//! handing its late commit to the newly active pane, however late it arrives,
+//! while a composition that starts on the new pane commits there and a direct
+//! commit after a key press, pointer press or window focus change reaches the
+//! pane active at that point.
 
 use std::io::{self, Write};
 
@@ -97,16 +99,57 @@ fn a_commit_without_a_composition_reaches_the_active_pane() {
     assert_eq!(bytes(&first), "\u{e9}".as_bytes());
 }
 
-#[test]
-fn a_direct_commit_after_a_cancelled_composition_reaches_the_new_pane() {
-    let (mut app, [_, b], [first, second]) = two_panes();
+/// Compose on the first pane, switch to the second, and end the composition
+/// there with an empty pre-edit.
+fn cancelled_composition_on_first_pane() -> (App, [SessionToken; 2], [Recorded; 2]) {
+    let (mut app, panes, recorded) = two_panes();
     app.handle_ime(Ime::Preedit("\u{4e2d}".to_owned(), None));
-    app.focus_session_token_for_test(b);
+    app.focus_session_token_for_test(panes[1]);
     app.handle_ime(Ime::Preedit(String::new(), None));
-    // An emoji picker or on-screen keyboard commits later without any
-    // pre-edit; the cancelled composition's refusal has lapsed by then.
-    app.age_ime_settled_edge_for_test(std::time::Duration::from_secs(2));
-    app.handle_ime(Ime::Commit("\u{1f600}".to_owned()));
-    assert_eq!(bytes(&second), "\u{1f600}".as_bytes());
-    assert!(bytes(&first).is_empty(), "nothing reaches the old pane");
+    (app, panes, recorded)
+}
+
+/// Elapsed time is not authority: a commit that arrives long after the old
+/// composition ended, with no input on the new pane in between, is refused.
+#[test]
+fn a_late_commit_stays_refused_however_late_it_arrives() {
+    let (mut app, _, [first, second]) = cancelled_composition_on_first_pane();
+    std::thread::sleep(std::time::Duration::from_millis(1_100));
+    app.handle_ime(Ime::Commit("\u{4e2d}".to_owned()));
+    assert!(bytes(&second).is_empty(), "the aged late commit is refused");
+    assert!(bytes(&first).is_empty(), "nor reaches the old pane");
+}
+
+/// A key press, a pointer press or a window focus change on the new pane is
+/// the user acting there, so a direct commit after it (an emoji picker, an
+/// on-screen keyboard) is delivered to the pane active at that point.
+#[test]
+fn a_direct_commit_after_an_explicit_transition_reaches_the_active_pane() {
+    for transition in ["key", "pointer", "focus-out", "focus-in"] {
+        let (mut app, [a, _], recorded) = cancelled_composition_on_first_pane();
+        match transition {
+            "key" => app.drive_named_key_for_test(winit::keyboard::NamedKey::Shift),
+            "pointer" => {
+                app.mouse_left_press_for_test();
+                app.mouse_left_release_for_test();
+            }
+            "focus-out" => app.on_window_focus_changed_for_test(false),
+            _ => app.on_window_focus_changed_for_test(true),
+        }
+        // A pointer press can itself focus a pane; the commit belongs to
+        // whichever pane is active after the transition.
+        let target = usize::from(app.active_session_token_for_test() != a);
+        let before = recorded.each_ref().map(|r| bytes(r).len());
+        app.handle_ime(Ime::Commit("\u{1f600}".to_owned()));
+        assert_eq!(
+            &bytes(&recorded[target])[before[target]..],
+            "\u{1f600}".as_bytes(),
+            "{transition}: the direct commit reaches the active pane"
+        );
+        assert_eq!(
+            bytes(&recorded[1 - target]).len(),
+            before[1 - target],
+            "{transition}: and only that pane"
+        );
+    }
 }

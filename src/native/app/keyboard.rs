@@ -35,6 +35,7 @@ impl App {
         self.sessions.reconcile_active_tab_scrollback_trims();
         let consumed_locally = match event_type {
             KeyEventType::Press => {
+                self.note_ime_input_transition();
                 self.locally_consumed_keys.retain(|key| *key != physical);
                 false
             }

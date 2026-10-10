@@ -106,6 +106,7 @@ impl App {
     /// can schedule. The redraw the arm already requests then actually paints.
     pub(super) fn on_window_focus_changed(&mut self, focused: bool) {
         self.observe_osc52_window_focus();
+        self.note_ime_input_transition();
         self.focused = focused;
         if focused {
             // B3 focus-transfer exclusion (#11167 class): the click that

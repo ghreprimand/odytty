@@ -144,7 +144,6 @@ impl App {
             // The moved pane's late commit must not reach the pane left
             // active here.
             self.ime_settled_owner = self.ime_session.take();
-            self.ime_settled_at = Some(Instant::now());
         }
         if self
             .context_command_handle

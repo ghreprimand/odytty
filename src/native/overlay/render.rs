@@ -19,7 +19,6 @@ use crate::native::theme_builder::ThemeBuilderLine;
 use crate::native::theme_picker::ThemePickerLine;
 use crate::native::workspace_picker::WorkspacePickerLine;
 use crate::theme::Srgb;
-use unicode_width::UnicodeWidthChar;
 
 use super::contracts::{OverlayMode, OverlayRenderSignature};
 use super::layout::*;
@@ -1130,27 +1129,21 @@ pub(super) fn draw_border(
     }
 }
 
-/// The overlay layout metric: each non-control scalar of `text` with the cells
-/// it takes. A zero-width scalar (combining mark, variation selector, joiner)
-/// after a glyph takes none, because [`write_text`] attaches it to that glyph;
-/// a leading one takes a cell of its own. Wide glyphs take two. Every measure
-/// and cut below uses this, so layout and paint always agree.
-fn glyph_widths(text: &str) -> impl Iterator<Item = (char, usize)> + '_ {
-    let mut after_glyph = false;
-    text.chars().filter(|ch| !ch.is_control()).map(move |ch| {
-        let width = match UnicodeWidthChar::width(ch) {
-            Some(0) if after_glyph => 0,
-            width => width.unwrap_or(1).max(1),
-        };
-        after_glyph = true;
-        (ch, width)
-    })
+/// The overlay layout metric: the terminal owners of `text` (see
+/// [`crate::core::text_owners`]), each with the cells it takes. A combining
+/// mark, joiner, variation selector, emoji modifier or script extension
+/// belongs to its owner exactly as in the terminal grid, so an emoji ZWJ
+/// sequence or a script cluster is measured, cut and painted as one glyph.
+/// Controls are dropped. Every measure and cut below uses this, so layout and
+/// paint always agree.
+fn glyph_widths(text: &str) -> Vec<(Cell, usize)> {
+    crate::core::text_owners(text, false)
 }
 
 /// Display width (in terminal cells) of `text`, matching the per-char width
 /// [`write_text`] uses to lay glyphs out.
 pub(in crate::native) fn text_display_width(text: &str) -> usize {
-    glyph_widths(text).map(|(_, width)| width).sum()
+    glyph_widths(text).iter().map(|(_, width)| width).sum()
 }
 
 /// Split `text` into at most `max_lines` lines of at most `width` display
@@ -1167,7 +1160,7 @@ pub(in crate::native) fn chunk_by_columns(
     let mut lines = Vec::new();
     let mut line = String::new();
     let mut used = 0usize;
-    for (ch, w) in glyph_widths(text) {
+    for (owner, w) in glyph_widths(text) {
         if used + w > width && !line.is_empty() {
             if lines.len() + 1 == max_lines {
                 lines.push(line);
@@ -1180,7 +1173,7 @@ pub(in crate::native) fn chunk_by_columns(
             // A glyph wider than the whole line cannot be shown.
             return (lines, true);
         }
-        line.push(ch);
+        line.push_str(&owner.grapheme());
         used += w;
     }
     if !line.is_empty() && lines.len() < max_lines {
@@ -1195,11 +1188,11 @@ pub(in crate::native) fn chunk_by_columns(
 pub(in crate::native) fn fit_chars(text: &str, max_width: usize) -> String {
     let mut out = String::new();
     let mut width = 0usize;
-    for (ch, w) in glyph_widths(text) {
+    for (owner, w) in glyph_widths(text) {
         if width + w > max_width {
             break;
         }
-        out.push(ch);
+        out.push_str(&owner.grapheme());
         width += w;
     }
     out
@@ -1293,28 +1286,18 @@ pub(super) fn write_text(
 
     let mut x = column;
     let right = (column + max_width).min(snapshot.dimensions.columns);
-    // The cell of the last glyph written, which zero-width scalars attach to.
-    let mut owner: Option<usize> = None;
-    for (ch, width) in glyph_widths(text) {
-        if width == 0 {
-            if let Some(owner) = owner {
-                let offset = row * snapshot.dimensions.columns + owner;
-                // A cell that already holds its bound of marks drops the rest.
-                let _ = snapshot.cells[offset].push_combining(ch);
-            }
-            continue;
-        }
-        if width > 2 || x + width > right {
+    for (mut owner, width) in glyph_widths(text) {
+        if x + width > right {
             break;
         }
-        write_cell(snapshot, row, x, ch, attrs);
+        owner.attrs = attrs;
+        snapshot.cells[row * snapshot.dimensions.columns + x] = owner;
         if width == 2 {
             // A real wide tail, so the color-glyph path sizes an emoji to
             // both cells and the monochrome path skips the spacer.
             write_cell(snapshot, row, x + 1, ' ', attrs);
             snapshot.cells[row * snapshot.dimensions.columns + x + 1].wide_continuation = true;
         }
-        owner = Some(x);
         x += width;
     }
 }

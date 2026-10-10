@@ -350,8 +350,13 @@ IME pre-edit appears inline at the cursor and committed text is sent to the
 shell. This supports CJK input methods and compose-key or dead-key accents.
 The input method's candidate window anchors at the focused pane's cursor
 cell and follows it while a composition shows text: a window resize or a
-program moving the cursor relocates it on the next frame. A split, close or
-other pane layout change ends the composition, as switching panes does.
+program moving the cursor relocates it on the next frame, at the cursor cell
+that frame draws. A split, close or other pane layout change ends the
+composition, as switching panes does. A commit from a composition that ended
+on another pane is never typed into the newly active pane, however late it
+arrives; a commit without a composition (an emoji picker or on-screen
+keyboard) reaches the active pane after a key press, a click or a window focus
+change there.
 
 The terminal bell (`BEL`) has no audible mode:
 
@@ -1816,7 +1821,9 @@ The overlay is presentation-only while the live session continues underneath.
 Use `←` or `→` to step, `PgUp` or `PgDn` to jump ten frames, and `Home` or `End`
 to move to either end. Reopening replay distinguishes stored frames whose
 retained marks or cell ownership differ, even when the frame count is unchanged.
-The monochrome preview displays base characters only.
+The monochrome preview shows each recorded character with its combining marks
+and cluster scalars, laid out by the terminal's own cluster and width rules,
+without attributes or colors.
 
 ### Connect To Saved Or Ad-Hoc Hosts
 

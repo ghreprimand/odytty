@@ -209,6 +209,9 @@ impl App {
     /// reporting, then local selection / hyperlink-open / middle-click paste.
     pub(super) fn handle_mouse_input(&mut self, state: ElementState, button: WinitMouseButton) {
         self.sessions.reconcile_active_tab_scrollback_trims();
+        if state == ElementState::Pressed {
+            self.note_ime_input_transition();
+        }
         if button == WinitMouseButton::Left {
             self.pointer_left_held = state == ElementState::Pressed;
         }

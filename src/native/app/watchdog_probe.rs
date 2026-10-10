@@ -11,7 +11,7 @@
 //! ship to a log file by construction.
 
 use super::*;
-use crate::native::watchdog::WatchdogAppState;
+use crate::native::watchdog::{WatchdogAppState, WatchdogShared};
 
 impl App {
     /// The count of GPU frames this window has actually presented (v0.15.0 A
@@ -96,124 +96,326 @@ impl App {
 }
 
 /// One window's presentation progress, as the process host's freeze
-/// watchdog sees it: a stable window id, its presented-frame count, and
-/// whether it owes a frame while shown.
+/// watchdog sees it: a stable window id, its presented-frame and
+/// delivered-redraw counts, and whether it owes a frame while shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::native) struct WindowProgress {
     pub(in crate::native) id: u64,
     pub(in crate::native) frames: u64,
+    pub(in crate::native) redraws: u64,
     pub(in crate::native) owes_frame: bool,
 }
 
-/// Whether the host may report a presented frame to the shared watchdog.
-/// That needs some window to have presented since the last report and every
-/// window that owes a frame to have presented too, so a window that keeps
-/// animating cannot clear the pending-work latch for a stalled sibling. On a
-/// report, `baseline` (frames per window at the last report) advances to the
-/// current counts; otherwise it is left alone. With one window this is the
-/// historical rule: report whenever its frame count changed.
-pub(in crate::native) fn report_present_for_windows(
-    baseline: &mut Vec<(u64, u64)>,
-    windows: &[WindowProgress],
-) -> bool {
-    let presented_since = |window: &WindowProgress| presented_since(baseline, window);
-    let any = windows.iter().any(presented_since);
-    let owing_all_presented = windows
-        .iter()
-        .filter(|window| window.owes_frame)
-        .all(presented_since);
-    if !(any && owing_all_presented) {
-        return false;
-    }
-    baseline.clear();
-    baseline.extend(windows.iter().map(|window| (window.id, window.frames)));
-    true
-}
-
-/// The first window that owes a frame while shown and has presented nothing
-/// since the last report, if any. The host mirrors that window's state into
-/// the watchdog, so a stall record describes the window that is stuck.
-pub(in crate::native) fn stalled_window(
-    baseline: &[(u64, u64)],
-    windows: &[WindowProgress],
-) -> Option<usize> {
+/// The progress of every window of the process host, in window order.
+pub(in crate::native) fn window_progress(windows: &[App]) -> Vec<WindowProgress> {
     windows
         .iter()
-        .position(|window| window.owes_frame && !presented_since(baseline, window))
+        .map(|app| WindowProgress {
+            id: app.process_window_id().0,
+            frames: app.frames_presented(),
+            redraws: app.redraws_delivered,
+            owes_frame: app.watchdog_owes_visible_frame(),
+        })
+        .collect()
 }
 
-fn presented_since(baseline: &[(u64, u64)], window: &WindowProgress) -> bool {
-    let before = baseline
+/// What one host observation decided: whether to report a presented frame to
+/// the shared watchdog, and the window whose state it should mirror.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::native) struct Observation {
+    pub(in crate::native) report: bool,
+    pub(in crate::native) stalled: Option<usize>,
+}
+
+/// The process host's per-window bookkeeping for the shared freeze watchdog.
+/// Every counter is kept per stable window id, because each window counts its
+/// own frames and redraws: one window's counter never measures another's.
+#[derive(Debug, Default)]
+pub(in crate::native) struct WatchdogLedger {
+    /// Presented frames per window at the last report.
+    reported: Vec<(u64, u64)>,
+    /// Presented frames per window at the previous observation.
+    seen: Vec<(u64, u64)>,
+    /// For each window that owes a frame: its presented frames when it began
+    /// owing (the previous observation's count, so a present observed in the
+    /// same step still counts).
+    owed_from: Vec<(u64, u64)>,
+    /// Delivered redraws per window when the watchdog's current pending
+    /// episode opened.
+    episode_redraws: Vec<(u64, u64)>,
+}
+
+fn count_for(counts: &[(u64, u64)], id: u64) -> u64 {
+    counts
         .iter()
-        .find(|(id, _)| *id == window.id)
-        .map_or(0, |(_, frames)| *frames);
-    window.frames != before
+        .find(|(window, _)| *window == id)
+        .map_or(0, |(_, count)| *count)
+}
+
+impl WatchdogLedger {
+    /// Record every window's delivered-redraw count as the baseline of a
+    /// pending episode the watchdog just opened. A window created later starts
+    /// from zero, which is its own count at creation.
+    pub(in crate::native) fn open_episode(&mut self, windows: &[WindowProgress]) {
+        self.episode_redraws.clear();
+        self.episode_redraws
+            .extend(windows.iter().map(|window| (window.id, window.redraws)));
+    }
+
+    /// The baseline for window `id`'s own redraw counter in the current
+    /// episode, which the host mirrors with that window's state.
+    pub(in crate::native) fn episode_redraws(&self, id: u64) -> u64 {
+        count_for(&self.episode_redraws, id)
+    }
+
+    /// Observe every window after an event. A presented frame is reported
+    /// when some window presented since the last report and every window that
+    /// owes a frame presented after it began owing and after the last report,
+    /// so a window that keeps animating cannot vouch for a stalled sibling,
+    /// and a present made before a window's newly owed frame cannot pay for
+    /// it. On a report the baseline advances to the current counts. With one
+    /// window this reports whenever its frame count changed. `stalled` is the
+    /// first window that owes a frame and presented nothing since the last
+    /// report.
+    pub(in crate::native) fn observe(&mut self, windows: &[WindowProgress]) -> Observation {
+        let seen = std::mem::take(&mut self.seen);
+        self.owed_from.retain(|(id, _)| {
+            windows
+                .iter()
+                .any(|window| window.id == *id && window.owes_frame)
+        });
+        for window in windows.iter().filter(|window| window.owes_frame) {
+            if !self.owed_from.iter().any(|(id, _)| *id == window.id) {
+                self.owed_from
+                    .push((window.id, count_for(&seen, window.id)));
+            }
+        }
+        self.seen
+            .extend(windows.iter().map(|window| (window.id, window.frames)));
+        let since_report =
+            |window: &WindowProgress| window.frames != count_for(&self.reported, window.id);
+        let any = windows.iter().any(since_report);
+        let owing_all_presented = windows
+            .iter()
+            .filter(|window| window.owes_frame)
+            .all(|window| {
+                since_report(window) && window.frames != count_for(&self.owed_from, window.id)
+            });
+        let report = any && owing_all_presented;
+        if report {
+            self.reported.clear();
+            self.reported
+                .extend(windows.iter().map(|window| (window.id, window.frames)));
+        }
+        let stalled = windows.iter().position(|window| {
+            window.owes_frame && window.frames == count_for(&self.reported, window.id)
+        });
+        Observation { report, stalled }
+    }
+}
+
+/// Report the host's progress to the shared watchdog and mirror one window:
+/// the stalled window when one is stalled, else the first window that is not
+/// a live-drag source. `state_of(i)` is window `i`'s state, `None` for a
+/// live-drag source, which is never mirrored. The episode's redraw baseline
+/// is rebased onto the mirrored window's own counter, so the stall gates
+/// count that window's deliveries and never another window's.
+pub(in crate::native) fn publish_progress(
+    shared: &WatchdogShared,
+    ledger: &mut WatchdogLedger,
+    progress: &[WindowProgress],
+    state_of: impl Fn(usize) -> Option<WatchdogAppState>,
+) {
+    let observed = ledger.observe(progress);
+    if observed.report {
+        shared.note_present();
+    }
+    let subject = observed
+        .stalled
+        .and_then(|index| state_of(index).map(|state| (index, state)))
+        .or_else(|| {
+            (0..progress.len()).find_map(|index| state_of(index).map(|state| (index, state)))
+        });
+    if let Some((index, state)) = subject {
+        shared.store_state(&state);
+        shared.rebase_episode_redraws(ledger.episode_redraws(progress[index].id));
+    }
 }
 
 #[cfg(test)]
 mod progress_tests {
-    use super::{WindowProgress, report_present_for_windows};
+    use super::{WatchdogLedger, WindowProgress, publish_progress};
+    use crate::native::watchdog::{WatchdogAppState, WatchdogShared};
 
     fn window(id: u64, frames: u64, owes_frame: bool) -> WindowProgress {
         WindowProgress {
             id,
             frames,
+            redraws: 0,
             owes_frame,
         }
     }
 
+    fn report(ledger: &mut WatchdogLedger, windows: &[WindowProgress]) -> bool {
+        ledger.observe(windows).report
+    }
+
     #[test]
     fn one_window_reports_whenever_its_frames_change() {
-        let mut baseline = Vec::new();
-        assert!(!report_present_for_windows(
-            &mut baseline,
-            &[window(1, 0, true)]
-        ));
-        assert!(report_present_for_windows(
-            &mut baseline,
-            &[window(1, 1, true)]
-        ));
-        assert!(!report_present_for_windows(
-            &mut baseline,
-            &[window(1, 1, true)]
-        ));
-        assert!(report_present_for_windows(
-            &mut baseline,
-            &[window(1, 2, false)]
-        ));
+        let mut ledger = WatchdogLedger::default();
+        assert!(!report(&mut ledger, &[window(1, 0, true)]));
+        assert!(report(&mut ledger, &[window(1, 1, true)]));
+        assert!(!report(&mut ledger, &[window(1, 1, true)]));
+        assert!(report(&mut ledger, &[window(1, 2, false)]));
     }
 
     /// An animating window cannot vouch for a sibling that owes a frame and
     /// presents nothing; once the sibling presents, the report goes through.
     #[test]
     fn an_animating_window_does_not_hide_a_stalled_sibling() {
-        let mut baseline = vec![(1, 10), (2, 5)];
+        let mut ledger = WatchdogLedger::default();
+        assert!(report(
+            &mut ledger,
+            &[window(1, 10, false), window(2, 5, false)]
+        ));
         for frames in 11..20 {
-            assert!(
-                !report_present_for_windows(
-                    &mut baseline,
-                    &[window(1, frames, true), window(2, 5, true)]
-                ),
-                "window 2 still owes its frame"
-            );
+            let observed = ledger.observe(&[window(1, frames, true), window(2, 5, true)]);
+            assert!(!observed.report, "window 2 still owes its frame");
+            assert_eq!(observed.stalled, Some(1), "the stuck window is mirrored");
         }
-        assert!(report_present_for_windows(
-            &mut baseline,
+        assert!(report(
+            &mut ledger,
             &[window(1, 20, true), window(2, 6, false)]
         ));
-        assert_eq!(baseline, vec![(1, 20), (2, 6)]);
-        assert_eq!(
-            super::stalled_window(
-                &[(1, 20), (2, 6)],
-                &[window(1, 21, true), window(2, 6, true)]
-            ),
-            Some(1),
-            "the stuck window is the one whose state is mirrored"
-        );
+        let observed = ledger.observe(&[window(1, 20, true), window(2, 6, true)]);
+        assert_eq!(observed.stalled, Some(0), "window 1 now owes and is stuck");
         // A sibling that owes nothing does not hold the report back.
-        assert!(report_present_for_windows(
-            &mut baseline,
+        assert!(report(
+            &mut ledger,
             &[window(1, 21, true), window(2, 6, false)]
         ));
+    }
+
+    /// A present a window made while a sibling held the report back cannot
+    /// pay for a frame the window begins to owe afterwards.
+    #[test]
+    fn an_earlier_unreported_present_does_not_pay_for_a_newly_owed_frame() {
+        let mut ledger = WatchdogLedger::default();
+        assert!(report(
+            &mut ledger,
+            &[window(1, 10, false), window(2, 5, false)]
+        ));
+        // Window 1 presents while window 2 owes: no report.
+        assert!(!report(
+            &mut ledger,
+            &[window(1, 11, false), window(2, 5, true)]
+        ));
+        // Window 2 presents, but window 1 now owes a new frame it has not
+        // presented: still no report.
+        let observed = ledger.observe(&[window(1, 11, true), window(2, 6, false)]);
+        assert!(!observed.report, "the old present does not count");
+        // Window 1 presents its owed frame: the report goes through.
+        assert!(report(
+            &mut ledger,
+            &[window(1, 12, true), window(2, 6, false)]
+        ));
+        // A present observed in the same step as the owing starts counts.
+        assert!(report(
+            &mut ledger,
+            &[window(1, 13, true), window(2, 7, true)]
+        ));
+    }
+
+    fn owed_state(redraws_delivered: u64, frames_presented: u64) -> WatchdogAppState {
+        WatchdogAppState {
+            focused: true,
+            window_minimized: false,
+            window_occluded: false,
+            window_present: true,
+            gpu_present: true,
+            wayland_surface: false,
+            overlay_open: false,
+            context_menu_open: false,
+            modal: 0,
+            needs_rebuild: true,
+            frames_presented,
+            consecutive_skipped_frames: 0,
+            skip_slow_retry: false,
+            redraws_delivered,
+            render_owed: true,
+        }
+    }
+
+    /// Two windows with unequal redraw counters share one watchdog. The
+    /// stalled subject alternates; each time the stall gate counts the
+    /// mirrored window's own deliveries since the episode opened, so a
+    /// sibling that keeps being asked to draw and presents nothing is
+    /// reported, and one that is not asked to draw is not a classic stall.
+    #[test]
+    fn the_shared_watchdog_counts_the_mirrored_windows_own_redraws() {
+        const LATE: u64 = 1_000_000_000;
+        let shared = WatchdogShared::new();
+        let mut ledger = WatchdogLedger::default();
+        let progress = |a: (u64, u64, bool), b: (u64, u64, bool)| {
+            [
+                WindowProgress {
+                    id: 1,
+                    frames: a.0,
+                    redraws: a.1,
+                    owes_frame: a.2,
+                },
+                WindowProgress {
+                    id: 2,
+                    frames: b.0,
+                    redraws: b.1,
+                    owes_frame: b.2,
+                },
+            ]
+        };
+        let publish =
+            |shared: &WatchdogShared, ledger: &mut WatchdogLedger, p: &[WindowProgress; 2]| {
+                publish_progress(shared, ledger, p, |i| {
+                    Some(owed_state(p[i].redraws, p[i].frames))
+                });
+            };
+        // Both windows idle and presented; the primary's counter is far ahead.
+        let idle = progress((50, 100, false), (7, 20, false));
+        publish(&shared, &mut ledger, &idle);
+        // Work arrives: the episode opens with each window's own count.
+        assert!(shared.note_activity());
+        ledger.open_episode(&idle);
+        // The sibling owes a frame and is not asked to draw: no classic
+        // stall (and no callback record off Wayland).
+        let stuck = progress((50, 100, false), (7, 20, true));
+        publish(&shared, &mut ledger, &stuck);
+        assert_eq!(
+            shared.evaluate(LATE),
+            None,
+            "the sibling was never asked to draw"
+        );
+        // The sibling is asked to draw ten times and presents nothing.
+        let asked = progress((50, 100, false), (7, 30, true));
+        publish(&shared, &mut ledger, &asked);
+        let record = shared
+            .evaluate(LATE)
+            .expect("the sibling's stall is reported");
+        assert!(
+            record.ends_with(" redraws_delivered=10"),
+            "ten since the episode opened: {record}"
+        );
+        // The sibling recovers and the primary is now the one that is stuck,
+        // asked to draw once since the episode opened.
+        shared.note_present();
+        assert!(shared.note_activity());
+        ledger.open_episode(&asked);
+        let swapped = progress((50, 101, true), (8, 30, false));
+        publish(&shared, &mut ledger, &swapped);
+        let record = shared
+            .evaluate(LATE)
+            .expect("the primary's stall is reported");
+        assert!(
+            record.ends_with(" redraws_delivered=1"),
+            "one since the episode opened: {record}"
+        );
     }
 }

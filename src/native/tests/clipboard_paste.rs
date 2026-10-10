@@ -196,6 +196,85 @@ fn risky_paste_survives_same_batch_focus_churn() {
     assert!(bytes.lock().expect("churn bytes").is_empty());
 }
 
+/// Paste `text` through the real Ctrl+Shift+V key path.
+fn paste_by_key(app: &mut App, text: &str) {
+    app.inject_paste_text_for_test(text);
+    app.drive_char_with_mods_for_test('v', true, true);
+}
+
+/// Through real key input, Esc dismisses one paste confirmation and a second
+/// paste opens another of the same mode with a different body, with no frame
+/// in between. The frame cache must not keep the first card: the next
+/// single-pane frame's signature differs and its geometry is rebuilt, and a
+/// split frame's window overlay prints the second body.
+#[test]
+fn a_replaced_paste_confirmation_rekeys_the_frame_and_shows_the_new_body() {
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    };
+    for split in [false, true] {
+        let (mut app, bytes, _) = paste_app();
+        app.set_test_cell_for_test(cell);
+        app.set_test_surface_for_test(
+            80 * cell.width,
+            24 * cell.height,
+            crate::native::WindowPadding::ZERO,
+        );
+        if split {
+            let dims = Dimensions::new(39, 24);
+            let pane = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+            let writer: PtyWriter = Arc::new(Mutex::new(Box::new(std::io::sink())));
+            app.seed_headless_split_pane_for_test(true, pane, writer, dims);
+            let focused = app.active_session_token_for_test();
+            for token in app.active_tab_pane_tokens_for_test() {
+                app.focus_session_token_for_test(token);
+                app.set_test_cell_for_test(cell);
+                app.set_test_surface_for_test(
+                    80 * cell.width,
+                    24 * cell.height,
+                    crate::native::WindowPadding::ZERO,
+                );
+            }
+            app.focus_session_token_for_test(focused);
+            app.reflow_active_panes_for_test();
+        }
+        // Same line and byte counts: only the previewed text differs.
+        paste_by_key(&mut app, "alpha\nbeta");
+        assert!(app.risky_paste_pending_for_test(), "split={split}");
+        let first = (!split).then(|| app.redraw_single_pane_probe_for_test());
+        app.drive_named_key_for_test(winit::keyboard::NamedKey::Escape);
+        assert!(!app.risky_paste_pending_for_test(), "Esc cancels the first");
+        paste_by_key(&mut app, "gamma\ndelt");
+        assert!(app.risky_paste_pending_for_test(), "the second is held");
+        if split {
+            let rows = app
+                .multipane_modal_top_rows_for_test()
+                .expect("the split frame composites the dialog");
+            let body = rows.join("\n");
+            assert!(body.contains("gamma"), "the second body is shown: {rows:?}");
+            assert!(!body.contains("alpha"), "not the first: {rows:?}");
+        } else {
+            let (first, _) = first.flatten().expect("first frame");
+            let (second, update) = app
+                .redraw_single_pane_probe_for_test()
+                .expect("second frame");
+            assert_ne!(first, second, "the replaced body re-keys the frame");
+            assert!(
+                matches!(update, GeometryUpdate::Full),
+                "the second card is painted, not the cached first: {update:?}"
+            );
+            let rows = app.render_overlay_rows_for_test(80, 24).join("\n");
+            assert!(rows.contains("gamma") && !rows.contains("alpha"), "{rows}");
+        }
+        assert!(
+            bytes.lock().expect("bytes").is_empty(),
+            "nothing is written"
+        );
+    }
+}
+
 #[test]
 fn safe_single_line_and_bracketed_multiline_keep_historical_bytes() {
     let (mut app, bytes, terminal) = paste_app();

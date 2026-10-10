@@ -179,8 +179,10 @@ impl WatchdogShared {
         u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX)
     }
 
-    pub(in crate::native) fn note_activity(&self) {
-        if !self.pending.swap(true, Ordering::Relaxed) {
+    /// Latch pending work. Returns whether this opened a new episode.
+    pub(in crate::native) fn note_activity(&self) -> bool {
+        let opened = !self.pending.swap(true, Ordering::Relaxed);
+        if opened {
             self.pending_since_ms
                 .store(self.now_ms(), Ordering::Relaxed);
             self.logged.store(false, Ordering::Relaxed);
@@ -194,6 +196,17 @@ impl WatchdogShared {
                 Ordering::Relaxed,
             );
         }
+        opened
+    }
+
+    /// Set the episode's redraw baseline to `at_start`, the mirrored window's
+    /// own delivered-redraw count when the episode opened. The process host
+    /// mirrors one window at a time and each window counts its own redraws,
+    /// so the baseline must follow the mirrored window: another window's
+    /// counter would hide (or invent) this window's deliveries.
+    pub(in crate::native) fn rebase_episode_redraws(&self, at_start: u64) {
+        self.redraws_at_pending_start
+            .store(at_start, Ordering::Relaxed);
     }
 
     pub(in crate::native) fn note_present(&self) {
