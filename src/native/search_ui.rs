@@ -5,8 +5,6 @@ use crate::core::{
 };
 use crate::selection::{self, AbsoluteCellPoint, AbsoluteSelectionRange, SelectionRange};
 
-use unicode_width::UnicodeWidthChar;
-
 /// Themed search-highlight treatment (ID1). When supplied to
 /// [`apply_search_ui`], non-active matches are painted with `fill`/`fg` and the
 /// active match with `active_fill`/`active_fg` (all sRGB bytes) instead of the
@@ -443,26 +441,10 @@ fn apply_search_bar(snapshot: &mut Snapshot, search: &SearchUi) {
             format!(" {label}: {}  0/0", search.query)
         }
     };
-    write_overlay_text(snapshot, row, &status, attrs);
-}
-
-fn write_overlay_text(snapshot: &mut Snapshot, row: usize, text: &str, attrs: Attrs) {
+    // The status echoes the typed query, so it is painted by terminal owners:
+    // a combining mark or an emoji sequence stays with its base.
     let columns = snapshot.dimensions.columns;
-    let offset = row * columns;
-    let mut column = 0;
-
-    for ch in text.chars() {
-        let width = UnicodeWidthChar::width(ch).unwrap_or(1).max(1);
-        if width > 2 || column + width > columns {
-            break;
-        }
-
-        snapshot.cells[offset + column] = Cell::new(ch, attrs);
-        if width == 2 {
-            snapshot.cells[offset + column + 1] = Cell::wide_spacer(attrs);
-        }
-        column += width;
-    }
+    super::overlay::write_text(snapshot, row, 0, columns, &status, attrs);
 }
 
 fn search_bar_attrs() -> Attrs {

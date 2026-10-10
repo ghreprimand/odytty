@@ -246,6 +246,9 @@ impl App {
             let start = output.glyphs.len().saturating_sub(label.len() + 1);
             for (glyph, ch) in output.glyphs.iter_mut().skip(start).zip(label.chars()) {
                 glyph.ch = ch;
+                // The badge replaces whatever label owner or wide tail was here.
+                glyph.owner = None;
+                glyph.wide_tail = false;
                 let (r, g, b) = colors.foreground;
                 glyph.attrs.foreground = Color::Rgb(r, g, b);
                 glyph.attrs.set_bold(true);

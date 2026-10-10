@@ -19,30 +19,69 @@ use super::{Attrs, Cell};
 /// ends a cluster at any control. An unattached default-ignorable scalar of
 /// width zero is dropped, as the print path drops it.
 pub(crate) fn text_owners(text: &str, ambiguous_wide: bool) -> Vec<(Cell, usize)> {
-    let mut owners: Vec<(Cell, usize)> = Vec::new();
+    text_owner_spans(text, ambiguous_wide)
+        .into_iter()
+        .map(|owner| (owner.cell, owner.width))
+        .collect()
+}
+
+/// One owner of a text string and the scalars it covers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TextOwnerSpan {
+    /// The owner's cell: base scalar plus retained scalars.
+    pub(crate) cell: Cell,
+    /// Columns the owner takes, 1 or 2.
+    pub(crate) width: usize,
+    /// The scalar (char) indices of the text this owner covers. The spans of
+    /// a string are contiguous and cover every scalar: a dropped control or
+    /// unattached default-ignorable belongs to the owner after it, or to the
+    /// last owner when none follows. A string with no owner has no spans.
+    pub(crate) chars: std::ops::Range<usize>,
+}
+
+/// [`text_owners`] with the scalar range each owner covers, for an editable
+/// field whose caret and selection move by whole owners.
+pub(crate) fn text_owner_spans(text: &str, ambiguous_wide: bool) -> Vec<TextOwnerSpan> {
+    let mut owners: Vec<TextOwnerSpan> = Vec::new();
     let mut open = false;
-    for ch in text.chars() {
+    // First scalar not yet covered by any span (dropped scalars wait here).
+    let mut uncovered = 0usize;
+    let mut count = 0usize;
+    for (index, ch) in text.chars().enumerate() {
+        count = index + 1;
         if ch.is_control() {
             open = false;
             continue;
         }
         let width = char_display_width(ch, ambiguous_wide);
         if open
-            && let Some((cell, owner_width)) = owners.last_mut()
+            && let Some(owner) = owners.last_mut()
             && (width == 0
-                || thai_lao_spacing_extension(cell.ch, ch)
-                || super::indic::extends(cell.ch, cell.combining(), ch)
-                || super::emoji_width::extends(cell.ch, cell.combining(), ch))
-            && cell.push_combining(ch)
+                || thai_lao_spacing_extension(owner.cell.ch, ch)
+                || super::indic::extends(owner.cell.ch, owner.cell.combining(), ch)
+                || super::emoji_width::extends(owner.cell.ch, owner.cell.combining(), ch))
+            && owner.cell.push_combining(ch)
         {
-            *owner_width = owner_display_width(cell.ch, cell.combining(), ambiguous_wide).max(1);
+            owner.width =
+                owner_display_width(owner.cell.ch, owner.cell.combining(), ambiguous_wide).max(1);
+            owner.chars.end = index + 1;
+            uncovered = index + 1;
             continue;
         }
         if width == 0 && !open && is_default_ignorable(ch) {
             continue;
         }
-        owners.push((Cell::new(ch, Attrs::default()), width.max(1)));
+        // Scalars dropped since the previous owner belong to this one.
+        owners.push(TextOwnerSpan {
+            cell: Cell::new(ch, Attrs::default()),
+            width: width.max(1),
+            chars: uncovered..index + 1,
+        });
+        uncovered = index + 1;
         open = true;
+    }
+    if let Some(last) = owners.last_mut() {
+        last.chars.end = count;
     }
     owners
 }
@@ -109,5 +148,58 @@ mod tests {
         let owners = text_owners("e\r\u{301}", false);
         assert_eq!(owners.len(), 2);
         assert_eq!(owners[1].0.ch, '\u{301}');
+    }
+
+    /// Spans cover every scalar contiguously in owner order: retained scalars
+    /// belong to their owner, a dropped scalar to the owner after it (or the
+    /// last owner when none follows), and owners match `text_owners`.
+    #[test]
+    fn spans_cover_every_scalar_by_owner() {
+        use super::text_owner_spans;
+        let ranges = |text: &str| -> Vec<std::ops::Range<usize>> {
+            text_owner_spans(text, false)
+                .into_iter()
+                .map(|span| span.chars)
+                .collect()
+        };
+        assert_eq!(ranges("e\u{301}x"), [0..2, 2..3]);
+        assert_eq!(
+            ranges("\u{1f469}\u{200d}\u{1f4bb}a"),
+            [0..3, 3..4],
+            "a ZWJ sequence is one owner"
+        );
+        assert_eq!(
+            ranges("\u{200b}ab"),
+            [0..2, 2..3],
+            "dropped lead joins the next"
+        );
+        assert_eq!(
+            ranges("a\rb"),
+            [0..1, 1..3],
+            "a control joins the next owner"
+        );
+        assert_eq!(
+            ranges("ab\r"),
+            [0..1, 1..3],
+            "a trailing control joins the last"
+        );
+        assert!(ranges("\r\u{200b}").is_empty());
+        assert!(ranges("").is_empty());
+        for text in [
+            "e\u{301}x\u{300}",
+            "\u{915}\u{94d}\u{937}\u{93f}",
+            "\u{4e00}a",
+        ] {
+            let spans = text_owner_spans(text, true);
+            let owners = text_owners(text, true);
+            assert_eq!(spans.len(), owners.len());
+            for (span, (cell, width)) in spans.iter().zip(owners) {
+                assert_eq!((span.cell, span.width), (cell, width));
+            }
+            assert_eq!(
+                spans.last().map(|span| span.chars.end),
+                Some(text.chars().count())
+            );
+        }
     }
 }

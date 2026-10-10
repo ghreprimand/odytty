@@ -54,7 +54,6 @@ use super::tab_chrome;
 use super::*;
 use crate::core::Attrs;
 use crate::theme::Srgb;
-use unicode_width::UnicodeWidthChar;
 
 // ---------------------------------------------------------------------------
 // Public constants
@@ -158,14 +157,19 @@ pub(super) struct TabBarGlyph {
     pub(super) ch: char,
     /// SGR attributes for this glyph (foreground, background, bold, …).
     pub(super) attrs: Attrs,
+    /// A label owner's full cell (base `ch` plus the scalars it retains, such
+    /// as combining marks or the rest of an emoji sequence); `None` for every
+    /// other glyph.
+    pub(super) owner: Option<crate::core::Cell>,
+    /// This column is the tail of the wide label owner to its left.
+    pub(super) wide_tail: bool,
 }
 
 /// Output from [`TabBar::render`]: fully specified row cells plus any optional
 /// pixel-space quads the integration layer wants to composite separately.
 ///
 /// Integration code pushes `quads` into the overlay quad list and writes each
-/// glyph into the reserved snapshot row:
-/// `snapshot.cells[glyph.col] = Cell::new(glyph.ch, glyph.attrs)`.
+/// glyph into the reserved snapshot row (see `panes::place_tab_bar_glyphs`).
 #[derive(Debug, Default)]
 pub(super) struct TabBarOutput {
     /// Solid pixel-space quads the integration layer composites over the row.
@@ -351,24 +355,24 @@ impl TabBar {
             if bold {
                 la.set_bold(true);
             }
-            // Advance by display width, not char index: a wide glyph occupies
-            // the two cells it paints. The trailing cell of a wide glyph is set
-            // to a blank so no stale ch shows through, and writes stop at the
-            // slot's end column. `truncate_label` already budgeted by the same
-            // width metric, so the reserved and painted columns agree.
+            // Paint by terminal owners, the metric `truncate_label` budgets
+            // with: a combining mark or an emoji sequence stays with its base
+            // in one glyph, and a wide owner takes a real wide tail. Writes
+            // stop at the slot's end column.
             let mut col = slot.label_col;
-            for ch_char in slot.label.chars() {
-                if col >= slot.end_col {
+            for (owner, w) in crate::core::text_owners(&slot.label, false) {
+                if col + w > slot.end_col {
                     break;
                 }
-                let w = UnicodeWidthChar::width(ch_char).unwrap_or(0).max(1);
                 if let Some(glyph) = row.get_mut(col) {
-                    glyph.ch = ch_char;
+                    glyph.ch = owner.ch;
+                    glyph.owner = Some(owner);
                     glyph.attrs = la;
                 }
                 for pad in 1..w {
                     if let Some(glyph) = row.get_mut(col + pad) {
                         glyph.ch = ' ';
+                        glyph.wide_tail = true;
                         glyph.attrs = la;
                     }
                 }
@@ -551,6 +555,8 @@ fn blank_glyph(col: usize, foreground: Color, background: Color) -> TabBarGlyph 
         col,
         ch: ' ',
         attrs,
+        owner: None,
+        wide_tail: false,
     }
 }
 
@@ -580,27 +586,26 @@ fn is_slot_hovered(hover: Option<TabHit>, idx: usize) -> bool {
 /// glyphs directly into the cell grid (it does not route through
 /// `overlay::render::write_text`, the universal control backstop), so an
 /// unstripped ESC would be painted into the chrome. Budgeting and the render
-/// advance both use `UnicodeWidthChar` display width so a wide (CJK/emoji)
-/// glyph reserves the two columns it actually paints. Leading/trailing
-/// whitespace is stripped; when truncation is needed the last column holds `…`.
+/// advance both measure by terminal owners ([`crate::core::text_owners`]), so
+/// a wide (CJK/emoji) owner reserves the two columns it paints and a cut never
+/// separates a combining mark or the rest of an emoji sequence from its base.
+/// Leading/trailing whitespace is stripped; when truncation is needed the last
+/// column holds `…`.
 fn truncate_label(s: &str, max_cols: usize) -> String {
-    let cleaned: Vec<char> = s.trim().chars().filter(|ch| !ch.is_control()).collect();
-    let total: usize = cleaned
-        .iter()
-        .map(|ch| UnicodeWidthChar::width(*ch).unwrap_or(0).max(1))
-        .sum();
+    let cleaned: String = s.trim().chars().filter(|ch| !ch.is_control()).collect();
+    let owners = crate::core::text_owners(&cleaned, false);
+    let total: usize = owners.iter().map(|(_, width)| width).sum();
     if total <= max_cols {
-        return cleaned.into_iter().collect();
+        return cleaned;
     }
     let mut out = String::new();
     let mut used = 0usize;
     let budget = max_cols.saturating_sub(1);
-    for ch in &cleaned {
-        let w = UnicodeWidthChar::width(*ch).unwrap_or(0).max(1);
+    for (owner, w) in owners {
         if used + w > budget {
             break;
         }
-        out.push(*ch);
+        out.push_str(&owner.grapheme());
         used += w;
     }
     out.push('…');
@@ -1411,5 +1416,23 @@ mod tests {
             out.glyphs[inactive.label_col].attrs.foreground,
             "active label distinct from inactive"
         );
+    }
+
+    /// Truncation measures by terminal owners: a cut never separates the rest
+    /// of an emoji sequence or a combining mark from its base, and a mark
+    /// takes no column of its own.
+    #[test]
+    fn truncate_label_cuts_between_owners() {
+        let zwj = "\u{1f469}\u{200d}\u{1f4bb}";
+        assert_eq!(
+            truncate_label(&format!("a{zwj}bcdef"), 5),
+            format!("a{zwj}b\u{2026}")
+        );
+        assert_eq!(
+            truncate_label("e\u{301}e\u{301}e\u{301}", 3),
+            "e\u{301}e\u{301}e\u{301}",
+            "three owners fit three columns"
+        );
+        assert_eq!(truncate_label("e\u{301}xyz", 3), "e\u{301}x\u{2026}");
     }
 }

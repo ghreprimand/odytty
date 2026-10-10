@@ -26,6 +26,8 @@ fn tab_bar_filler_rows_copy_only_background_attributes() {
         col: 0,
         ch: 'g',
         attrs,
+        owner: None,
+        wide_tail: false,
     };
     let mut cells = vec![crate::core::Cell::default(); 3];
     place_tab_bar_glyphs(&mut cells, vec![glyph], 1, 3, 0);

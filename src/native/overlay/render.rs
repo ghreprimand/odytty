@@ -1272,7 +1272,12 @@ pub(in crate::native) fn wrap_segments(segments: &[&str], sep: &str, width: usiz
     lines
 }
 
-pub(super) fn write_text(
+/// Paint `text` at `row`, `column` within `max_width` cells by terminal
+/// owners ([`glyph_widths`]): a wide owner takes a real wide tail, an owner
+/// that does not fit before the right edge is left out whole, and controls
+/// are dropped. The shared painter for overlay rows, the search bar and the
+/// rename prompt.
+pub(in crate::native) fn write_text(
     snapshot: &mut Snapshot,
     row: usize,
     column: usize,

@@ -439,3 +439,5 @@ mod interaction_delta;
 mod profile_catalog_wheel;
 
 mod session_seam_identity;
+
+mod owner_text_chrome;

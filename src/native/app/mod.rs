@@ -163,6 +163,7 @@ mod overlay_actions;
 mod overlay_registry;
 mod palette_ui;
 mod panes;
+mod rename_field;
 pub(in crate::native) use panes::PresentedPane;
 #[cfg(test)]
 pub(in crate::native) use panes::crop_snapshot;
@@ -314,7 +315,8 @@ pub(super) enum RenameTarget {
 pub(super) struct RenameState {
     target: RenameTarget,
     text: String,
-    /// Caret position as a *character* index into `text` (not a byte offset).
+    /// Caret position as a *character* index into `text` (not a byte offset),
+    /// always on a terminal-owner boundary (see `rename_field`).
     cursor: usize,
     /// F4-RENAME-MOUSE: the selection anchor as a character index. `Some` while
     /// a range is being (or has been) selected; the live selection spans

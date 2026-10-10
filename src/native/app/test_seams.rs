@@ -1459,6 +1459,23 @@ impl App {
         )
     }
 
+    /// Test seam: the cells of the decorated top tab bar's label row, from the
+    /// same snapshot decoration the single-pane renderer consumes.
+    #[cfg(test)]
+    pub(in crate::native) fn tab_bar_label_cells_for_test(&self) -> Option<Vec<crate::core::Cell>> {
+        let cell = self.resolved_cell()?;
+        let snapshot = self
+            .terminal
+            .lock()
+            .ok()?
+            .snapshot_with_scrollback(self.viewport.offset());
+        let (decorated, _) =
+            self.decorate_snapshot_with_tab_bar(snapshot.clone(), snapshot.cursor_visible, cell);
+        let columns = decorated.dimensions.columns;
+        let row = self.tab_bar_rows().max(1) / 2;
+        Some(decorated.cells[row * columns..(row + 1) * columns].to_vec())
+    }
+
     /// Test seam (F4-V2): set the tab-bar placement (`"top"`/`"left"`/`"right"`)
     /// and recompute the content grid, mirroring the live-toggle path.
     #[cfg(test)]
