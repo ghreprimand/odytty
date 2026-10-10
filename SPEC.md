@@ -1968,10 +1968,13 @@ that closed while the picker was open, including when names are duplicated.
   the host writes (hello, snapshot, output) must finish within two seconds or
   the client is evicted, whether the deadline passes before any byte or
   mid-frame, so a silent, dribbling, or slow-reading connection cannot delay
-  PTY output, input, or shutdown for attached clients. Frames a client sends
-  to the host keep the client writer's policy: a zero-progress timeout drops
-  that frame and keeps the stream, and a partial write tears it down. A resize
-  frame that fails to send is retried from idle maintenance with a backoff
+  PTY output, input, or shutdown for attached clients. The Unix control client
+  bounds each post-handshake command by a two-second total send deadline. Its
+  frame polls use one nonzero per-call deadline, retaining partial frames for
+  an exact retry. Buffered final frames remain readable after peer close. The
+  client writer's policy stays: a zero-progress timeout drops that frame and
+  keeps the stream, and a partial write tears it down. A resize frame that
+  fails to send is retried from idle maintenance with a backoff
   from 250 ms to 5 s, without blocking the window. Client detach or
   socket close removes only that client; the hosted PTY and bounded terminal
   model continue until the child exits or the detached idle timeout kills and

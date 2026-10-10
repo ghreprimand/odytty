@@ -1993,9 +1993,12 @@ Focus, Rename, Duplicate, Move, and Close; a detached session row offers Attach
 (when the session is still available) and Close. Every menu action matches its
 keyboard shortcut, and a right-click that misses a row does nothing.
 
-Attaching reconnects the live PTY and terminal model. The session host keeps
-both alive through detach and attach cycles until the child exits or the idle
-timeout reaps it.
+Attaching reconnects the live PTY and terminal model. Unix control-client frame
+polls have a total per-call deadline and retain partial frames for retry. Its
+post-handshake commands have a two-second total send deadline; a zero-progress
+timeout drops only that frame, while a partial send closes the connection and
+reports unknown delivery. The session host keeps both alive through detach
+and attach cycles until the child exits or the idle timeout reaps it.
 
 Generated wide-glyph wrap padding occupies a visual cell without adding text
 to search, copy, or scrollback export. Typed spaces at soft-wrap boundaries

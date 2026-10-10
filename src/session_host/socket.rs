@@ -305,43 +305,97 @@ fn safe_session_id(session_id: &str) -> Result<&str> {
 /// host-side `ATTACH_HANDSHAKE_TIMEOUT`; kept generous for a local socket.
 pub(crate) const HELLO_READ_DEADLINE: Duration = Duration::from_secs(2);
 
-/// A [`Read`] adapter that enforces one wall-clock deadline across an entire
-/// multi-read exchange on a Unix-domain socket. Before each underlying read it
-/// shrinks the socket's `SO_RCVTIMEO` to the remaining budget, so a peer that
-/// dribbles bytes to keep resetting the per-read timeout still hits a hard total
-/// cap; once the deadline passes, reads fail immediately with `TimedOut`.
-///
-/// The client handshake wraps its hello read in this so a wedged host — one that
-/// accepted the connection into its backlog but never services it — cannot
-/// freeze the caller's thread (the main thread, at launch restore). It mirrors
-/// the host-side `HandshakeDeadlineReader`.
+/// A resumable reader bounded by one absolute exchange deadline.
+/// Polling avoids the macOS peer-closed SO_RCVTIMEO exception entirely;
+/// buffered final frames and EOF stay readable without ignoring option errors.
 pub(crate) struct SocketReadDeadline<'a> {
     stream: &'a UnixStream,
     deadline: Instant,
 }
-
 impl<'a> SocketReadDeadline<'a> {
     pub(crate) fn new(stream: &'a UnixStream, deadline: Instant) -> Self {
         Self { stream, deadline }
     }
 }
-
 impl Read for SocketReadDeadline<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let now = Instant::now();
-        if now >= self.deadline {
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "session-host hello read exceeded its deadline",
-            ));
+        if buf.is_empty() {
+            return Ok(0);
         }
-        // Bound this read by the remaining total budget. Best-effort: on a dead
-        // peer macOS can reject `SO_RCVTIMEO` with `EINVAL`, in which case the
-        // read simply keeps any previously-set per-recv timeout.
-        let _ = self.stream.set_read_timeout(Some(self.deadline - now));
-        let mut source = self.stream;
-        source.read(buf)
+        loop {
+            let remaining = self.deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "session-host read exceeded its deadline",
+                ));
+            }
+            let mut fd = libc::pollfd {
+                fd: self.stream.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let millis = i32::try_from(remaining.as_millis().saturating_add(1)).unwrap_or(i32::MAX);
+            // SAFETY: one initialized descriptor owned by the borrowed stream.
+            let ready = unsafe { libc::poll(&raw mut fd, 1, millis) };
+            if ready == 0 {
+                continue;
+            }
+            if ready < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error);
+            }
+            // SAFETY: valid socket and writable buffer for this call. Nonblocking
+            // receive preserves the deadline even if readiness changes.
+            let count = unsafe {
+                libc::recv(
+                    fd.fd,
+                    buf.as_mut_ptr().cast(),
+                    buf.len(),
+                    libc::MSG_DONTWAIT,
+                )
+            };
+            if let Ok(count) = usize::try_from(count) {
+                return Ok(count);
+            }
+            let error = io::Error::last_os_error();
+            if matches!(
+                error.kind(),
+                io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock
+            ) {
+                continue;
+            }
+            return Err(error);
+        }
     }
+}
+
+/// Propagate socket-option failures, except EINVAL on a proven closed macOS
+/// peer. A zero-timeout poll proves closure without consuming buffered bytes.
+pub(super) fn checked_socket_timeout(
+    stream: &UnixStream,
+    result: io::Result<()>,
+) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    if let Err(error) = &result
+        && error.raw_os_error() == Some(libc::EINVAL)
+    {
+        let mut fd = libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: one initialized descriptor borrowed for a nonblocking poll.
+        if unsafe { libc::poll(&raw mut fd, 1, 0) } > 0 && fd.revents & libc::POLLHUP != 0 {
+            return Ok(());
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = stream;
+    result
 }
 
 #[cfg(test)]

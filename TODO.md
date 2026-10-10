@@ -186,6 +186,9 @@ claim acceptance on other platforms. The release notes are in
       Kitty retransmission under an existing `i=` replaces the image and
       deletes its placements, freeing its quota first and leaving the old
       image intact when the new data is rejected.
+- [x] Unix control-client polls bound complete frame reads and preserve partial
+      frames for retry. Post-handshake input, resize, detach, and shutdown use
+      a two-second send deadline; partial delivery closes the stream.
 - [x] Detached-session listing and kill never wait on a stuck host: the
       Session Navigator and `odytty list` use nonblocking, handshake-free
       probes, report an unreadable registry, and mark a host that does not

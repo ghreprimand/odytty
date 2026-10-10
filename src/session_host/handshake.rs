@@ -172,11 +172,11 @@ impl Write for DeadlineWriter<'_> {
                 "session-host frame send exceeded its deadline",
             ));
         }
-        // Best-effort, as on the handshake path: macOS can reject the option
-        // on a peer-closed socket, and the write below then reports the close.
-        let _ = self
-            .stream
-            .set_write_timeout(Some((self.deadline - now).min(self.per_write)));
+        super::socket::checked_socket_timeout(
+            self.stream,
+            self.stream
+                .set_write_timeout(Some((self.deadline - now).min(self.per_write))),
+        )?;
         // One kernel send may keep going for as long as the peer keeps
         // draining (the send timeout restarts on progress), so hand it at most
         // one chunk and check the deadline between chunks.

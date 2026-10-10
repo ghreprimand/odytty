@@ -9,19 +9,20 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 
 use super::protocol::{
-    ClientFrame, ClientHello, HostFrame, HostFrameReader, ProtocolError, read_host_hello,
-    write_client_frame, write_client_hello,
+    ClientFrame, ClientHello, HostFrame, HostFrameReader, MAX_CLIENT_INPUT_LEN, ProtocolError,
+    read_host_hello, write_client_frame, write_client_hello, write_client_input,
 };
 use super::socket::{HELLO_READ_DEADLINE, SocketReadDeadline, validate_socket_parent};
 
 #[derive(Debug)]
 pub struct SessionHostClient {
     stream: UnixStream,
-    /// Resumable frame reader: [`Self::read_frame`] polls with a read timeout,
+    /// Resumable frame reader: [`Self::read_frame`] polls with an absolute read deadline,
     /// and a timeout firing mid-frame must preserve the partial frame so the
     /// caller's retry resumes it instead of desyncing on leftover payload bytes
     /// (audit P1).
     frame_reader: HostFrameReader,
+    poisoned: bool,
 }
 
 impl SessionHostClient {
@@ -62,21 +63,19 @@ impl SessionHostClient {
         Ok(Self {
             stream,
             frame_reader: HostFrameReader::default(),
+            poisoned: false,
         })
     }
 
     pub fn read_frame(&mut self, timeout: Duration) -> Result<Option<HostFrame>> {
-        // Best-effort poll timeout. On macOS, once the host has closed its end
-        // (the session exited), `set_read_timeout` on the now peer-closed socket
-        // returns EINVAL, whereas on Linux it succeeds. The host's final buffered
-        // frames (e.g. `SessionExit`) are still readable, so failing here would
-        // drop them and surface a confusing "Invalid argument" instead. A closed
-        // peer makes the read below return promptly (buffered frame, then EOF)
-        // rather than blocking, so dropping the poll timeout cannot hang; a live
-        // peer never trips the EINVAL and the timeout still bounds the poll exactly
-        // as before → byte-identical on Linux.
-        let _ = self.stream.set_read_timeout(Some(timeout));
-        match self.frame_reader.read(&mut self.stream) {
+        if timeout.is_zero() {
+            bail!("session-host frame poll timeout must be nonzero");
+        }
+        let end = Instant::now()
+            .checked_add(timeout)
+            .context("session-host frame poll timeout is out of range")?;
+        let mut reader = SocketReadDeadline::new(&self.stream, end);
+        match self.frame_reader.read(&mut reader) {
             Ok(frame) => Ok(Some(frame)),
             Err(ProtocolError::Io(error))
                 if matches!(
@@ -91,7 +90,14 @@ impl SessionHostClient {
     }
 
     pub fn send_input(&mut self, bytes: &[u8]) -> Result<()> {
-        write_client_frame(&mut self.stream, &ClientFrame::Input(bytes.to_vec()))
+        if bytes.len() > MAX_CLIENT_INPUT_LEN {
+            return Err(ProtocolError::FrameTooLarge {
+                len: bytes.len(),
+                max: MAX_CLIENT_INPUT_LEN,
+            }
+            .into());
+        }
+        self.write_bounded(|writer| write_client_input(writer, bytes))
             .context("write session-host input frame")
     }
 
@@ -99,12 +105,14 @@ impl SessionHostClient {
         if columns == 0 || rows == 0 {
             bail!("session-host resize dimensions must be nonzero");
         }
-        write_client_frame(&mut self.stream, &ClientFrame::Resize { columns, rows })
-            .context("write session-host resize frame")
+        self.write_bounded(|writer| {
+            write_client_frame(writer, &ClientFrame::Resize { columns, rows })
+        })
+        .context("write session-host resize frame")
     }
 
     pub fn detach(&mut self) -> Result<()> {
-        write_client_frame(&mut self.stream, &ClientFrame::Detach)
+        self.write_bounded(|writer| write_client_frame(writer, &ClientFrame::Detach))
             .context("write session-host detach frame")
     }
 
@@ -112,7 +120,45 @@ impl SessionHostClient {
     /// Mirrors [`Self::detach`]; the host SIGHUPs its shell and tears down,
     /// unlinking the socket so the session disappears from the registry.
     pub fn shutdown(&mut self) -> Result<()> {
-        write_client_frame(&mut self.stream, &ClientFrame::Shutdown)
+        self.write_bounded(|writer| write_client_frame(writer, &ClientFrame::Shutdown))
             .context("write session-host shutdown frame")
     }
+
+    /// Bound the whole command, retaining the zero-progress drop policy.
+    /// Partial delivery closes the socket and refuses every later command.
+    fn write_bounded(
+        &mut self,
+        write: impl FnOnce(
+            &mut super::handshake::DeadlineWriter<'_>,
+        ) -> std::result::Result<(), ProtocolError>,
+    ) -> Result<()> {
+        if self.poisoned {
+            bail!("session-host stream is desynced by a prior failed write");
+        }
+        let result = write(&mut super::handshake::DeadlineWriter::new(
+            &self.stream,
+            Duration::from_secs(2),
+            Duration::from_millis(500),
+        ));
+        match result {
+            Ok(()) => Ok(()),
+            Err(ProtocolError::Io(error))
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
+                Ok(())
+            }
+            Err(error) => {
+                self.poisoned = true;
+                let _ = self.stream.shutdown(std::net::Shutdown::Both);
+                Err(error.into())
+            }
+        }
+    }
 }
+
+#[cfg(test)]
+#[path = "client_deadline_tests.rs"]
+mod deadline_tests;
