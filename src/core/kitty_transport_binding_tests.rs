@@ -38,7 +38,6 @@ impl FixtureDir {
         Self(path)
     }
 
-    #[cfg(unix)]
     fn child_dir(&self, name: &str) -> PathBuf {
         let path = self.0.join(name);
         std::fs::create_dir(&path).expect("create fixture child directory");
@@ -110,13 +109,20 @@ fn temp_transport_tolerates_a_name_removed_before_deletion() {
 
 #[test]
 fn transport_paths_outside_the_temp_roots_stay_refused() {
-    let outside = std::env::current_dir()
-        .expect("current directory")
-        .join("Cargo.toml");
+    // The admitted root set is injected, so the outside file is outside it by
+    // construction. A path derived from the working directory would sit inside
+    // an admitted root whenever the checkout itself lives under a temp root.
+    let fixture = FixtureDir::new("outside-root");
+    let allowed = fixture.child_dir("allowed");
+    let outside = fixture.child_dir("outside");
+    let file = outside.join("control.bin");
+    std::fs::write(&file, ADMITTED).expect("seed outside control file");
+    let _roots = test_hooks::restrict_roots(&[&allowed]);
     assert_eq!(
-        transport::read_file_transport(&path_bytes(&outside), 1 << 20),
+        transport::read_file_transport(&path_bytes(&file), 1 << 20),
         Err(TransportError::PathNotAllowed)
     );
+    assert!(file.exists(), "a refused read leaves the file in place");
 }
 
 // ---------------------------------------------------------------------------

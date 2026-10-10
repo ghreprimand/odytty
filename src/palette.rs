@@ -263,9 +263,9 @@ impl PaletteModel {
         self.rerank();
     }
 
-    /// Remove the final query character. Returns whether anything changed.
+    /// Remove the final terminal owner. Returns whether anything changed.
     pub fn backspace_query(&mut self) -> bool {
-        let changed = self.query.pop().is_some();
+        let changed = crate::core::pop_text_owner(&mut self.query);
         if changed {
             self.rerank();
         }
@@ -438,6 +438,27 @@ fn wrap_move(current: usize, delta: isize, len: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn query_backspace_removes_one_terminal_owner() {
+        for owner in [
+            "e\u{301}",
+            "\u{1f469}\u{200d}\u{1f4bb}",
+            "\u{1f1fa}\u{1f1f8}",
+            "\u{915}\u{94d}\u{937}\u{93f}",
+            "\u{0e01}\u{0e49}",
+        ] {
+            let mut field = PaletteModel::new(Vec::new());
+            for ch in format!("x{owner}").chars() {
+                field.push_query_char(ch);
+            }
+            assert!(field.backspace_query());
+            assert_eq!(field.query(), "x", "{owner:?}");
+            assert!(field.backspace_query());
+            assert_eq!(field.query(), "");
+            assert!(!field.backspace_query());
+        }
+    }
+
     use super::*;
     use crate::palette_sources::{DirectorySourceLimits, directory_candidates};
 

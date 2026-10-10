@@ -234,7 +234,7 @@ impl SessionAttachOverlay {
                 SessionAttachOverlayOutcome::Consumed
             }
             OverlayInput::Backspace => {
-                self.query.pop();
+                crate::core::pop_text_owner(&mut self.query);
                 self.recompute();
                 self.reset_scroll();
                 self.follow_selection_for_known_body_height();
@@ -606,6 +606,30 @@ fn truncate_for_width(text: &str, max_columns: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn query_backspace_removes_one_terminal_owner() {
+        for owner in [
+            "e\u{301}",
+            "\u{1f469}\u{200d}\u{1f4bb}",
+            "\u{1f1fa}\u{1f1f8}",
+            "\u{915}\u{94d}\u{937}\u{93f}",
+            "\u{0e01}\u{0e49}",
+        ] {
+            let mut field = SessionAttachOverlay::new();
+            field.open(Vec::<ListedSession>::new());
+            for ch in format!("x{owner}").chars() {
+                field.handle_input(OverlayInput::Char(ch));
+            }
+            assert_eq!(field.query, format!("x{owner}"));
+            field.handle_input(OverlayInput::Backspace);
+            assert_eq!(field.query, "x", "{owner:?}");
+            field.handle_input(OverlayInput::Backspace);
+            assert_eq!(field.query, "");
+            field.handle_input(OverlayInput::Backspace);
+            assert_eq!(field.query, "");
+        }
+    }
+
     use super::*;
     use crate::session_host::ListedSession;
 

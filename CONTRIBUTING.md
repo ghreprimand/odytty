@@ -367,6 +367,10 @@ protocol handlers:
 ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture
 ```
 
+Each fuzzer prints a `fuzz-budget` line with the iteration count and its
+source. A value that is not a positive integer is ignored with a warning on
+stderr, and the line then reports `source=default-after-invalid-env`.
+
 The graphics surface has a separate ignored tier covering Kitty/Sixel parsing,
 transport paths, mixed streams, and shared-memory lifecycle. Run it for graphics
 protocol or image-transport changes:

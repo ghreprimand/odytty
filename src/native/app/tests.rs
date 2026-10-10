@@ -2564,3 +2564,30 @@ fn kitty_associated_text_uses_the_separate_generated_payload() {
         b"\x1b[101u"
     );
 }
+
+#[test]
+fn kitty_associated_text_missing_payload_keeps_each_logical_scalar() {
+    let (mut app, bytes) = build_recording_app().expect("headless app");
+    app.terminal.lock().expect("terminal").advance(b"\x1b[>26u");
+    for (event_type, expected) in [
+        (KeyEventType::Press, b"\x1b[101u\x1b[769u".as_slice()),
+        (
+            KeyEventType::Repeat,
+            b"\x1b[101;1:2u\x1b[769;1:2u".as_slice(),
+        ),
+        (
+            KeyEventType::Release,
+            b"\x1b[101;1:3u\x1b[769;1:3u".as_slice(),
+        ),
+    ] {
+        bytes.lock().expect("recorded bytes").clear();
+        app.handle_key_event_with_text(
+            WinitKey::Character("e\u{301}".into()),
+            WinitKey::Character("e\u{301}".into()),
+            PhysicalKey::Code(winit::keyboard::KeyCode::KeyE),
+            event_type,
+            None,
+        );
+        assert_eq!(bytes.lock().expect("recorded bytes").as_slice(), expected);
+    }
+}

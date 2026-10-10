@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! FZ2 — protocol-surface fuzzing for the input features that landed after FZ1.
+//! FZ2 - protocol-surface fuzzing for the input features that landed after FZ1.
 //!
 //! FZ1 (`src/core/graphics_fuzz_tests.rs`) covers the Kitty/Sixel *graphics*
-//! display surface. This integration fuzzer covers the five control-sequence
+//! display surface. This integration fuzzer covers the eight control-sequence
 //! surfaces that grew since then, driving the public [`Terminal`] facade only
 //! (no crate internals), so it lives in `tests/` rather than a core unit module:
 //!
 //! 1. **Extended underline SGR subparams** (US1): `CSI 4 : n m` styles and
 //!    `CSI 58 : …` underline color, including truncated/garbage colon forms.
 //! 2. **Kitty keyboard protocol** (KB1/KB2): `CSI > … u` push, `CSI < … u` pop,
-//!    `CSI = … u` set, `CSI ? u` query — interleaved with RIS/DECSTR.
+//!    `CSI = … u` set, `CSI ? u` query - interleaved with RIS/DECSTR.
 //! 3. **Synchronized output mode 2026** (SU1): `CSI ? 2026 h/l` set/reset and
 //!    `CSI ? 2026 $ p` DECRQM, interleaved with text and resets.
 //! 4. **OSC 52 + dynamic colors** (OSC1): `OSC 52` payloads with oversized and
@@ -66,7 +66,7 @@
 //! default, and the seed range swept, so a captured log documents its own
 //! budget instead of leaving it to be inferred.
 
-use odytty::core::{KeyboardModes, MouseProtocol, Terminal};
+use odytty::core::{Attrs, Cell, KeyboardModes, MouseProtocol, Terminal};
 use unicode_width::UnicodeWidthChar;
 
 // ---------------------------------------------------------------------------
@@ -78,17 +78,67 @@ use unicode_width::UnicodeWidthChar;
 /// (`ODYTTY_FUZZ_ITERS=40000 … --ignored`) does the heavy discovery sweep.
 const DEFAULT_PROTO_FUZZ_ITERS: u64 = 200;
 
-/// Read the fuzz iteration budget from `ODYTTY_FUZZ_ITERS`, clamped to a floor
-/// of 1, defaulting to [`DEFAULT_PROTO_FUZZ_ITERS`].
-fn fuzz_iters() -> u64 {
-    std::env::var("ODYTTY_FUZZ_ITERS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .filter(|&n| n > 0)
-        .unwrap_or(DEFAULT_PROTO_FUZZ_ITERS)
+/// Where a resolved iteration budget came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BudgetSource {
+    /// `ODYTTY_FUZZ_ITERS` held a positive integer.
+    Env,
+    /// The variable was absent.
+    Default,
+    /// The variable was present but not a positive integer, so it was ignored.
+    DefaultAfterInvalidEnv,
 }
 
-/// Tiny deterministic xorshift64 PRNG — no external dependency, reproducible
+impl BudgetSource {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Env => "env",
+            Self::Default => "default",
+            Self::DefaultAfterInvalidEnv => "default-after-invalid-env",
+        }
+    }
+}
+
+/// Resolve the iteration budget from the raw `ODYTTY_FUZZ_ITERS` value. The
+/// count that runs and the source that is reported both come from this one
+/// function, so a log can never attribute a default budget to the environment.
+fn resolve_budget(raw: Option<&str>) -> (u64, BudgetSource) {
+    match raw {
+        None => (DEFAULT_PROTO_FUZZ_ITERS, BudgetSource::Default),
+        Some(text) => match text.trim().parse::<u64>() {
+            Ok(n) if n > 0 => (n, BudgetSource::Env),
+            _ => (
+                DEFAULT_PROTO_FUZZ_ITERS,
+                BudgetSource::DefaultAfterInvalidEnv,
+            ),
+        },
+    }
+}
+
+/// The process-wide budget, resolved once. An invalid value is reported on
+/// stderr instead of being silently replaced.
+fn budget() -> (u64, BudgetSource) {
+    static BUDGET: std::sync::OnceLock<(u64, BudgetSource)> = std::sync::OnceLock::new();
+    *BUDGET.get_or_init(|| {
+        let raw = std::env::var("ODYTTY_FUZZ_ITERS").ok();
+        let resolved = resolve_budget(raw.as_deref());
+        if resolved.1 == BudgetSource::DefaultAfterInvalidEnv {
+            eprintln!(
+                "warning: ODYTTY_FUZZ_ITERS is not a positive integer; using the default of {}",
+                resolved.0
+            );
+        }
+        resolved
+    })
+}
+
+/// The fuzz iteration budget: `ODYTTY_FUZZ_ITERS` when it holds a positive
+/// integer, otherwise [`DEFAULT_PROTO_FUZZ_ITERS`].
+fn fuzz_iters() -> u64 {
+    budget().0
+}
+
+/// Tiny deterministic xorshift64 PRNG - no external dependency, reproducible
 /// from a seed.
 struct FuzzRng(u64);
 
@@ -132,17 +182,27 @@ fn seed_for(i: u64, salt: u64) -> u64 {
 /// Seeds are derived through [`seed_for`], so the announced range cannot drift
 /// away from the range the sweep really uses.
 fn announce_budget(fuzzer: &str, iters: u64, salt: u64) {
-    let source = if std::env::var_os("ODYTTY_FUZZ_ITERS").is_some() {
-        "env"
-    } else {
-        "default"
-    };
+    let source = budget().1.label();
     println!(
         "fuzz-budget suite=protocol fuzzer={fuzzer} iters={iters} source={source} \
          salt={salt:#06x} first_seed={:#018x} last_seed={:#018x}",
         seed_for(0, salt),
         seed_for(iters.saturating_sub(1), salt)
     );
+}
+
+#[test]
+fn budget_resolution_reports_the_source_that_actually_applied() {
+    assert_eq!(resolve_budget(None), (200, BudgetSource::Default));
+    assert_eq!(resolve_budget(Some("40000")), (40_000, BudgetSource::Env));
+    assert_eq!(resolve_budget(Some(" 7 ")), (7, BudgetSource::Env));
+    for invalid in ["0", "", "abc", "-5", "1.5", "18446744073709551616"] {
+        assert_eq!(
+            resolve_budget(Some(invalid)),
+            (200, BudgetSource::DefaultAfterInvalidEnv),
+            "{invalid:?} must fall back to the default and say so"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -158,14 +218,15 @@ fn assert_not_wedged(seed: u64, t: &mut Terminal) {
     let found = snap.cells.iter().any(|c| c.ch == 'Z');
     assert!(
         found,
-        "seed={seed}: parser wedged — sentinel glyph 'Z' never reached the grid"
+        "seed={seed}: parser wedged - sentinel glyph 'Z' never reached the grid"
     );
 }
 
 /// Assert that RIS (`ESC c`) returns every observable mode/attr surface to its
 /// power-on default, discards pending host output, and leaves the parser able
-/// to print. This is the "self-consistent after RIS" invariant the packet
-/// requires across all of the new surfaces.
+/// to print. A sentinel printed straight after RIS, before any explicit SGR
+/// reset, must carry the default rendition and protection. This is the
+/// "self-consistent after RIS" invariant across all of the surfaces.
 fn assert_consistent_after_ris(seed: u64, t: &mut Terminal) {
     t.advance(b"\x1bc");
     // RIS discards any pending host-bound responses.
@@ -197,6 +258,15 @@ fn assert_consistent_after_ris(seed: u64, t: &mut Terminal) {
         !t.bracketed_paste_enabled(),
         "seed={seed}: bracketed paste still set after RIS"
     );
+    // Print before any explicit SGR reset: a rendition or protection left
+    // behind by RIS shows on this cell, where `assert_not_wedged` would mask it.
+    t.advance(b"R");
+    let sentinel = t.snapshot().cells[0];
+    assert_eq!(
+        sentinel,
+        Cell::new('R', Attrs::default()),
+        "seed={seed}: a glyph printed straight after RIS must carry the default rendition"
+    );
     assert_not_wedged(seed, t);
 }
 
@@ -217,7 +287,7 @@ fn host_output_cap(input_len: usize) -> usize {
 ///   (a pending-wrap cursor may rest at `column == columns`),
 /// - every `wide_continuation` spacer sits at column > 0 and immediately
 ///   follows a wide head (a non-continuation cell whose `ch` has display
-///   width 2) — so there are no orphaned continuations, and
+///   width 2) - so there are no orphaned continuations, and
 /// - every wide head is followed by its continuation spacer and never sits in
 ///   the final column.
 ///
@@ -281,7 +351,7 @@ fn assert_grid_consistent(seed: u64, t: &Terminal) {
 }
 
 // ---------------------------------------------------------------------------
-// Sequence generators (biased toward the five target surfaces)
+// Sequence generators (biased toward the eight target surfaces)
 // ---------------------------------------------------------------------------
 
 /// A small numeric token: ordinary, zero, large, and overflow extremes that
@@ -388,7 +458,7 @@ fn gen_kitty_keyboard(rng: &mut FuzzRng) -> Vec<u8> {
             s.push_str(&fuzz_num(rng));
         }
         _ => {
-            // Bare params then u (no intermediate — must not be treated as kitty).
+            // Bare params then u (no intermediate - must not be treated as kitty).
             s.push_str(&fuzz_num(rng));
         }
     }
@@ -427,7 +497,7 @@ fn gen_modify_other_keys(rng: &mut FuzzRng) -> Vec<u8> {
             s.push_str(&fuzz_num(rng));
         }
         _ => {
-            // Plain SGR-shaped params (no intermediate — must stay SGR).
+            // Plain SGR-shaped params (no intermediate - must stay SGR).
             s.push_str(&fuzz_num(rng));
             s.push(';');
             s.push_str(&fuzz_num(rng));
@@ -448,7 +518,7 @@ fn gen_mode_2026(rng: &mut FuzzRng) -> Vec<u8> {
         1 => s.push('l'),      // reset
         2 => s.push_str("$p"), // DECRQM
         _ => {
-            // Multi-mode list (illegal for DECSET but must not panic).
+            // Multi-mode list (a robustness path: the parser must not panic).
             s.push(';');
             s.push_str(rng.pick(&modes));
             s.push(*rng.pick(&['h', 'l']));
@@ -581,7 +651,7 @@ fn gen_decrqm_xtwinops(rng: &mut FuzzRng) -> Vec<u8> {
         s.push_str(rng.pick(&modes));
         s.push_str("$p");
     } else {
-        // XTWINOPS: CSI Ps ; a ; b t — many ops, some unsupported.
+        // XTWINOPS: CSI Ps ; a ; b t - many ops, some unsupported.
         s.push_str(&fuzz_num(rng));
         if rng.bool() {
             s.push(';');
@@ -675,9 +745,9 @@ fn build_decrqss_body(rng: &mut FuzzRng, s: &mut String) {
 fn push_dcs_end(rng: &mut FuzzRng, out: &mut Vec<u8>) {
     match rng.below(6) {
         0..=2 => out.extend_from_slice(b"\x1b\\"), // ST
-        3 => out.push(0x18),                       // CAN — abort
-        4 => out.push(0x1a),                       // SUB — abort
-        _ => out.push(0x1b),                       // lone ESC — abort via new escape
+        3 => out.push(0x18),                       // CAN - abort
+        4 => out.push(0x1a),                       // SUB - abort
+        _ => out.push(0x1b),                       // lone ESC - abort via new escape
     }
 }
 
@@ -700,7 +770,7 @@ fn gen_dcs_query(rng: &mut FuzzRng) -> Vec<u8> {
 }
 
 /// A DCS query with an abort/control byte injected into the middle of the
-/// payload (CAN/SUB/ESC/BEL/NUL) — exercises mid-string interruption.
+/// payload (CAN/SUB/ESC/BEL/NUL) - exercises mid-string interruption.
 fn gen_dcs_interrupted(rng: &mut FuzzRng) -> Vec<u8> {
     let mut q = gen_dcs_query(rng);
     if q.len() > 4 {
@@ -758,13 +828,13 @@ fn gen_rect_op(rng: &mut FuzzRng) -> Vec<u8> {
     let mut s = String::from("\x1b[");
     match rng.below(4) {
         0 => {
-            // DECCRA: src Pt;Pl;Pb;Pr;Pp ; dst Pdt;Pdl;Pdp — up to 8 params.
+            // DECCRA: src Pt;Pl;Pb;Pr;Pp ; dst Pdt;Pdl;Pdp - up to 8 params.
             let n = 5 + rng.below(4);
             push_coords(rng, &mut s, n);
             s.push_str("$v");
         }
         1 => {
-            // DECFRA: Pch ; Pt;Pl;Pb;Pr — leading fill char param.
+            // DECFRA: Pch ; Pt;Pl;Pb;Pr - leading fill char param.
             // Bias Pch toward printable, control, and wide code points.
             let ch = match rng.below(4) {
                 0 => 65 + rng.below(26),     // 'A'..'Z'
@@ -809,8 +879,8 @@ fn push_attr_list(rng: &mut FuzzRng, s: &mut String) {
 
 /// (7a') RC2 attribute-rectangle ops: DECSACE extent select (`CSI Ps * x`),
 /// DECCARA change-attrs (`CSI Pt;Pl;Pb;Pr;Pm $ r`), and DECRARA reverse-attrs
-/// (`CSI Pt;Pl;Pb;Pr;Pm $ t`). These mutate cell attributes only — never the
-/// glyph or its width — so the grid-consistency invariant must still hold.
+/// (`CSI Pt;Pl;Pb;Pr;Pm $ t`). These mutate cell attributes only - never the
+/// glyph or its width - so the grid-consistency invariant must still hold.
 fn gen_rect_attr_op(rng: &mut FuzzRng) -> Vec<u8> {
     let mut s = String::from("\x1b[");
     match rng.below(3) {
@@ -851,7 +921,7 @@ fn gen_protection_erase(rng: &mut FuzzRng) -> Vec<u8> {
 }
 
 /// (7c) Rectangle context churn: DECOM origin toggle, scroll-region (DECSTBM)
-/// changes, and alternate-screen flips — all interacting with rect coordinate
+/// changes, and alternate-screen flips - all interacting with rect coordinate
 /// translation.
 fn gen_rect_context(rng: &mut FuzzRng) -> Vec<u8> {
     match rng.below(7) {
@@ -896,7 +966,7 @@ fn gen_interleave(rng: &mut FuzzRng) -> Vec<u8> {
     }
 }
 
-/// Build one mixed stream drawing from all five surfaces plus interleaving.
+/// Build one mixed stream drawing from all eight surfaces plus interleaving.
 fn gen_mixed_stream(rng: &mut FuzzRng) -> Vec<u8> {
     let mut out = Vec::new();
     let chunks = 1 + rng.below(10);
@@ -1025,7 +1095,7 @@ fn run_kitty_stack(iters: u64) {
         let seed = seed_for(i, 0xF203);
         let mut rng = FuzzRng::new(seed);
         let mut t = Terminal::new(20, 4);
-        // Heavy push/pop/set/query churn — the internal stack has a hard cap, so
+        // Heavy push/pop/set/query churn - the internal stack has a hard cap, so
         // an unbounded push storm must not panic or wedge the parser, and the
         // exposed flags must always remain a valid u16 (type-enforced) with the
         // query reply bounded.
@@ -1254,12 +1324,46 @@ fn protocol_fuzz_dcs_query_flood_bounded_deep() {
 // (H) DECRQSS round-trips under SGR churn stay bounded and never wedge
 // ---------------------------------------------------------------------------
 
+/// The DECRQSS selectors the churn exercises, with their query bytes.
+const DECRQSS_QUERIES: [(&[u8], &str); 3] = [
+    (b"\x1bP$qm\x1b\\" as &[u8], "m"),
+    (b"\x1bP$q q\x1b\\" as &[u8], " q"),
+    (b"\x1bP$qr\x1b\\" as &[u8], "r"),
+];
+
+/// Strip the `DCS 1 $ r ... ST` frame from a complete valid reply.
+fn decrqss_payload(reply: &[u8]) -> Option<&[u8]> {
+    reply
+        .strip_prefix(b"\x1bP1$r")?
+        .strip_suffix(b"\x1b\\")
+        .filter(|payload| !payload.is_empty())
+}
+
+/// What an independent terminal reports for `query` after replaying `payload`
+/// as the control sequence it describes (`CSI payload`). A reply that does not
+/// restore the state it reports cannot round-trip.
+fn replayed_reply(payload: &[u8], query: &[u8]) -> (Vec<u8>, Terminal) {
+    let mut twin = Terminal::new(20, 4);
+    let mut csi = b"\x1b[".to_vec();
+    csi.extend_from_slice(payload);
+    twin.advance(&csi);
+    twin.advance(query);
+    let reply = twin.take_host_output();
+    (reply, twin)
+}
+
 fn run_decrqss_sgr_churn(iters: u64) {
     announce_budget("decrqss_sgr_churn", iters, 0xF208);
+    // The reply of a terminal nobody touched: the cursor style never changes
+    // in this churn, so every ` q` reply must equal it.
+    let mut fresh = Terminal::new(20, 4);
+    fresh.advance(DECRQSS_QUERIES[1].0);
+    let default_cursor_reply = fresh.take_host_output();
     for i in 0..iters {
         let seed = seed_for(i, 0xF208);
         let mut rng = FuzzRng::new(seed);
         let mut t = Terminal::new(20, 4);
+        let mut region_set = false;
         let n = 1 + rng.below(40);
         for _ in 0..n {
             // Mutate SGR/region state, then read it back via DECRQSS so the
@@ -1269,12 +1373,9 @@ fn run_decrqss_sgr_churn(iters: u64) {
             if rng.bool() {
                 // Also move the scroll region so the `r` selector varies.
                 t.advance(b"\x1b[2;3r");
+                region_set = true;
             }
-            let query: &[u8] = rng.pick(&[
-                &b"\x1bP$qm\x1b\\"[..],
-                b"\x1bP$q q\x1b\\",
-                b"\x1bP$qr\x1b\\",
-            ]);
+            let (query, selector) = *rng.pick(&DECRQSS_QUERIES);
             if rng.bool() {
                 feed_split(&mut rng, &mut t, query);
             } else {
@@ -1288,6 +1389,54 @@ fn run_decrqss_sgr_churn(iters: u64) {
                 host_output_cap(query.len()),
                 query.len()
             );
+            let payload = decrqss_payload(&out).unwrap_or_else(|| {
+                panic!("seed={seed}: DECRQSS {selector:?} reply is not one complete valid report: {out:?}")
+            });
+            match selector {
+                "m" => {
+                    let params = payload.strip_suffix(b"m").unwrap_or_else(|| {
+                        panic!("seed={seed}: SGR report lacks its final: {out:?}")
+                    });
+                    let params: Vec<&[u8]> = params.split(|byte| *byte == b';').collect();
+                    // 38:5:5 is the indexed magenta the churn selects, which the
+                    // report spells with its legacy foreground parameter 35.
+                    for expected in [&b"1"[..], b"3", b"7", b"35"] {
+                        assert!(
+                            params.contains(&expected),
+                            "seed={seed}: SGR report {out:?} lacks the active parameter {:?}",
+                            String::from_utf8_lossy(expected)
+                        );
+                    }
+                }
+                " q" => assert_eq!(
+                    out, default_cursor_reply,
+                    "seed={seed}: the cursor style was never changed"
+                ),
+                _ => {
+                    let expected: &[u8] = if region_set {
+                        b"\x1bP1$r2;3r\x1b\\"
+                    } else {
+                        b"\x1bP1$r1;4r\x1b\\"
+                    };
+                    assert_eq!(out, expected, "seed={seed}: scroll region report");
+                }
+            }
+            // Independent replay: the payload alone must restore the state it
+            // describes, observed both by asking again and by printing a glyph.
+            let (again, mut twin) = replayed_reply(payload, query);
+            assert_eq!(
+                again, out,
+                "seed={seed}: replaying the {selector:?} report did not reproduce it"
+            );
+            if selector == "m" {
+                t.advance(b"\x1b[HS");
+                twin.advance(b"\x1b[HS");
+                assert_eq!(
+                    t.snapshot().cells[0],
+                    twin.snapshot().cells[0],
+                    "seed={seed}: the SGR report does not reproduce the rendition"
+                );
+            }
         }
         assert_not_wedged(seed, &mut t);
         assert_consistent_after_ris(seed, &mut t);
@@ -1370,7 +1519,7 @@ fn protocol_fuzz_rect_soup_deep() {
 
 // ---------------------------------------------------------------------------
 // (J) Wide-glyph rectangle slicing: print CJK across a rectangle edge, then run
-//     an op whose boundary bisects the pair — the sanitize path must never
+//     an op whose boundary bisects the pair - the sanitize path must never
 //     leave an orphaned continuation
 // ---------------------------------------------------------------------------
 
@@ -1461,7 +1610,7 @@ fn protocol_fuzz_rect_copy_churn_deep() {
 // (H) Button protocol OSCs (B1): totality, no grid writes, bounded table
 // ---------------------------------------------------------------------------
 
-/// A button OSC in either spelling — valid, malformed, truncated, or hostile.
+/// A button OSC in either spelling - valid, malformed, truncated, or hostile.
 fn gen_button_osc(rng: &mut FuzzRng) -> Vec<u8> {
     let mut s = String::from("\x1b]");
     match rng.below(12) {
@@ -1530,7 +1679,7 @@ fn gen_button_osc(rng: &mut FuzzRng) -> Vec<u8> {
             }
         }
         // Label text between define and end (emitted by the caller as plain
-        // print bytes — included here so runs open/close plausibly).
+        // print bytes - included here so runs open/close plausibly).
         8 => return format!("B{}", rng.below(100)).into_bytes(),
         // Screen churn between button ops.
         9 => {
@@ -1586,6 +1735,24 @@ fn run_button_osc_churn(iters: u64) {
                 t.resize(2 + rng.below(60), 2 + rng.below(20));
             }
         }
+        // Isolated OSC-only input must leave the whole observable grid alone:
+        // every cell with its retained scalars, rendition and protection, the
+        // cursor and the dynamic colors. The generator also yields label text
+        // and screen churn on purpose; those deliberate writes stay out of
+        // this invariant, so only complete OSC sequences are fed here.
+        let before = t.snapshot();
+        let mut fed = 0;
+        for _ in 0..(1 + rng.below(20)) {
+            let seq = gen_button_osc(&mut rng);
+            if seq.starts_with(b"\x1b]") {
+                t.advance(&seq);
+                fed += 1;
+            }
+        }
+        assert!(
+            t.snapshot() == before,
+            "seed={seed}: {fed} OSC-only button sequence(s) changed the grid, cursor or colors"
+        );
         // Bounded table regardless of gate state and hostility.
         assert!(
             t.button_entry_count() <= odytty::core::MAX_BUTTON_ENTRIES,

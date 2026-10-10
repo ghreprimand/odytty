@@ -266,7 +266,7 @@ impl SettingsPanel {
                 SettingsPanelOutcome::Consumed
             }
             OverlayInput::Backspace => {
-                self.query.pop();
+                crate::core::pop_text_owner(&mut self.query);
                 self.apply_search_filter();
                 SettingsPanelOutcome::Consumed
             }

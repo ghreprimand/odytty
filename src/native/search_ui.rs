@@ -115,7 +115,7 @@ impl SearchUi {
     }
 
     pub(super) fn backspace(&mut self) {
-        if self.query.pop().is_some() {
+        if crate::core::pop_text_owner(&mut self.query) {
             self.query_generation = self.query_generation.wrapping_add(1);
         }
     }
@@ -457,6 +457,31 @@ fn search_bar_attrs() -> Attrs {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn query_backspace_removes_one_terminal_owner() {
+        for owner in [
+            "e\u{301}",
+            "\u{1f469}\u{200d}\u{1f4bb}",
+            "\u{1f1fa}\u{1f1f8}",
+            "\u{915}\u{94d}\u{937}\u{93f}",
+            "\u{0e01}\u{0e49}",
+        ] {
+            let mut ui = SearchUi::default();
+            ui.open();
+            for ch in format!("x{owner}").chars() {
+                ui.push_char(ch);
+            }
+            let generation = ui.query_generation;
+            ui.backspace();
+            assert_eq!(ui.query, "x", "{owner:?}");
+            assert_eq!(ui.query_generation, generation + 1);
+            ui.backspace();
+            assert_eq!(ui.query, "");
+            ui.backspace();
+            assert_eq!(ui.query_generation, generation + 2);
+        }
+    }
+
     use super::*;
     use crate::core::AbsolutePoint;
     use crate::core::Terminal;

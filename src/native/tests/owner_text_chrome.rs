@@ -233,3 +233,69 @@ fn rail_labels_paint_and_size_by_owner() {
     assert!(label[mark + 2].wide_continuation, "a real wide tail");
     assert_eq!(label[mark + 3].ch, 'y');
 }
+
+#[test]
+fn search_backspace_deletes_owners_through_app_input() {
+    let _guard = crate::test_lock::render_globals_lock();
+    let mut app = headless();
+    app.drive_char_with_mods_for_test('f', true, true);
+    app.handle_ime(Ime::Commit(format!("x{MARKED}{ZWJ}\u{1f1fa}\u{1f1f8}")));
+    let before = signature(&mut app);
+    for expected in [
+        format!("x{MARKED}{ZWJ}"),
+        format!("x{MARKED}"),
+        "x".to_owned(),
+        String::new(),
+    ] {
+        app.drive_named_key_for_test(NamedKey::Backspace);
+        assert_eq!(app.search_query_for_test(), expected);
+    }
+    assert_ne!(signature(&mut app), before);
+}
+
+#[test]
+fn rename_delete_keeps_caret_before_newly_joined_owner() {
+    let _guard = crate::test_lock::render_globals_lock();
+    for (initial, joined) in [
+        ("\u{1f1fa}x\u{1f1f8}", "\u{1f1fa}\u{1f1f8}"),
+        ("\u{915}\u{94d}x\u{937}", "\u{915}\u{94d}\u{937}"),
+    ] {
+        let mut app = headless();
+        app.set_session_title_override_for_test(0, Some(initial));
+        assert!(app.begin_rename_tab_for_test(0));
+        app.drive_named_key_for_test(NamedKey::ArrowLeft);
+        app.drive_named_key_for_test(NamedKey::ArrowLeft);
+        let before = signature(&mut app);
+        app.drive_named_key_for_test(NamedKey::Delete);
+        assert_eq!(app.rename_text_for_test().as_deref(), Some(joined));
+        assert_eq!(app.rename_cursor_for_test(), Some(0));
+        assert_ne!(signature(&mut app), before);
+        app.drive_named_key_for_test(NamedKey::Delete);
+        assert_eq!(app.rename_text_for_test().as_deref(), Some(""));
+    }
+}
+
+#[test]
+fn rename_delete_selection_keeps_caret_before_newly_joined_owner() {
+    let _guard = crate::test_lock::render_globals_lock();
+    for (initial, joined, start) in [
+        ("\u{1f1fa}x\u{1f1f8}", "\u{1f1fa}\u{1f1f8}", 1),
+        ("\u{915}\u{94d}x\u{937}", "\u{915}\u{94d}\u{937}", 2),
+    ] {
+        let mut app = headless();
+        app.set_session_title_override_for_test(0, Some(initial));
+        assert!(app.begin_rename_tab_for_test(0));
+        let (columns, rows) = app.grid_dims_for_test();
+        let width = columns.clamp(8, 48);
+        let row = (rows - 3) / 2 + 1;
+        let left = (columns - width) / 2 + 2 + "Tab name: ".len();
+        app.rename_pointer_press_for_test(row, left + 1);
+        app.rename_pointer_drag_for_test(row, left + 2);
+        app.rename_pointer_release_for_test();
+        assert_eq!(app.rename_selection_for_test(), Some((start, start + 1)));
+        app.drive_named_key_for_test(NamedKey::Delete);
+        assert_eq!(app.rename_text_for_test().as_deref(), Some(joined));
+        assert_eq!(app.rename_cursor_for_test(), Some(0));
+        assert_eq!(app.rename_selection_for_test(), None);
+    }
+}

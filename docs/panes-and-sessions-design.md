@@ -605,7 +605,11 @@ Session-host foundation status:
   define it; macOS otherwise uses its per-user temporary directory. The runtime
   directory must be owned by the current uid and mode `0700`. A startup lock
   serializes bind attempts, and stale sockets are removed only after a live-peer
-  connection probe fails.
+  connection probe fails. The lock and the session metadata file are opened
+  without following a final-component link and are owner-private; metadata is
+  published by atomic rename, so a link planted at either name is refused
+  instead of being truncated or chmodded through. Detached hosting is Unix-only
+  and has no Windows surface.
 - Resource bounds are explicit: one hosted session, bounded attach clients,
   host-applied scrollback capture caps, snapshot decode caps inherited from the
   envelope layer, and a detached idle timeout so a host cannot run forever

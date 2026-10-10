@@ -86,8 +86,48 @@ pub(crate) fn text_owner_spans(text: &str, ambiguous_wide: bool) -> Vec<TextOwne
     owners
 }
 
+/// Remove the final terminal owner from an append-only editable field.
+/// Scalar spans are converted to a UTF-8 boundary before truncation. Text
+/// containing only dropped controls or ignorables is cleared as one unit.
+/// Returns whether text changed, so callers can invalidate cached searches.
+pub(crate) fn pop_text_owner(text: &mut String) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    let start = text_owner_spans(text, false)
+        .last()
+        .map_or(0, |owner| owner.chars.start);
+    let byte = text.char_indices().nth(start).map_or(0, |(byte, _)| byte);
+    text.truncate(byte);
+    true
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn backspace_removes_the_final_owner_at_a_utf8_boundary() {
+        use super::pop_text_owner;
+        for owner in [
+            "e\u{301}",
+            "\u{1f469}\u{200d}\u{1f4bb}",
+            "\u{1f1fa}\u{1f1f8}",
+            "\u{915}\u{94d}\u{937}",
+        ] {
+            let mut text = format!("\u{754c}{owner}");
+            assert!(pop_text_owner(&mut text));
+            assert_eq!(text, "\u{754c}");
+            assert!(pop_text_owner(&mut text));
+            assert_eq!(text, "");
+            assert!(!pop_text_owner(&mut text));
+        }
+        let mut ignored = "\u{200b}\r".to_owned();
+        assert!(pop_text_owner(&mut ignored));
+        assert_eq!(ignored, "");
+        let mut text = "x\r".to_owned();
+        assert!(pop_text_owner(&mut text));
+        assert_eq!(text, "");
+    }
+
     use super::text_owners;
     use crate::core::Terminal;
 

@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Local-only session registry helpers for the public CLI surface.
 
-use std::fs::{self, OpenOptions};
-use std::io::{self, Read, Write};
-use std::os::unix::fs::PermissionsExt;
+use std::fs;
+use std::io::{self, Read};
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -15,7 +14,6 @@ use super::socket::{
     existing_runtime_dir, session_id_from_socket_name, session_metadata_path, session_socket_path,
 };
 
-const METADATA_MODE: u32 = 0o600;
 /// Detached-session metadata contains five short text fields. This generous
 /// ceiling leaves ample room for future compatible fields while preventing a
 /// replaced file from forcing an unbounded allocation during session listing.
@@ -31,20 +29,24 @@ pub struct SessionMetadata {
 
 pub fn write_session_metadata(runtime_dir: &Path, metadata: &SessionMetadata) -> Result<()> {
     let path = session_metadata_path(runtime_dir, &metadata.id)?;
-    let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&path)
-        .with_context(|| format!("write session metadata {}", path.display()))?;
-    fs::set_permissions(&path, fs::Permissions::from_mode(METADATA_MODE))
-        .with_context(|| format!("chmod session metadata {}", path.display()))?;
-    writeln!(file, "version=1")?;
-    writeln!(file, "id={}", escape_metadata_value(&metadata.id))?;
-    writeln!(file, "name={}", escape_metadata_value(&metadata.name))?;
-    writeln!(file, "created_unix_ms={}", metadata.created_unix_ms)?;
-    writeln!(file, "pane_count={}", metadata.pane_count)?;
-    Ok(())
+    let text = format!(
+        "version=1\nid={}\nname={}\ncreated_unix_ms={}\npane_count={}\n",
+        escape_metadata_value(&metadata.id),
+        escape_metadata_value(&metadata.name),
+        metadata.created_unix_ms,
+        metadata.pane_count,
+    );
+    // The private atomic publication seam creates an exclusive owner-only
+    // sibling and renames it over the leaf, so a link planted at the metadata
+    // name is never opened, truncated or chmodded, and a reader never sees a
+    // half-written file. An existing non-regular or foreign-owned leaf is
+    // refused, matching the no-follow reader.
+    crate::state_dir::write_atomic(
+        &path,
+        text.as_bytes(),
+        crate::state_dir::WriteMode::Sensitive,
+    )
+    .with_context(|| format!("write session metadata {}", path.display()))
 }
 
 pub fn read_session_metadata(runtime_dir: &Path, id: &str) -> Result<Option<SessionMetadata>> {

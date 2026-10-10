@@ -640,13 +640,16 @@ impl App {
             WinitKey::Named(NamedKey::Delete) => {
                 // F4-RENAME-MOUSE: Delete replaces a live selection, else it
                 // deletes the owner at (forward of) the caret.
+                let start = rename_selection_range(state).map_or(state.cursor, |(lo, _)| lo);
                 if !rename_delete_selection(state) {
                     let hi = FieldOwners::of(&state.text).next(state.cursor);
                     let lo_b = rename_byte_index(&state.text, state.cursor);
                     let hi_b = rename_byte_index(&state.text, hi);
                     state.text.replace_range(lo_b..hi_b, "");
-                    state.cursor = FieldOwners::of(&state.text).ceil(state.cursor);
                 }
+                // Neighbours can join after deletion. Stay before that owner
+                // instead of moving forward past text that was not deleted.
+                state.cursor = FieldOwners::of(&state.text).floor(start);
             }
             WinitKey::Named(NamedKey::ArrowLeft) => {
                 // Collapse a selection to its left edge; otherwise step left

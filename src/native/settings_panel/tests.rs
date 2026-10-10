@@ -2117,3 +2117,27 @@ fn reload_keeps_settings_close_choices_visible() {
     panel.handle_input(OverlayInput::Char('c'));
     assert!(!panel.pending_close_prompt);
 }
+
+#[test]
+fn query_backspace_removes_one_terminal_owner() {
+    for owner in [
+        "e\u{301}",
+        "\u{1f469}\u{200d}\u{1f4bb}",
+        "\u{1f1fa}\u{1f1f8}",
+        "\u{915}\u{94d}\u{937}\u{93f}",
+        "\u{0e01}\u{0e49}",
+    ] {
+        let mut field = SettingsPanel::new(&Settings::default());
+        field.search_active = true;
+        for ch in format!("x{owner}").chars() {
+            field.handle_input(OverlayInput::Char(ch));
+        }
+        assert_eq!(field.query, format!("x{owner}"));
+        field.handle_input(OverlayInput::Backspace);
+        assert_eq!(field.query, "x", "{owner:?}");
+        field.handle_input(OverlayInput::Backspace);
+        assert_eq!(field.query, "");
+        field.handle_input(OverlayInput::Backspace);
+        assert_eq!(field.query, "");
+    }
+}

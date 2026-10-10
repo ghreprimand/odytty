@@ -598,7 +598,7 @@ impl ConnectionForm {
             OverlayInput::PageUp | OverlayInput::Home => browse.move_selection(isize::MIN / 2),
             OverlayInput::PageDown | OverlayInput::End => browse.move_selection(isize::MAX / 2),
             OverlayInput::Backspace => {
-                browse.query.pop();
+                crate::core::pop_text_owner(&mut browse.query);
                 browse.recompute();
             }
             OverlayInput::Char(ch) if !ch.is_control() => {
@@ -1256,6 +1256,38 @@ fn wrap_for_width(text: &str, width: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn query_backspace_removes_one_terminal_owner() {
+        for owner in [
+            "e\u{301}",
+            "\u{1f469}\u{200d}\u{1f4bb}",
+            "\u{1f1fa}\u{1f1f8}",
+            "\u{915}\u{94d}\u{937}\u{93f}",
+            "\u{0e01}\u{0e49}",
+        ] {
+            let mut field = ConnectionForm::new();
+            field.open_add(Vec::new());
+            field.open_key_browse(Vec::new());
+            for ch in format!("x{owner}").chars() {
+                field.handle_input(OverlayInput::Char(ch));
+            }
+            assert_eq!(
+                field.browse.as_ref().expect("browser").query,
+                format!("x{owner}")
+            );
+            field.handle_input(OverlayInput::Backspace);
+            assert_eq!(
+                field.browse.as_ref().expect("browser").query,
+                "x",
+                "{owner:?}"
+            );
+            field.handle_input(OverlayInput::Backspace);
+            assert_eq!(field.browse.as_ref().expect("browser").query, "");
+            field.handle_input(OverlayInput::Backspace);
+            assert_eq!(field.browse.as_ref().expect("browser").query, "");
+        }
+    }
+
     use super::*;
 
     fn typed(form: &mut ConnectionForm, text: &str) {

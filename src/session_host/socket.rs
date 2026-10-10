@@ -2,7 +2,7 @@
 //! Per-user Unix-domain socket placement and lifecycle guards.
 
 use std::env;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Read};
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
@@ -17,7 +17,6 @@ const SOCKET_DIR_NAME: &str = "odytty";
 const SOCKET_PREFIX: &str = "session-";
 const SOCKET_SUFFIX: &str = ".sock";
 const RUNTIME_DIR_MODE: u32 = 0o700;
-const LOCK_FILE_MODE: u32 = 0o600;
 
 /// Upper bound on a bindable `AF_UNIX` socket path, in bytes. `sun_path` is a
 /// fixed-size field in `sockaddr_un` and the path must fit with a trailing NUL:
@@ -251,15 +250,10 @@ impl StartupLock {
         if let Some(parent) = lock_path.parent() {
             validate_runtime_dir(parent)?;
         }
-        let file = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .truncate(false)
-            .open(lock_path)
+        // No-follow, owner-private open without truncation: a link planted at
+        // the lock name is refused rather than locked or chmodded through.
+        let file = crate::state_dir::open_read_write_sensitive(lock_path)
             .with_context(|| format!("open startup lock {}", lock_path.display()))?;
-        fs::set_permissions(lock_path, fs::Permissions::from_mode(LOCK_FILE_MODE))
-            .with_context(|| format!("chmod startup lock {}", lock_path.display()))?;
 
         let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
         if result == -1 {

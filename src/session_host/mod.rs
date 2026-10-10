@@ -61,4 +61,6 @@ mod admission_tests;
 #[cfg(all(test, unix))]
 mod liveness_tests;
 #[cfg(all(test, unix))]
+mod private_write_tests;
+#[cfg(all(test, unix))]
 mod tests;

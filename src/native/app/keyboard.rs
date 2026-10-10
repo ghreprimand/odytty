@@ -617,8 +617,9 @@ impl App {
         } else {
             match &logical {
                 // `Key::Character` may carry more than one char (composed input);
-                // Legacy encoding keeps each scalar; Kitty associated text carries
-                // the complete generated string in one event.
+                // Legacy encoding and events without generated text keep each scalar.
+                // Kitty associated text carries the complete generated string
+                // in one event.
                 WinitKey::Character(text) => {
                     let combined_text = key_modes.kitty_keyboard_flags
                         & (input::KITTY_REPORT_ALL_KEYS | input::KITTY_REPORT_ASSOCIATED_TEXT)
@@ -631,7 +632,7 @@ impl App {
                             event_type,
                             if index == 0 { generated_text } else { None },
                         ));
-                        if combined_text {
+                        if combined_text && generated_text.is_some() {
                             break;
                         }
                     }

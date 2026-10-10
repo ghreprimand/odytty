@@ -90,6 +90,11 @@ fn dribbled_frame_stops_at_one_call_deadline_and_resumes_exactly() {
 fn buffered_final_frame_is_read_after_peer_close() {
     let (mut client, mut peer) = pair();
     write_host_frame(&mut peer, &HostFrame::SessionExit { exit_code: Some(7) }).expect("frame");
+    // shutdown(Both) closes the shared socket even when a concurrent PTY fork
+    // briefly holds an inherited descriptor; dropping alone would not. The
+    // surviving alias stands in for such a descriptor.
+    let _alias = peer.try_clone().expect("alias");
+    peer.shutdown(Shutdown::Both).expect("close peer");
     drop(peer);
     assert!(matches!(
         client
@@ -260,6 +265,11 @@ fn out_of_range_poll_timeout_is_rejected_without_consuming_data() {
 #[test]
 fn only_macos_einval_is_tolerated_on_a_proven_closed_peer() {
     let (client, peer) = pair();
+    // See buffered_final_frame_is_read_after_peer_close: a forked child may
+    // hold the descriptor, so close the shared socket explicitly while an
+    // alias survives.
+    let _alias = peer.try_clone().expect("alias");
+    peer.shutdown(Shutdown::Both).expect("close peer");
     drop(peer);
     let result = super::super::socket::checked_socket_timeout(
         &client.stream,
