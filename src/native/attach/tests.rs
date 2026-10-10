@@ -1273,10 +1273,8 @@ fn attach_by_id_presents_live_tab_and_repaints() {
 }
 
 /// Regression: audit P1 — a mid-frame read timeout must not desync the snapshot
-/// poll loop. `read_initial_snapshot` polls with `SNAPSHOT_POLL` (50ms) and
-/// retries on `WouldBlock`; with a stateless `read_exact`-based reader, a frame
-/// whose payload arrives split with an inter-arrival gap longer than the poll
-/// timeout loses the bytes consumed before the timeout, and the retry parses
+/// poll loop. A stateless `read_exact`-based reader loses the bytes consumed
+/// before a stall when a frame's payload arrives split, and a retry parses
 /// leftover payload as a fresh frame header (permanent desync). The writer here
 /// stalls 150ms mid-payload on an Output frame and again mid-payload on the
 /// Snapshot frame; the reader must resume both frames and return the intact
@@ -1291,14 +1289,14 @@ fn initial_snapshot_survives_mid_frame_stall() {
         bytes
     }
 
-    let (mut writer_end, mut reader_end) = UnixStream::pair().expect("socketpair");
+    let (mut writer_end, reader_end) = UnixStream::pair().expect("socketpair");
     let snapshot_payload: Vec<u8> = (0..64u8).cycle().take(4096).collect();
     let expected = snapshot_payload.clone();
 
     let writer = std::thread::spawn(move || {
         use std::io::Write;
         // Output frame (tolerated + ignored before the snapshot), split
-        // mid-payload with a stall longer than SNAPSHOT_POLL.
+        // mid-payload with a stall.
         let output = encode_frame(2, b"FIRSThALF!");
         writer_end.write_all(&output[..10]).expect("output half 1");
         writer_end.flush().expect("flush");
@@ -1321,10 +1319,100 @@ fn initial_snapshot_survives_mid_frame_stall() {
         std::thread::sleep(Duration::from_millis(500));
     });
 
-    let result = read_initial_snapshot(&mut reader_end, Duration::from_secs(5));
+    let result = read_initial_snapshot(&reader_end, Instant::now() + Duration::from_secs(5));
     writer.join().expect("writer thread");
     let bytes = result.expect("snapshot must survive mid-frame stalls without desync");
     assert_eq!(bytes, expected, "snapshot payload must arrive intact");
+}
+
+/// A-U047-01: a peer that keeps delivering one frame in slices, each arriving
+/// well inside any per-read timeout, must still be cut off at the absolute
+/// deadline. Before the fix the incremental frame read never returned control to
+/// the outer elapsed check, so the wait outlived its budget for as long as the
+/// slices kept coming.
+#[test]
+fn initial_snapshot_trickle_is_cut_off_at_the_absolute_deadline() {
+    let (mut writer_end, reader_end) = UnixStream::pair().expect("socketpair");
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let writer_stop = std::sync::Arc::clone(&stop);
+    let writer = std::thread::spawn(move || {
+        use std::io::Write;
+        // Snapshot header announcing a payload far larger than will ever arrive.
+        let mut header = vec![1u8];
+        header.extend_from_slice(&(1_000_000u32).to_be_bytes());
+        writer_end.write_all(&header).expect("header");
+        while !writer_stop.load(std::sync::atomic::Ordering::Relaxed) {
+            if writer_end.write_all(&[7u8; 16]).is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    });
+    let start = Instant::now();
+    let result = read_initial_snapshot(&reader_end, start + Duration::from_millis(300));
+    let elapsed = start.elapsed();
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    drop(reader_end);
+    writer.join().expect("writer thread");
+    let error = result.expect_err("a trickling frame must not outlive the deadline");
+    assert!(
+        format!("{error:#}").contains("timed out"),
+        "unexpected error: {error:#}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(3),
+        "trickle held the snapshot wait for {elapsed:?}"
+    );
+}
+
+/// A-U047-01: a snapshot that completes after the deadline is refused, not
+/// returned as a success past the budget.
+#[test]
+fn initial_snapshot_completed_after_the_deadline_is_refused() {
+    let (mut writer_end, reader_end) = UnixStream::pair().expect("socketpair");
+    let mut frame = vec![1u8];
+    frame.extend_from_slice(&(4u32).to_be_bytes());
+    frame.extend_from_slice(b"snap");
+    std::io::Write::write_all(&mut writer_end, &frame).expect("frame");
+    // The frame is fully buffered, but the budget is already spent.
+    let result = read_initial_snapshot(&reader_end, Instant::now());
+    assert!(result.is_err(), "an expired budget must not return success");
+    drop(writer_end);
+}
+
+/// A-U047-01: the hello exchange and the snapshot wait share one budget. A host
+/// that spends most of the budget on the hello and the rest again on the
+/// snapshot used to pass (each phase got its own full clock); it must now fail
+/// within roughly one budget.
+#[test]
+fn delayed_hello_and_delayed_snapshot_share_one_attach_budget() {
+    let dir = unique_runtime_dir();
+    let socket_path = dir.join("attach.sock");
+    let listener = UnixListener::bind(&socket_path).expect("bind fake host");
+    let budget = Duration::from_millis(800);
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept attach client");
+        let _hello = read_client_hello(&mut stream).expect("read client hello");
+        std::thread::sleep(Duration::from_millis(500));
+        write_host_hello(&mut stream, &HostHello::accepted()).expect("write host hello");
+        std::thread::sleep(Duration::from_millis(500));
+        let _ = write_host_frame(
+            &mut stream,
+            &HostFrame::Snapshot(snapshot_bytes(&sample_host_terminal())),
+        );
+    });
+    let start = Instant::now();
+    let result = AttachClient::connect_with(&socket_path, "budget", test_caps(), budget);
+    let elapsed = start.elapsed();
+    handle.join().expect("host thread");
+    assert!(
+        result.is_err(),
+        "hello (0.5s) plus snapshot (0.5s) must not fit one 0.8s budget"
+    );
+    assert!(
+        elapsed < Duration::from_millis(1_000),
+        "attach outlived its single budget: {elapsed:?}"
+    );
 }
 
 /// H2: `resize` shares the one socket with input and detach. A partial write

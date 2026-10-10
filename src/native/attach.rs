@@ -55,10 +55,6 @@ use super::pty::{PtyWriter, UserEvent};
 use super::pty_writer::{DroppedInputReason, dropped_input_error};
 use super::session::SessionToken;
 
-/// Per-read timeout while waiting for the initial snapshot, so the deadline loop
-/// can poll without blocking indefinitely on a single read.
-const SNAPSHOT_POLL: Duration = Duration::from_millis(50);
-
 /// Bounded write timeout on the attach socket (audit C-4). Every write to the
 /// host -- input, resize, detach -- goes through this stream; a resize is issued
 /// from the MAIN thread (`resize_all_panes_impl`) while input flows on the pump's
@@ -150,7 +146,7 @@ impl AttachClient {
         // is nonblocking (see `session_host::connect`): a full listen backlog
         // must not block before any deadline applies.
         let hello_end = Instant::now() + deadline;
-        let mut stream = crate::session_host::connect::connect_within(socket_path, deadline)
+        let stream = crate::session_host::connect::connect_within(socket_path, deadline)
             .with_context(|| format!("connect session-host {}", socket_path.display()))?;
         crate::session_host::connect::bound_hello_write(&stream, hello_end, || {
             let mut writer = &stream;
@@ -171,7 +167,7 @@ impl AttachClient {
         .into_result()
         .context("session-host attach rejected")?;
 
-        let snapshot = read_initial_snapshot(&mut stream, deadline)?;
+        let snapshot = read_initial_snapshot(&stream, hello_end)?;
         let envelope =
             SnapshotEnvelope::decode(&snapshot, caps).context("decode session snapshot")?;
         let terminal =
@@ -504,31 +500,31 @@ pub(super) struct AttachReader {
 }
 
 /// Read frames until the host's initial [`HostFrame::Snapshot`] arrives, or the
-/// deadline elapses. Per the contract the snapshot is the first frame, but any
-/// `Output`/`Invalidate` seen first is tolerated and ignored; `SessionExit` or
-/// `Error` before the snapshot is a hard failure.
-fn read_initial_snapshot(stream: &mut UnixStream, deadline: Duration) -> Result<Vec<u8>> {
-    // Best-effort poll timeout. On macOS, if the host has ALREADY closed its end
-    // by the time we get here — a session that exits right after sending the
-    // snapshot, or (in tests) a fast fake host that writes the snapshot and drops
-    // — `set_read_timeout` on the now peer-closed socket returns EINVAL, whereas
-    // on Linux the same call succeeds. Propagating it (the previous `?`) would
-    // discard a snapshot that is still sitting readable in the socket buffer.
-    // Tolerate the failure: a closed peer makes reads return promptly (the
-    // buffered frames, then EOF) rather than blocking, so the deadline loop below
-    // stays bounded even without the poll timeout. When the peer is alive (the
-    // normal case) this succeeds on both platforms and the poll timeout drives the
-    // deadline exactly as before → byte-identical on Linux.
-    let _ = stream.set_read_timeout(Some(SNAPSHOT_POLL));
-    // Resumable reader: a `SNAPSHOT_POLL` timeout firing mid-frame (a multi-MB
-    // snapshot arriving split under backpressure) keeps the partial frame, and
-    // the retry below resumes it instead of desyncing on leftover payload bytes
-    // (audit P1).
+/// absolute `end` instant passes. Per the contract the snapshot is the first
+/// frame, but any `Output`/`Invalidate` seen first is tolerated and ignored;
+/// `SessionExit` or `Error` before the snapshot is a hard failure.
+///
+/// `end` is the same instant that bounded connect and the hello exchange, so the
+/// whole attach exchange shares one budget. Every read goes through
+/// [`SocketReadDeadline`], which checks that instant before each receive: a peer
+/// that trickles one frame slowly cannot keep a single frame read running past
+/// it, and a snapshot that completes after `end` is refused rather than returned.
+fn read_initial_snapshot(stream: &UnixStream, end: Instant) -> Result<Vec<u8>> {
+    // Resumable reader: a deadline expiry firing mid-frame keeps the partial
+    // frame, so a snapshot split under backpressure resumes instead of
+    // desyncing on leftover payload bytes (audit P1). Polling inside
+    // `SocketReadDeadline` avoids any dependency on `SO_RCVTIMEO`, which macOS
+    // rejects on a socket whose peer has already closed.
     let mut frame_reader = HostFrameReader::default();
-    let start = Instant::now();
-    while start.elapsed() < deadline {
-        match frame_reader.read(stream) {
-            Ok(HostFrame::Snapshot(bytes)) => return Ok(bytes),
+    let mut reader = SocketReadDeadline::new(stream, end);
+    loop {
+        match frame_reader.read(&mut reader) {
+            Ok(HostFrame::Snapshot(bytes)) => {
+                if Instant::now() > end {
+                    bail!("session attach timed out before snapshot");
+                }
+                return Ok(bytes);
+            }
             Ok(HostFrame::Output(_))
             | Ok(HostFrame::Invalidate { .. })
             | Ok(HostFrame::Resized { .. }) => {}
@@ -536,11 +532,12 @@ fn read_initial_snapshot(stream: &mut UnixStream, deadline: Duration) -> Result<
             Ok(HostFrame::Error(message)) => {
                 bail!("session-host error before snapshot: {message}")
             }
-            Err(err) if is_would_block(&err) => continue,
+            Err(ProtocolError::Io(io_err)) if io_err.kind() == io::ErrorKind::TimedOut => {
+                bail!("session attach timed out before snapshot")
+            }
             Err(err) => return Err(err).context("read session-host snapshot frame"),
         }
     }
-    bail!("session attach timed out before snapshot")
 }
 
 /// Spawn the pump thread that drives the attached session's mirror terminal from
