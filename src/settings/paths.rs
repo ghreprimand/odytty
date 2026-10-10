@@ -29,13 +29,29 @@ pub(crate) fn spawn_writer_config_dir() -> Option<PathBuf> {
 /// uses one directory owned by this test process.
 #[cfg(all(unix, test))]
 pub(crate) fn spawn_writer_config_dir() -> Option<PathBuf> {
-    static PROCESS_OWNED: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     let redirected = TEST_SPAWN_CONFIG_DIR.with(|dir| dir.borrow().clone());
-    Some(redirected.unwrap_or_else(|| {
-        PROCESS_OWNED
-            .get_or_init(|| crate::test_dirs::fresh_temp_dir("odytty-test-config-"))
-            .join(CONFIG_DIR_NAME)
-    }))
+    Some(redirected.unwrap_or_else(|| test_process_base().join(CONFIG_DIR_NAME)))
+}
+
+/// One scratch directory owned by this test process, created on first use.
+/// Test-build writers that would otherwise resolve a location from the live
+/// environment without the shared environment lock use it instead.
+#[cfg(all(unix, test))]
+pub(crate) fn test_process_base() -> &'static Path {
+    static PROCESS_OWNED: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    PROCESS_OWNED.get_or_init(|| crate::test_dirs::fresh_temp_dir("odytty-test-config-"))
+}
+
+/// The home directory every child a test build spawns receives: `HOME` and
+/// the XDG base directories point under it (see
+/// `CommandBuilder::apply_test_child_home`). A child shell started by one
+/// test thread would otherwise inherit whatever `HOME`/`XDG_*` the process
+/// held at that moment, read without the environment lock, and write its own
+/// startup state (fish creates `.config/fish`, `.local/share/fish`) into the
+/// real home or another test's redirected base.
+#[cfg(all(unix, test))]
+pub(crate) fn test_child_home() -> PathBuf {
+    test_process_base().join("home")
 }
 
 #[cfg(test)]

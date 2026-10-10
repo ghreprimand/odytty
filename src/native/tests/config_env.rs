@@ -375,3 +375,91 @@ fn shell_integration_outside_the_fixture_stays_out_of_the_environment_config_dir
         "the wrapper lives in process-owned scratch: {rcfile:?}"
     );
 }
+
+/// Removes a scratch directory when the test ends, pass or fail.
+#[cfg(unix)]
+struct ScratchRoot(std::path::PathBuf);
+
+#[cfg(unix)]
+impl Drop for ScratchRoot {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A child a test spawns gets the test process's own child home in `HOME`
+/// and the XDG base directories, never the environment the spawning thread
+/// inherits at that moment.
+#[cfg(unix)]
+#[test]
+fn a_spawned_command_carries_the_test_child_home() {
+    let home = crate::settings::test_child_home();
+    let mut command = crate::pty::CommandBuilder::new("/bin/sh");
+    command.apply_standard_exec_env(&std::collections::BTreeMap::new());
+    assert_eq!(command.env_value("HOME"), Some(home.as_os_str()));
+    for (key, leaf) in [
+        ("XDG_CONFIG_HOME", ".config"),
+        ("XDG_DATA_HOME", ".local/share"),
+        ("XDG_STATE_HOME", ".local/state"),
+        ("XDG_CACHE_HOME", ".cache"),
+    ] {
+        assert_eq!(
+            command.env_value(key),
+            Some(home.join(leaf).as_os_str()),
+            "{key}"
+        );
+    }
+}
+
+/// A real shell spawned on another thread while this one has the environment
+/// redirected sees the test child home, so its startup files stay out of the
+/// redirected base.
+#[cfg(unix)]
+#[test]
+fn a_shell_spawned_beside_a_redirected_environment_uses_the_child_home() {
+    let root = crate::test_dirs::fresh_temp_dir("odytty-child-home-");
+    let _cleanup = ScratchRoot(root.clone());
+    let base = root.join("redirected");
+    let out = root.join("home.txt");
+    let script = format!("printf %s \"$HOME\" > '{}'", out.display());
+    with_config_base(&base, true, || {
+        let mut session = std::thread::spawn(move || {
+            crate::pty::PtySession::spawn_shell_command(super::Dimensions::new(80, 24), &script)
+        })
+        .join()
+        .expect("the spawning thread completes")
+        .expect("spawn the shell");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while session.try_wait().ok().flatten().is_none() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let seen = std::fs::read_to_string(&out).expect("the shell wrote its HOME");
+        assert_eq!(
+            std::path::Path::new(&seen),
+            crate::settings::test_child_home(),
+            "the child sees the test child home"
+        );
+        assert!(!base.exists(), "the redirected base stays untouched");
+    });
+}
+
+/// SSH connection reuse in a test build keeps its `ControlMaster` socket
+/// directory in process-owned state, never under the base another test has
+/// redirected the environment to.
+#[cfg(unix)]
+#[test]
+fn ssh_control_dir_stays_out_of_a_redirected_state_base() {
+    let root = crate::test_dirs::fresh_temp_dir("odytty-ssh-control-");
+    let _cleanup = ScratchRoot(root.clone());
+    let base = root.join("redirected");
+    let dir = with_config_base(&base, true, || {
+        crate::native::App::ssh_control_dir_for_test(true)
+    })
+    .expect("connection reuse prepares a socket directory");
+    assert!(!dir.starts_with(&root), "{dir:?}");
+    assert!(
+        dir.starts_with(crate::settings::test_process_base()),
+        "{dir:?}"
+    );
+    assert!(dir.is_dir());
+}

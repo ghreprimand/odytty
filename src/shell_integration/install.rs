@@ -79,16 +79,21 @@ pub(super) fn apply_spawn_integration_in_dir(
                 .iter()
                 .all(|(name, body)| write_if_needed(&dir.join(name), body).is_ok())
             {
+                // The child's own HOME when the command sets one (a test
+                // build's child home, or a profile override), else the
+                // inherited one.
                 let original = std::env::var_os("ZDOTDIR");
+                let home = command
+                    .env_value("HOME")
+                    .map(std::ffi::OsStr::to_os_string)
+                    .or_else(|| std::env::var_os("HOME"));
                 command.env(
                     "ODYTTY_ORIGINAL_ZDOTDIR_SET",
                     if original.is_some() { "1" } else { "" },
                 );
                 command.env(
                     "ODYTTY_ORIGINAL_ZDOTDIR",
-                    original
-                        .or_else(|| std::env::var_os("HOME"))
-                        .unwrap_or_default(),
+                    original.or(home).unwrap_or_default(),
                 );
                 command.env("ODYTTY_ZSH_WRAPPER_DIR", dir);
                 command.env("ZDOTDIR", dir);

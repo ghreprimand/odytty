@@ -611,7 +611,17 @@ impl App {
         if !enabled {
             return None;
         }
-        let dir = match crate::logging::prepare_state_log_dir() {
+        // Test builds never resolve this from the live environment, which
+        // another test may be redirecting without the shared lock held here:
+        // they use a state folder owned by the test process.
+        #[cfg(not(test))]
+        let state = crate::logging::prepare_state_log_dir();
+        #[cfg(test)]
+        let state = {
+            let state = crate::settings::test_process_base().join("state");
+            std::fs::create_dir_all(&state).map(|()| state)
+        };
+        let dir = match state {
             Ok(state_dir) => state_dir.join("ssh"),
             Err(_) => {
                 tracing::warn!("ssh connection reuse disabled: secure state unavailable");
@@ -630,6 +640,12 @@ impl App {
     #[cfg(windows)]
     fn ssh_control_dir(_enabled: bool) -> Option<std::path::PathBuf> {
         None
+    }
+
+    /// Test seam: the `ControlMaster` socket directory reuse would use.
+    #[cfg(all(unix, test))]
+    pub(in crate::native) fn ssh_control_dir_for_test(enabled: bool) -> Option<std::path::PathBuf> {
+        Self::ssh_control_dir(enabled)
     }
 }
 

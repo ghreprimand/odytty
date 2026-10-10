@@ -254,7 +254,37 @@ impl CommandBuilder {
         self.env("COLORTERM", "truecolor");
         self.env("TERM_PROGRAM", "odytty");
         self.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+        #[cfg(all(unix, test))]
+        self.apply_test_child_home();
         self
+    }
+
+    /// Test builds only: point the child's `HOME` and XDG base directories
+    /// at the test process's own child home ([`crate::settings::test_child_home`])
+    /// instead of letting it inherit the live environment, which another test
+    /// may be redirecting at that moment and which may be the real home.
+    /// Every Unix spawn path applies the terminal environment first, so every
+    /// child a test starts gets this; profile overrides applied later still
+    /// win. Release builds are unchanged and inherit the user's environment.
+    #[cfg(all(unix, test))]
+    fn apply_test_child_home(&mut self) {
+        let home = crate::settings::test_child_home();
+        let _ = std::fs::create_dir_all(&home);
+        self.env("XDG_CONFIG_HOME", home.join(".config"));
+        self.env("XDG_DATA_HOME", home.join(".local").join("share"));
+        self.env("XDG_STATE_HOME", home.join(".local").join("state"));
+        self.env("XDG_CACHE_HOME", home.join(".cache"));
+        self.env("HOME", home);
+    }
+
+    /// The value this command sets for `key`, the last set winning.
+    #[cfg(unix)]
+    pub(crate) fn env_value(&self, key: &str) -> Option<&std::ffi::OsStr> {
+        self.env
+            .iter()
+            .rev()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.as_os_str())
     }
 
     /// Button-protocol feature discovery (docs/buttons.md): when the `buttons`
