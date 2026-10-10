@@ -164,7 +164,10 @@ impl ExternalPaletteFollow {
                 self.status = FollowStatus::Applied;
                 FollowPollOutcome::Applied(theme)
             }
-            Ok(None) => FollowPollOutcome::Unchanged,
+            Ok(None) => {
+                self.status = FollowStatus::Applied;
+                FollowPollOutcome::Unchanged
+            }
             Err(error) => {
                 if self.last_known_good.is_some() {
                     self.status = FollowStatus::RetainedLastKnownGood {

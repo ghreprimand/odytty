@@ -106,26 +106,27 @@ fn normalize_flat_key(raw: &str) -> String {
         .collect()
 }
 
+/// Keep hashes inside colours; only whitespace-separated suffixes are comments.
 fn strip_quotes(value: &str) -> &str {
     let value = value.trim();
-    if value.len() >= 2 {
-        let bytes = value.as_bytes();
-        if (bytes[0] == b'"' && bytes[value.len() - 1] == b'"')
-            || (bytes[0] == b'\'' && bytes[value.len() - 1] == b'\'')
-        {
-            return &value[1..value.len() - 1];
+    if let Some(quote @ (b'"' | b'\'')) = value.as_bytes().first().copied() {
+        let Some(end) = value[1..].find(char::from(quote)).map(|index| index + 1) else {
+            return value;
+        };
+        let suffix = &value[end + 1..];
+        if suffix.is_empty() || is_comment_suffix(suffix) {
+            return &value[1..end];
         }
+        return value;
     }
-    // Strip trailing inline comments only when `#` is preceded by whitespace so
-    // bare `#RRGGBB` color values are preserved.
-    if let Some(index) = value.find('#')
-        && index > 0
-        && value[..index]
-            .chars()
-            .last()
-            .is_some_and(|c| c.is_whitespace())
+    if let Some((end, _)) = value.char_indices().find(|(_, c)| c.is_whitespace())
+        && is_comment_suffix(&value[end..])
     {
-        return value[..index].trim();
+        return &value[..end];
     }
     value
+}
+
+fn is_comment_suffix(suffix: &str) -> bool {
+    suffix.starts_with(char::is_whitespace) && suffix.trim_start().starts_with('#')
 }

@@ -309,7 +309,8 @@ pub(crate) mod test_lock {
     /// exact delta on that counter races with any sibling whose follower
     /// performs a read. Every test that asserts the counter AND every test
     /// that drives `ExternalPaletteFollow::refresh_now` holds this guard.
-    /// Independent of the env and catalog locks; no site nests it with them.
+    /// Where a fixture also uses environment or catalog locks, acquire those
+    /// first, then this lock. Never acquire them while this guard is held.
     pub(crate) fn palette_read_lock() -> MutexGuard<'static, ()> {
         PALETTE_READ_LOCK
             .lock()

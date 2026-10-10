@@ -1150,8 +1150,9 @@ not a stretch goal.
       `colors.toml` / `colors.json` / OdyTTY-Base16 compatibility are in-tree
       (`docs/v0.14.0-external-palette.md`), together with adversarial coverage
       for exact projections, startup isolation, replacement, malformed input,
-      and recovery. The retained local landing gate and blocking
-      three-platform release CI passed.
+      and recovery. Commented bare/quoted flat colours and identical-byte
+      recovery status have regression coverage. The retained local landing gate
+      and blocking three-platform release CI passed.
 
 ## Visual Capability Parity (Stage 6 parity half)
 

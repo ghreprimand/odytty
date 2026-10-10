@@ -2263,7 +2263,10 @@ per pane, so a switch in one pane never suppresses another pane at the same
 host and directory.
 External palette following (opt-in complete local palette file, content-hash
 reload, last-known-good retention) is documented in
-`docs/v0.14.0-external-palette.md`.
+`docs/v0.14.0-external-palette.md`. Flat palette values accept whitespace-separated
+`#` comments after bare or single/double-quoted colours. A successful read of
+unchanged valid bytes restores the applied status after an error or source
+reconfiguration without reapplying the theme.
 
 ### Out Of Scope
 

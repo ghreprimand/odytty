@@ -2111,6 +2111,15 @@ text, cyan accents, and distinct ANSI colors. Select it in the Theme Picker or
 set `theme = odyssey-electric-blue`. See
 [Electric Blue](themes.md#electric-blue) for palette and readability details.
 
+### Follow A Local Palette
+
+External palette following uses an explicit local source configured in Settings.
+Flat palette files accept bare, single-quoted and double-quoted colours followed
+by a whitespace-separated `#` comment. Returning to identical valid bytes
+clears the retained-error status without reapplying the theme. This parsing and
+status behavior is shared by Linux, macOS and Windows. See the
+[palette-following contract](v0.14.0-external-palette.md).
+
 ### Follow The Desktop Theme
 
 Set `theme = system` or `ODYTTY_THEME=system` to follow the desktop dark or

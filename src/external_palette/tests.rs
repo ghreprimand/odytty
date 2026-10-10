@@ -578,6 +578,7 @@ fn provider_alias_parsing_maps_documented_names() {
 
 #[test]
 fn default_settings_startup_reads_zero_external_palette_files() {
+    let _env_guard = crate::test_lock::test_env_lock();
     // Serialize with every other palette-reading test (crate::test_lock):
     // the read counter is process-global and CI runs the suite in parallel.
     let _read_guard = crate::test_lock::palette_read_lock();
