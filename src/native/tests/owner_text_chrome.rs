@@ -178,3 +178,58 @@ fn tab_labels_paint_program_titles_by_owner() {
     assert_eq!(emoji.combining(), ['\u{200d}', '\u{1f4bb}']);
     assert!(row[mark + 3].wide_continuation, "a real wide tail");
 }
+
+#[test]
+fn notice_banner_paints_by_owner() {
+    let _guard = crate::test_lock::render_globals_lock();
+    let mut app = headless();
+    let before = signature(&mut app);
+    app.raise_open_notice(format!("x{MARKED}{ZWJ}y"));
+    assert_ne!(signature(&mut app), before, "the notice re-keys the frame");
+    let banner = painted_row(&mut app, 0);
+    let mark = owner_column(&banner, 'e', &['\u{301}']).expect("the mark stays on its base");
+    assert_eq!(banner[mark - 1].ch, 'x');
+    assert!(
+        !banner
+            .iter()
+            .any(|cell| matches!(cell.ch, '\u{301}' | '\u{200d}' | '\u{1f4bb}')),
+        "no cell of its own for a retained scalar"
+    );
+    assert_eq!(banner[mark + 1].ch, '\u{1f469}');
+    assert_eq!(banner[mark + 1].combining(), ['\u{200d}', '\u{1f4bb}']);
+    assert!(banner[mark + 2].wide_continuation, "a real wide tail");
+    assert_eq!(banner[mark + 3].ch, 'y');
+}
+
+#[test]
+fn rail_labels_paint_and_size_by_owner() {
+    let _guard = crate::test_lock::render_globals_lock();
+    let mut app = headless();
+    app.set_workspace_rail_for_test("left");
+    app.rename_workspace_for_test(0, "ab");
+    let narrow = app.rail_auto_want_cols_for_test();
+    let before = signature(&mut app);
+    app.rename_workspace_for_test(0, &format!("x{MARKED}{ZWJ}y"));
+    assert_eq!(
+        app.rail_auto_want_cols_for_test(),
+        narrow + 3,
+        "x, the marked e, the two-column sequence and y take five columns"
+    );
+    assert_ne!(
+        signature(&mut app),
+        before,
+        "the new name re-keys the frame"
+    );
+    let label = app
+        .decorated_rows_for_test()
+        .expect("a decorated frame")
+        .into_iter()
+        .find(|row| owner_column(row, 'e', &['\u{301}']).is_some())
+        .expect("the rail paints the mark on its base");
+    let mark = owner_column(&label, 'e', &['\u{301}']).expect("marked base");
+    assert_eq!(label[mark - 1].ch, 'x');
+    assert_eq!(label[mark + 1].ch, '\u{1f469}');
+    assert_eq!(label[mark + 1].combining(), ['\u{200d}', '\u{1f4bb}']);
+    assert!(label[mark + 2].wide_continuation, "a real wide tail");
+    assert_eq!(label[mark + 3].ch, 'y');
+}

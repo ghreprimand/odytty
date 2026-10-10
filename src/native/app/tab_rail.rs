@@ -184,6 +184,28 @@ pub(super) struct TabRailGlyph {
     pub(super) col: usize,
     pub(super) ch: char,
     pub(super) attrs: Attrs,
+    /// A label owner's full cell (base `ch` plus the scalars it retains, such
+    /// as combining marks or the rest of an emoji sequence); `None` for every
+    /// other glyph.
+    pub(super) owner: Option<crate::core::Cell>,
+    /// The second cell of a two-cell label owner.
+    pub(super) wide_tail: bool,
+}
+
+impl TabRailGlyph {
+    /// The grid cell this glyph paints: a label owner keeps its retained
+    /// scalars and a wide owner's second cell is a real wide tail. A glyph
+    /// whose `ch` was replaced after the label paint never uses a stale owner
+    /// or tail.
+    pub(super) fn cell(&self) -> crate::core::Cell {
+        let mut cell = self
+            .owner
+            .filter(|owner| owner.ch == self.ch)
+            .unwrap_or_else(|| crate::core::Cell::new(self.ch, self.attrs));
+        cell.attrs = self.attrs;
+        cell.wide_continuation = self.wide_tail && self.ch == ' ';
+        cell
+    }
 }
 
 /// Output from [`TabRail::render`]: the fully-painted region glyphs plus the
@@ -400,13 +422,27 @@ impl TabRail {
             }
             let row = slot.label_row;
             if row < slot.end_row && row < grid_rows {
-                for (i, ch) in slot.label.chars().enumerate() {
-                    let col = SLOT_LABEL_START_COL + i;
-                    if col < rail_cols {
-                        let g = &mut cells[row * rail_cols + col];
-                        g.ch = ch;
+                // Paint by terminal owners, the metric `truncate_label`
+                // budgets with: a combining mark or an emoji sequence stays
+                // with its base in one glyph, and a wide owner takes a real
+                // wide tail. An owner that would cross the rail edge is left
+                // out whole.
+                let mut col = SLOT_LABEL_START_COL;
+                for (owner, w) in crate::core::text_owners(&slot.label, false) {
+                    if col + w > rail_cols {
+                        break;
+                    }
+                    let g = &mut cells[row * rail_cols + col];
+                    g.ch = owner.ch;
+                    g.owner = Some(owner);
+                    g.attrs = la;
+                    for pad in 1..w {
+                        let g = &mut cells[row * rail_cols + col + pad];
+                        g.ch = ' ';
+                        g.wide_tail = true;
                         g.attrs = la;
                     }
+                    col += w;
                 }
             }
             // Close `×` glyph — only for the active or hovered slot.
@@ -751,6 +787,8 @@ fn blank_glyph(row: usize, col: usize, foreground: Color, background: Color) -> 
         col,
         ch: ' ',
         attrs,
+        owner: None,
+        wide_tail: false,
     }
 }
 
@@ -764,31 +802,52 @@ fn is_slot_hovered(hover: Option<TabHit>, idx: usize) -> bool {
     matches!(hover, Some(TabHit::Switch(i) | TabHit::Close(i)) if i == idx)
 }
 
-/// The scalars a rail label shows: `s` trimmed, with control characters
-/// removed (the top strip's policy), so a restored or shell-set workspace name
-/// carrying ESC or a newline never projects them into chrome cells. Auto-width
-/// counts the same scalars.
-pub(super) fn rail_label_chars(s: &str) -> Vec<char> {
+/// The text a rail label shows: `s` trimmed, with control characters removed
+/// (the top strip's policy), so a restored or shell-set workspace name
+/// carrying ESC or a newline never projects them into chrome cells.
+fn rail_label_text(s: &str) -> String {
     s.trim().chars().filter(|ch| !ch.is_control()).collect()
 }
 
+/// The columns a rail label takes untruncated: the sum of its terminal
+/// owners' widths ([`crate::core::text_owners`]), the metric the label is
+/// truncated and painted by, so a wide owner counts two columns and a
+/// combining mark none. Auto-width sizes the rail to this.
+pub(super) fn rail_label_cols(s: &str) -> usize {
+    crate::core::text_owners(&rail_label_text(s), false)
+        .iter()
+        .map(|(_, width)| width)
+        .sum()
+}
+
 /// Truncate `s` to a single line of at most `inner` columns, ending an
-/// overflowing title with `…` (F4-P4 — the rail never wraps to a second line;
+/// overflowing title with `…` (F4-P4 - the rail never wraps to a second line;
 /// the auto-width mode grows the rail to fit, and past the cap the title
 /// ellipsizes). Leading/trailing whitespace and control characters are
-/// stripped ([`rail_label_chars`]). Each Unicode scalar counts as one column:
-/// correct for the ASCII-heavy titles typical of terminal tabs (the wide-glyph
-/// display-width caveat is F4P-NF1, out of scope).
+/// stripped ([`rail_label_text`]). Columns are counted by terminal owners, so
+/// a cut never separates a combining mark or the rest of an emoji sequence
+/// from its base, and a wide owner reserves the two columns it paints.
 fn truncate_label(s: &str, inner: usize) -> String {
     if inner == 0 {
         return String::new();
     }
-    let chars = rail_label_chars(s);
-    if chars.len() <= inner {
-        return chars.into_iter().collect();
+    let text = rail_label_text(s);
+    let owners = crate::core::text_owners(&text, false);
+    let total: usize = owners.iter().map(|(_, width)| width).sum();
+    if total <= inner {
+        return text;
     }
-    // Overflow: keep `inner - 1` scalars and append the ellipsis.
-    let mut line: String = chars[..inner.saturating_sub(1)].iter().collect();
+    // Overflow: keep whole owners within `inner - 1` columns, then the ellipsis.
+    let budget = inner - 1;
+    let mut line = String::new();
+    let mut used = 0usize;
+    for (owner, w) in owners {
+        if used + w > budget {
+            break;
+        }
+        line.push_str(&owner.grapheme());
+        used += w;
+    }
     line.push('…');
     line
 }

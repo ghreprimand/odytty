@@ -174,18 +174,18 @@ impl App {
         for column in 0..columns {
             snapshot.cells[column] = Cell::new(' ', attrs);
         }
-        // Write the (control-stripped, width-clamped) message from column 1.
-        let mut x = 1usize;
-        for ch in notice.message.chars() {
-            if ch.is_control() {
-                continue;
-            }
-            if x >= columns {
-                break;
-            }
-            snapshot.cells[x] = Cell::new(ch, attrs);
-            x += 1;
-        }
+        // Write the message from column 1 by terminal owners (the overlay
+        // row painter): controls are dropped, a combining mark or emoji
+        // sequence stays one glyph, a wide owner takes a real wide tail, and
+        // an owner that does not fit before the right edge is left out whole.
+        crate::native::overlay::write_text(
+            snapshot,
+            0,
+            1,
+            columns.saturating_sub(1),
+            &notice.message,
+            attrs,
+        );
     }
 }
 

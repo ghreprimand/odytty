@@ -1603,7 +1603,7 @@ impl App {
         for glyph in output.glyphs {
             if glyph.row < grid_rows && glyph.col < rail_cols {
                 let idx = glyph.row * rail_cols + glyph.col;
-                snapshot.cells[idx] = crate::core::Cell::new(glyph.ch, glyph.attrs);
+                snapshot.cells[idx] = glyph.cell();
             }
         }
         Some((snapshot, output.quads))

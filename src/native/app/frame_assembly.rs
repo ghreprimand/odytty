@@ -326,8 +326,7 @@ impl App {
         for glyph in output.glyphs {
             let col = rail_col_start + glyph.col;
             if glyph.row < rows && col < new_cols {
-                decorated.cells[glyph.row * new_cols + col] =
-                    crate::core::Cell::new(glyph.ch, glyph.attrs);
+                decorated.cells[glyph.row * new_cols + col] = glyph.cell();
             }
         }
         (decorated, output.quads)

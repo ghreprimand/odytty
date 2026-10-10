@@ -388,14 +388,8 @@ fn paint_prompt_row(snapshot: &mut Snapshot, row: usize, text: &str, attrs: Attr
         return;
     }
     let columns = snapshot.dimensions.columns;
-    let start = row * columns;
-    for (column, ch) in text.chars().filter(|ch| !ch.is_control()).enumerate() {
-        let column = column + 1;
-        if column >= columns {
-            break;
-        }
-        snapshot.cells[start + column] = Cell::new(ch, attrs);
-    }
+    // By terminal owners from column 1, as the notice banner paints.
+    crate::native::overlay::write_text(snapshot, row, 1, columns.saturating_sub(1), text, attrs);
 }
 
 fn prompt_attrs() -> Attrs {

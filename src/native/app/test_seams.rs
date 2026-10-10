@@ -1499,6 +1499,23 @@ impl App {
         Some(decorated.cells[row * columns..(row + 1) * columns].to_vec())
     }
 
+    /// Test seam: every row of the decorated single-pane snapshot (content
+    /// plus the pinned top bar and workspace rail), from the same decoration
+    /// the single-pane renderer consumes.
+    #[cfg(test)]
+    pub(in crate::native) fn decorated_rows_for_test(&self) -> Option<Vec<Vec<crate::core::Cell>>> {
+        let cell = self.resolved_cell()?;
+        let snapshot = self
+            .terminal
+            .lock()
+            .ok()?
+            .snapshot_with_scrollback(self.viewport.offset());
+        let (decorated, _) =
+            self.decorate_snapshot_with_tab_bar(snapshot.clone(), snapshot.cursor_visible, cell);
+        let columns = decorated.dimensions.columns.max(1);
+        Some(decorated.cells.chunks(columns).map(<[_]>::to_vec).collect())
+    }
+
     /// Test seam (F4-V2): set the tab-bar placement (`"top"`/`"left"`/`"right"`)
     /// and recompute the content grid, mirroring the live-toggle path.
     #[cfg(test)]
@@ -1601,6 +1618,13 @@ impl App {
     /// Test seam (W2): rename the workspace at rail index `idx`.
     pub(in crate::native) fn rename_workspace_for_test(&mut self, idx: usize, name: &str) {
         self.sessions.rename_workspace(idx, name.to_owned());
+    }
+
+    /// Test seam: the rail width (cells) auto mode wants for the current
+    /// workspace labels, before the setting's clamp.
+    #[cfg(test)]
+    pub(in crate::native) fn rail_auto_want_cols_for_test(&self) -> usize {
+        self.rail_auto_want_cols()
     }
 
     /// Test seam (F4-P4): pin a fixed manual rail width (cells) so the

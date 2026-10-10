@@ -1473,7 +1473,61 @@ fn rail_labels_drop_control_characters() {
     let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
     assert_eq!(layout.slots[0].label, "bu[31mildout");
     assert!(layout.slots[0].label.chars().all(|ch| !ch.is_control()));
-    assert_eq!(rail_label_chars("  bu\u{1b}ild\n ").len(), 5);
+    assert_eq!(rail_label_cols("  bu\u{1b}ild\n "), 5);
+}
+
+/// Truncation and auto-width count terminal owners: a wide owner takes two
+/// columns, a combining mark or the rest of an emoji sequence none, and a cut
+/// keeps or drops each owner whole.
+#[test]
+fn rail_labels_measure_and_cut_by_owner() {
+    assert_eq!(rail_label_cols("\u{4e00}\u{4e8c}"), 4);
+    assert_eq!(rail_label_cols("e\u{301}e\u{301}"), 2);
+    assert_eq!(rail_label_cols("\u{1f469}\u{200d}\u{1f4bb}"), 2);
+    assert_eq!(
+        truncate_label("e\u{301}e\u{301}e\u{301}", 3),
+        "e\u{301}e\u{301}e\u{301}",
+        "three one-column owners fit three columns"
+    );
+    assert_eq!(
+        truncate_label("\u{4e00}\u{4e8c}\u{4e09}\u{56db}", 5),
+        "\u{4e00}\u{4e8c}\u{2026}",
+        "two wide owners and the ellipsis fill five columns"
+    );
+    assert_eq!(
+        truncate_label("a\u{1f469}\u{200d}\u{1f4bb}bcd", 3),
+        "a\u{2026}",
+        "a wide sequence that does not fit is dropped whole"
+    );
+}
+
+/// The label paints by owner: a mark stays on its base cell, an emoji ZWJ
+/// sequence is one owner with a wide tail, and nothing of either takes a cell
+/// of its own.
+#[test]
+fn rail_label_paints_by_owner() {
+    let src = MockSource::new(&["xe\u{301}\u{1f469}\u{200d}\u{1f4bb}y"], 0);
+    let out = render_default(&src);
+    let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
+    let row = layout.slots[0].label_row;
+    let cells: Vec<crate::core::Cell> = (0..RAIL_COLS)
+        .map(|col| out.glyphs[row * RAIL_COLS + col].cell())
+        .collect();
+    let mark = cells
+        .iter()
+        .position(|cell| cell.ch == 'e')
+        .expect("the marked base is painted");
+    assert_eq!(cells[mark].combining(), ['\u{301}']);
+    assert_eq!(cells[mark + 1].ch, '\u{1f469}');
+    assert_eq!(cells[mark + 1].combining(), ['\u{200d}', '\u{1f4bb}']);
+    assert!(cells[mark + 2].wide_continuation, "a real wide tail");
+    assert_eq!(cells[mark + 3].ch, 'y');
+    assert!(
+        !cells
+            .iter()
+            .any(|cell| matches!(cell.ch, '\u{301}' | '\u{200d}' | '\u{1f4bb}')),
+        "no cell of its own for a retained scalar"
+    );
 }
 
 /// A rail with one or two rows has no slot region: it is control-only, with

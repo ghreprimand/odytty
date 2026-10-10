@@ -305,7 +305,8 @@ to `auto`.
 pinned. Tabs remain on the top bar.
 
 `workspace_rail_width = auto` sizes to the longest workspace name within the
-configured maximum. Drag the inner edge for a manual width, or double-click it
+configured maximum, measured in the cells the name draws in (a wide character
+or emoji sequence takes two, a combining mark none). Drag the inner edge for a manual width, or double-click it
 to return to `auto`.
 
 With autohide on, the pointer entering the configured edge zone reveals the

@@ -388,8 +388,7 @@ impl App {
         };
         for glyph in output.glyphs {
             if glyph.row < rows && glyph.col < cols {
-                snapshot.cells[glyph.row * cols + glyph.col] =
-                    crate::core::Cell::new(glyph.ch, glyph.attrs);
+                snapshot.cells[glyph.row * cols + glyph.col] = glyph.cell();
             }
         }
         let (wash, seam) = self.build_rail_overlay_quads(cell, side);
