@@ -550,14 +550,15 @@ fn synchronized_output_hold_retains_trail_glow_and_streak_inputs() {
 fn validation_device(
     test: &str,
     label: &'static str,
-) -> Option<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
+) -> Option<crate::native::gpu::HeadlessGpuFixture> {
     let required = std::env::var_os("ODYTTY_REQUIRE_GPU_TESTS").is_some();
+    let lifetime = crate::native::gpu::headless_gpu_lifetime();
     let init_guard = crate::test_lock::device_creation_lock();
     let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
     if required {
         descriptor.backends = wgpu::Backends::VULKAN;
     }
-    let instance = wgpu::Instance::new(descriptor);
+    let instance = crate::native::gpu::headless_test_instance(descriptor.backends);
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::default(),
         force_fallback_adapter: required,
@@ -590,17 +591,19 @@ fn validation_device(
     }
     drop(init_guard);
     let (device, queue) = device.expect("availability checked");
-    Some((instance, adapter, device, queue))
+    Some(crate::native::gpu::HeadlessGpuFixture::new(
+        device, queue, lifetime,
+    ))
 }
 
 #[test]
 fn cursor_glow_shader_and_pipeline_validate() {
     const TEST: &str = "cursor_glow_shader_and_pipeline_validate";
-    let Some((_instance, _adapter, device, _queue)) =
-        validation_device(TEST, "cursor-glow-pipeline-test")
-    else {
+    let Some(gpu) = validation_device(TEST, "cursor-glow-pipeline-test") else {
         return;
     };
+    let device = &gpu.device;
+    let _queue = &gpu.queue;
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("cursor-glow-pipeline-test-bgl"),
         entries: &[
@@ -633,7 +636,7 @@ fn cursor_glow_shader_and_pipeline_validate() {
         ],
     });
     let _pipeline =
-        create_cursor_glow_pipeline(&device, wgpu::TextureFormat::Rgba8UnormSrgb, &layout);
+        create_cursor_glow_pipeline(device, wgpu::TextureFormat::Rgba8UnormSrgb, &layout);
     eprintln!("VALIDATION_EXECUTED test={TEST}");
 }
 
@@ -642,11 +645,11 @@ fn cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws() {
     use wgpu::util::DeviceExt as _;
 
     const TEST: &str = "cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws";
-    let Some((_instance, _adapter, device, queue)) =
-        validation_device(TEST, "cursor-streak-bound-draw-test")
-    else {
+    let Some(gpu) = validation_device(TEST, "cursor-streak-bound-draw-test") else {
         return;
     };
+    let device = &gpu.device;
+    let queue = &gpu.queue;
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("cursor-streak-bound-draw-test-bgl"),
         entries: &[
@@ -764,7 +767,7 @@ fn cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws() {
 
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let pipeline =
-        create_cursor_streak_pipeline(&device, wgpu::TextureFormat::Rgba8UnormSrgb, &layout);
+        create_cursor_streak_pipeline(device, wgpu::TextureFormat::Rgba8UnormSrgb, &layout);
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("cursor-streak-bound-draw-test-encoder"),
     });
@@ -804,11 +807,11 @@ fn programming_ligature_vertices_submit_through_the_real_cell_pipeline() {
     use wgpu::util::DeviceExt as _;
 
     const TEST: &str = "programming_ligature_vertices_submit_through_the_real_cell_pipeline";
-    let Some((_instance, _adapter, device, queue)) =
-        validation_device(TEST, "ligature-cell-draw-test")
-    else {
+    let Some(gpu) = validation_device(TEST, "ligature-cell-draw-test") else {
         return;
     };
+    let device = &gpu.device;
+    let queue = &gpu.queue;
 
     let font = text::load_bundled_font().expect("bundled font");
     let fonts = StyleFonts::regular(font);
@@ -930,7 +933,7 @@ fn programming_ligature_vertices_submit_through_the_real_cell_pipeline() {
     );
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
     let bind_group =
-        create_atlas_bind_group(&device, &layout, &viewport_buf, &atlas_texture, &sampler);
+        create_atlas_bind_group(device, &layout, &viewport_buf, &atlas_texture, &sampler);
     let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("ligature-cell-draw-test-vertices"),
         contents: bytemuck::cast_slice(&vertices),
@@ -954,7 +957,7 @@ fn programming_ligature_vertices_submit_through_the_real_cell_pipeline() {
 
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let pipeline = create_cell_pipeline(
-        &device,
+        device,
         wgpu::TextureFormat::Rgba8UnormSrgb,
         &layout,
         SubpixelMode::Off,

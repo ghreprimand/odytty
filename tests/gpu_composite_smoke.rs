@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use std::sync::{Mutex, mpsc};
+use std::sync::{Mutex, MutexGuard, OnceLock, mpsc};
 
 use odytty::settings::default_bloom_threshold_for_theme;
 use odytty::theme::Theme;
@@ -91,24 +91,25 @@ struct CrtUniform {
 
 #[test]
 fn passthrough_composite_matches_direct_render_bytes() {
-    let Some((device, queue, hdr_supported)) = gpu_device() else {
+    let Some(gpu) = gpu_device() else {
         eprintln!("skipping: no GPU adapter available");
         return;
     };
+    let (device, queue, hdr_supported) = (&gpu.device, &gpu.queue, gpu.hdr_supported);
     assert!(
         hdr_supported,
         "Rgba16Float must support render attachment + filterable texture binding"
     );
 
-    let direct_scene_pipeline = create_scene_pipeline(&device, FORMAT, SCENE_SHADER);
-    let offscreen_scene_pipeline = create_scene_pipeline(&device, HDR_FORMAT, SCENE_SHADER);
+    let direct_scene_pipeline = create_scene_pipeline(device, FORMAT, SCENE_SHADER);
+    let offscreen_scene_pipeline = create_scene_pipeline(device, HDR_FORMAT, SCENE_SHADER);
     let bloom_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("gpu-composite-smoke-bloom-shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("../src/shaders/bloom.wgsl").into()),
     });
-    let composite_bgl = create_bloom_composite_bgl(&device);
+    let composite_bgl = create_bloom_composite_bgl(device);
     let composite_pipeline = create_bloom_pipeline(
-        &device,
+        device,
         &bloom_shader,
         "fs_composite_bloom",
         FORMAT,
@@ -125,24 +126,24 @@ fn passthrough_composite_matches_direct_render_bytes() {
         ..Default::default()
     });
 
-    let direct = create_render_texture(&device, "gpu-composite-smoke-direct", FORMAT, true);
+    let direct = create_render_texture(device, "gpu-composite-smoke-direct", FORMAT, true);
     let offscreen =
-        create_render_texture(&device, "gpu-composite-smoke-offscreen", HDR_FORMAT, false);
-    let composite = create_render_texture(&device, "gpu-composite-smoke-composite", FORMAT, true);
-    let bloom = create_bloom_texture(&device, "gpu-composite-smoke-disabled-bloom");
+        create_render_texture(device, "gpu-composite-smoke-offscreen", HDR_FORMAT, false);
+    let composite = create_render_texture(device, "gpu-composite-smoke-composite", FORMAT, true);
+    let bloom = create_bloom_texture(device, "gpu-composite-smoke-disabled-bloom");
     let direct_view = direct.create_view(&wgpu::TextureViewDescriptor::default());
     let offscreen_view = offscreen.create_view(&wgpu::TextureViewDescriptor::default());
     let composite_view = composite.create_view(&wgpu::TextureViewDescriptor::default());
     let bloom_view = bloom.create_view(&wgpu::TextureViewDescriptor::default());
     let bloom_uniform = create_bloom_uniform(
-        &device,
+        device,
         default_bloom_threshold_for_theme(Theme::PLAIN),
         0.0,
         3.0,
     );
-    let crt_uniform = create_crt_uniform(&device, false, 0.08, 3.0, 0.10);
+    let crt_uniform = create_crt_uniform(device, false, 0.08, 3.0, 0.10);
     let composite_bind_group = create_bloom_composite_bg(
-        &device,
+        device,
         &composite_bgl,
         &offscreen_view,
         &bloom_view,
@@ -164,14 +165,14 @@ fn passthrough_composite_matches_direct_render_bytes() {
         &composite_view,
     );
 
-    let direct_buffer = create_readback_buffer(&device);
-    let composite_buffer = create_readback_buffer(&device);
+    let direct_buffer = create_readback_buffer(device);
+    let composite_buffer = create_readback_buffer(device);
     copy_texture_to_buffer(&mut encoder, &direct, &direct_buffer);
     copy_texture_to_buffer(&mut encoder, &composite, &composite_buffer);
     queue.submit(std::iter::once(encoder.finish()));
 
-    let direct_bytes = readback(&device, &direct_buffer);
-    let composite_bytes = readback(&device, &composite_buffer);
+    let direct_bytes = readback(device, &direct_buffer);
+    let composite_bytes = readback(device, &composite_buffer);
     assert_eq!(direct_bytes, composite_bytes);
 }
 
@@ -190,23 +191,24 @@ fn below_threshold_scene_emits_no_bloom() {
 }
 
 fn assert_bloom_scene(scene: &str, has_bright_patch: bool) {
-    let Some((device, queue, hdr_supported)) = gpu_device() else {
+    let Some(gpu) = gpu_device() else {
         eprintln!("skipping: no GPU adapter available");
         return;
     };
+    let (device, queue, hdr_supported) = (&gpu.device, &gpu.queue, gpu.hdr_supported);
     assert!(
         hdr_supported,
         "Rgba16Float must support render attachment + filterable texture binding"
     );
 
-    let direct_scene_pipeline = create_scene_pipeline(&device, FORMAT, scene);
-    let offscreen_scene_pipeline = create_scene_pipeline(&device, HDR_FORMAT, scene);
-    let direct = create_render_texture(&device, "gpu-bloom-smoke-direct", FORMAT, true);
-    let offscreen = create_render_texture(&device, "gpu-bloom-smoke-offscreen", HDR_FORMAT, false);
-    let bloom_off = create_render_texture(&device, "gpu-bloom-smoke-off", FORMAT, true);
-    let bloom_on = create_render_texture(&device, "gpu-bloom-smoke-on", FORMAT, true);
-    let bright = create_bloom_texture(&device, "gpu-bloom-smoke-bright");
-    let ping = create_bloom_texture(&device, "gpu-bloom-smoke-ping");
+    let direct_scene_pipeline = create_scene_pipeline(device, FORMAT, scene);
+    let offscreen_scene_pipeline = create_scene_pipeline(device, HDR_FORMAT, scene);
+    let direct = create_render_texture(device, "gpu-bloom-smoke-direct", FORMAT, true);
+    let offscreen = create_render_texture(device, "gpu-bloom-smoke-offscreen", HDR_FORMAT, false);
+    let bloom_off = create_render_texture(device, "gpu-bloom-smoke-off", FORMAT, true);
+    let bloom_on = create_render_texture(device, "gpu-bloom-smoke-on", FORMAT, true);
+    let bright = create_bloom_texture(device, "gpu-bloom-smoke-bright");
+    let ping = create_bloom_texture(device, "gpu-bloom-smoke-ping");
     let direct_view = direct.create_view(&wgpu::TextureViewDescriptor::default());
     let offscreen_view = offscreen.create_view(&wgpu::TextureViewDescriptor::default());
     let bloom_off_view = bloom_off.create_view(&wgpu::TextureViewDescriptor::default());
@@ -218,17 +220,17 @@ fn assert_bloom_scene(scene: &str, has_bright_patch: bool) {
         label: Some("gpu-bloom-smoke-shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("../src/shaders/bloom.wgsl").into()),
     });
-    let bright_bgl = create_bloom_source_bgl(&device, "gpu-bloom-smoke-bright-bgl");
-    let blur_bgl = create_bloom_source_bgl(&device, "gpu-bloom-smoke-blur-bgl");
-    let composite_bgl = create_bloom_composite_bgl(&device);
+    let bright_bgl = create_bloom_source_bgl(device, "gpu-bloom-smoke-bright-bgl");
+    let blur_bgl = create_bloom_source_bgl(device, "gpu-bloom-smoke-blur-bgl");
+    let composite_bgl = create_bloom_composite_bgl(device);
     let bright_pipeline =
-        create_bloom_pipeline(&device, &bloom_shader, "fs_bright", HDR_FORMAT, &bright_bgl);
+        create_bloom_pipeline(device, &bloom_shader, "fs_bright", HDR_FORMAT, &bright_bgl);
     let blur_h_pipeline =
-        create_bloom_pipeline(&device, &bloom_shader, "fs_blur_h", HDR_FORMAT, &blur_bgl);
+        create_bloom_pipeline(device, &bloom_shader, "fs_blur_h", HDR_FORMAT, &blur_bgl);
     let blur_v_pipeline =
-        create_bloom_pipeline(&device, &bloom_shader, "fs_blur_v", HDR_FORMAT, &blur_bgl);
+        create_bloom_pipeline(device, &bloom_shader, "fs_blur_v", HDR_FORMAT, &blur_bgl);
     let bloom_composite_pipeline = create_bloom_pipeline(
-        &device,
+        device,
         &bloom_shader,
         "fs_composite_bloom",
         FORMAT,
@@ -255,11 +257,11 @@ fn assert_bloom_scene(scene: &str, has_bright_patch: bool) {
         ..Default::default()
     });
     let threshold = default_bloom_threshold_for_theme(Theme::PLAIN);
-    let uniform = create_bloom_uniform(&device, threshold, 0.4, 3.0);
-    let bloom_off_uniform = create_bloom_uniform(&device, threshold, 0.0, 3.0);
-    let crt_uniform = create_crt_uniform(&device, false, 0.08, 3.0, 0.10);
+    let uniform = create_bloom_uniform(device, threshold, 0.4, 3.0);
+    let bloom_off_uniform = create_bloom_uniform(device, threshold, 0.0, 3.0);
+    let crt_uniform = create_crt_uniform(device, false, 0.08, 3.0, 0.10);
     let bloom_off_bg = create_bloom_composite_bg(
-        &device,
+        device,
         &composite_bgl,
         &offscreen_view,
         &bright_view,
@@ -269,7 +271,7 @@ fn assert_bloom_scene(scene: &str, has_bright_patch: bool) {
         &crt_uniform,
     );
     let bright_bg = create_bloom_source_bg(
-        &device,
+        device,
         &bright_bgl,
         &offscreen_view,
         &nearest,
@@ -277,7 +279,7 @@ fn assert_bloom_scene(scene: &str, has_bright_patch: bool) {
         "gpu-bloom-smoke-bright-bg",
     );
     let blur_h_bg = create_bloom_source_bg(
-        &device,
+        device,
         &blur_bgl,
         &bright_view,
         &linear,
@@ -285,7 +287,7 @@ fn assert_bloom_scene(scene: &str, has_bright_patch: bool) {
         "gpu-bloom-smoke-blur-h-bg",
     );
     let blur_v_bg = create_bloom_source_bg(
-        &device,
+        device,
         &blur_bgl,
         &ping_view,
         &linear,
@@ -293,7 +295,7 @@ fn assert_bloom_scene(scene: &str, has_bright_patch: bool) {
         "gpu-bloom-smoke-blur-v-bg",
     );
     let composite_bg = create_bloom_composite_bg(
-        &device,
+        device,
         &composite_bgl,
         &offscreen_view,
         &bright_view,
@@ -324,17 +326,17 @@ fn assert_bloom_scene(scene: &str, has_bright_patch: bool) {
         &bloom_on_view,
     );
 
-    let direct_buffer = create_readback_buffer(&device);
-    let off_buffer = create_readback_buffer(&device);
-    let on_buffer = create_readback_buffer(&device);
+    let direct_buffer = create_readback_buffer(device);
+    let off_buffer = create_readback_buffer(device);
+    let on_buffer = create_readback_buffer(device);
     copy_texture_to_buffer(&mut encoder, &direct, &direct_buffer);
     copy_texture_to_buffer(&mut encoder, &bloom_off, &off_buffer);
     copy_texture_to_buffer(&mut encoder, &bloom_on, &on_buffer);
     queue.submit(std::iter::once(encoder.finish()));
 
-    let direct_bytes = readback(&device, &direct_buffer);
-    let off_bytes = readback(&device, &off_buffer);
-    let on_bytes = readback(&device, &on_buffer);
+    let direct_bytes = readback(device, &direct_buffer);
+    let off_bytes = readback(device, &off_buffer);
+    let on_bytes = readback(device, &on_buffer);
     assert_bounded_rgb_delta(
         &direct_bytes,
         &off_bytes,
@@ -381,22 +383,23 @@ fn assert_bloom_scene(scene: &str, has_bright_patch: bool) {
 
 #[test]
 fn crt_off_is_exact_and_crt_on_bounded_dims_lit_cells() {
-    let Some((device, queue, hdr_supported)) = gpu_device() else {
+    let Some(gpu) = gpu_device() else {
         eprintln!("skipping: no GPU adapter available");
         return;
     };
+    let (device, queue, hdr_supported) = (&gpu.device, &gpu.queue, gpu.hdr_supported);
     assert!(
         hdr_supported,
         "Rgba16Float must support render attachment + filterable texture binding"
     );
 
-    let direct_scene_pipeline = create_scene_pipeline(&device, FORMAT, SCENE_SHADER);
-    let offscreen_scene_pipeline = create_scene_pipeline(&device, HDR_FORMAT, SCENE_SHADER);
-    let direct = create_render_texture(&device, "gpu-crt-smoke-direct", FORMAT, true);
-    let offscreen = create_render_texture(&device, "gpu-crt-smoke-offscreen", HDR_FORMAT, false);
-    let crt_off = create_render_texture(&device, "gpu-crt-smoke-off", FORMAT, true);
-    let crt_on = create_render_texture(&device, "gpu-crt-smoke-on", FORMAT, true);
-    let bloom_dummy = create_bloom_texture(&device, "gpu-crt-smoke-bloom-dummy");
+    let direct_scene_pipeline = create_scene_pipeline(device, FORMAT, SCENE_SHADER);
+    let offscreen_scene_pipeline = create_scene_pipeline(device, HDR_FORMAT, SCENE_SHADER);
+    let direct = create_render_texture(device, "gpu-crt-smoke-direct", FORMAT, true);
+    let offscreen = create_render_texture(device, "gpu-crt-smoke-offscreen", HDR_FORMAT, false);
+    let crt_off = create_render_texture(device, "gpu-crt-smoke-off", FORMAT, true);
+    let crt_on = create_render_texture(device, "gpu-crt-smoke-on", FORMAT, true);
+    let bloom_dummy = create_bloom_texture(device, "gpu-crt-smoke-bloom-dummy");
     let direct_view = direct.create_view(&wgpu::TextureViewDescriptor::default());
     let offscreen_view = offscreen.create_view(&wgpu::TextureViewDescriptor::default());
     let crt_off_view = crt_off.create_view(&wgpu::TextureViewDescriptor::default());
@@ -407,9 +410,9 @@ fn crt_off_is_exact_and_crt_on_bounded_dims_lit_cells() {
         label: Some("gpu-crt-smoke-shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("../src/shaders/bloom.wgsl").into()),
     });
-    let composite_bgl = create_bloom_composite_bgl(&device);
+    let composite_bgl = create_bloom_composite_bgl(device);
     let composite_pipeline = create_bloom_pipeline(
-        &device,
+        device,
         &shader,
         "fs_composite_bloom",
         FORMAT,
@@ -425,11 +428,11 @@ fn crt_off_is_exact_and_crt_on_bounded_dims_lit_cells() {
         mipmap_filter: wgpu::MipmapFilterMode::Nearest,
         ..Default::default()
     });
-    let bloom_uniform = create_bloom_uniform(&device, 1.25, 0.0, 3.0);
-    let crt_disabled = create_crt_uniform(&device, false, 0.18, 2.0, 0.16);
-    let crt_enabled = create_crt_uniform(&device, true, 0.18, 2.0, 0.16);
+    let bloom_uniform = create_bloom_uniform(device, 1.25, 0.0, 3.0);
+    let crt_disabled = create_crt_uniform(device, false, 0.18, 2.0, 0.16);
+    let crt_enabled = create_crt_uniform(device, true, 0.18, 2.0, 0.16);
     let crt_off_bg = create_bloom_composite_bg(
-        &device,
+        device,
         &composite_bgl,
         &offscreen_view,
         &bloom_dummy_view,
@@ -439,7 +442,7 @@ fn crt_off_is_exact_and_crt_on_bounded_dims_lit_cells() {
         &crt_disabled,
     );
     let crt_on_bg = create_bloom_composite_bg(
-        &device,
+        device,
         &composite_bgl,
         &offscreen_view,
         &bloom_dummy_view,
@@ -462,17 +465,17 @@ fn crt_off_is_exact_and_crt_on_bounded_dims_lit_cells() {
     );
     encode_composite(&mut encoder, &composite_pipeline, &crt_on_bg, &crt_on_view);
 
-    let direct_buffer = create_readback_buffer(&device);
-    let off_buffer = create_readback_buffer(&device);
-    let on_buffer = create_readback_buffer(&device);
+    let direct_buffer = create_readback_buffer(device);
+    let off_buffer = create_readback_buffer(device);
+    let on_buffer = create_readback_buffer(device);
     copy_texture_to_buffer(&mut encoder, &direct, &direct_buffer);
     copy_texture_to_buffer(&mut encoder, &crt_off, &off_buffer);
     copy_texture_to_buffer(&mut encoder, &crt_on, &on_buffer);
     queue.submit(std::iter::once(encoder.finish()));
 
-    let direct_bytes = readback(&device, &direct_buffer);
-    let off_bytes = readback(&device, &off_buffer);
-    let on_bytes = readback(&device, &on_buffer);
+    let direct_bytes = readback(device, &direct_buffer);
+    let off_bytes = readback(device, &off_buffer);
+    let on_bytes = readback(device, &on_buffer);
     assert_eq!(direct_bytes, off_bytes, "crt off path must be exact");
 
     for y in 0..HEIGHT {
@@ -817,10 +820,11 @@ fn render_overlay_frame(
 
 #[test]
 fn viewer_image_survives_post_effects() {
-    let Some((device, queue, hdr_supported)) = gpu_device() else {
+    let Some(gpu) = gpu_device() else {
         eprintln!("skipping: no GPU adapter available");
         return;
     };
+    let (device, queue, hdr_supported) = (&gpu.device, &gpu.queue, gpu.hdr_supported);
     assert!(hdr_supported, "HDR offscreen required");
 
     // A flat opaque mid-gray image. After CRT+bloom + the overlay pass, the
@@ -830,8 +834,8 @@ fn viewer_image_survives_post_effects() {
     for px in gray_rgba.as_chunks_mut::<4>().0.iter_mut() {
         px[3] = 255; // opaque
     }
-    let with_overlay = render_overlay_frame(&device, &queue, Some((&gray_rgba, 8, 6)));
-    let baseline = render_overlay_frame(&device, &queue, None);
+    let with_overlay = render_overlay_frame(device, queue, Some((&gray_rgba, 8, 6)));
+    let baseline = render_overlay_frame(device, queue, None);
 
     // Reference interior pixel of the fit-rect (x∈[4,12), y∈[3,9)).
     let r0 = pixel_index(6, 5);
@@ -866,10 +870,11 @@ fn viewer_image_survives_post_effects() {
 
 #[test]
 fn viewer_scrim_dims_whole_viewport() {
-    let Some((device, queue, hdr_supported)) = gpu_device() else {
+    let Some(gpu) = gpu_device() else {
         eprintln!("skipping: no GPU adapter available");
         return;
     };
+    let (device, queue, hdr_supported) = (&gpu.device, &gpu.queue, gpu.hdr_supported);
     assert!(hdr_supported, "HDR offscreen required");
 
     // 8×6 opaque red image (fits centered at x∈[4,12), y∈[3,9) in the 16×12
@@ -880,8 +885,8 @@ fn viewer_scrim_dims_whole_viewport() {
         px[0] = 255; // red
         px[3] = 255; // opaque
     }
-    let baseline = render_overlay_frame(&device, &queue, None);
-    let frame = render_overlay_frame(&device, &queue, Some((&img, 8, 6)));
+    let baseline = render_overlay_frame(device, queue, None);
+    let frame = render_overlay_frame(device, queue, Some((&img, 8, 6)));
 
     // The image fit-rect shows the opaque red, crisp on top of the scrim.
     let red = pixel_index(8, 5);
@@ -924,10 +929,11 @@ fn viewer_scrim_dims_whole_viewport() {
 
 #[test]
 fn cleared_viewer_frame_is_byte_identical() {
-    let Some((device, queue, hdr_supported)) = gpu_device() else {
+    let Some(gpu) = gpu_device() else {
         eprintln!("skipping: no GPU adapter available");
         return;
     };
+    let (device, queue, hdr_supported) = (&gpu.device, &gpu.queue, gpu.hdr_supported);
     assert!(hdr_supported, "HDR offscreen required");
 
     let gray = vec![200u8; (8 * 6 * 4) as usize];
@@ -935,12 +941,12 @@ fn cleared_viewer_frame_is_byte_identical() {
     for px in gray_rgba.as_chunks_mut::<4>().0.iter_mut() {
         px[3] = 255;
     }
-    let baseline = render_overlay_frame(&device, &queue, None);
-    let with_overlay = render_overlay_frame(&device, &queue, Some((&gray_rgba, 8, 6)));
+    let baseline = render_overlay_frame(device, queue, None);
+    let with_overlay = render_overlay_frame(device, queue, Some((&gray_rgba, 8, 6)));
     // Clearing the viewer skips the overlay pass entirely (gated on
     // has_overlay_image in the real code) → the frame returns to the no-viewer
     // bytes exactly.
-    let cleared = render_overlay_frame(&device, &queue, None);
+    let cleared = render_overlay_frame(device, queue, None);
 
     assert_ne!(
         baseline, with_overlay,
@@ -952,18 +958,61 @@ fn cleared_viewer_frame_is_byte_identical() {
     );
 }
 
-fn gpu_device() -> Option<(wgpu::Device, wgpu::Queue, bool)> {
-    // Concurrent device bring-up on the same adapter deadlocks inside the
-    // driver. The lib-binary GPU tests already serialize this window with
-    // `test_lock::device_creation_lock`;
-    // that lock is crate-private, so this integration crate carries the same
-    // mutex around the same window. Held only for instance/adapter/device
-    // creation; the returned device is then free to run in parallel.
-    static DEVICE_CREATION_LOCK: Mutex<()> = Mutex::new(());
-    let _init = DEVICE_CREATION_LOCK
+fn gpu_instance() -> wgpu::Instance {
+    // Keep the EGL backend root alive across successive Vulkan fixtures.
+    static INSTANCE: OnceLock<wgpu::Instance> = OnceLock::new();
+    INSTANCE
+        .get_or_init(|| wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle()))
+        .clone()
+}
+
+#[test]
+fn headless_gpu_fixture_reuses_the_process_root() {
+    let first = gpu_instance();
+    let second = gpu_instance();
+    assert_eq!(first, second, "fixtures must share the same instance root");
+    drop(first);
+    assert_eq!(
+        second,
+        gpu_instance(),
+        "retiring a fixture keeps its root alive"
+    );
+}
+
+// Drop both GPU handles before releasing the lifetime lock.
+struct GpuFixture {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    hdr_supported: bool,
+    _lifetime: MutexGuard<'static, ()>,
+}
+
+static GPU_FIXTURE_LOCK: Mutex<()> = Mutex::new(());
+
+#[test]
+fn gpu_fixture_keeps_driver_lifetime_serialized() {
+    let Some(gpu) = gpu_device() else {
+        eprintln!("skipping: no usable GPU adapter");
+        return;
+    };
+    assert!(
+        matches!(
+            GPU_FIXTURE_LOCK.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        ),
+        "the fixture must hold its driver lifetime lock until its handles drop"
+    );
+    drop(gpu);
+}
+
+fn gpu_device() -> Option<GpuFixture> {
+    // This fixture serializes setup, drawing and teardown. Retaining the
+    // root instance prevents EGL teardown races, but concurrent composite
+    // device lifetimes can still stall inside the graphics driver.
+    let _init = GPU_FIXTURE_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let instance = gpu_instance();
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::default(),
         force_fallback_adapter: false,
@@ -986,7 +1035,12 @@ fn gpu_device() -> Option<(wgpu::Device, wgpu::Queue, bool)> {
         trace: wgpu::Trace::Off,
     }))
     .ok()?;
-    Some((device, queue, hdr_supported))
+    Some(GpuFixture {
+        device,
+        queue,
+        hdr_supported,
+        _lifetime: _init,
+    })
 }
 
 fn create_scene_pipeline(

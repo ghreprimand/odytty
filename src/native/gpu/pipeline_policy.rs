@@ -28,6 +28,9 @@ struct InstanceOwner {
 
 static INSTANCE_OWNER: OnceLock<InstanceOwner> = OnceLock::new();
 
+#[cfg(test)]
+static TEST_INSTANCE_OWNER: OnceLock<InstanceOwner> = OnceLock::new();
+
 impl InstanceOwner {
     fn get_or_insert_with(
         &self,
@@ -54,6 +57,51 @@ fn process_instance(
     INSTANCE_OWNER
         .get_or_init(InstanceOwner::default)
         .get_or_insert_with(backends, || wgpu::Instance::new(descriptor))
+}
+
+/// Headless fixtures use one root instance per backend set for the entire
+/// process, so retiring one device cannot tear down an unrelated EGL context.
+#[cfg(test)]
+pub(in crate::native) fn headless_test_instance(backends: wgpu::Backends) -> wgpu::Instance {
+    let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+    descriptor.backends = backends;
+    TEST_INSTANCE_OWNER
+        .get_or_init(InstanceOwner::default)
+        .get_or_insert_with(backends, || wgpu::Instance::new(descriptor))
+}
+
+/// Own GPU handles before the guard so driver teardown finishes before the
+/// next headless fixture can create or use a device.
+#[cfg(test)]
+pub(in crate::native) struct HeadlessGpuFixture {
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    _lifetime: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(test)]
+impl HeadlessGpuFixture {
+    pub(in crate::native) fn new(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        lifetime: std::sync::MutexGuard<'static, ()>,
+    ) -> Self {
+        Self {
+            device,
+            queue,
+            _lifetime: lifetime,
+        }
+    }
+}
+
+#[cfg(test)]
+static HEADLESS_GPU_LIFETIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+pub(in crate::native) fn headless_gpu_lifetime() -> std::sync::MutexGuard<'static, ()> {
+    HEADLESS_GPU_LIFETIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 pub(in crate::native) fn theme_clear_color(theme: &Theme) -> wgpu::Color {
@@ -515,18 +563,40 @@ mod instance_owner_tests {
     use super::*;
 
     #[test]
+    fn headless_gpu_fixture_holds_lifetime_through_handle_teardown() {
+        let Some(gpu) = crate::native::gpu_tests::test_device_with_hdr() else {
+            eprintln!("skipping: no usable GPU adapter");
+            return;
+        };
+        assert!(
+            matches!(
+                HEADLESS_GPU_LIFETIME.try_lock(),
+                Err(std::sync::TryLockError::WouldBlock)
+            ),
+            "GPU handles must retain the lifetime guard"
+        );
+        drop(gpu);
+    }
+
+    #[test]
+    fn headless_gpu_fixture_reuses_the_process_root() {
+        let first = headless_test_instance(wgpu::Backends::all());
+        let second = headless_test_instance(wgpu::Backends::all());
+        assert_eq!(first, second, "fixtures must share the same instance root");
+        drop(first);
+        let third = headless_test_instance(wgpu::Backends::all());
+        assert_eq!(second, third, "retiring a fixture keeps its root alive");
+    }
+
+    #[test]
     fn headless_requests_for_same_backend_share_one_process_instance() {
         let backends = wgpu::Backends::PRIMARY;
-        let mut first_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
-        first_descriptor.backends = backends;
-        let first = process_instance(backends, first_descriptor);
-        let mut second_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
-        second_descriptor.backends = backends;
-        let second = process_instance(backends, second_descriptor);
+        let first = headless_test_instance(backends);
+        let second = headless_test_instance(backends);
 
         assert_eq!(first, second);
         assert_eq!(
-            INSTANCE_OWNER
+            TEST_INSTANCE_OWNER
                 .get()
                 .expect("process instance owner")
                 .instances
@@ -537,5 +607,19 @@ mod instance_owner_tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn headless_instance_owner_is_separate_from_production_owner() {
+        let backends = wgpu::Backends::PRIMARY;
+        let headless = headless_test_instance(backends);
+        let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+        descriptor.backends = backends;
+        let production = process_instance(backends, descriptor);
+        assert_ne!(
+            headless, production,
+            "test descriptors must not seed production instances"
+        );
+        assert_eq!(headless, headless_test_instance(backends));
     }
 }

@@ -1280,17 +1280,18 @@ mod tests {
 
     /// Headless device for pipeline-format tests. `None` (⇒ skip) when the
     /// machine has no usable adapter (e.g. bare CI).
-    fn test_device() -> Option<(wgpu::Device, wgpu::Queue)> {
+    fn test_device() -> Option<super::super::HeadlessGpuFixture> {
+        let lifetime = super::super::headless_gpu_lifetime();
         // Serialize driver init against every other parallel test creating a device.
         let _init = crate::test_lock::device_creation_lock();
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let instance = super::super::headless_test_instance(wgpu::Backends::all());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::default(),
             force_fallback_adapter: false,
             compatible_surface: None,
         }))
         .ok()?;
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("odytty-bg-image-test-device"),
             required_features: wgpu::Features::empty(),
             required_limits: wgpu::Limits::default(),
@@ -1298,7 +1299,10 @@ mod tests {
             memory_hints: wgpu::MemoryHints::default(),
             trace: wgpu::Trace::Off,
         }))
-        .ok()
+        .ok()?;
+        Some(super::super::HeadlessGpuFixture::new(
+            device, queue, lifetime,
+        ))
     }
 
     /// Draw `bg` into a fresh render pass whose color target is `format`,
@@ -1358,17 +1362,19 @@ mod tests {
     /// drawing cleanly too.
     #[test]
     fn bg_image_pipeline_retargets_on_scene_format_change() {
-        let Some((device, queue)) = test_device() else {
+        let Some(gpu) = test_device() else {
             eprintln!("skipping: no usable GPU adapter");
             return;
         };
+        let device = &gpu.device;
+        let queue = &gpu.queue;
         // The bundled default background decodes from memory — no file needed.
         let path = std::path::Path::new(crate::settings::BUNDLED_BACKGROUND_SENTINEL);
         let surface_format = wgpu::TextureFormat::Bgra8UnormSrgb;
         let hdr_format = wgpu::TextureFormat::Rgba16Float;
         let mut bg = BgImageGpu::load(
-            &device,
-            &queue,
+            device,
+            queue,
             surface_format,
             path,
             0,
@@ -1382,22 +1388,22 @@ mod tests {
         // Document the failure mode the fix exists for: the surface-format
         // pipeline inside an HDR pass is a validation error (the C1 crash).
         assert!(
-            draw_into(&device, &queue, &bg, hdr_format).is_some(),
+            draw_into(device, queue, &bg, hdr_format).is_some(),
             "stale-format draw must raise a validation error"
         );
 
         // After retargeting (what rebuild_scene_pipelines now triggers on a
         // CRT/bloom toggle), the HDR pass must encode cleanly.
-        bg.rebuild_pipeline(&device, hdr_format);
+        bg.rebuild_pipeline(device, hdr_format);
         assert!(
-            draw_into(&device, &queue, &bg, hdr_format).is_none(),
+            draw_into(device, queue, &bg, hdr_format).is_none(),
             "retargeted pipeline must draw into the HDR pass cleanly"
         );
 
         // Toggling back off retargets to the surface format again.
-        bg.rebuild_pipeline(&device, surface_format);
+        bg.rebuild_pipeline(device, surface_format);
         assert!(
-            draw_into(&device, &queue, &bg, surface_format).is_none(),
+            draw_into(device, queue, &bg, surface_format).is_none(),
             "round-trip back to the surface format must draw cleanly"
         );
     }
@@ -1408,14 +1414,16 @@ mod tests {
     /// byte-identical until GpuState seeds a translucent value.
     #[test]
     fn set_window_alpha_stores_and_reuploads() {
-        let Some((device, queue)) = test_device() else {
+        let Some(gpu) = test_device() else {
             eprintln!("skipping: no usable GPU adapter");
             return;
         };
+        let device = &gpu.device;
+        let queue = &gpu.queue;
         let path = std::path::Path::new(crate::settings::BUNDLED_BACKGROUND_SENTINEL);
         let mut bg = BgImageGpu::load(
-            &device,
-            &queue,
+            device,
+            queue,
             wgpu::TextureFormat::Bgra8UnormSrgb,
             path,
             0,
@@ -1427,17 +1435,17 @@ mod tests {
         .expect("bundled background must load");
         assert_eq!(bg.window_alpha(), 1.0, "a fresh image starts fully opaque");
 
-        bg.set_window_alpha(&queue, 0.5);
+        bg.set_window_alpha(queue, 0.5);
         assert!(
             (bg.window_alpha() - 0.5).abs() < 1e-6,
             "window alpha must store"
         );
         // Out-of-range is clamped.
-        bg.set_window_alpha(&queue, 2.0);
+        bg.set_window_alpha(queue, 2.0);
         assert_eq!(bg.window_alpha(), 1.0, "window alpha clamps to [0, 1]");
         // A theme refresh preserves the live window alpha (rides the same slot).
-        bg.set_window_alpha(&queue, 0.7);
-        bg.refresh_for_theme(&queue, &light_theme(), 0.5);
+        bg.set_window_alpha(queue, 0.7);
+        bg.refresh_for_theme(queue, &light_theme(), 0.5);
         assert!(
             (bg.window_alpha() - 0.7).abs() < 1e-6,
             "a scrim refresh must preserve the window alpha"
@@ -1451,14 +1459,16 @@ mod tests {
     /// shrink keeps what it has.
     #[test]
     fn background_texture_follows_the_window_on_a_live_device() {
-        let Some((device, queue)) = test_device() else {
+        let Some(gpu) = test_device() else {
             eprintln!("skipping: no usable GPU adapter");
             return;
         };
+        let device = &gpu.device;
+        let queue = &gpu.queue;
         let path = std::path::Path::new(crate::settings::BUNDLED_BACKGROUND_SENTINEL);
         let mut bg = BgImageGpu::load(
-            &device,
-            &queue,
+            device,
+            queue,
             wgpu::TextureFormat::Bgra8UnormSrgb,
             path,
             0,
@@ -1478,13 +1488,13 @@ mod tests {
         let small_bytes = bg.gpu_texture_bytes();
 
         assert!(
-            !bg.resample_for_surface(&device, &queue, (900, 650), 0.5),
+            !bg.resample_for_surface(device, queue, (900, 650), 0.5),
             "a window still inside the headroom must not re-read the image"
         );
         assert_eq!(bg.texture_dimensions(), small);
 
         assert!(
-            bg.resample_for_surface(&device, &queue, (1_920, 1_080), 0.5),
+            bg.resample_for_surface(device, queue, (1_920, 1_080), 0.5),
             "growth past the headroom must re-read the image"
         );
         let grown = bg.texture_dimensions();
@@ -1492,11 +1502,11 @@ mod tests {
         assert!(bg.gpu_texture_bytes() > small_bytes);
 
         assert!(
-            !bg.resample_for_surface(&device, &queue, (1_920, 1_080), 0.5),
+            !bg.resample_for_surface(device, queue, (1_920, 1_080), 0.5),
             "the same size twice must be idempotent"
         );
         assert!(
-            !bg.resample_for_surface(&device, &queue, (640, 480), 0.5),
+            !bg.resample_for_surface(device, queue, (640, 480), 0.5),
             "a shrink keeps the texture it already paid for"
         );
         assert_eq!(bg.texture_dimensions(), grown);
@@ -1504,7 +1514,7 @@ mod tests {
         // The pass still draws cleanly against the replaced texture and bind
         // group — a resample must not strand the pipeline.
         assert!(
-            draw_into(&device, &queue, &bg, wgpu::TextureFormat::Bgra8UnormSrgb).is_none(),
+            draw_into(device, queue, &bg, wgpu::TextureFormat::Bgra8UnormSrgb).is_none(),
             "the resampled texture must draw without validation errors"
         );
         device.poll(wgpu::PollType::wait_indefinitely()).ok();

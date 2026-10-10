@@ -112,3 +112,9 @@ pub(super) use scene::wallpaper_edge_wash_quads;
 #[allow(unused_imports)]
 #[cfg(test)]
 pub(super) use types::cursor_glow_falloff;
+
+#[cfg(test)]
+pub(in crate::native) use pipeline_policy::headless_test_instance;
+
+#[cfg(test)]
+pub(in crate::native) use pipeline_policy::{HeadlessGpuFixture, headless_gpu_lifetime};

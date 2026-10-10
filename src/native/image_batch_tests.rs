@@ -210,15 +210,17 @@ fn assert_alternating_runs(pixels: &[u8], width: u32, rows: usize, columns: usiz
 
 #[test]
 fn one_image_placeholder_grid_batches_into_one_draw_and_paints_every_run() {
-    let Some((device, queue)) = test_device_with_hdr() else {
+    let Some(gpu) = test_device_with_hdr() else {
         return;
     };
+    let device = &gpu.device;
+    let queue = &gpu.queue;
     const COLS: usize = 80;
     const ROWS: usize = 25;
     const W: u32 = COLS as u32 * CELL;
     const H: u32 = ROWS as u32 * CELL;
-    let mut layer = ImageLayer::new(&device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
-    let viewport_buf = viewport_buffer(&device, W, H);
+    let mut layer = ImageLayer::new(device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
+    let viewport_buf = viewport_buffer(device, W, H);
     let upload = blue_upload();
     let update = |layer: &mut ImageLayer, placements: &[VisiblePlacement]| {
         let uploads = if layer.cached_generations(3).is_empty() {
@@ -227,8 +229,8 @@ fn one_image_placeholder_grid_batches_into_one_draw_and_paints_every_run() {
             Vec::new()
         };
         layer.update_with_padding(
-            &device,
-            &queue,
+            device,
+            queue,
             &viewport_buf,
             3,
             placements,
@@ -255,7 +257,7 @@ fn one_image_placeholder_grid_batches_into_one_draw_and_paints_every_run() {
         1,
         "one image across 1,000 disjoint runs is one draw"
     );
-    let pixels = render(&device, &queue, &layer, W, H);
+    let pixels = render(device, queue, &layer, W, H);
     assert_alternating_runs(&pixels, W, ROWS, COLS, "one batch");
 
     // A run at another z-index in the middle splits the batch into the runs
@@ -265,16 +267,18 @@ fn one_image_placeholder_grid_batches_into_one_draw_and_paints_every_run() {
     layered[500].z_index = -1;
     update(&mut layer, &layered);
     assert_eq!(layer.draw_call_count(), 3);
-    let pixels = render(&device, &queue, &layer, W, H);
+    let pixels = render(device, queue, &layer, W, H);
     assert_alternating_runs(&pixels, W, ROWS, COLS, "z-split batch");
     device.poll(wgpu::PollType::wait_indefinitely()).ok();
 }
 
 #[test]
 fn pane_runs_batch_only_under_one_scissor_and_stay_inside_their_pane() {
-    let Some((device, queue)) = test_device_with_hdr() else {
+    let Some(gpu) = test_device_with_hdr() else {
         return;
     };
+    let device = &gpu.device;
+    let queue = &gpu.queue;
     // Two 8-column panes side by side, 4 rows tall. Both use the same
     // namespace and image, so the cache key matches across them and only the
     // scissor can keep their draws apart.
@@ -283,8 +287,8 @@ fn pane_runs_batch_only_under_one_scissor_and_stay_inside_their_pane() {
     const W: u32 = 2 * PANE_COLS as u32 * CELL;
     const H: u32 = ROWS as u32 * CELL;
     let pane_px = PANE_COLS as u32 * CELL;
-    let mut layer = ImageLayer::new(&device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
-    let viewport_buf = viewport_buffer(&device, W, H);
+    let mut layer = ImageLayer::new(device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
+    let viewport_buf = viewport_buffer(device, W, H);
 
     // Left pane: runs at even columns, plus a two-cell run at its last column
     // whose second cell would cross into the right pane.
@@ -324,8 +328,8 @@ fn pane_runs_batch_only_under_one_scissor_and_stay_inside_their_pane() {
         upload: blue_upload(),
     };
     layer.update_panes(
-        &device,
-        &queue,
+        device,
+        queue,
         &viewport_buf,
         &panes,
         std::slice::from_ref(&upload),
@@ -338,7 +342,7 @@ fn pane_runs_batch_only_under_one_scissor_and_stay_inside_their_pane() {
         "each pane's runs batch into one draw, and the two scissors never merge"
     );
 
-    let pixels = render(&device, &queue, &layer, W, H);
+    let pixels = render(device, queue, &layer, W, H);
     for row in 0..ROWS {
         for column in 0..PANE_COLS {
             let px = cell_centre(&pixels, W, row, column);

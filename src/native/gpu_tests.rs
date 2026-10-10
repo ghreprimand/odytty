@@ -672,10 +672,12 @@ fn plain_render_quality_keeps_post_scene_on_swapchain_with_hot_effects() {
 
 #[test]
 fn bloom_scene_offscreen_accepts_live_scene_pipeline_formats() {
-    let Some((device, queue)) = test_device_with_hdr() else {
+    let Some(gpu) = test_device_with_hdr() else {
         eprintln!("skipping: no HDR-capable GPU adapter available");
         return;
     };
+    let device = &gpu.device;
+    let queue = &gpu.queue;
     let config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: TEST_SURFACE_FORMAT,
@@ -696,45 +698,45 @@ fn bloom_scene_offscreen_accepts_live_scene_pipeline_formats() {
         usage: wgpu::BufferUsages::UNIFORM,
     });
     let atlas = single_pixel_texture(
-        &device,
-        &queue,
+        device,
+        queue,
         "odytty-test-atlas",
         wgpu::TextureFormat::R8Unorm,
         &[255],
     );
-    let atlas_sampler = nearest_sampler(&device, "odytty-test-atlas-sampler");
-    let bind_group_layout = cell_bind_group_layout(&device);
+    let atlas_sampler = nearest_sampler(device, "odytty-test-atlas-sampler");
+    let bind_group_layout = cell_bind_group_layout(device);
     let bind_group = create_atlas_bind_group(
-        &device,
+        device,
         &bind_group_layout,
         &viewport_buf,
         &atlas,
         &atlas_sampler,
     );
     let color_atlas = single_pixel_texture(
-        &device,
-        &queue,
+        device,
+        queue,
         "odytty-test-color-atlas",
         wgpu::TextureFormat::Rgba8Unorm,
         &[255, 255, 255, 255],
     );
-    let color_sampler = nearest_sampler(&device, "odytty-test-color-sampler");
-    let color_bind_group_layout = color_glyph_bind_group_layout(&device);
+    let color_sampler = nearest_sampler(device, "odytty-test-color-sampler");
+    let color_bind_group_layout = color_glyph_bind_group_layout(device);
     let color_bind_group = create_color_atlas_bind_group(
-        &device,
+        device,
         &color_bind_group_layout,
         &viewport_buf,
         &color_atlas,
         &color_sampler,
     );
     let cell_pipeline = create_cell_pipeline(
-        &device,
+        device,
         post::HDR_FORMAT,
         &bind_group_layout,
         SubpixelMode::Off,
     );
     let color_pipeline =
-        create_color_glyph_pipeline(&device, post::HDR_FORMAT, &color_bind_group_layout);
+        create_color_glyph_pipeline(device, post::HDR_FORMAT, &color_bind_group_layout);
     let cell_vertices = quad_vertices([0.0, 0.0, 8.0, 8.0], [0.8, 0.8, 0.8, 1.0], 0.0);
     let cell_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("odytty-test-cell-vertices"),
@@ -747,7 +749,7 @@ fn bloom_scene_offscreen_accepts_live_scene_pipeline_formats() {
         contents: bytemuck::cast_slice(&color_vertices),
         usage: wgpu::BufferUsages::VERTEX,
     });
-    let post_process = post::PostProcessResources::new(&device, &config, post::HDR_FORMAT);
+    let post_process = post::PostProcessResources::new(device, &config, post::HDR_FORMAT);
     let output = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("odytty-test-bloom-output"),
         size: wgpu::Extent3d {
@@ -792,7 +794,7 @@ fn bloom_scene_offscreen_accepts_live_scene_pipeline_formats() {
         pass.set_vertex_buffer(0, color_buf.slice(..));
         pass.draw(0..6, 0..color_vertices.len() as u32);
     }
-    post_process.encode_post_process(&mut encoder, &queue, &output_view, post_options(true, true));
+    post_process.encode_post_process(&mut encoder, queue, &output_view, post_options(true, true));
     queue.submit(std::iter::once(encoder.finish()));
     device
         .poll(wgpu::PollType::wait_indefinitely())
@@ -806,10 +808,12 @@ fn bloom_scene_offscreen_accepts_live_scene_pipeline_formats() {
 /// background and glyph regions keep their authored colours.
 #[test]
 fn padded_pane_clip_reaches_pixels_for_background_and_glyph() {
-    let Some((device, queue)) = test_device_with_hdr() else {
+    let Some(gpu) = test_device_with_hdr() else {
         eprintln!("skipping: no GPU adapter available");
         return;
     };
+    let device = &gpu.device;
+    let queue = &gpu.queue;
     const W: u32 = 32;
     const H: u32 = 24;
     let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -822,16 +826,16 @@ fn padded_pane_clip_reaches_pixels_for_background_and_glyph() {
         usage: wgpu::BufferUsages::UNIFORM,
     });
     let atlas = single_pixel_texture(
-        &device,
-        &queue,
+        device,
+        queue,
         "padded-pane-clip-atlas",
         wgpu::TextureFormat::R8Unorm,
         &[255],
     );
-    let sampler = nearest_sampler(&device, "padded-pane-clip-sampler");
-    let layout = cell_bind_group_layout(&device);
-    let bind_group = create_atlas_bind_group(&device, &layout, &viewport_buf, &atlas, &sampler);
-    let pipeline = create_cell_pipeline(&device, TEST_SURFACE_FORMAT, &layout, SubpixelMode::Off);
+    let sampler = nearest_sampler(device, "padded-pane-clip-sampler");
+    let layout = cell_bind_group_layout(device);
+    let bind_group = create_atlas_bind_group(device, &layout, &viewport_buf, &atlas, &sampler);
+    let pipeline = create_cell_pipeline(device, TEST_SURFACE_FORMAT, &layout, SubpixelMode::Off);
 
     let mut vertices = Vec::new();
     vertices.extend(quad_vertices(
@@ -971,8 +975,9 @@ fn padded_pane_clip_reaches_pixels_for_background_and_glyph() {
 
 #[test]
 fn instanced_subpixel_cell_shader_validates_when_supported() {
+    let _lifetime = super::gpu::headless_gpu_lifetime();
     let _init = crate::test_lock::device_creation_lock();
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let instance = super::gpu::headless_test_instance(wgpu::Backends::all());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::default(),
         force_fallback_adapter: false,
@@ -1078,17 +1083,14 @@ fn post_options_from_settings(settings: &Settings) -> post::PostProcessOptions {
 ///   layout fails the suite rather than only at runtime.
 #[test]
 fn background_image_pipeline_builds_from_png() {
-    // Create the device BEFORE taking the render-globals lock. Device bring-up
-    // can stall (or historically deadlock) inside the software Vulkan driver; if
-    // that stall happened while holding the process-global render-globals lock it
-    // stranded every other floor test waiting on that lock, freezing the whole
-    // suite rather than just this test. `test_device_with_hdr` serializes its own
-    // creation via the device-creation lock and releases it before returning, so
-    // by the time we take the render-globals lock no device work is in flight.
-    let Some((device, queue)) = test_device_with_hdr() else {
+    // Acquire the GPU lifetime before the render globals. No fixture acquires
+    // these locks in reverse order, and device creation keeps its short lock.
+    let Some(gpu) = test_device_with_hdr() else {
         eprintln!("skipping: no GPU adapter available");
         return;
     };
+    let device = &gpu.device;
+    let queue = &gpu.queue;
     // Mutates the process-global floor; serialize against every other floor test.
     let _guard = crate::test_lock::render_globals_lock();
     // Encode a tiny 4x4 RGBA PNG (a black/white checker) to a temp file.
@@ -1116,8 +1118,8 @@ fn background_image_pipeline_builds_from_png() {
     theme.background = (0, 0, 0);
     crate::text::set_min_contrast(4.5);
     let loaded = BgImageGpu::load(
-        &device,
-        &queue,
+        device,
+        queue,
         TEST_SURFACE_FORMAT,
         &path,
         1,
@@ -1142,7 +1144,7 @@ fn background_image_pipeline_builds_from_png() {
     // Theme change refresh path (T10) must not panic and must re-upload cleanly.
     let mut light = crate::theme::Theme::PLAIN;
     light.background = (255, 255, 255);
-    bg.refresh_for_theme(&queue, &light, 0.5);
+    bg.refresh_for_theme(queue, &light, 0.5);
     device.poll(wgpu::PollType::wait_indefinitely()).ok();
 }
 
@@ -1152,11 +1154,13 @@ fn background_image_pipeline_builds_from_png() {
 /// presentation-only invariant. GPU-gated (skips when no adapter is available).
 #[test]
 fn overlay_image_set_and_clear_toggles_presence() {
-    let Some((device, queue)) = test_device_with_hdr() else {
+    let Some(gpu) = test_device_with_hdr() else {
         return;
     };
+    let device = &gpu.device;
+    let queue = &gpu.queue;
     let mut layer =
-        super::image_layer::ImageLayer::new(&device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
+        super::image_layer::ImageLayer::new(device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
     let viewport_buf = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("test-viewport"),
         size: 64,
@@ -1172,8 +1176,8 @@ fn overlay_image_set_and_clear_toggles_presence() {
     // A synthetic 2×2 RGBA image — no file, no decoder.
     let rgba = vec![0xFFu8; 2 * 2 * 4];
     layer.set_overlay_image(
-        &device,
-        &queue,
+        device,
+        queue,
         &viewport_buf,
         Some((&rgba, 2, 2)),
         100.0,
@@ -1184,7 +1188,7 @@ fn overlay_image_set_and_clear_toggles_presence() {
         "set installs the overlay image so draw_overlay emits a quad"
     );
 
-    layer.set_overlay_image(&device, &queue, &viewport_buf, None, 100.0, 80.0);
+    layer.set_overlay_image(device, queue, &viewport_buf, None, 100.0, 80.0);
     assert!(
         !layer.has_overlay_image(),
         "clearing removes it → the next frame is byte-identical again"
@@ -1192,8 +1196,8 @@ fn overlay_image_set_and_clear_toggles_presence() {
 
     // A degenerate (zero-dimension) buffer is treated as clear, never installed.
     layer.set_overlay_image(
-        &device,
-        &queue,
+        device,
+        queue,
         &viewport_buf,
         Some((&rgba, 0, 0)),
         100.0,
@@ -1205,8 +1209,8 @@ fn overlay_image_set_and_clear_toggles_presence() {
     );
     // An under-length buffer for the claimed dims is also rejected.
     layer.set_overlay_image(
-        &device,
-        &queue,
+        device,
+        queue,
         &viewport_buf,
         Some((&rgba, 64, 64)),
         100.0,
@@ -1226,11 +1230,13 @@ fn overlay_image_set_and_clear_toggles_presence() {
 /// test. Mirrors `overlay_image_set_and_clear_toggles_presence`. GPU-gated.
 #[test]
 fn overlay_image_fit_rect_tracks_set_and_clear() {
-    let Some((device, queue)) = test_device_with_hdr() else {
+    let Some(gpu) = test_device_with_hdr() else {
         return;
     };
+    let device = &gpu.device;
+    let queue = &gpu.queue;
     let mut layer =
-        super::image_layer::ImageLayer::new(&device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
+        super::image_layer::ImageLayer::new(device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
     let viewport_buf = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("test-viewport"),
         size: 64,
@@ -1249,8 +1255,8 @@ fn overlay_image_fit_rect_tracks_set_and_clear() {
     // y0=(80-2)/2=39 → rect [49,39,51,41].
     let rgba = vec![0xFFu8; 2 * 2 * 4];
     layer.set_overlay_image(
-        &device,
-        &queue,
+        device,
+        queue,
         &viewport_buf,
         Some((&rgba, 2, 2)),
         100.0,
@@ -1268,7 +1274,7 @@ fn overlay_image_fit_rect_tracks_set_and_clear() {
         "the recorded rect is the centered, native-size fit-rect"
     );
 
-    layer.set_overlay_image(&device, &queue, &viewport_buf, None, 100.0, 80.0);
+    layer.set_overlay_image(device, queue, &viewport_buf, None, 100.0, 80.0);
     assert_eq!(
         layer.overlay_image_fit_rect(),
         None,
@@ -1293,13 +1299,15 @@ fn overlay_image_fit_rect_tracks_set_and_clear() {
 /// GPU-gated (skips when no adapter is available).
 #[test]
 fn overlay_draws_image_over_backing_onto_swapchain() {
-    let Some((device, queue)) = test_device_with_hdr() else {
+    let Some(gpu) = test_device_with_hdr() else {
         return;
     };
+    let device = &gpu.device;
+    let queue = &gpu.queue;
     const W: u32 = 16;
     const H: u32 = 12;
     let mut layer =
-        super::image_layer::ImageLayer::new(&device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
+        super::image_layer::ImageLayer::new(device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
     let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("test-overlay-viewport"),
         contents: bytemuck::bytes_of(&ViewportUniform {
@@ -1324,8 +1332,8 @@ fn overlay_draws_image_over_backing_onto_swapchain() {
         }
     }
     layer.set_overlay_image(
-        &device,
-        &queue,
+        device,
+        queue,
         &viewport_buf,
         Some((&img, 4, 4)),
         W as f32,
@@ -1486,13 +1494,15 @@ fn overlay_draws_image_over_backing_onto_swapchain() {
 /// GPU-gated (skips when no adapter is available).
 #[test]
 fn overlay_uses_linear_sampling_for_scaled_images() {
-    let Some((device, queue)) = test_device_with_hdr() else {
+    let Some(gpu) = test_device_with_hdr() else {
         return;
     };
+    let device = &gpu.device;
+    let queue = &gpu.queue;
     const W: u32 = 16;
     const H: u32 = 12;
     let mut layer =
-        super::image_layer::ImageLayer::new(&device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
+        super::image_layer::ImageLayer::new(device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
     let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("test-linear-viewport"),
         contents: bytemuck::bytes_of(&ViewportUniform {
@@ -1520,8 +1530,8 @@ fn overlay_uses_linear_sampling_for_scaled_images() {
         }
     }
     layer.set_overlay_image(
-        &device,
-        &queue,
+        device,
+        queue,
         &viewport_buf,
         Some((&img, IW, IH)),
         W as f32,
@@ -1695,13 +1705,15 @@ fn split_pane_inline_image_renders_clipped_to_its_pane() {
         GraphicsProtocol, PlacementId, SourceRect, StoredImageId, VisiblePlacement,
     };
 
-    let Some((device, queue)) = test_device_with_hdr() else {
+    let Some(gpu) = test_device_with_hdr() else {
         return;
     };
+    let device = &gpu.device;
+    let queue = &gpu.queue;
     const W: u32 = 64;
     const H: u32 = 48;
     let mut layer =
-        super::image_layer::ImageLayer::new(&device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
+        super::image_layer::ImageLayer::new(device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
     let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("test-split-image-viewport"),
         contents: bytemuck::bytes_of(&ViewportUniform {
@@ -1770,8 +1782,8 @@ fn split_pane_inline_image_renders_clipped_to_its_pane() {
         },
     };
     layer.update_panes(
-        &device,
-        &queue,
+        device,
+        queue,
         &viewport_buf,
         &[left_pane, right_pane],
         std::slice::from_ref(&upload),
@@ -1909,10 +1921,11 @@ fn split_pane_inline_image_renders_clipped_to_its_pane() {
     device.poll(wgpu::PollType::wait_indefinitely()).ok();
 }
 
-pub(super) fn test_device_with_hdr() -> Option<(wgpu::Device, wgpu::Queue)> {
+pub(super) fn test_device_with_hdr() -> Option<super::gpu::HeadlessGpuFixture> {
+    let lifetime = super::gpu::headless_gpu_lifetime();
     // Serialize driver init against every other parallel test creating a device.
     let _init = crate::test_lock::device_creation_lock();
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let instance = super::gpu::headless_test_instance(wgpu::Backends::all());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::default(),
         force_fallback_adapter: false,
@@ -1920,7 +1933,7 @@ pub(super) fn test_device_with_hdr() -> Option<(wgpu::Device, wgpu::Queue)> {
     }))
     .ok()?;
     post::supported_format(&adapter)?;
-    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("odytty-test-device"),
         required_features: wgpu::Features::empty(),
         required_limits: wgpu::Limits::default(),
@@ -1928,7 +1941,8 @@ pub(super) fn test_device_with_hdr() -> Option<(wgpu::Device, wgpu::Queue)> {
         memory_hints: wgpu::MemoryHints::default(),
         trace: wgpu::Trace::Off,
     }))
-    .ok()
+    .ok()?;
+    Some(super::gpu::HeadlessGpuFixture::new(device, queue, lifetime))
 }
 
 fn single_pixel_texture(
@@ -2335,10 +2349,12 @@ fn image_mode_switch_releases_the_inactive_mode_textures() {
         GraphicsProtocol, PlacementId, SourceRect, StoredImageId, VisiblePlacement,
     };
 
-    let Some((device, queue)) = test_device_with_hdr() else {
+    let Some(gpu) = test_device_with_hdr() else {
         return;
     };
-    let mut layer = ImageLayer::new(&device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
+    let device = &gpu.device;
+    let queue = &gpu.queue;
+    let mut layer = ImageLayer::new(device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
     let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("test-image-mode-viewport"),
         contents: bytemuck::bytes_of(&ViewportUniform {
@@ -2386,8 +2402,8 @@ fn image_mode_switch_releases_the_inactive_mode_textures() {
             Vec::new()
         };
         layer.update_with_padding(
-            &device,
-            &queue,
+            device,
+            queue,
             &viewport_buf,
             7,
             std::slice::from_ref(&placement),
@@ -2415,8 +2431,8 @@ fn image_mode_switch_releases_the_inactive_mode_textures() {
             scissor: [0, 0, 64, 48],
         };
         layer.update_panes(
-            &device,
-            &queue,
+            device,
+            queue,
             &viewport_buf,
             std::slice::from_ref(&pane),
             &uploads,

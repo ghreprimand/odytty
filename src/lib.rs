@@ -241,8 +241,11 @@ pub(crate) mod test_lock {
     /// test threads. Concurrent device bring-up on the same adapter can deadlock
     /// inside the driver; holding this lock for the duration of each creation
     /// block serializes the creation sites that take it (it does not exclude
-    /// creators outside this lock) while leaving the created device free to
-    /// run in parallel afterward. The deadlock was originally assumed to
+    /// creators outside this lock). Each headless fixture separately holds its
+    /// full-lifetime guard through drawing and handle teardown and retains its root
+    /// instance for the process lifetime: creation serialization alone cannot
+    /// exclude EGL teardown racing with Vulkan allocation in another test.
+    /// The device-creation deadlock was originally assumed to
     /// be specific to the software Vulkan ICD, but a thread dump taken at a
     /// reproduced hang showed every open descriptor pointing at the accelerated
     /// device nodes and the blocked threads inside the vendor driver's own
