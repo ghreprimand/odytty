@@ -201,11 +201,11 @@ left every shared-loop case unavailable. They now use the shared loop, the
 subprocess guard covers their modules, and a loop built elsewhere in the test
 binary before the shared one fails the dependent tests instead of reading as a
 host without a display. A loop built elsewhere after the shared one is not
-detected by this guard; no other test builds one. Cases that never spawn a session no longer take a proxy, so 28 of the
-84 cases that macOS ignored now run there and on hosts without a display; the
-56 that spawn sessions stay ignored on macOS. Hosts without a display,
-including the Linux CI runner, still report the proxy-backed cases
-unavailable.
+detected by this guard; no other test builds one. Cases that never spawn a
+session no longer take a proxy, so 28 of the 84 cases that macOS ignored now
+run there and on hosts without a display; the 56 that spawn sessions stay
+ignored on macOS. Hosts without a display, including the Linux CI runner,
+still report the proxy-backed cases unavailable.
 
 The same change also starts running these on macOS: the automation
 accepted-connection observer test, the automation listener-fault test, and

@@ -553,8 +553,16 @@ fn open_layout_onto_pristine_window_opens_without_a_prompt() {
         crate::native::persistence::layouts_dir()
     };
     let real_layouts_existed = real_layouts.exists();
-    let base = crate::test_dirs::fresh_temp_dir("odytty-layout-open-");
-    let redirected_layouts = super::config_env::with_config_base(&base, true, || {
+    // Removed on every exit, a failed assertion included.
+    struct RemoveOnDrop(std::path::PathBuf);
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let base = RemoveOnDrop(crate::test_dirs::fresh_temp_dir("odytty-layout-open-"));
+    let base = &base.0;
+    let redirected_layouts = super::config_env::with_config_base(base, true, || {
         let mut app = headless_app();
         assert_eq!(app.workspace_count_for_test(), 1);
         // The lone pane is a shell known to be idle at its prompt.
@@ -568,18 +576,20 @@ fn open_layout_onto_pristine_window_opens_without_a_prompt() {
         crate::native::persistence::layouts_dir()
     });
     assert!(
-        redirected_layouts.starts_with(&base) && redirected_layouts.is_dir(),
+        redirected_layouts.starts_with(base) && redirected_layouts.is_dir(),
         "the layout load prepares the redirected layouts folder: {}",
         redirected_layouts.display()
     );
     if !real_layouts_existed {
+        // Any test that writes the unredirected folder while this one runs
+        // also trips this check, so the message names what was seen.
         assert!(
             !real_layouts.exists(),
-            "the layout load must not create the real layouts folder: {}",
+            "the real layouts folder appeared during this test (this load or \
+             another test running beside it created it): {}",
             real_layouts.display()
         );
     }
-    let _ = std::fs::remove_dir_all(&base);
 }
 
 #[test]

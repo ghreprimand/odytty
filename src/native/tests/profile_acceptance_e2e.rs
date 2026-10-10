@@ -150,9 +150,11 @@ fn settled_app_with_proxy() -> Result<App, &'static str> {
     Ok(app)
 }
 
-/// Wait until the shell in `session` has drawn something (its prompt), so
-/// typed input is not raced against shell startup. Returns either way at the
-/// deadline; the caller's own assertion decides the outcome.
+/// Wait for the first shell output in `session`: any non-blank text, which
+/// on Windows can be the PowerShell banner rather than the prompt. Input
+/// typed after that waits in the shell's input buffer until it reads it.
+/// Returns either way at the deadline; the caller's own assertion decides
+/// the outcome.
 fn wait_for_shell_output(app: &App, session: usize, budget: Duration) {
     let deadline = Instant::now() + budget;
     while Instant::now() < deadline {
