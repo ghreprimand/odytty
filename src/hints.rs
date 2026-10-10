@@ -15,7 +15,8 @@
 //! wraps across the right edge is found as a single match whose `start` and
 //! `end` land on different absolute rows. Hard line breaks end a logical line, so
 //! a match never crosses a real newline. Wide-glyph continuation spacers carry no
-//! text of their own; the wide lead's column span covers both cells. This mirrors
+//! text of their own; layout padding is skipped, and the wide lead's column
+//! span covers both cells. This mirrors
 //! the search engine's convention exactly, so the same row view feeds both.
 //!
 //! ## Output coordinates
@@ -187,7 +188,7 @@ pub fn scan(rows: &[SearchRow<'_>], kinds: HintKinds) -> Vec<HintMatch> {
         let mut col = 0;
         while col < cells.len() {
             let cell = &cells[col];
-            if cell.wide_continuation {
+            if cell.wide_continuation || cell.layout_padding {
                 col += 1;
                 continue;
             }
@@ -245,7 +246,7 @@ fn scan_line(units: &[Unit], unit_text: &[String], kinds: HintKinds, out: &mut V
         find_urls(&chars, &mut candidates);
     }
     if kinds.has(HintKind::Path) {
-        find_paths(&chars, &mut candidates);
+        find_paths(&chars, &owners, &mut candidates);
     }
     if kinds.has(HintKind::Sha) {
         find_shas(&chars, &mut candidates);
@@ -338,7 +339,8 @@ fn match_scheme(chars: &[char], i: usize) -> Option<usize> {
     None
 }
 
-/// A character allowed inside a filesystem path.
+/// A base character allowed inside a Unix-prefix filesystem path.
+/// Retained non-ASCII scalars stay with an admitted owner in `find_paths`.
 fn is_path_char(ch: char) -> bool {
     ch.is_alphanumeric() || matches!(ch, '/' | '.' | '_' | '-' | '~' | '+' | '@' | '%')
 }
@@ -349,7 +351,7 @@ fn is_path_boundary_blocker(ch: char) -> bool {
     ch.is_alphanumeric() || matches!(ch, '/' | '~' | '.' | '-' | '_')
 }
 
-fn find_paths(chars: &[char], out: &mut Vec<Candidate>) {
+fn find_paths(chars: &[char], owners: &[usize], out: &mut Vec<Candidate>) {
     let n = chars.len();
     let mut i = 0;
     while i < n {
@@ -359,7 +361,13 @@ fn find_paths(chars: &[char], out: &mut Vec<Candidate>) {
         }
         if let Some(prefix) = path_start_len(chars, i) {
             let mut j = i + prefix;
-            while j < n && is_path_char(chars[j]) {
+            while j < n
+                && (is_path_char(chars[j])
+                    || (owners[j] == owners[j - 1]
+                        && !chars[j].is_ascii()
+                        && !chars[j].is_control()
+                        && !chars[j].is_whitespace()))
+            {
                 j += 1;
             }
             // Require at least one character beyond a bare `/` so a lone slash is
@@ -549,6 +557,98 @@ fn generate_labels(count: usize, alphabet: &str) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::core::{Attrs, Cell};
+
+    fn scan_terminal(terminal: &crate::core::Terminal, kinds: HintKinds) -> Vec<HintMatch> {
+        let visible = terminal.visible_search_rows(0);
+        let rows: Vec<_> = visible
+            .iter()
+            .map(|row| SearchRow {
+                cells: &row.cells,
+                wrapped: row.wrapped,
+            })
+            .collect();
+        scan(&rows, kinds)
+    }
+
+    #[test]
+    fn terminal_hints_skip_wrap_padding_and_survive_reflow() {
+        for (text, width, kind) in [
+            ("/abc\u{754c}z", 5, HintKind::Path),
+            ("https://a/\u{754c}z", 11, HintKind::Url),
+        ] {
+            let mut terminal = crate::core::Terminal::new(width, 8);
+            terminal.advance(text.as_bytes());
+            assert!(
+                terminal
+                    .visible_search_rows(0)
+                    .iter()
+                    .any(|row| { row.cells.iter().any(|cell| cell.layout_padding) })
+            );
+            let found = scan_terminal(&terminal, HintKinds::all());
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].text, text);
+            assert_eq!(found[0].kind, kind);
+            assert_eq!(found[0].start, AbsolutePoint { row: 0, column: 0 });
+            assert_eq!(found[0].end, AbsolutePoint { row: 1, column: 2 });
+            terminal.resize(24, 8);
+            let found = scan_terminal(&terminal, HintKinds::all());
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].text, text);
+            assert_eq!(
+                found[0].end,
+                AbsolutePoint {
+                    row: 0,
+                    column: width + 1
+                }
+            );
+            terminal.resize(width, 8);
+            assert_eq!(scan_terminal(&terminal, HintKinds::all())[0].text, text);
+        }
+    }
+
+    #[test]
+    fn terminal_path_hints_keep_retained_marks_and_delimiters() {
+        for text in [
+            "./cafe\u{301}.txt",
+            "./\u{915}\u{93f}.txt",
+            "./\u{0e01}\u{0e49}.txt",
+        ] {
+            let mut terminal = crate::core::Terminal::new(40, 4);
+            terminal.advance(format!("({text}) /other").as_bytes());
+            let found = scan_terminal(&terminal, HintKinds::PATHS);
+            assert_eq!(
+                found
+                    .iter()
+                    .map(|hint| hint.text.as_str())
+                    .collect::<Vec<_>>(),
+                [text, "/other"]
+            );
+            assert_eq!(found[0].start, AbsolutePoint { row: 0, column: 1 });
+            let visible = terminal.visible_search_rows(0);
+            let last = visible[0]
+                .cells
+                .iter()
+                .position(|cell| cell.ch == ')')
+                .unwrap()
+                - 1;
+            assert_eq!(
+                found[0].end,
+                AbsolutePoint {
+                    row: 0,
+                    column: last
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_hint_scanning_preserves_real_space_boundaries() {
+        let mut terminal = crate::core::Terminal::new(5, 8);
+        terminal.advance("/abc \u{754c}z".as_bytes());
+        let found = scan_terminal(&terminal, HintKinds::PATHS);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].text, "/abc");
+    }
 
     /// Build a single non-wrapped row of cells from text.
     fn row(text: &str) -> Vec<Cell> {
