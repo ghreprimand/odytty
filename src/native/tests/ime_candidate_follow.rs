@@ -227,3 +227,55 @@ fn a_split_composition_on_a_reordered_row_anchors_at_the_drawn_cursor() {
         "the redraw sends the cursor cell the focused pane draws"
     );
 }
+
+/// The candidate window anchors at the cursor the presented frame drew. A
+/// cursor move that lands after the frame captured its snapshot does not move
+/// the window to a cell no frame drew; the next frame draws the new cursor
+/// and the window follows it then.
+#[test]
+fn the_candidate_window_follows_the_cursor_the_frame_drew() {
+    let (mut app, terminal) = app();
+    terminal.lock().expect("terminal").advance(b"\x1b[1;4H");
+    app.handle_ime(Ime::Preedit("\u{4e2d}".to_owned(), None));
+    let _ = app.redraw_single_pane_probe_for_test();
+    let drawn = [3.0 * CELL.width as f32, 0.0];
+    assert_eq!(
+        app.ime_cursor_area_sent_for_test().map(|area| area.0),
+        Some(drawn)
+    );
+    // Output moves the cursor after the frame captured it.
+    terminal.lock().expect("terminal").advance(b"\x1b[2;9H");
+    let followed = app.follow_ime_cursor_area_for_test().expect("area sent");
+    assert_eq!(followed.0, drawn, "still the cursor the frame drew");
+    let _ = app.redraw_single_pane_probe_for_test();
+    assert_eq!(
+        app.ime_cursor_area_sent_for_test().map(|area| area.0),
+        Some([8.0 * CELL.width as f32, CELL.height as f32]),
+        "the next frame draws the new cursor and the window follows"
+    );
+}
+
+/// The same in the focused pane of a split frame.
+#[test]
+fn a_split_candidate_window_follows_the_cursor_the_frame_drew() {
+    let (mut app, pane, _focused) = split_app();
+    app.handle_ime(Ime::Preedit("\u{4e2d}".to_owned(), None));
+    let _ = app.redraw_multipane_probe_for_test();
+    let drawn = app
+        .ime_cursor_area_sent_for_test()
+        .map(|area| area.0)
+        .expect("area sent");
+    pane.lock().expect("pane").advance(b"\x1b[4;2H");
+    let followed = app.follow_ime_cursor_area_for_test().expect("area sent");
+    assert_eq!(followed.0, drawn, "still the cursor the frame drew");
+    let _ = app.redraw_multipane_probe_for_test();
+    let next = app
+        .ime_cursor_area_sent_for_test()
+        .map(|area| area.0)
+        .expect("area sent");
+    assert_eq!(
+        next[1] - drawn[1],
+        3.0 * CELL.height as f32,
+        "the next frame draws the new cursor and the window follows"
+    );
+}

@@ -8,14 +8,14 @@
 //! table is kept here. Khmer U+17A4 and U+17D8 use explicit one-cell
 //! compatibility overrides in both modes.
 //!
-//! These call sites measure overlay chrome, not the terminal grid, and stay
-//! on `UnicodeWidthChar::width`:
-//! - `src/native/overlay/render.rs`
-//! - `src/native/app/tab_bar.rs`
-//! - `src/native/app/overlay_registry.rs`
-//! - `src/native/search_ui.rs` (the search status line)
+//! Overlay chrome (overlay rows in `src/native/overlay/render.rs`, the tab
+//! labels in `src/native/app/tab_bar.rs`, the rename prompt in
+//! `src/native/app/overlay_registry.rs` and the search status line in
+//! `src/native/search_ui.rs`) does not call these scalar widths directly: it
+//! measures narrow-policy terminal owners through `super::text_owners`, so a
+//! sequence takes the same composite width there as in the grid.
 //!
-//! `src/atlas/mod.rs` `glyph_cells` also stays on the narrow table. A shared
+//! `src/atlas/mod.rs` `glyph_cells` stays on the narrow scalar table. A shared
 //! atlas cannot cache two slot widths for one codepoint while two panes
 //! disagree. The grid's `wide_continuation` cell is what reserves the second
 //! column; the lead cell's glyph is drawn inside that span.

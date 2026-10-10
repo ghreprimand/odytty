@@ -198,6 +198,11 @@ impl App {
         let Some(area) = self.ime_cursor_area() else {
             return;
         };
+        self.send_ime_cursor_area(area);
+    }
+
+    /// Send `area` to the platform as the candidate-window area.
+    fn send_ime_cursor_area(&mut self, area: ([f32; 2], [u32; 2])) {
         self.ime_cursor_area_sent = Some(area);
         if let Some(window) = self.window.as_ref() {
             let ([x, y], [width, height]) = area;
@@ -216,19 +221,38 @@ impl App {
         Some((origin, [cell.width, cell.height]))
     }
 
+    /// The candidate-window area for the cursor the most recently built
+    /// frame drew ([`Self::ime_drawn_cursor`]), mapped through that frame's
+    /// display placement; the live cursor before any frame was built.
+    fn ime_drawn_cursor_area(&self) -> Option<([f32; 2], [u32; 2])> {
+        let Some(cursor) = self.ime_drawn_cursor else {
+            return self.ime_cursor_area();
+        };
+        let cell = self.resolved_cell()?;
+        let origin = self.ime_cursor_area_origin_at(cell, self.window_pad_px(), cursor);
+        Some((origin, [cell.width, cell.height]))
+    }
+
     /// Keep the candidate window on the cursor cell while a composition shows
     /// text: a window resize or a program moving the cursor relocates it on
     /// the next redraw (a pane layout change ends the composition). The area
     /// is reissued only when it moved and only while the pre-edit is nonempty,
     /// so an empty pre-edit a platform sends in answer to an update can never
     /// start a feedback loop.
+    ///
+    /// It runs after a frame and anchors at the cursor that frame drew
+    /// ([`Self::ime_drawn_cursor`]), never a newer live cursor the frame did
+    /// not draw; the next frame adopts a later cursor move.
     pub(super) fn follow_ime_cursor_area(&mut self) {
         if self.ime_preedit.is_empty() {
             self.ime_cursor_area_sent = None;
             return;
         }
-        if self.ime_cursor_area() != self.ime_cursor_area_sent {
-            self.update_ime_cursor_area();
+        let Some(area) = self.ime_drawn_cursor_area() else {
+            return;
+        };
+        if Some(area) != self.ime_cursor_area_sent {
+            self.send_ime_cursor_area(area);
         }
     }
 
@@ -256,8 +280,18 @@ impl App {
     /// chrome-facing padding gap), both 0 with no chrome shown.
     pub(super) fn ime_cursor_area_origin_px(&self, cell: CellSize, pad: f32) -> [f32; 2] {
         let cursor = crate::native::lock_recover(&self.terminal)
-            .snapshot()
-            .cursor;
+            .screen()
+            .cursor();
+        self.ime_cursor_area_origin_at(cell, pad, cursor)
+    }
+
+    /// [`Self::ime_cursor_area_origin_px`] for an explicit logical `cursor`.
+    fn ime_cursor_area_origin_at(
+        &self,
+        cell: CellSize,
+        pad: f32,
+        cursor: crate::core::Position,
+    ) -> [f32; 2] {
         let column = self.ime_anchor_column(cursor);
         let origin = if let Some((_, origin, _)) = self.focused_pane_grid() {
             origin

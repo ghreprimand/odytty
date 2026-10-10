@@ -25,8 +25,8 @@
 //! records (stall, slow retry, callback outstanding) so a future edit cannot
 //! quietly interpolate free-form strings.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// How long input/redraw work may stay pending with no presented frame
@@ -138,6 +138,52 @@ pub(super) struct WatchdogShared {
     /// The DIFFERENCE is the gate: zero deliveries during the episode means
     /// the windowing system never asked for a frame.
     redraws_at_pending_start: AtomicU64,
+    /// Stable id of the window whose state is mirrored ([`NO_SUBJECT`] until
+    /// the process host mirrors one).
+    subject: AtomicU64,
+    /// Diagnostic state of windows mirrored earlier and since replaced by
+    /// another subject, by window id (bounded by [`MAX_PARKED_SUBJECTS`]).
+    parked: Mutex<Vec<(u64, SubjectDiagnostics)>>,
+}
+
+/// No window mirrored yet.
+const NO_SUBJECT: u64 = u64::MAX;
+
+/// Most windows whose diagnostic state is kept while another is mirrored.
+const MAX_PARKED_SUBJECTS: usize = 64;
+
+/// One window's diagnostic classification, rate limits, slow-retry liveness
+/// and owed-frame timing. The process host mirrors one window at a time; when
+/// the mirrored window changes, the outgoing window's state is parked and the
+/// incoming window's is restored (or starts fresh), so a classification or
+/// rate limit earned by one window never suppresses or vouches for another,
+/// and slow-retry liveness never compares two windows' redraw counters.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct SubjectDiagnostics {
+    logged: bool,
+    last_log_ms: u64,
+    callback_logged: bool,
+    callback_last_log_ms: u64,
+    slow_retry_logged: bool,
+    slow_retry_last_log_ms: u64,
+    slow_retry_tracking: bool,
+    slow_retry_last_redraws: u64,
+    slow_retry_progress_ms: u64,
+    render_owed: bool,
+    render_owed_since_ms: u64,
+}
+
+impl SubjectDiagnostics {
+    /// Clear the latches that belong to one pending episode, as
+    /// [`WatchdogShared::note_activity`] and [`WatchdogShared::note_present`]
+    /// clear them for the mirrored window. Rate-limit timestamps and owed
+    /// timing outlive the episode.
+    fn reset_episode(&mut self) {
+        self.logged = false;
+        self.callback_logged = false;
+        self.slow_retry_logged = false;
+        self.slow_retry_tracking = false;
+    }
 }
 
 impl WatchdogShared {
@@ -172,7 +218,96 @@ impl WatchdogShared {
             render_owed_since_ms: AtomicU64::new(0),
             redraws_delivered: AtomicU64::new(0),
             redraws_at_pending_start: AtomicU64::new(0),
+            subject: AtomicU64::new(NO_SUBJECT),
+            parked: Mutex::new(Vec::new()),
         })
+    }
+
+    fn diagnostics(&self) -> SubjectDiagnostics {
+        SubjectDiagnostics {
+            logged: self.logged.load(Ordering::Relaxed),
+            last_log_ms: self.last_log_ms.load(Ordering::Relaxed),
+            callback_logged: self.callback_logged.load(Ordering::Relaxed),
+            callback_last_log_ms: self.callback_last_log_ms.load(Ordering::Relaxed),
+            slow_retry_logged: self.slow_retry_logged.load(Ordering::Relaxed),
+            slow_retry_last_log_ms: self.slow_retry_last_log_ms.load(Ordering::Relaxed),
+            slow_retry_tracking: self.slow_retry_tracking.load(Ordering::Relaxed),
+            slow_retry_last_redraws: self.slow_retry_last_redraws.load(Ordering::Relaxed),
+            slow_retry_progress_ms: self.slow_retry_progress_ms.load(Ordering::Relaxed),
+            render_owed: self.render_owed.load(Ordering::Relaxed),
+            render_owed_since_ms: self.render_owed_since_ms.load(Ordering::Relaxed),
+        }
+    }
+
+    fn restore_diagnostics(&self, diagnostics: SubjectDiagnostics) {
+        self.logged.store(diagnostics.logged, Ordering::Relaxed);
+        self.last_log_ms
+            .store(diagnostics.last_log_ms, Ordering::Relaxed);
+        self.callback_logged
+            .store(diagnostics.callback_logged, Ordering::Relaxed);
+        self.callback_last_log_ms
+            .store(diagnostics.callback_last_log_ms, Ordering::Relaxed);
+        self.slow_retry_logged
+            .store(diagnostics.slow_retry_logged, Ordering::Relaxed);
+        self.slow_retry_last_log_ms
+            .store(diagnostics.slow_retry_last_log_ms, Ordering::Relaxed);
+        self.slow_retry_tracking
+            .store(diagnostics.slow_retry_tracking, Ordering::Relaxed);
+        self.slow_retry_last_redraws
+            .store(diagnostics.slow_retry_last_redraws, Ordering::Relaxed);
+        self.slow_retry_progress_ms
+            .store(diagnostics.slow_retry_progress_ms, Ordering::Relaxed);
+        self.render_owed
+            .store(diagnostics.render_owed, Ordering::Relaxed);
+        self.render_owed_since_ms
+            .store(diagnostics.render_owed_since_ms, Ordering::Relaxed);
+    }
+
+    /// Mirror window `id`: store its state and set the episode's redraw
+    /// baseline to `episode_redraws`, its own delivered-redraw count when the
+    /// episode opened. The process host mirrors one window at a time and each
+    /// window counts its own redraws, so the baseline follows the mirrored
+    /// window: another window's counter would hide (or invent) this window's
+    /// deliveries. When the mirrored window changes, the outgoing window's
+    /// classification, rate limits, slow-retry liveness and owed timing are
+    /// parked and the incoming window's are restored, so they are always the
+    /// mirrored window's own. The episode's pending age is shared and kept.
+    pub(in crate::native) fn mirror_window(
+        &self,
+        id: u64,
+        state: &WatchdogAppState,
+        episode_redraws: u64,
+    ) {
+        let previous = self.subject.swap(id, Ordering::Relaxed);
+        if previous != id {
+            let mut parked = crate::native::lock_recover(&self.parked);
+            if previous != NO_SUBJECT {
+                let outgoing = self.diagnostics();
+                parked.retain(|(window, _)| *window != previous);
+                parked.push((previous, outgoing));
+                if parked.len() > MAX_PARKED_SUBJECTS {
+                    parked.remove(0);
+                }
+            }
+            let incoming = parked
+                .iter()
+                .position(|(window, _)| *window == id)
+                .map(|index| parked.remove(index).1)
+                .unwrap_or_default();
+            drop(parked);
+            self.restore_diagnostics(incoming);
+        }
+        self.store_state(state);
+        self.redraws_at_pending_start
+            .store(episode_redraws, Ordering::Relaxed);
+    }
+
+    /// Clear the episode latches of every parked window (see
+    /// [`SubjectDiagnostics::reset_episode`]).
+    fn reset_parked_episodes(&self) {
+        for (_, diagnostics) in crate::native::lock_recover(&self.parked).iter_mut() {
+            diagnostics.reset_episode();
+        }
     }
 
     fn now_ms(&self) -> u64 {
@@ -188,6 +323,7 @@ impl WatchdogShared {
             self.logged.store(false, Ordering::Relaxed);
             self.callback_logged.store(false, Ordering::Relaxed);
             self.reset_slow_retry_episode();
+            self.reset_parked_episodes();
             // Baseline the delivered-redraw counter for this episode. The
             // wrapper calls this BEFORE delegating the event, so a
             // `RedrawRequested` that opens an episode still counts inside it.
@@ -199,21 +335,12 @@ impl WatchdogShared {
         opened
     }
 
-    /// Set the episode's redraw baseline to `at_start`, the mirrored window's
-    /// own delivered-redraw count when the episode opened. The process host
-    /// mirrors one window at a time and each window counts its own redraws,
-    /// so the baseline must follow the mirrored window: another window's
-    /// counter would hide (or invent) this window's deliveries.
-    pub(in crate::native) fn rebase_episode_redraws(&self, at_start: u64) {
-        self.redraws_at_pending_start
-            .store(at_start, Ordering::Relaxed);
-    }
-
     pub(in crate::native) fn note_present(&self) {
         self.pending.store(false, Ordering::Relaxed);
         self.logged.store(false, Ordering::Relaxed);
         self.callback_logged.store(false, Ordering::Relaxed);
         self.reset_slow_retry_episode();
+        self.reset_parked_episodes();
     }
 
     fn reset_slow_retry_episode(&self) {
@@ -1110,5 +1237,30 @@ mod tests {
     fn float_arrange_modal_has_a_name() {
         assert_eq!(modal_name(4), "float_arrange");
         assert_eq!(modal_name(200), "unknown");
+    }
+
+    /// Slow-retry liveness is judged on the mirrored window's own redraw
+    /// counter. Window 1's retries keep delivering; window 2's stopped. With
+    /// the host mirroring them alternately, window 2's dead retry loop falls
+    /// through to the classic stall record instead of passing for live
+    /// because the two windows' counters differ.
+    #[test]
+    fn slow_retry_liveness_follows_the_mirrored_window() {
+        let shared = WatchdogShared::new();
+        shared.note_activity();
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        let mut second = Vec::new();
+        for t in 0..=12u64 {
+            shared.mirror_window(1, &slow_retry_state(100 + t), 0);
+            let _ = shared.evaluate(since + t * 1_000);
+            shared.mirror_window(2, &slow_retry_state(5), 0);
+            if let Some(record) = shared.evaluate(since + t * 1_000 + 500) {
+                second.push((t, record));
+            }
+        }
+        assert_eq!(second.len(), 1, "{second:?}");
+        let (t, record) = &second[0];
+        assert_eq!(*t, 10, "at the stall window");
+        assert!(record.starts_with(CLASSIC_PREFIX), "got: {record}");
     }
 }

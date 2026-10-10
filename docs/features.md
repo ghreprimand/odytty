@@ -1828,8 +1828,10 @@ Use `←` or `→` to step, `PgUp` or `PgDn` to jump ten frames, and `Home` or `
 to move to either end. Reopening replay distinguishes stored frames whose
 retained marks or cell ownership differ, even when the frame count is unchanged.
 The monochrome preview shows each recorded character with its combining marks
-and cluster scalars, laid out by the terminal's own cluster and width rules,
-without attributes or colors.
+and cluster scalars in the cells the recording gave it, so a character recorded
+two cells wide (including an ambiguous-width character with
+`ambiguous_width = wide`) keeps both cells. Attributes and colors are not
+shown.
 
 ### Connect To Saved Or Ad-Hoc Hosts
 

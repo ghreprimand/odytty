@@ -738,3 +738,86 @@ fn replay_preview_paints_the_recorded_owners() {
         );
     }
 }
+
+/// Paint `recorded` through the replay preview and return the painted cells
+/// from the column where `first` lands, `width` cells long.
+fn replay_painted(recorded: &Snapshot, first: char, width: usize) -> Vec<Cell> {
+    let mut overlay = OverlayUi::default();
+    overlay.open_replay(vec![recorded.clone()]);
+    let mut rendered = snapshot(80, 20);
+    apply_overlay(&mut rendered, &mut overlay);
+    let start = rendered
+        .cells
+        .iter()
+        .position(|cell| cell.ch == first)
+        .expect("the recorded row is painted");
+    rendered.cells[start..start + width].to_vec()
+}
+
+/// A frame recorded with ambiguous-wide text keeps its recorded footprint in
+/// the preview: the ambiguous owner keeps its wide tail and the text after it
+/// stays in its recorded column, although overlay chrome measures narrow.
+#[test]
+fn replay_preview_keeps_an_ambiguous_wide_recording_cell_for_cell() {
+    let mut terminal = crate::core::Terminal::new(20, 3);
+    terminal.set_ambiguous_wide(true);
+    terminal.advance("Q\u{a1}x\u{b0}Z".as_bytes());
+    let recorded = terminal.snapshot();
+    let width = recorded.cursor.column;
+    assert_eq!(width, 7, "two ambiguous owners take two cells each");
+    let painted = replay_painted(&recorded, 'Q', width);
+    for (column, painted) in painted.iter().enumerate() {
+        let cell = recorded.cells[column];
+        assert_eq!(painted.ch, cell.ch, "column {column}");
+        assert_eq!(
+            painted.wide_continuation, cell.wide_continuation,
+            "column {column}"
+        );
+    }
+}
+
+/// A wide glyph a one-column recording held in a single cell keeps one cell
+/// in the preview: the next recorded row does not gain a wide tail.
+#[test]
+fn replay_preview_keeps_a_one_column_recordings_single_cells() {
+    let mut terminal = crate::core::Terminal::new(1, 3);
+    terminal.advance("\u{4e00}".as_bytes());
+    let recorded = terminal.snapshot();
+    assert!(
+        recorded.cells.iter().any(|cell| cell.ch == '\u{4e00}'),
+        "the wide glyph is recorded"
+    );
+    assert!(
+        !recorded.cells.iter().any(|cell| cell.wide_continuation),
+        "a one-column grid has no wide tail"
+    );
+    let painted = replay_painted(&recorded, '\u{4e00}', 2);
+    assert!(
+        !painted[1].wide_continuation,
+        "the preview adds no tail the recording did not hold"
+    );
+}
+
+/// Measuring, cutting and painting agree when a control is followed by a
+/// mark: the chrome removes controls before segmenting, so the cut strings
+/// repaint as the owners measured.
+#[test]
+fn a_control_before_a_mark_measures_cuts_and_paints_alike() {
+    for text in ["e\r\u{301}", "a\u{1b}\u{300}b", "x\n\u{200d}\u{1f4bb}"] {
+        let measured = text_display_width(text);
+        let fitted = fit_chars(text, 40);
+        assert_eq!(text_display_width(&fitted), measured, "fit {text:?}");
+        let (lines, rest) = chunk_by_columns(text, 40, 4);
+        assert!(!rest);
+        let chunked: usize = lines.iter().map(|line| text_display_width(line)).sum();
+        assert_eq!(chunked, measured, "chunk {text:?}");
+        let mut painted = snapshot(40, 1);
+        write_text(&mut painted, 0, 0, 40, &fitted, Attrs::default());
+        let used = painted
+            .cells
+            .iter()
+            .take_while(|cell| cell.ch != '.')
+            .count();
+        assert_eq!(used, measured, "paint {text:?}");
+    }
+}

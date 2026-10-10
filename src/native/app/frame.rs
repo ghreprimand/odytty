@@ -501,6 +501,7 @@ impl App {
                     let image_uploads =
                         image_uploads_for_visible(&terminal, &visible_graphics, &cached_image_ids);
                     let snapshot = terminal.snapshot_with_scrollback(offset);
+                    let drawn_cursor = terminal.screen().cursor();
                     // BIDI: the content map plus the snapshot it was
                     // planned from (overlay rows reset below). `None` while
                     // reordering is off and on the alternate screen.
@@ -515,6 +516,7 @@ impl App {
                     let gutter_input = self.gutter_frame_input(&terminal, offset);
                     drop(terminal);
                     self.search = search;
+                    self.ime_drawn_cursor = Some(drawn_cursor);
                     (
                         snapshot,
                         scrollback_len,
@@ -953,8 +955,10 @@ impl App {
         // A composition's candidate window follows layout and cursor moves
         // made since its last pre-edit. It runs after the frame recorded its
         // final display maps (rows an overlay such as the pre-edit itself
-        // painted are back in identity order), so the window anchors at the
-        // cursor cell this frame draws, not the previous frame's placement.
+        // painted are back in identity order) and anchors at the cursor this
+        // frame captured with its snapshot, so the window sits at the cursor
+        // cell this frame draws, not the previous frame's placement and not a
+        // cursor that later output moved.
         self.follow_ime_cursor_area();
         let (action, recreate_failed) = {
             let Some(gpu) = self.gpu.as_mut() else {

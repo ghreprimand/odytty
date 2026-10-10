@@ -808,6 +808,9 @@ impl App {
         // after all session borrows end: (pane index, render offset, scrollback
         // length, blinking style).
         let mut focused_cursor_input: Option<(usize, usize, usize, bool, [f32; 4])> = None;
+        // The focused pane's logical cursor, read with its snapshot; a held
+        // pane redraws an earlier picture, so it keeps the earlier capture.
+        let mut focused_drawn_cursor: Option<crate::core::Position> = None;
         // Cut 1: per-pane inline graphics. Each pane's visible placements +
         // upload payloads are collected under the pane's session-token namespace
         // (StoredImageId is a per-terminal counter, so panes can share a numeric
@@ -954,6 +957,9 @@ impl App {
             // 0.0 unless a lane is actively offsetting this pane — no stale leak.
             let frac_px = session.scroll_frac_offset;
             let snapshot = terminal.snapshot_with_scrollback(render_offset);
+            if *token == focused {
+                focused_drawn_cursor = Some(terminal.screen().cursor());
+            }
             let bidi = self.bidi_pane_plan(&terminal, &snapshot, render_offset);
             let cursor_style = terminal.cursor_style();
             let cursor_blinking = terminal.cursor_blinking();
@@ -1087,6 +1093,9 @@ impl App {
                 token: *token,
                 held: None,
             });
+        }
+        if focused_drawn_cursor.is_some() {
+            self.ime_drawn_cursor = focused_drawn_cursor;
         }
 
         // Paint EACH pane's own selection + search-match highlights onto its

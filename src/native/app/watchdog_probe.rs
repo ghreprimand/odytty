@@ -175,8 +175,8 @@ impl WatchdogLedger {
     /// and a present made before a window's newly owed frame cannot pay for
     /// it. On a report the baseline advances to the current counts. With one
     /// window this reports whenever its frame count changed. `stalled` is the
-    /// first window that owes a frame and presented nothing since the last
-    /// report.
+    /// first window holding the report back: it owes a frame and has not
+    /// presented since both the last report and the moment it began owing.
     pub(in crate::native) fn observe(&mut self, windows: &[WindowProgress]) -> Observation {
         let seen = std::mem::take(&mut self.seen);
         self.owed_from.retain(|(id, _)| {
@@ -194,22 +194,21 @@ impl WatchdogLedger {
             .extend(windows.iter().map(|window| (window.id, window.frames)));
         let since_report =
             |window: &WindowProgress| window.frames != count_for(&self.reported, window.id);
+        // One predicate decides both whether the report is held back and
+        // which window is stalled: a window that owes a frame is unpaid
+        // until it presents after the last report and after it began owing.
+        let unpaid = |window: &WindowProgress| {
+            window.owes_frame
+                && !(since_report(window) && window.frames != count_for(&self.owed_from, window.id))
+        };
         let any = windows.iter().any(since_report);
-        let owing_all_presented = windows
-            .iter()
-            .filter(|window| window.owes_frame)
-            .all(|window| {
-                since_report(window) && window.frames != count_for(&self.owed_from, window.id)
-            });
-        let report = any && owing_all_presented;
+        let stalled = windows.iter().position(unpaid);
+        let report = any && stalled.is_none();
         if report {
             self.reported.clear();
             self.reported
                 .extend(windows.iter().map(|window| (window.id, window.frames)));
         }
-        let stalled = windows.iter().position(|window| {
-            window.owes_frame && window.frames == count_for(&self.reported, window.id)
-        });
         Observation { report, stalled }
     }
 }
@@ -237,8 +236,8 @@ pub(in crate::native) fn publish_progress(
             (0..progress.len()).find_map(|index| state_of(index).map(|state| (index, state)))
         });
     if let Some((index, state)) = subject {
-        shared.store_state(&state);
-        shared.rebase_episode_redraws(ledger.episode_redraws(progress[index].id));
+        let id = progress[index].id;
+        shared.mirror_window(id, &state, ledger.episode_redraws(id));
     }
 }
 
@@ -417,5 +416,107 @@ mod progress_tests {
             record.ends_with(" redraws_delivered=1"),
             "one since the episode opened: {record}"
         );
+    }
+
+    /// The window holding the report back is the one mirrored. A, B, C
+    /// start presented; B presents while C owes; then C recovers and B begins
+    /// to owe at the count it just reached. The report stays held for B, so B
+    /// is the stalled subject, and the shared watchdog reports B's stall with
+    /// B's own delivered redraws even though the primary owes nothing.
+    #[test]
+    fn the_window_holding_the_report_back_is_the_stalled_subject() {
+        const LATE: u64 = 1_000_000_000;
+        let shared = WatchdogShared::new();
+        let mut ledger = WatchdogLedger::default();
+        let progress = |a: (u64, u64, bool), b: (u64, u64, bool), c: (u64, u64, bool)| {
+            [(1, a), (2, b), (3, c)].map(|(id, (frames, redraws, owes_frame))| WindowProgress {
+                id,
+                frames,
+                redraws,
+                owes_frame,
+            })
+        };
+        let publish =
+            |shared: &WatchdogShared, ledger: &mut WatchdogLedger, p: &[WindowProgress; 3]| {
+                publish_progress(shared, ledger, p, |i| {
+                    let mut state = owed_state(p[i].redraws, p[i].frames);
+                    state.render_owed = p[i].owes_frame;
+                    Some(state)
+                });
+            };
+        let idle = progress((10, 0, false), (5, 0, false), (2, 0, false));
+        assert!(ledger.observe(&idle).report);
+        assert!(shared.note_activity());
+        ledger.open_episode(&idle);
+        let c_owes = progress((10, 0, false), (6, 0, false), (2, 0, true));
+        assert!(
+            !ledger.observe(&c_owes).report,
+            "C owes and has not presented"
+        );
+        let b_owes = progress((10, 0, false), (6, 4, true), (3, 0, false));
+        let observed = ledger.observe(&b_owes);
+        assert!(!observed.report, "B's earlier present cannot pay");
+        assert_eq!(observed.stalled, Some(1), "B holds the report back");
+        let b_asked = progress((10, 0, false), (6, 7, true), (3, 0, false));
+        publish(&shared, &mut ledger, &b_asked);
+        let record = shared.evaluate(LATE).expect("B's stall is reported");
+        assert!(
+            record.ends_with(" redraws_delivered=7"),
+            "B's own deliveries: {record}"
+        );
+    }
+
+    /// A diagnostic class earned by one window does not pass to the next
+    /// subject. Two windows owe a frame on Wayland; window 1 is never asked
+    /// to draw and is classified callback-outstanding. Window 1 then presents
+    /// while window 2 still owes (no report, so no global present), and
+    /// window 2 keeps being asked to draw: its classic stall is reported.
+    #[test]
+    fn a_callback_classification_does_not_pass_to_the_next_subject() {
+        const LATE: u64 = 1_000_000_000;
+        let shared = WatchdogShared::new();
+        let mut ledger = WatchdogLedger::default();
+        let progress = |a: (u64, u64, bool), b: (u64, u64, bool)| {
+            [(1, a), (2, b)].map(|(id, (frames, redraws, owes_frame))| WindowProgress {
+                id,
+                frames,
+                redraws,
+                owes_frame,
+            })
+        };
+        let publish =
+            |shared: &WatchdogShared, ledger: &mut WatchdogLedger, p: &[WindowProgress; 2]| {
+                publish_progress(shared, ledger, p, |i| {
+                    let mut state = owed_state(p[i].redraws, p[i].frames);
+                    state.wayland_surface = true;
+                    state.render_owed = p[i].owes_frame;
+                    Some(state)
+                });
+            };
+        let idle = progress((10, 0, false), (5, 0, false));
+        publish(&shared, &mut ledger, &idle);
+        assert!(shared.note_activity());
+        ledger.open_episode(&idle);
+        let both_owe = progress((10, 0, true), (5, 0, true));
+        publish(&shared, &mut ledger, &both_owe);
+        let record = shared
+            .evaluate(LATE)
+            .expect("window 1 is classified callback-outstanding");
+        assert!(
+            !record.starts_with("freeze_watchdog: work pending"),
+            "{record}"
+        );
+        let second = progress((11, 0, false), (5, 3, true));
+        let observed = ledger.observe(&second);
+        assert!(!observed.report, "window 2 still owes");
+        publish(&shared, &mut ledger, &second);
+        let record = shared
+            .evaluate(LATE)
+            .expect("window 2's classic stall is reported");
+        assert!(
+            record.starts_with("freeze_watchdog: work pending"),
+            "{record}"
+        );
+        assert!(record.ends_with(" redraws_delivered=3"), "{record}");
     }
 }

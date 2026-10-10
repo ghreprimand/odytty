@@ -311,6 +311,12 @@ pub(in crate::native) struct App {
     /// cell size, window pixels) while a composition showed text. A redraw
     /// reissues it only when the anchor moved.
     pub(super) ime_cursor_area_sent: Option<([f32; 2], [u32; 2])>,
+    /// The logical cursor the most recently built frame drew for the focused
+    /// session, captured under the same terminal lock as that frame's
+    /// snapshot. The candidate window follows this cursor, not a later read
+    /// of the live terminal, so it anchors where the presented frame drew
+    /// the composition. `None` until a frame is built.
+    pub(super) ime_drawn_cursor: Option<crate::core::Position>,
     /// TOP-TAB-DRAG: the in-flight top-strip tab reorder gesture.
     pub(super) top_tab_drag: Option<TopTabDrag>,
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
@@ -888,6 +894,7 @@ impl App {
             last_rail_pointer_px: None,
             rail_ws_drag: None,
             ime_cursor_area_sent: None,
+            ime_drawn_cursor: None,
             top_tab_drag: None,
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: !provisional,

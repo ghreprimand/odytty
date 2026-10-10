@@ -2028,11 +2028,12 @@ that closed while the picker was open, including when names are duplicated.
   `←`/`→` step, `PgUp`/`PgDn` jump ten, `Home`/`End` go to the ring ends. Replay
   cache identity includes retained cluster scalars, continuation ownership, and
   layout padding, so reopening an equal-length ring distinguishes changed owners.
-  The monochrome preview paints each recorded cell's owner with its retained
-  marks and cluster scalars, measured and cut by the terminal's own owner
-  rules, so an emoji sequence or script cluster takes the same cells as on
-  screen (a cluster the recording split with a control sequence is joined);
-  attributes and colors are not reproduced. Replay
+  The monochrome preview paints each recorded owner with its retained marks
+  and cluster scalars in the cells the recording gave it, without measuring
+  it again, so an emoji sequence, a script cluster or an ambiguous-width
+  character recorded as wide takes the same cells as on screen, and a cluster
+  the recording split with a control sequence stays split; attributes and
+  colors are not reproduced. Replay
   is presentation-only - it never mutates live core terminal state, so the live
   frame is byte-identical whether or not the overlay is active. Recording is
   local-only: frames live only in memory, never written to disk or sent over the

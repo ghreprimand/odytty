@@ -290,6 +290,15 @@ pub(super) fn apply_panel(snapshot: &mut Snapshot, overlay: &mut OverlayUi, rect
         overlay.panel.update_body_width(rect.body_width);
     }
     let lines = overlay.visible_lines(body_width, rect.body_height);
+    // The replay preview's recorded rows paint the owners and spans the
+    // frame held rather than resegmenting their text (other modes: empty).
+    let recorded = if overlay.mode == OverlayMode::Replay {
+        overlay
+            .replay
+            .visible_recorded_owners(body_width, rect.body_height)
+    } else {
+        Vec::new()
+    };
     for (row_index, row) in lines.iter().enumerate() {
         let y = rect.top + 2 + row_index;
         if y >= rect.top + rect.height.saturating_sub(1) || y >= rows {
@@ -309,7 +318,11 @@ pub(super) fn apply_panel(snapshot: &mut Snapshot, overlay: &mut OverlayUi, rect
             rect.left + 2
         };
         let text_width = body_width.saturating_sub(text_column.saturating_sub(rect.left + 2));
-        write_text(snapshot, y, text_column, text_width, &row.text, attrs);
+        if let Some(Some(owners)) = recorded.get(row_index) {
+            write_owners(snapshot, y, text_column, text_width, owners.clone(), attrs);
+        } else {
+            write_text(snapshot, y, text_column, text_width, &row.text, attrs);
+        }
     }
     // Shared scroll affordance (OVERLAY-SMALL-WINDOW): a ▲ on the top border and
     // a ▼ on the bottom border when the body overflows the visible window.
@@ -1134,14 +1147,24 @@ pub(super) fn draw_border(
 /// mark, joiner, variation selector, emoji modifier or script extension
 /// belongs to its owner exactly as in the terminal grid, so an emoji ZWJ
 /// sequence or a script cluster is measured, cut and painted as one glyph.
-/// Controls are dropped. Every measure and cut below uses this, so layout and
-/// paint always agree.
+///
+/// Chrome policy for controls: they are removed before segmentation, so a
+/// control never separates owners here. The cuts below return strings that
+/// carry no control, and repainting such a string must give the owners that
+/// were measured; a control that still split owners at measure time would be
+/// gone by paint time and the owners would join. Every measure, cut and
+/// paint below uses this, so layout and paint always agree.
 fn glyph_widths(text: &str) -> Vec<(Cell, usize)> {
-    crate::core::text_owners(text, false)
+    if text.chars().any(char::is_control) {
+        let stripped: String = text.chars().filter(|ch| !ch.is_control()).collect();
+        crate::core::text_owners(&stripped, false)
+    } else {
+        crate::core::text_owners(text, false)
+    }
 }
 
-/// Display width (in terminal cells) of `text`, matching the per-char width
-/// [`write_text`] uses to lay glyphs out.
+/// Display width (in terminal cells) of text, using the same owner widths as
+/// [`write_text`].
 pub(in crate::native) fn text_display_width(text: &str) -> usize {
     glyph_widths(text).iter().map(|(_, width)| width).sum()
 }
@@ -1285,13 +1308,28 @@ pub(in crate::native) fn write_text(
     text: &str,
     attrs: Attrs,
 ) {
+    write_owners(snapshot, row, column, max_width, glyph_widths(text), attrs);
+}
+
+/// Paint already-segmented owners at `row`, `column` within `max_width`
+/// cells: each owner's cell and the columns it takes (1 or 2), as
+/// [`write_text`] paints them. The replay preview passes the owners and
+/// spans a recorded frame held, so a frame recorded with ambiguous-wide text
+/// keeps its two-cell owners.
+pub(in crate::native) fn write_owners(
+    snapshot: &mut Snapshot,
+    row: usize,
+    column: usize,
+    max_width: usize,
+    owners: Vec<(Cell, usize)>,
+    attrs: Attrs,
+) {
     if row >= snapshot.dimensions.rows || column >= snapshot.dimensions.columns || max_width == 0 {
         return;
     }
-
     let mut x = column;
     let right = (column + max_width).min(snapshot.dimensions.columns);
-    for (mut owner, width) in glyph_widths(text) {
+    for (mut owner, width) in owners {
         if x + width > right {
             break;
         }

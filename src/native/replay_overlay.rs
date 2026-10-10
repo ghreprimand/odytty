@@ -10,7 +10,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use crate::core::Snapshot;
+use crate::core::{Attrs, Cell, Snapshot};
 
 use super::overlay::OverlayInput;
 
@@ -179,6 +179,31 @@ impl ReplayOverlay {
         lines
     }
 
+    /// The recorded owners of each line [`Self::visible_lines`] returns, by
+    /// index: `None` for the header and hint lines, and for each recorded row
+    /// the owner cells and spans the frame held (see [`frame_owner_rows`]).
+    /// The painter uses these instead of resegmenting the row text, so a
+    /// frame recorded with ambiguous-wide text keeps its two-cell owners.
+    pub(super) fn visible_recorded_owners(
+        &self,
+        body_width: usize,
+        body_height: usize,
+    ) -> Vec<Option<Vec<(Cell, usize)>>> {
+        if body_height == 0 {
+            return Vec::new();
+        }
+        let mut rows = vec![None];
+        if let Some(frame) = self.current_frame() {
+            rows.extend(
+                frame_owner_rows(frame, body_width)
+                    .into_iter()
+                    .take(body_height - 1)
+                    .map(Some),
+            );
+        }
+        rows
+    }
+
     pub(super) fn desired_width(&self, columns: usize) -> usize {
         // As wide as the terminal so the recorded screen shows with minimal
         // truncation; the shared `overlay_rect` clamps to the grid.
@@ -197,13 +222,16 @@ impl ReplayOverlay {
     }
 }
 
-/// Render a recorded frame's rows as plain strings, each truncated to
-/// `max_width` display cells. Every cell contributes its base character and
-/// the marks and cluster scalars it owns; a wide glyph's tail and layout
-/// padding contribute nothing, so a wide glyph is not followed by an extra
-/// blank. Control characters and NULs become spaces; trailing blanks are
-/// trimmed so short lines do not paint a full-width run of spaces.
-fn frame_rows(frame: &Snapshot, max_width: usize) -> Vec<String> {
+/// A recorded frame's rows as the owners it held: each owner's cell (base
+/// character plus the marks and cluster scalars it retains) and the cells it
+/// took, 2 when a wide continuation follows it and 1 otherwise. Wide tails
+/// and layout padding are not owners. The spans are the recorded ones, not a
+/// remeasure, so a frame recorded with ambiguous-wide text keeps its two-cell
+/// owners, and a wide glyph a one-column frame held in a single cell keeps
+/// one cell. Attributes are not reproduced (monochrome preview), a control
+/// or NUL becomes a space, trailing blanks are trimmed, and each row is cut
+/// to whole owners within `max_width` cells.
+fn frame_owner_rows(frame: &Snapshot, max_width: usize) -> Vec<Vec<(Cell, usize)>> {
     let columns = frame.dimensions.columns;
     let rows = frame.dimensions.rows;
     if columns == 0 {
@@ -212,23 +240,63 @@ fn frame_rows(frame: &Snapshot, max_width: usize) -> Vec<String> {
     let mut out = Vec::with_capacity(rows);
     for row in 0..rows {
         let start = row * columns;
-        let mut text = String::with_capacity(columns.min(max_width));
-        for cell in frame.cells.iter().skip(start).take(columns) {
+        let cells = frame
+            .cells
+            .get(start..(start + columns).min(frame.cells.len()))
+            .unwrap_or(&[]);
+        let mut owners: Vec<(Cell, usize)> = Vec::new();
+        for (column, cell) in cells.iter().enumerate() {
             if cell.wide_continuation || cell.layout_padding {
                 continue;
             }
-            for ch in crate::selection::cell_grapheme_chars(cell) {
-                if ch == '\0' || ch.is_control() {
-                    text.push(' ');
-                } else {
-                    text.push(ch);
+            let span = if cells
+                .get(column + 1)
+                .is_some_and(|next| next.wide_continuation)
+            {
+                2
+            } else {
+                1
+            };
+            let owner = if cell.ch == '\0' || cell.ch.is_control() {
+                Cell::new(' ', Attrs::default())
+            } else {
+                let mut owner = Cell::new(cell.ch, Attrs::default());
+                for &scalar in cell.combining() {
+                    if !scalar.is_control() {
+                        owner.push_combining(scalar);
+                    }
                 }
-            }
+                owner
+            };
+            owners.push((owner, span));
         }
-        let trimmed = text.trim_end().to_owned();
-        out.push(truncate_for_width(&trimmed, max_width));
+        while owners
+            .last()
+            .is_some_and(|(owner, _)| owner.ch == ' ' && owner.combining().is_empty())
+        {
+            owners.pop();
+        }
+        let mut used = 0usize;
+        let fitted = owners
+            .iter()
+            .take_while(|(_, span)| {
+                used += span;
+                used <= max_width
+            })
+            .count();
+        owners.truncate(fitted);
+        out.push(owners);
     }
     out
+}
+
+/// A recorded frame's rows as plain strings: the text of
+/// [`frame_owner_rows`], for the line list and its tests.
+fn frame_rows(frame: &Snapshot, max_width: usize) -> Vec<String> {
+    frame_owner_rows(frame, max_width)
+        .into_iter()
+        .map(|owners| owners.iter().map(|(owner, _)| owner.grapheme()).collect())
+        .collect()
 }
 
 fn frame_fingerprint(frame: &Snapshot) -> u64 {
