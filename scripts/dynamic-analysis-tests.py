@@ -23,7 +23,10 @@ case "$SIMULATED_RESULT" in
   unsupported) echo 'unsupported operation'; exit 1 ;;
   ub) echo 'Undefined Behavior'; exit 1 ;;
   timeout) exit 124 ;;
+  empty) echo 'test result: ok. 0 passed; 0 failed;'; exit 0 ;;
+  missing) exit 0 ;;
 esac
+echo 'test result: ok. 1 passed; 0 failed;'
 exit 0
 """,
             }.items():
@@ -91,6 +94,10 @@ exit 0
     def test_classifications_keep_required_and_ub_gates(self):
         for partition, outcome, expected_code, expected_result in [
             ("required", "timeout", 1, "timeout"),
+            ("required", "empty", 1, "empty-filter"),
+            ("required", "missing", 1, "empty-filter"),
+            ("probe", "empty", 0, "empty-filter"),
+            ("probe", "missing", 0, "empty-filter"),
             ("required", "unsupported", 1, "unsupported"),
             ("probe", "timeout", 0, "timeout"),
             ("probe", "ub", 1, "undefined-behavior"),
