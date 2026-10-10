@@ -287,8 +287,9 @@ pub(super) fn panel_wash_alpha(strength: f32, band_cell_alpha: f32) -> f32 {
 /// its own luminance never exceeds [`SEAM_MAX_LUMA`] (bloom guard), then lifted
 /// toward `foreground` — still capped at [`SEAM_MAX_LUMA`] — until the composited
 /// seam-vs-`panel_surface` luminance delta clears [`SEAM_MIN_PANEL_DELTA`]. The
-/// seam quad is drawn at [`SEAM_ALPHA`], so the composite is
-/// `blend_srgb(panel_surface, seam, SEAM_ALPHA)`.
+/// seam quad is drawn at [`SEAM_ALPHA`] and the GPU blends it in scene-linear
+/// light, so the composite is [`composited_luminance`] of the seam over the
+/// panel, not a mix of the encoded sRGB bytes.
 pub(super) fn seam_color(colors: TabBarColors, panel_surface: Srgb) -> Srgb {
     // Start from the mid-luminance inactive text role; never let the seam glow.
     let mut seam = colors.inactive;
@@ -297,7 +298,7 @@ pub(super) fn seam_color(colors: TabBarColors, panel_surface: Srgb) -> Srgb {
     }
     let panel_luma = relative_luminance(panel_surface);
     let delta =
-        |s: Srgb| (relative_luminance(blend_srgb(panel_surface, s, SEAM_ALPHA)) - panel_luma).abs();
+        |s: Srgb| (composited_luminance(panel_surface, &[(s, SEAM_ALPHA)]) - panel_luma).abs();
     if delta(seam) >= SEAM_MIN_PANEL_DELTA {
         return seam;
     }
@@ -343,6 +344,30 @@ pub(super) fn dim_to_luma(base: Srgb, target: f64) -> Srgb {
         }
     }
     scale_srgb(base, lo)
+}
+
+/// The relative luminance of `layers` drawn in order over an opaque `base`,
+/// composited the way the GPU draws chrome: each color is decoded from sRGB to
+/// scene-linear light and blended source-over with straight alpha (clamped to
+/// `[0,1]`). Visibility floors measured on what the screen shows use this,
+/// never [`blend_srgb`], whose byte mix darkens every midpoint.
+pub(super) fn composited_luminance(base: Srgb, layers: &[(Srgb, f32)]) -> f64 {
+    let linear = |c: Srgb| {
+        [
+            crate::color::srgb_to_linear(c.0),
+            crate::color::srgb_to_linear(c.1),
+            crate::color::srgb_to_linear(c.2),
+        ]
+    };
+    let mut out = linear(base);
+    for &(color, alpha) in layers {
+        let alpha = alpha.clamp(0.0, 1.0);
+        let source = linear(color);
+        for (dst, src) in out.iter_mut().zip(source) {
+            *dst = *dst * (1.0 - alpha) + src * alpha;
+        }
+    }
+    f64::from(crate::color::relative_luminance(out))
 }
 
 /// Blend two sRGB colors: `a*(1-t) + b*t` per channel, `t` clamped to `[0,1]`.
@@ -602,8 +627,9 @@ mod tests {
                 theme.name,
                 relative_luminance(seam)
             );
-            let composite = blend_srgb(panel, seam, SEAM_ALPHA);
-            let delta = (relative_luminance(composite) - relative_luminance(panel)).abs();
+            let delta = (composited_luminance(panel, &[(seam, SEAM_ALPHA)])
+                - relative_luminance(panel))
+            .abs();
             assert!(
                 delta >= SEAM_MIN_PANEL_DELTA - 1e-6,
                 "{}: seam-vs-panel delta {delta:.4} < {SEAM_MIN_PANEL_DELTA}",
@@ -616,6 +642,41 @@ mod tests {
             // near-black `border` approach failed; on a theme whose `border` is
             // near-black the seam is unaffected because it never touches it.
         }
+    }
+
+    /// The seam floor is judged on the composite the GPU draws, in
+    /// scene-linear light. A near-black inactive role on a dark gray panel
+    /// passes a byte-domain sRGB mix (delta about 0.0203) while the drawn
+    /// composite differs from the panel by only about 0.0141, below the
+    /// floor; the seam must be lifted until the drawn composite clears it.
+    #[test]
+    fn seam_clears_the_floor_in_scene_linear_light() {
+        let colors = TabBarColors {
+            foreground: (0xff, 0xff, 0xff),
+            background: (0x32, 0x32, 0x32),
+            inactive: (0x02, 0x02, 0x02),
+            active_bg: (0x50, 0x50, 0x50),
+        };
+        let panel = (0x32, 0x32, 0x32);
+        let seam = seam_color(colors, panel);
+        let drawn =
+            (composited_luminance(panel, &[(seam, SEAM_ALPHA)]) - relative_luminance(panel)).abs();
+        assert!(
+            drawn >= SEAM_MIN_PANEL_DELTA - 1e-6,
+            "drawn seam-vs-panel delta {drawn:.4} < {SEAM_MIN_PANEL_DELTA} (seam {seam:?})"
+        );
+        assert!(relative_luminance(seam) <= SEAM_MAX_LUMA + 1e-6);
+    }
+
+    /// The compositing oracle is scene-linear: half white over black is half
+    /// luminance, not the 0.216 of a byte-domain gray 128.
+    #[test]
+    fn composited_luminance_blends_in_scene_linear_light() {
+        let half = composited_luminance((0, 0, 0), &[((0xff, 0xff, 0xff), 0.5)]);
+        assert!((half - 0.5).abs() < 1e-4, "{half}");
+        let layered =
+            composited_luminance((0, 0, 0), &[((0xff, 0xff, 0xff), 0.5), ((0, 0, 0), 0.5)]);
+        assert!((layered - 0.25).abs() < 1e-4, "{layered}");
     }
 
     fn colors_for(theme: &crate::theme::Theme) -> TabBarColors {
@@ -673,10 +734,9 @@ mod tests {
 
             // (2) The seam survives on this panel; (3) it never blooms.
             let seam = seam_color(colors, panel);
-            let seam_composite = blend_srgb(panel, seam, SEAM_ALPHA);
+            let seam_composite = composited_luminance(panel, &[(seam, SEAM_ALPHA)]);
             assert!(
-                (relative_luminance(seam_composite) - panel_luma).abs()
-                    >= SEAM_MIN_PANEL_DELTA - 1e-6,
+                (seam_composite - panel_luma).abs() >= SEAM_MIN_PANEL_DELTA - 1e-6,
                 "{}: seam vs panel delta too small",
                 theme.name
             );
@@ -726,7 +786,9 @@ mod tests {
 
             for opacity in [1.0f32, 0.5f32] {
                 let p = panel_wash_alpha(STRENGTH, opacity);
-                let veiled_fill_luma = relative_luminance(blend_srgb(fill, panel, p));
+                // The fill cell with the panel wash drawn over it, blended in
+                // scene-linear light as the GPU draws it.
+                let veiled_fill_luma = composited_luminance(fill, &[(panel, p)]);
                 // (5) Active label pops off the veiled fill in every regime.
                 assert!(
                     (active_lbl - veiled_fill_luma).abs() >= MIN_ACTIVE_LABEL_FILL_DELTA,
@@ -787,17 +849,19 @@ mod tests {
         // surface. (A deliberately weak panel trades this occlusion away for a
         // consistent translucency across autohide states; that is the knob's
         // meaning, not a legibility regression.)
-        const STRENGTH: f32 = 0.5;
+        // One strength drives both the panel tint and the wash, as in the
+        // live frame: the shipped default.
+        const STRENGTH: f32 = crate::settings::DEFAULT_TAB_PANEL_STRENGTH;
         const MID_GRAY: Srgb = (0x80, 0x80, 0x80);
-        // Default strength over a representative translucent band cell alpha
-        // (window opacity 30 × wallpaper softening 0.8).
-        // The shipped default (0.8) still composes a strong panel wash over a
-        // translucent band cell: panel_wash_alpha(0.8, 0.24) is about 0.72 — a
-        // touch below the maxed 0.92 endpoint but heavy enough to veil. The
-        // default was 1.0 (a full 0.92 wash) before the strength rescale feel
-        // pass; assertions (4)-(6) below confirm the fills and labels stay
-        // distinguishable through the softer veil.
-        let p_reveal = panel_wash_alpha(crate::settings::DEFAULT_TAB_PANEL_STRENGTH, 0.24);
+        // A representative translucent band cell alpha (window opacity 30 x
+        // wallpaper softening 0.8): the alpha the strip's cell backgrounds
+        // are drawn at (`content_build_opacity`) and the one the wash
+        // compensates for.
+        const CELL_ALPHA: f32 = 0.24;
+        // The shipped default (0.8) composes a strong panel wash over a
+        // translucent band cell: panel_wash_alpha(0.8, 0.24) is about 0.72, a
+        // touch below the maxed 0.92 endpoint but heavy enough to veil.
+        let p_reveal = panel_wash_alpha(STRENGTH, CELL_ALPHA);
         assert!(
             p_reveal > 0.7,
             "the shipped default must veil strongly under a translucent window"
@@ -805,19 +869,22 @@ mod tests {
         for theme in crate::theme::all() {
             let colors = colors_for(theme);
             let panel = panel_tint(colors, STRENGTH);
-            // The panel surface as it reads through the near-opaque reveal wash
-            // over worst-case mid-gray content.
-            let reveal_panel = blend_srgb(MID_GRAY, panel, p_reveal);
-            let reveal_panel_luma = relative_luminance(reveal_panel);
-            // The active fill cell veiled by the near-opaque panel wash.
-            let veiled_fill = blend_srgb(active_fill(colors, panel), panel, p_reveal);
-            let veiled_fill_luma = relative_luminance(veiled_fill);
+            // The floating strip's draw order over worst-case mid-gray live
+            // content, in scene-linear light: the cell background at the band
+            // cell alpha, then the panel wash. A resting cell is the panel tint;
+            // the active cell is the active fill.
+            let reveal_panel_luma =
+                composited_luminance(MID_GRAY, &[(panel, CELL_ALPHA), (panel, p_reveal)]);
+            let veiled_fill_luma = composited_luminance(
+                MID_GRAY,
+                &[(active_fill(colors, panel), CELL_ALPHA), (panel, p_reveal)],
+            );
             let active_lbl = relative_luminance(active_label(colors));
             let inactive_lbl = relative_luminance(inactive_label(colors, 1));
 
             // (4) Active fill locatable vs the revealed panel (raw fill clears the
             // floor; the near-opaque veil shrinks the observed delta by ~(1−p)).
-            let veiled_floor = MIN_ACTIVE_FILL_PANEL_DELTA * (1.0 - p_reveal as f64);
+            let veiled_floor = MIN_ACTIVE_FILL_PANEL_DELTA * (1.0 - f64::from(p_reveal));
             assert!(
                 (veiled_fill_luma - reveal_panel_luma).abs() >= veiled_floor - 1e-9,
                 "{}: reveal veiled fill vs panel delta {:.4} < {veiled_floor:.4}",
