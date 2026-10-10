@@ -927,3 +927,76 @@ fn pane_origin_translates_ligature_without_changing_shape_plan() {
 
 #[path = "cache_face_tests.rs"]
 mod cache_face_tests;
+
+fn wide_snapshot(text: &str, columns: usize) -> Snapshot {
+    let mut terminal = Terminal::new(columns, 1);
+    terminal.advance(text.as_bytes());
+    terminal.snapshot()
+}
+
+/// A-U037-02: a glyph-count-changing run longer than 255 cells (the widest span
+/// an overlay key addresses) keeps its shaping. It is split at cluster
+/// boundaries instead of being discarded whole, so unrelated text appended to a
+/// compatible run cannot switch the row back to scalars.
+#[test]
+fn long_length_changing_run_is_split_at_cluster_boundaries() {
+    let fonts = Fonts(arabic_fixture_font());
+    let mut shaper = LigatureShaper::new();
+    // 130 lam-alef pairs: 260 cells, 130 glyphs, every lam-alef a 2-cell cluster.
+    let snap = wide_snapshot(&"\u{0644}\u{0627}".repeat(130), 300);
+    let runs = shaper.build_runs(true, &snap, &fonts, &[]);
+    assert!(!runs.is_empty(), "long run must not be discarded");
+    let mut next = 0;
+    let mut glyphs = 0;
+    for run in &runs {
+        assert_eq!(run.start, next, "pieces are contiguous: {runs:?}");
+        assert_eq!(run.start % 2, 0, "no cut inside a lam-alef cluster");
+        assert!(run.end - run.start <= 255, "piece fits one key: {run:?}");
+        assert!(
+            run.glyphs.iter().all(
+                |glyph| usize::from(glyph.key.span_cells) == run.end - run.start
+                    && usize::from(glyph.key.anchor_cell) < run.end - run.start
+            ),
+            "keys are relative to their own piece"
+        );
+        next = run.end;
+        glyphs += run.glyphs.len();
+    }
+    assert_eq!(next, 260, "the whole run stays covered");
+    assert_eq!(glyphs, 130, "every cluster keeps exactly one glyph");
+}
+
+/// A-U037-02: the same for a same-glyph-count contiguous changed span.
+#[test]
+fn long_changed_span_is_split_instead_of_discarded() {
+    let fonts = Fonts(arabic_fixture_font());
+    let mut shaper = LigatureShaper::new();
+    let snap = wide_snapshot(&"\u{0628}".repeat(300), 300);
+    let runs = shaper.build_runs(true, &snap, &fonts, &[]);
+    assert!(!runs.is_empty(), "long joining span must not be discarded");
+    let mut covered = 0;
+    let mut previous_end = 0;
+    for run in &runs {
+        assert!(run.start >= previous_end, "pieces do not overlap: {runs:?}");
+        assert!(run.end - run.start <= 255, "piece fits one key: {run:?}");
+        covered += run.end - run.start;
+        previous_end = run.end;
+    }
+    assert!(covered >= 298, "joined cells stay covered, got {covered}");
+}
+
+/// A cluster wider than a key can address is never cut through.
+#[test]
+fn split_refuses_to_cut_through_an_oversized_cluster() {
+    let one_cluster = [ShapedGlyph {
+        id: 1,
+        source_start: 0,
+        source_end: 300,
+        mark_offset: [0, 0],
+        marked: false,
+    }];
+    assert_eq!(split_at_cluster_boundaries(&one_cluster, 0..300), None);
+    let whole = split_at_cluster_boundaries(&one_cluster, 0..255).expect("fits one piece");
+    assert_eq!(whole.len(), 1);
+    assert_eq!((whole[0].start, whole[0].end), (0, 255));
+}

@@ -249,36 +249,46 @@ impl Decoder {
     /// `need_h`. Capacity grows geometrically in both axes; the row stride
     /// (`cap_w`) only changes O(log W) times, so the row re-layout it triggers
     /// is amortized O(area) over a full paint rather than O(W²). Returns `Err`
-    /// (without allocating) when the real need exceeds a cap.
+    /// (without allocating) when the real drawn extent, including everything
+    /// already painted, exceeds a cap.
+    ///
+    /// Only the drawn extent is held against the pixel budget. Capacity is
+    /// slack: when geometric rounding, or a stride retained from an earlier
+    /// wider band, would push the physical buffer past the budget, the buffer
+    /// is repacked to a tighter stride instead of refusing an image whose drawn
+    /// pixels fit.
     fn ensure_capacity(&mut self, need_w: u32, need_h: u32) -> Result<(), SixelError> {
         Self::check_caps(need_w, need_h)?;
         if need_w <= self.cap_w && need_h <= self.cap_h {
             return Ok(());
         }
-        let mut new_cap_w = Self::grow_cap(self.cap_w, need_w, MAX_WIDTH);
-        let mut new_cap_h = Self::grow_cap(self.cap_h, need_h, MAX_HEIGHT);
-        // Geometric rounding must never push the *capacity* past the pixel
-        // budget. If it would, fall back to the tight need (guaranteed in-budget
-        // because `check_caps` passed). Near the cap ceiling we lose the
-        // geometric slack - bounded and rare.
-        if (new_cap_w as u64) * (new_cap_h as u64) > MAX_PIXELS {
-            new_cap_w = need_w.max(self.cap_w.min(MAX_WIDTH));
-            new_cap_h = need_h.max(self.cap_h.min(MAX_HEIGHT));
-            if (new_cap_w as u64) * (new_cap_h as u64) > MAX_PIXELS {
-                new_cap_w = need_w;
-                new_cap_h = need_h;
-            }
-        }
-        // Capacity cannot discard an earlier wide band to make room for a
-        // later tall one. Validate the physical stride and height jointly
-        // before resizing, including already-resident dimensions.
-        let physical_w = new_cap_w.max(self.cap_w);
-        let physical_h = new_cap_h.max(self.cap_h);
-        if u64::from(physical_w) * u64::from(physical_h) > MAX_PIXELS {
+        // Everything painted so far lives in columns < max_x and rows < max_y,
+        // so these are the real joint extent after this paint.
+        let true_w = self.max_x.max(need_w);
+        let true_h = self.max_y.max(need_h);
+        if u64::from(true_w) * u64::from(true_h) > MAX_PIXELS {
             return Err(SixelError::TooLarge {
-                width: physical_w,
-                height: physical_h,
+                width: true_w,
+                height: true_h,
             });
+        }
+        let mut new_cap_w = Self::grow_cap(self.cap_w, need_w, MAX_WIDTH).max(self.cap_w);
+        let mut new_cap_h = Self::grow_cap(self.cap_h, need_h, MAX_HEIGHT).max(self.cap_h);
+        if u64::from(new_cap_w) * u64::from(new_cap_h) > MAX_PIXELS {
+            // Slack no longer fits. Keep a power-of-two stride when the drawn
+            // height still fits under it (so later bands stay cheap), else the
+            // tight drawn width, which is in budget because the joint drawn
+            // extent was validated above.
+            let rounded = true_w.next_power_of_two().min(MAX_WIDTH);
+            new_cap_w = if u64::from(rounded) * u64::from(true_h) <= MAX_PIXELS {
+                rounded
+            } else {
+                true_w
+            };
+            let height_room = (MAX_PIXELS / u64::from(new_cap_w)).min(u64::from(MAX_HEIGHT));
+            new_cap_h = Self::grow_cap(self.cap_h, need_h, MAX_HEIGHT)
+                .min(u32::try_from(height_room).unwrap_or(MAX_HEIGHT))
+                .max(true_h);
         }
 
         if self.cap_w == 0 || self.cap_h == 0 {
@@ -289,18 +299,21 @@ impl Decoder {
                 .resize((new_cap_w as usize) * (new_cap_h as usize) * 4, 0);
             return Ok(());
         }
-        if new_cap_w > self.cap_w {
-            // Stride changed - re-layout existing rows into the wider buffer.
-            // Geometric growth bounds this to O(log W) occurrences.
+        if new_cap_w != self.cap_w {
+            // Stride changed - re-layout existing rows into the new buffer.
+            // Widening is geometric (O(log W) occurrences); narrowing happens
+            // only when retained slack would exceed the pixel budget. Painted
+            // pixels sit inside the drawn extent, which fits both strides.
             let old_w = self.cap_w as usize;
             let old_h = self.cap_h as usize;
             let nw = new_cap_w as usize;
             let nh = new_cap_h as usize;
+            let copy_w = old_w.min(nw);
             let mut buf = vec![0u8; nw * nh * 4];
-            for row in 0..old_h {
+            for row in 0..old_h.min(nh) {
                 let src = row * old_w * 4;
                 let dst = row * nw * 4;
-                buf[dst..dst + old_w * 4].copy_from_slice(&self.rgba[src..src + old_w * 4]);
+                buf[dst..dst + copy_w * 4].copy_from_slice(&self.rgba[src..src + copy_w * 4]);
             }
             self.rgba = buf;
             self.cap_w = new_cap_w;
@@ -309,7 +322,6 @@ impl Decoder {
             // Stride unchanged - appending zero rows needs no row movement.
             self.rgba
                 .resize((new_cap_w as usize) * (new_cap_h as usize) * 4, 0);
-            self.cap_w = new_cap_w;
             self.cap_h = new_cap_h;
         }
         Ok(())

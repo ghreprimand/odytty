@@ -632,15 +632,13 @@ impl LigatureShaper {
         // model unchanged by clipping the shaped presentation to the complete
         // source run.
         if off.len() != on.len() {
-            return whole_run_overlay(
+            return whole_run_overlays(
                 &on,
                 column_start,
                 run_text.cell_bytes.len(),
                 style,
                 face_fingerprint,
-            )
-            .into_iter()
-            .collect();
+            );
         }
         let mut changed = off
             .iter()
@@ -659,8 +657,11 @@ impl LigatureShaper {
                 _ => spans.push(column..column + 1),
             }
         }
+        // A span longer than one overlay key can address is split at cluster
+        // boundaries instead of being discarded as a whole.
         spans
             .into_iter()
+            .flat_map(|span| split_at_cluster_boundaries(&on, span).unwrap_or_default())
             .filter_map(|span| {
                 let span_cells = u8::try_from(span.len()).ok()?;
                 let glyphs = on
@@ -914,43 +915,90 @@ fn cluster_cells(glyph: &ShapedGlyph, end: usize) -> u8 {
     u8::try_from(cells.max(1)).unwrap_or(u8::MAX)
 }
 
-/// One overlay covering every cell in a run when shaping changes glyph count
-/// (for example Arabic lam-alef or a Latin `liga` substitution). Glyphs clip to
-/// the full span's pixel box.
-fn whole_run_overlay(
+/// Overlays covering every cell in a run when shaping changes glyph count (for
+/// example Arabic lam-alef or a Latin `liga` substitution). Glyphs clip to the
+/// pixel box of their overlay. A run longer than one overlay key can address
+/// (255 cells) is covered by consecutive overlays split only at cluster
+/// boundaries, so a long joining run keeps its shaping instead of falling back
+/// to scalars; a run that cannot be split that way yields no overlay.
+fn whole_run_overlays(
     on: &[ShapedGlyph],
     column_start: usize,
     cell_count: usize,
     style: FontStyle,
     face_fingerprint: u64,
-) -> Option<RelativeRun> {
-    let span_cells = u8::try_from(cell_count).ok()?;
+) -> Vec<RelativeRun> {
     if cell_count == 0 || on.is_empty() {
-        return None;
+        return Vec::new();
     }
-    let glyphs = on
-        .iter()
-        .filter_map(|glyph| {
-            let anchor_cell = u8::try_from(glyph.source_start.min(cell_count - 1)).ok()?;
-            Some(LigatureGlyph {
-                key: ShapedGlyphKey {
-                    face_fingerprint,
-                    style,
-                    glyph_id: glyph.id,
-                    span_cells,
-                    anchor_cell,
-                    mark_offset: glyph.mark_offset,
-                    cluster: false,
-                },
-                source_cells: cluster_cells(glyph, cell_count),
+    let Some(chunks) = split_at_cluster_boundaries(on, 0..cell_count) else {
+        return Vec::new();
+    };
+    chunks
+        .into_iter()
+        .filter_map(|chunk| {
+            let len = chunk.len();
+            let span_cells = u8::try_from(len).ok()?;
+            let glyphs = on
+                .iter()
+                .filter(|glyph| chunk.contains(&glyph.source_start.min(cell_count - 1)))
+                .filter_map(|glyph| {
+                    let local = glyph.source_start.min(cell_count - 1) - chunk.start;
+                    let anchor_cell = u8::try_from(local.min(len - 1)).ok()?;
+                    Some(LigatureGlyph {
+                        key: ShapedGlyphKey {
+                            face_fingerprint,
+                            style,
+                            glyph_id: glyph.id,
+                            span_cells,
+                            anchor_cell,
+                            mark_offset: glyph.mark_offset,
+                            cluster: false,
+                        },
+                        source_cells: cluster_cells(glyph, chunk.end),
+                    })
+                })
+                .collect::<Vec<_>>();
+            (!glyphs.is_empty()).then_some(RelativeRun {
+                start: column_start + chunk.start,
+                end: column_start + chunk.end,
+                glyphs: glyphs.into(),
             })
         })
-        .collect::<Vec<_>>();
-    (!glyphs.is_empty()).then_some(RelativeRun {
-        start: column_start,
-        end: column_start + cell_count,
-        glyphs: glyphs.into(),
-    })
+        .collect()
+}
+
+/// Split `range` into consecutive pieces of at most 255 cells (the widest span
+/// an overlay key addresses), cutting only at columns that no shaped cluster
+/// straddles. `None` when some piece has no such cut, so a single cluster wider
+/// than the limit is dropped as before rather than cut through.
+fn split_at_cluster_boundaries(
+    on: &[ShapedGlyph],
+    range: Range<usize>,
+) -> Option<Vec<Range<usize>>> {
+    const MAX_SPAN: usize = u8::MAX as usize;
+    if range.len() <= MAX_SPAN {
+        return Some(vec![range]);
+    }
+    let mut inside = vec![false; range.end + 1];
+    for glyph in on {
+        let last = glyph.source_end.min(inside.len());
+        let first = glyph.source_start.saturating_add(1).min(last);
+        inside[first..last].fill(true);
+    }
+    let mut pieces = Vec::new();
+    let mut start = range.start;
+    while start < range.end {
+        let limit = (start + MAX_SPAN).min(range.end);
+        if limit == range.end {
+            pieces.push(start..limit);
+            break;
+        }
+        let cut = (start + 1..=limit).rev().find(|&column| !inside[column])?;
+        pieces.push(start..cut);
+        start = cut;
+    }
+    Some(pieces)
 }
 
 fn font_fingerprint(font: &FontHandle) -> u64 {

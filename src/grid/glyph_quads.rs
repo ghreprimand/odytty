@@ -58,7 +58,8 @@ pub fn build_color_glyph_vertices_with_origin_into(
     atlas: &ColorGlyphAtlas,
     runs: &[ColorGlyphRun],
     origin: [f32; 2],
-    // SCROLL-CHROME-BOUNCE: crop content color glyphs at the tab-bar seam.
+    // SCROLL-CHROME-BOUNCE: crop content color glyphs at the tab-bar seam and
+    // keep chrome color glyphs pinned.
     chrome_pin: ChromePin,
     // VE4 new-output fade: a color glyph on a fading row rides the same
     // foreground alpha ramp as mono ink (`RowFade::NONE` = every alpha 1.0).
@@ -89,8 +90,9 @@ pub(super) fn color_glyph_vertices_core(
     let rows = snapshot.dimensions.rows;
     let cell_w = atlas.cell.width as f32;
     let cell_h = atlas.cell.height as f32;
-    // SCROLL-CHROME-BOUNCE: color glyphs are always content; crop any that glide
-    // up under the pinned tab bar at the seam (inert unless a glide is running).
+    // SCROLL-CHROME-BOUNCE: content color glyphs that glide up under the pinned
+    // tab bar are cropped at the seam; chrome labels stay pinned and uncropped
+    // (inert unless a glide is running).
     let chrome_seam_y = chrome_pin.seam_y(origin[1], cell_h);
 
     for run in runs {
@@ -128,10 +130,16 @@ pub(super) fn color_glyph_vertices_core(
                     .map_or_else(|| map.visual_column(run.row, run.column), |span| span.start)
             });
         let x0 = origin[0] + column as f32 * cell_w + chrome_pin.cell_dx(run.column);
-        let y0 = origin[1] + run.row as f32 * cell_h + chrome_pin.cell_dy(run.row, run.column);
+        // SCROLL-CHROME-BOUNCE: a chrome label (top bar or rail band) stays at
+        // its pinned, un-shifted Y while the content glides, exactly like the
+        // mono glyph path; only content cells ride the glide and get cropped.
+        let y0 = chrome_pin.cell_top_y(origin[1], cell_h, run.row, run.column);
         let x1 = x0 + bounds.pixel_width as f32;
         let fade_alpha = row_fade.multiplier(run.row, run.column);
-        if chrome_pin.active() && chrome_pin.top_rows > 0 {
+        if chrome_pin.active()
+            && chrome_pin.top_rows > 0
+            && !chrome_pin.is_chrome(run.row, run.column)
+        {
             push_color_glyph_quad_clipped_top(
                 out,
                 x0,

@@ -3397,6 +3397,111 @@ fn row_fade_scales_color_glyph_vertex_alpha() {
     }
 }
 
+/// A-U035-01: color glyphs in tab-bar and rail labels stay pinned like the mono
+/// chrome path while the content glides, in both glide directions, and are not
+/// cropped at the content seam. Content color glyphs keep gliding and keep the
+/// seam crop.
+#[test]
+fn chrome_color_glyphs_stay_pinned_during_a_glide() {
+    use crate::emoji::ColorGlyphId;
+    use crate::text::CellSize;
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    };
+    let mut color_atlas = ColorGlyphAtlas::new(cell);
+    let key = ColorGlyphKey::new(1, ColorGlyphId::Glyph(7), 16.0, 1.0, 1);
+    let rgba = vec![255u8; 8 * 16 * 4];
+    color_atlas
+        .insert_premultiplied(key, 1, &rgba)
+        .expect("synthetic color glyph slot");
+    let mut term = Terminal::new(3, 3);
+    term.advance(b"\x1b[?25lABC\r\nDEF\r\nGHI");
+    let snapshot = term.snapshot();
+    let build = |runs: &[ColorGlyphRun], pin: ChromePin, origin_y: f32| {
+        let mut out = Vec::new();
+        build_color_glyph_vertices_with_origin_into(
+            &mut out,
+            &snapshot,
+            &color_atlas,
+            runs,
+            [0.0, origin_y],
+            pin,
+            RowFade::NONE,
+        );
+        out
+    };
+    for glide in [6.0_f32, -6.0] {
+        // Top bar: row 0 is chrome. The label sits at the un-shifted Y (0) with
+        // its full height; the content glyph on row 2 carries the glide.
+        let bar = ChromePin {
+            scroll_offset_y: glide,
+            top_rows: 1,
+            ..ChromePin::NONE
+        };
+        let quads = build(
+            &[ColorGlyphRun::new(0, 1, key), ColorGlyphRun::new(2, 1, key)],
+            bar,
+            glide,
+        );
+        assert_eq!(quads.len(), 2 * INSTANCES_PER_QUAD, "glide {glide}");
+        assert_eq!(quads[0].pos[1], 0.0, "bar label pinned, glide {glide}");
+        assert_eq!(
+            quads[0].end_pos[1], 16.0,
+            "bar label uncropped, glide {glide}"
+        );
+        assert_eq!(
+            quads[INSTANCES_PER_QUAD].pos[1],
+            glide + 32.0,
+            "content glyph glides, glide {glide}"
+        );
+
+        // Left rail band on column 0 with no top bar: the rail label on row 1
+        // stays at its un-shifted Y while column 1 content glides.
+        let rail = ChromePin {
+            scroll_offset_y: glide,
+            rail_col_start: 0,
+            rail_col_end: 1,
+            ..ChromePin::NONE
+        };
+        let quads = build(
+            &[ColorGlyphRun::new(1, 0, key), ColorGlyphRun::new(1, 1, key)],
+            rail,
+            glide,
+        );
+        assert_eq!(quads.len(), 2 * INSTANCES_PER_QUAD, "glide {glide}");
+        assert_eq!(quads[0].pos[1], 16.0, "rail label pinned, glide {glide}");
+        assert_eq!(
+            quads[INSTANCES_PER_QUAD].pos[1],
+            glide + 16.0,
+            "rail-adjacent content glides, glide {glide}"
+        );
+
+        // Label centering applies while gliding, as on the mono path.
+        let centered = ChromePin {
+            scroll_offset_y: glide,
+            top_rows: 1,
+            band_glyph_dy_rows: 0.5,
+            ..ChromePin::NONE
+        };
+        let quads = build(&[ColorGlyphRun::new(0, 0, key)], centered, glide);
+        assert_eq!(quads.len(), INSTANCES_PER_QUAD, "glide {glide}");
+        assert_eq!(quads[0].pos[1], 8.0, "centered bar label, glide {glide}");
+    }
+
+    // Content gliding up under the bar is still cropped at the seam.
+    let bar = ChromePin {
+        scroll_offset_y: -6.0,
+        top_rows: 1,
+        ..ChromePin::NONE
+    };
+    let quads = build(&[ColorGlyphRun::new(1, 0, key)], bar, -6.0);
+    assert_eq!(quads.len(), INSTANCES_PER_QUAD);
+    assert_eq!(quads[0].pos[1], 16.0, "content color glyph cropped at seam");
+    assert_eq!(quads[0].end_pos[1], 26.0);
+}
+
 /// Regression: multi-pane color-glyph accumulation must not desync when a later
 /// pane has fewer (or zero) emoji than an earlier one.
 ///

@@ -342,6 +342,58 @@ fn wide_then_tall_stream_respects_joint_pixel_budget() {
     ));
 }
 
+/// A wide band followed by a narrow tall one is bounded by the drawn extent,
+/// not by the geometrically rounded stride kept from the wide band. 2500 columns
+/// round to a 4096 stride; the later 4200-row image is 2500x4200 = 10.5M pixels,
+/// inside the 16.7M budget, though 4096x4200 is not.
+#[test]
+fn wide_then_tall_in_budget_image_is_not_refused_for_retained_slack() {
+    let mut payload = b"#1;2;100;0;0#1!2500~".to_vec();
+    payload.extend(std::iter::repeat_n(b'-', 699));
+    payload.extend_from_slice(b"~");
+    let img = img(&payload).expect("in-budget drawn extent must decode");
+    assert_eq!((img.width, img.height), (2500, 4200));
+    let red = [255, 0, 0, 255];
+    assert_eq!(pixel_at(&img, 0, 0), red, "first band survives the repack");
+    assert_eq!(pixel_at(&img, 2499, 5), red, "far edge survives the repack");
+    assert_eq!(pixel_at(&img, 0, 4199), red, "late band is painted");
+    assert_ne!(
+        pixel_at(&img, 1, 4199),
+        red,
+        "unpainted pixel stays background"
+    );
+}
+
+/// After the stride is tightened, a later widening still keeps every painted
+/// pixel and still honors the real joint extent.
+#[test]
+fn widening_after_a_tightened_stride_keeps_painted_pixels() {
+    let mut payload = b"#1;2;100;0;0#1!2500~".to_vec();
+    payload.extend(std::iter::repeat_n(b'-', 699));
+    payload.extend_from_slice(b"!3000~");
+    let img = img(&payload).expect("3000x4200 is inside the budget");
+    assert_eq!((img.width, img.height), (3000, 4200));
+    let red = [255, 0, 0, 255];
+    assert_eq!(pixel_at(&img, 2499, 0), red);
+    assert_eq!(pixel_at(&img, 2999, 4199), red);
+}
+
+/// The joint extent is still enforced when slack is not the cause: 5000x4200 is
+/// 21M pixels.
+#[test]
+fn wide_then_tall_over_budget_extent_is_still_refused() {
+    let mut payload = b"!5000~".to_vec();
+    payload.extend(std::iter::repeat_n(b'-', 699));
+    payload.push(b'~');
+    assert!(matches!(
+        decode_sixel(&payload, SixelBackground::default()),
+        Err(SixelError::TooLarge {
+            width: 5000,
+            height: 4200
+        })
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // SX4: lazy canvas sizing + geometric growth (memory-behavior hardening)
 // ---------------------------------------------------------------------------

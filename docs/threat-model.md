@@ -311,9 +311,11 @@ attacker-chosen bytes to process execution.
   applies its own bound of 64 MiB (`src/graphics/store.rs`). Sixel decoding is
   bounded at `MAX_WIDTH` and `MAX_HEIGHT` = 10,000, `MAX_PIXELS` = 16,777,216,
   `MAX_COLOR_REG` = 1024 color registers, and `MAX_PARAM` = 99,999,999
-  (`src/graphics/sixel.rs`). Dimension arithmetic uses checked multiplication
-  because a `u32` squared fits in `u64` but the four-byte-per-pixel product does
-  not (`src/graphics/store.rs`).
+  (`src/graphics/sixel.rs`). The pixel cap applies to the drawn extent;
+  buffer slack never refuses an image whose drawn pixels fit, because the
+  decoder repacks to a tighter row stride instead. Dimension arithmetic uses
+  checked multiplication because a `u32` squared fits in `u64` but the
+  four-byte-per-pixel product does not (`src/graphics/store.rs`).
 - **Failure behavior:** over-cap or malformed payloads produce a protocol error
   response and are discarded; the image is not partially placed.
 - **Diagnostic exposure:** payload bytes are not logged.
