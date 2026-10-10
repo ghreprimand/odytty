@@ -12,6 +12,60 @@ pub fn config_file_path() -> Option<PathBuf> {
     .map(|dir| dir.join(CONFIG_FILE_NAME))
 }
 
+/// The OdyTTY config directory a session-spawn writer (the Unix
+/// shell-integration wrappers) puts its files in: the parent of
+/// [`config_file_path`].
+#[cfg(all(unix, not(test)))]
+pub(crate) fn spawn_writer_config_dir() -> Option<PathBuf> {
+    config_file_path()?.parent().map(Path::to_path_buf)
+}
+
+/// Test builds never resolve a spawn writer's directory from the live
+/// environment: a session spawned by one test thread would otherwise read
+/// `HOME`/`XDG_CONFIG_HOME` without the shared environment lock and write into
+/// the real config directory, another test's redirected base, or a relative
+/// synthetic base. A thread inside the shared config fixture uses the config
+/// directory that fixture resolved while holding the lock; every other thread
+/// uses one directory owned by this test process.
+#[cfg(all(unix, test))]
+pub(crate) fn spawn_writer_config_dir() -> Option<PathBuf> {
+    static PROCESS_OWNED: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    let redirected = TEST_SPAWN_CONFIG_DIR.with(|dir| dir.borrow().clone());
+    Some(redirected.unwrap_or_else(|| {
+        PROCESS_OWNED
+            .get_or_init(|| crate::test_dirs::fresh_temp_dir("odytty-test-config-"))
+            .join(CONFIG_DIR_NAME)
+    }))
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_SPAWN_CONFIG_DIR: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Marks the current thread as redirected to `dir` for
+/// [`spawn_writer_config_dir`] until dropped, then restores the previous mark.
+/// Only the shared config fixture creates one, while it holds the environment
+/// lock.
+#[cfg(test)]
+pub(crate) struct SpawnConfigDirMark(Option<PathBuf>);
+
+#[cfg(test)]
+impl SpawnConfigDirMark {
+    pub(crate) fn set(dir: Option<PathBuf>) -> Self {
+        Self(TEST_SPAWN_CONFIG_DIR.with(|slot| slot.replace(dir)))
+    }
+}
+
+#[cfg(test)]
+impl Drop for SpawnConfigDirMark {
+    fn drop(&mut self) {
+        let previous = self.0.take();
+        TEST_SPAWN_CONFIG_DIR.with(|slot| slot.replace(previous));
+    }
+}
+
 /// Resolve the OdyTTY config directory (`<base>/odytty`) from the relevant
 /// environment values, following the platform base rules: on Windows
 /// `%APPDATA%\\odytty` when APPDATA is set (falling through when it is not),

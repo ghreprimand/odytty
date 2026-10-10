@@ -56,6 +56,11 @@ pub(in crate::native) fn with_config_base<R>(
     let _env = crate::test_lock::test_env_lock();
     let _catalog = crate::test_lock::catalog_count_lock();
     let _restore = ConfigEnvRestore::redirect(base, redirect_xdg);
+    // Resolved under the lock, so a session this thread spawns writes its
+    // shell-integration files inside the redirected base, as production does.
+    let _spawn_dir = crate::settings::SpawnConfigDirMark::set(
+        crate::settings::config_file_path().and_then(|path| path.parent().map(Path::to_path_buf)),
+    );
     f()
 }
 
@@ -277,4 +282,96 @@ fn layout_discovery_rejects_a_symlinked_state_leaf() {
                 .is_symlink()
         );
     });
+}
+
+/// The `--rcfile` wrapper path the Unix injector attached to a Bash command.
+#[cfg(unix)]
+fn injected_bash_rcfile() -> std::path::PathBuf {
+    let mut command = crate::pty::CommandBuilder::new("/bin/bash");
+    crate::shell_integration::apply_spawn_integration(&mut command);
+    let args = command.args_for_test();
+    let at = args
+        .iter()
+        .position(|arg| arg == "--rcfile")
+        .expect("Bash integration attaches an rcfile");
+    let rcfile = std::path::PathBuf::from(&args[at + 1]);
+    assert!(rcfile.is_file(), "the wrapper is written before the spawn");
+    rcfile
+}
+
+/// A session spawned inside the config fixture writes its shell-integration
+/// wrappers under the redirected config directory, the same layout production
+/// derives from the config file path.
+#[cfg(unix)]
+#[test]
+fn shell_integration_inside_the_fixture_writes_under_the_redirected_config_dir() {
+    let root = crate::test_dirs::fresh_temp_dir("odytty-spawn-writer-own-");
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    for redirect_xdg in [true, false] {
+        let base = root.join(if redirect_xdg { "xdg" } else { "home" });
+        with_config_base(&base, redirect_xdg, || {
+            let config_dir = crate::settings::config_file_path()
+                .and_then(|path| path.parent().map(Path::to_path_buf))
+                .expect("the redirected config path resolves");
+            assert!(config_dir.starts_with(&base));
+            assert_eq!(
+                injected_bash_rcfile(),
+                config_dir.join("shell-integration").join("odytty.bash")
+            );
+        });
+    }
+}
+
+/// A session spawned on a thread outside the config fixture never writes into
+/// the base another test thread has redirected the environment to.
+#[cfg(unix)]
+#[test]
+fn shell_integration_on_another_thread_stays_out_of_a_redirected_base() {
+    let root = crate::test_dirs::fresh_temp_dir("odytty-spawn-writer-other-");
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let base = root.join("redirected");
+    with_config_base(&base, true, || {
+        let rcfile = std::thread::spawn(injected_bash_rcfile)
+            .join()
+            .expect("the spawning thread completes");
+        assert!(
+            !rcfile.starts_with(&root),
+            "another thread's wrapper landed in the redirected base: {rcfile:?}"
+        );
+        assert!(!base.exists(), "the redirected base stays untouched");
+    });
+}
+
+/// Outside the config fixture a session's shell-integration wrappers go to a
+/// directory owned by the test process, never the config directory the live
+/// environment names (the real one, or a relative synthetic base).
+#[cfg(unix)]
+#[test]
+fn shell_integration_outside_the_fixture_stays_out_of_the_environment_config_dir() {
+    let _env = crate::test_lock::test_env_lock();
+    let ambient =
+        crate::settings::config_file_path().and_then(|path| path.parent().map(Path::to_path_buf));
+    let rcfile = injected_bash_rcfile();
+    if let Some(ambient) = ambient {
+        assert!(
+            !rcfile.starts_with(&ambient),
+            "a test wrote into the environment's config dir: {rcfile:?}"
+        );
+    }
+    assert!(
+        rcfile.is_absolute() && rcfile.starts_with(std::env::temp_dir()),
+        "the wrapper lives in process-owned scratch: {rcfile:?}"
+    );
 }

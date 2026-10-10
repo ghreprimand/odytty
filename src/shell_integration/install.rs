@@ -119,9 +119,7 @@ pub(super) fn apply_spawn_integration_in_dir(
 
 #[cfg(unix)]
 fn integration_dir() -> Option<PathBuf> {
-    crate::settings::config_file_path()?
-        .parent()
-        .map(|path| path.join("shell-integration"))
+    crate::settings::spawn_writer_config_dir().map(|path| path.join("shell-integration"))
 }
 
 #[cfg(unix)]

@@ -41,6 +41,10 @@ pub use descriptions::*;
 pub use editing::{bindable_action_display_name, format_key_chord, key_bindings_config_value};
 pub use info::{NumericSpec, SettingInfo, SettingKind};
 pub use model::*;
+#[cfg(test)]
+pub(crate) use paths::SpawnConfigDirMark;
+#[cfg(unix)]
+pub(crate) use paths::spawn_writer_config_dir;
 pub(crate) use paths::{config_base_dir_from_env, resolve_theme_file};
 pub use paths::{config_file_path, normalize_name, theme_dir_path};
 pub use reload::{
