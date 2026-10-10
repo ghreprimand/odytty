@@ -1663,9 +1663,9 @@ fn clicking_outside_the_menu_dismisses_it() {
 // off the test thread. Linux and Windows permit that via `with_any_thread`;
 // macOS has no equivalent because AppKit must own the main thread, so
 // constructing/using the loop off-main-thread aborts (SIGSEGV). The new-tab path
-// itself runs on the main thread in production and is exercised on Linux here
-// and on Windows once Phase 4 CI is unblocked; the test stays compiled on macOS
-// (so the helper and its imports are still used) but is skipped at runtime.
+// itself runs on the main thread in production and is exercised here on Linux
+// hosts with a display and on Windows; the test stays compiled on macOS (so the
+// helper and its imports are still used) but is ignored there.
 #[cfg_attr(
     target_os = "macos",
     ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS (AppKit main-thread requirement)"

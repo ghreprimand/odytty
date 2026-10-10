@@ -12,20 +12,13 @@ use crate::core::Dimensions;
 use crate::core::Terminal;
 use crate::native::app::TabBarSource;
 use crate::native::layout::{FocusDir, PaneNode, PaneRect, SplitAxis, layout_rects};
-use crate::native::pty::{PtyWriter, UserEvent};
+use crate::native::pty::PtyWriter;
 use crate::native::test_support::spawn_test_pause_shell;
 use crate::selection::AbsoluteSelectionRange;
 use crate::ssh_connect::{RemoteSshOptions, SshCommand};
 use std::ffi::OsString;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use winit::event_loop::EventLoop;
-#[cfg(target_os = "linux")]
-use winit::platform::wayland::EventLoopBuilderExtWayland;
-#[cfg(target_os = "windows")]
-use winit::platform::windows::EventLoopBuilderExtWindows;
-#[cfg(target_os = "linux")]
-use winit::platform::x11::EventLoopBuilderExtX11;
 
 mod floating_layout;
 mod lifecycle;
@@ -90,20 +83,14 @@ fn build_session_with_parked_reader(id: SessionToken, park: std::time::Duration)
     Session::new(id, terminal, writer, pty, Some(parked))
 }
 
-fn tabset_with_proxy_for_test() -> Option<(WorkspaceSet, EventLoop<UserEvent>)> {
-    let mut builder = EventLoop::<UserEvent>::with_user_event();
-    #[cfg(target_os = "linux")]
-    {
-        EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
-        EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
-    }
-    #[cfg(target_os = "windows")]
-    {
-        EventLoopBuilderExtWindows::with_any_thread(&mut builder, true);
-    }
-    let event_loop = builder.build().ok()?;
-    let proxy = event_loop.create_proxy();
-    Some((WorkspaceSet::new(build_session(), Some(proxy)), event_loop))
+/// A workspace set backed by the process-wide test event loop, so spawns get a
+/// real `EventLoopProxy`. `None` (with the reason already printed) when this
+/// environment offers no loop. Building a fresh loop per test only ever worked
+/// for the first case in the process: winit refuses to recreate one, so every
+/// later case returned early without asserting anything.
+fn tabset_with_proxy_for_test() -> Option<WorkspaceSet> {
+    let proxy = crate::native::tests::event_loop_proxy_for_test().ok()?;
+    Some(WorkspaceSet::new(build_session(), Some(proxy)))
 }
 
 /// A short-lived local child masquerading as an ssh session, whose exit code

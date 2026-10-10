@@ -150,7 +150,7 @@ impl Server {
         Self::bind_inner(path, submission, Arc::new(wake), None)
     }
 
-    #[cfg(all(test, target_os = "linux"))]
+    #[cfg(test)]
     fn bind_with_accept_observer(
         path: &Path,
         submission: Submission,

@@ -680,7 +680,7 @@ fn next_and_prev_workspace_wrap_in_rail_order() {
 #[test]
 fn a_new_workspace_appends_switches_and_holds_one_tab() {
     // new_workspace needs a real event-loop proxy for the PTY spawn.
-    let Some((mut set, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut set) = tabset_with_proxy_for_test() else {
         return;
     };
     assert_eq!(set.workspace_count(), 1);
@@ -708,7 +708,7 @@ fn new_workspace_in_threads_cwd_and_appends_like_new_workspace() {
     // the cwd-less `new_workspace`. (The spawn honors the directory the same
     // way the tab path does; the pty's cwd is not observable here without
     // shell integration, so this pins the workspace-level behavior.)
-    let Some((mut set, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut set) = tabset_with_proxy_for_test() else {
         return;
     };
     assert_eq!(set.workspace_count(), 1);
@@ -731,7 +731,7 @@ fn new_workspace_in_threads_cwd_and_appends_like_new_workspace() {
 )]
 #[test]
 fn new_workspace_with_effective_binds_launch_profile_atomically() {
-    let Some((mut set, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut set) = tabset_with_proxy_for_test() else {
         return;
     };
     let grid = Dimensions::new(20, 8);

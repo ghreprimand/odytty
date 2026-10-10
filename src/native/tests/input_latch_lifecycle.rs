@@ -7,9 +7,10 @@
 //! guard on the grid motion path is the belt-and-suspenders proof that a
 //! `Selecting` latch with the button up can never extend on a bare `CursorMoved`.
 //!
-//! These drive a real `App` over a real `EventLoop` proxy (so tab/workspace
-//! spawns succeed); skipped when no PTY is available, ignored on macOS (the
-//! harness builds an off-main-thread winit `EventLoop`).
+//! These drive a real `App`. Cases that spawn a tab or workspace need a real
+//! `EventLoop` proxy: they return early when the environment has no loop and are
+//! ignored on macOS (the harness builds an off-main-thread winit `EventLoop`).
+//! The rest run without a proxy on every platform.
 
 use super::super::session::{Session, SessionToken, WorkspaceSet};
 use super::*;
@@ -17,22 +18,33 @@ use crate::settings::BindableAction;
 use winit::event::Ime;
 
 fn app_with_proxy() -> Result<App, &'static str> {
+    Ok(app_over(Some(event_loop_proxy_for_test()?)))
+}
+
+/// An App whose workspace set has no event loop proxy, for cases that never
+/// spawn a session. They need no winit loop, so they also run on macOS and on
+/// hosts without a display.
+fn headless_app() -> App {
+    app_over(None)
+}
+
+fn app_over(
+    proxy: Option<winit::event_loop::EventLoopProxy<crate::native::pty::UserEvent>>,
+) -> App {
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let headless = Arc::new(crate::native::session::HeadlessSession::new(dims));
-    let proxy = event_loop_proxy_for_test()?;
     let sessions = WorkspaceSet::new(
         Session::new_headless(SessionToken(0), terminal, writer, headless),
-        Some(proxy),
+        proxy,
     );
-    let app = App::new_with_sessions(
+    App::new_with_sessions(
         NativeOptions::default(),
         sessions,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
-    Ok(app)
+    )
 }
 
 macro_rules! app_or_skip {
@@ -122,13 +134,9 @@ fn workspace_switch_clears_outgoing_drag() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn button_held_guard_refuses_extend_after_lost_release() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     arm_drag(&mut app);
 
     // Simulate a lost release (alt-tab): the drag state persists but the held
@@ -149,13 +157,9 @@ fn button_held_guard_refuses_extend_after_lost_release() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn button_held_guard_allows_extend_while_held() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     arm_drag(&mut app);
     // Held flag is set; a move DOES extend (the guard is not over-broad).
     app.grid_pointer_moved_for_test(400.0, 0.0);
@@ -165,13 +169,9 @@ fn button_held_guard_allows_extend_while_held() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn focus_loss_cancels_scrollbar_drag_before_buttonless_motion() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.begin_scrollbar_drag_for_test();
     assert!(
         app.scrollbar_dragging_for_test(),
@@ -190,16 +190,12 @@ fn focus_loss_cancels_scrollbar_drag_before_buttonless_motion() {
     assert!(!app.scrollbar_dragging_for_test());
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn focus_loss_clears_rename_drag_latch() {
     // A press-drag inside the rename field whose release is stolen by an alt-tab
     // must not leave the drag armed: otherwise the next bare `CursorMoved` on
     // focus regain would relocate the rename caret.
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.arm_rename_dragging_for_test();
     assert!(
         app.rename_dragging_for_test(),
@@ -213,16 +209,12 @@ fn focus_loss_clears_rename_drag_latch() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn focus_loss_clears_cached_modifier_state() {
     // A modifier held across an alt-tab may be released over the other window,
     // so no paired `ModifiersChanged` returns; the cache must not stay stuck or
     // the next plain keypress encodes a phantom modifier.
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.set_ctrl_modifier_for_test(true);
     app.set_super_key_for_test(true);
     assert!(app.ctrl_modifier_for_test() && app.super_key_for_test());
@@ -238,13 +230,9 @@ fn focus_loss_clears_cached_modifier_state() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn focus_loss_clears_pressed_mouse_report_button() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.enable_mouse_reporting_for_test();
     assert_eq!(app.left_button_outcome_for_test(true), "report");
     assert!(app.report_button_for_test().is_some());

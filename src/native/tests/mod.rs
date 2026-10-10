@@ -89,6 +89,11 @@ pub(super) const EVENT_LOOP_PROOF_EXECUTED: &str = "odytty-event-loop-proof exec
 /// Proof marker: the caller could not obtain the loop and asserted nothing.
 pub(super) const EVENT_LOOP_PROOF_UNAVAILABLE: &str = "odytty-event-loop-proof unavailable";
 
+/// Why the shared loop is missing when another winit `EventLoop` was already
+/// built in this test process.
+const EVENT_LOOP_TAKEN: &str =
+    "a winit event loop was already built elsewhere in this test process";
+
 /// The process-wide winit event loop shared by every App-level test that needs a
 /// real `EventLoopProxy`.
 ///
@@ -146,6 +151,15 @@ fn shared_event_loop_proxy()
                 std::mem::forget(event_loop);
                 Ok(std::sync::Mutex::new(proxy))
             }
+            // winit builds one loop per process. A loop built elsewhere in
+            // this test binary before this one takes that slot; every case
+            // served here would then return early, so that order is reported
+            // as a harness defect rather than as an environment without a
+            // display. A loop built elsewhere after this one gets
+            // `RecreationAttempt` itself and is not detected here.
+            Err(winit::error::EventLoopError::RecreationAttempt) => {
+                Err(EVENT_LOOP_TAKEN.to_owned())
+            }
             Err(err) => Err(format!("winit event loop unavailable here: {err}")),
         }
     });
@@ -166,6 +180,9 @@ fn shared_event_loop_proxy()
 pub(super) fn event_loop_proxy_for_test()
 -> Result<winit::event_loop::EventLoopProxy<super::pty::UserEvent>, &'static str> {
     let resolved = shared_event_loop_proxy();
+    if matches!(resolved, Err(reason) if reason == EVENT_LOOP_TAKEN) {
+        panic!("{EVENT_LOOP_TAKEN}; build test loops only through this helper");
+    }
     let proof = std::env::var_os(EVENT_LOOP_PROOF_ENV).is_some();
     match &resolved {
         Ok(_) => {
@@ -334,7 +351,7 @@ fn shared_event_loop_proxy_is_send_and_lockable_on_every_platform() {
 
 /// Regression guard for the shared event loop.
 ///
-/// Re-runs the App-level modules that need a real `EventLoopProxy` inside one
+/// Re-runs the App-level and session modules that need a real `EventLoopProxy` inside one
 /// child process and asserts the population is all-or-nothing: either every case
 /// obtained the loop and ran its assertions, or the environment offers no loop
 /// and every case said so. The state this rules out is the one that used to
@@ -359,6 +376,10 @@ fn event_loop_dependent_tests_all_execute_in_one_process() {
             "native::tests::image_paste::",
             "native::tests::input_latch_lifecycle::",
             "native::tests::context_menu::clicking_new_tab_spawns_session_and_closes_menu",
+            "native::tests::profile_acceptance_e2e::",
+            "native::tests::audit_snapshot_ownership::",
+            "native::session::tests::transport::",
+            "native::session::tests::lifecycle::",
         ])
         .arg("--test-threads=1")
         .arg("--nocapture")
@@ -379,10 +400,22 @@ fn event_loop_dependent_tests_all_execute_in_one_process() {
         .filter(|line| line.contains(EVENT_LOOP_PROOF_UNAVAILABLE))
         .count();
     println!("event-loop harness: executed={executed} unavailable={unavailable}");
+    // Name the child's failing cases so a red run says which ones, not only
+    // that the child exited non-zero.
+    // The harness ends a failed run with a `failures:` list of indented names.
+    let failed: Vec<&str> = stdout
+        .rsplit_once("\nfailures:\n")
+        .map(|(_, list)| {
+            list.lines()
+                .map_while(|line| line.strip_prefix("    "))
+                .collect()
+        })
+        .unwrap_or_default();
 
     assert!(
         output.status.success(),
-        "the event-loop proof child failed ({}); executed={executed} unavailable={unavailable}",
+        "the event-loop proof child failed ({}); executed={executed} unavailable={unavailable}; \
+         failing cases: {failed:?}",
         output.status
     );
     assert!(

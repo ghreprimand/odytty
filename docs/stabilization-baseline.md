@@ -193,6 +193,38 @@ sendable but not directly shareable, and a compile-time assertion pins the
 required bounds. The affected macOS cases remain explicitly ignored because
 AppKit requires the main thread; they are not counted as macOS passes.
 
+### Finding F1 follow-up
+
+The session transport and lifecycle tests still built their own event loop.
+Only the first of them in a process could, and a loop they built first also
+left every shared-loop case unavailable. They now use the shared loop, the
+subprocess guard covers their modules, and a loop built elsewhere in the test
+binary before the shared one fails the dependent tests instead of reading as a
+host without a display. A loop built elsewhere after the shared one is not
+detected by this guard; no other test builds one. Cases that never spawn a session no longer take a proxy, so 28 of the
+84 cases that macOS ignored now run there and on hosts without a display; the
+56 that spawn sessions stay ignored on macOS. Hosts without a display,
+including the Linux CI runner, still report the proxy-backed cases
+unavailable.
+
+The same change also starts running these on macOS: the automation
+accepted-connection observer test, the automation listener-fault test, and
+the Unix liveness probes (palette history and image decode FIFOs, the sparse
+32 MiB file, and the device probes). Their time budgets were set on Linux and
+add a child-start baseline measured on the running host; on macOS they have
+one green CI run and no separate measurement.
+
+Once the session tests really ran, five failed on Windows, where they had
+always returned early. Each was a test assumption, not a product defect. The
+held-resize test asserted on the seed pane, which is headless and has no
+local PTY; it now holds a second real pane. The profile environment tests
+typed POSIX syntax into PowerShell and never released the shell that a
+window holds until its first grid; they now settle the launch geometry
+first, wait for the prompt, and type PowerShell or cmd syntax. The explicit
+shell and restore tests named `/bin/sh`, which does not exist on Windows, so
+no tab opened; they now use `cmd.exe` there. The event-loop proof test failed
+only because its child ran those cases, and now names any failing case.
+
 ### Finding F2: render-global test race
 
 The first documentation integration run passed locally and on Windows and

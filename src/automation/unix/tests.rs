@@ -30,7 +30,6 @@ fn assert_fd_cloexec(fd: i32, label: &str) {
     );
 }
 
-#[cfg(target_os = "linux")]
 fn fd_has_cloexec(fd: i32) -> bool {
     // SAFETY: fd is live while the accept observer runs.
     let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
@@ -474,7 +473,15 @@ fn oversized_truncated_and_trailing_frames_fail_closed() {
             .set_read_timeout(Some(IO_TIMEOUT + Duration::from_millis(500)))
             .expect("read timeout");
         let mut buf = [0u8; 64];
-        let result = stream.read(&mut buf);
+        // A signal delivered to the test process (another test's child exiting,
+        // for example) can interrupt the read; that says nothing about the
+        // server, so retry it.
+        let result = loop {
+            match stream.read(&mut buf) {
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                other => break other,
+            }
+        };
         assert!(
             started.elapsed() <= IO_TIMEOUT + Duration::from_secs(1),
             "truncated client must finish within the server I/O deadline window"
@@ -659,13 +666,34 @@ fn listener_and_accepted_connection_set_fd_cloexec() {
 
 #[cfg(target_os = "macos")]
 #[test]
-fn listener_cloexec_uses_client_side_proxy_on_darwin() {
-    // Darwin has no /proc fd/inode table for listener discovery. Production
-    // client connect sets CLOEXEC via fcntl; listener/accept CLOEXEC remains a
-    // platform validation gap without a test-only fd seam.
-    let harness = start_harness(false);
-    let stream = connect(&harness.fixture.socket, IO_TIMEOUT).expect("connect");
+fn accepted_and_client_connections_set_fd_cloexec_on_darwin() {
+    // Darwin has no /proc fd/inode table for listener discovery, so the
+    // listening descriptor itself stays unchecked here. The accepted
+    // connection is checked through the accept observer, and the client side
+    // directly.
+    let fixture = fixture();
+    let path = fixture.socket.clone();
+    let (submission, _queue) = dispatch::channel(false);
+    let (accepted_tx, accepted_rx) = mpsc::sync_channel(1);
+    let server = Server::bind_with_accept_observer(
+        &path,
+        submission,
+        || true,
+        move |stream| {
+            let _ = accepted_tx.send(fd_has_cloexec(stream.as_raw_fd()));
+        },
+    )
+    .expect("bind observed endpoint");
+    let stream = connect(&path, IO_TIMEOUT).expect("held client");
     assert_fd_cloexec(stream.as_raw_fd(), "darwin client connect");
+    assert!(
+        accepted_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("accept observer result"),
+        "accepted connection must have FD_CLOEXEC"
+    );
+    drop(stream);
+    drop(server);
 }
 
 #[test]

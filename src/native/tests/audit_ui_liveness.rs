@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Bounded probes for filesystem and helper work reached from UI paths.
-// Most probes need FIFOs and fontconfig and run on Linux only; their shared
-// helpers are unused on the other targets.
-#![cfg_attr(not(target_os = "linux"), allow(unused_imports, dead_code))]
+// The FIFO and large-file probes run on every Unix target and the fontconfig
+// probes on Linux only; Windows runs only the WSL probes, so the shared helpers
+// are unused there.
+#![cfg_attr(not(unix), allow(unused_imports, dead_code))]
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -45,7 +46,7 @@ fn create_fifo(path: &Path) {
 
 /// The libtest name of a child probe in this module, derived from the module
 /// path so a moved module cannot leave a hard-coded name matching nothing.
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 fn probe_test_name(function: &str) -> String {
     let module = module_path!();
     let module = module.split_once("::").map_or(module, |(_, rest)| rest);
@@ -55,7 +56,7 @@ fn probe_test_name(function: &str) -> String {
 /// Wall time to start the test binary as a child and run one no-op probe on
 /// this machine, measured once. Each probe's budget is added on top, so a
 /// loaded runner's spawn cost does not count against the bounded work.
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 fn probe_spawn_baseline() -> Duration {
     static BASELINE: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
     *BASELINE.get_or_init(|| {
@@ -74,7 +75,7 @@ fn probe_spawn_baseline() -> Duration {
     })
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 fn spawn_bounded_probe(
     function: &str,
     envs: &[(&str, &std::ffi::OsStr)],
@@ -87,7 +88,7 @@ fn spawn_bounded_probe(
 /// Run one child probe test and wait at most `budget`. It passes only when
 /// the child exits successfully having run exactly one test: a renamed or
 /// moved probe that matches nothing is a failure, not a vacuous pass.
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 fn run_probe(test_name: &str, envs: &[(&str, &std::ffi::OsStr)], budget: Duration) -> ProbeResult {
     use std::io::Read;
     use std::os::unix::process::CommandExt;
@@ -125,7 +126,7 @@ fn run_probe(test_name: &str, envs: &[(&str, &std::ffi::OsStr)], budget: Duratio
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 fn kill_probe_group(child: &mut Child) {
     let group = -(child.id() as i32);
     let result = unsafe { libc::kill(group, libc::SIGKILL) };
@@ -133,7 +134,7 @@ fn kill_probe_group(child: &mut Child) {
     let _ = child.wait();
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 #[derive(Debug, PartialEq, Eq)]
 enum ProbeResult {
     Exited(bool),
@@ -141,11 +142,11 @@ enum ProbeResult {
 }
 
 /// A probe that does nothing, used to measure the child spawn cost.
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 #[test]
 fn baseline_child_probe() {}
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(unix)]
 #[test]
 fn palette_history_fifo_child_probe() {
     if std::env::var_os(CHILD_ENV).is_none() {
@@ -156,7 +157,7 @@ fn palette_history_fifo_child_probe() {
     palette.open_from_process_env(None, &workspaces);
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 #[test]
 fn palette_open_does_not_block_on_fifo_history() {
     let home = TestDir::new();
@@ -177,7 +178,7 @@ fn palette_open_does_not_block_on_fifo_history() {
     );
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 #[test]
 fn palette_history_reads_a_bounded_tail_of_large_regular_files() {
     let home = TestDir::new();
@@ -195,7 +196,7 @@ fn palette_history_reads_a_bounded_tail_of_large_regular_files() {
     );
 }
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(unix)]
 #[test]
 fn image_decode_fifo_child_probe() {
     if std::env::var_os(CHILD_ENV).is_none() {
@@ -205,7 +206,7 @@ fn image_decode_fifo_child_probe() {
     let _ = super::super::image_decode::decode_image_rgba(Path::new(&path));
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 #[test]
 fn image_view_decode_does_not_block_on_fifo() {
     let fixture = TestDir::new();
@@ -224,7 +225,7 @@ fn image_view_decode_does_not_block_on_fifo() {
     );
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 #[test]
 fn image_decode_rejects_devices_and_handles_large_regular_inputs_within_budget() {
     let start = Instant::now();

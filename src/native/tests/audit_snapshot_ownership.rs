@@ -75,10 +75,6 @@ fn advance_cwd(app: &mut App, cwd: &str) {
     app.advance_primary_terminal_for_test(format!("\x1b]7;file://{cwd}\x07").as_bytes());
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn renaming_a_bound_profile_in_a_secondary_app_does_not_save_workspace_shape() {
     let base = temporary_config_base();

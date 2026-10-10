@@ -665,6 +665,15 @@ impl App {
         }
     }
 
+    /// Test seam: settle the launch geometry as a window's first surface grid
+    /// does, so later local spawns start at once. Before that grid, Windows
+    /// holds each new ConPTY shell (see `crate::pty::spawn_held`); elsewhere no
+    /// spawn is held and this only records the settled state.
+    #[cfg(test)]
+    pub(in crate::native) fn settle_launch_geometry_for_test(&mut self) {
+        self.sessions.start_held_launches();
+    }
+
     /// Test seam (v0.14 profiles): open a New Tab with an explicit named profile
     /// through the real launch path (resolver + real PTY spawn).
     #[cfg(test)]

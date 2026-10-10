@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! W3 App-level workspace keyboard + command-palette tests. These drive a real
-//! `App` (with a real `EventLoop` proxy so the workspace/tab spawns succeed;
-//! skipped when no PTY is available) through the production dispatch paths:
+//! `App` (with a real `EventLoop` proxy where a case spawns a workspace or tab,
+//! and none where it does not) through the production dispatch paths:
 //! the six workspace `BindableAction`s and the palette workspace rows
 //! (`workspace-switch-<idx>` / `workspace-new` / `workspace-rename`). The
 //! model-level hierarchy invariants live in `session.rs`; here we pin the App
@@ -14,27 +14,38 @@ use super::super::session::{Session, SessionToken, WorkspaceSet};
 use super::*;
 use crate::settings::BindableAction;
 
-/// Build an `App` backed by a real `EventLoop` proxy so `handle_new_workspace`
-/// (which spawns a fresh shell) succeeds. Returns `None` when no PTY is
-/// available. Skipped at runtime on macOS: the harness builds an
-/// off-main-thread `EventLoop`, which AppKit forbids.
+/// Build an `App` backed by the shared test event loop so `handle_new_workspace`
+/// (which spawns a fresh shell) succeeds. `Err` when this environment offers no
+/// loop. Cases that use it are ignored on macOS, where AppKit forbids building
+/// the loop off the main thread.
 fn app_with_proxy() -> Result<App, &'static str> {
+    Ok(app_over(Some(event_loop_proxy_for_test()?)))
+}
+
+/// An App whose workspace set has no event loop proxy, for cases that never
+/// spawn a session. They need no winit loop, so they also run on macOS and on
+/// hosts without a display.
+fn headless_app() -> App {
+    app_over(None)
+}
+
+fn app_over(
+    proxy: Option<winit::event_loop::EventLoopProxy<crate::native::pty::UserEvent>>,
+) -> App {
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let headless = Arc::new(crate::native::session::HeadlessSession::new(dims));
-    let proxy = event_loop_proxy_for_test()?;
     let sessions = WorkspaceSet::new(
         Session::new_headless(SessionToken(0), terminal, writer, headless),
-        Some(proxy),
+        proxy,
     );
-    let app = App::new_with_sessions(
+    App::new_with_sessions(
         NativeOptions::default(),
         sessions,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
-    Ok(app)
+    )
 }
 
 macro_rules! app_or_skip {
@@ -296,13 +307,9 @@ fn close_workspace_removes_it_without_exiting_when_others_remain() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn close_last_workspace_signals_exit_without_emptying_the_arena() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     assert_eq!(app.workspace_count_for_test(), 1);
 
     app.dispatch_workspace_action_for_test(BindableAction::CloseWorkspace);
@@ -315,13 +322,9 @@ fn close_last_workspace_signals_exit_without_emptying_the_arena() {
     assert_eq!(app.workspace_count_for_test(), 1);
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn rename_workspace_action_opens_overlay_and_commits_the_active_name() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.dispatch_workspace_action_for_test(BindableAction::RenameWorkspace);
     assert!(app.rename_overlay_open_for_test(), "rename overlay opened");
 
@@ -337,13 +340,9 @@ fn rename_workspace_action_opens_overlay_and_commits_the_active_name() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn empty_rename_leaves_the_workspace_name_unchanged() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.dispatch_workspace_action_for_test(BindableAction::RenameWorkspace);
     app.commit_rename_for_test("   ");
     assert_eq!(
@@ -381,13 +380,9 @@ fn palette_new_workspace_row_creates_a_workspace() {
     assert_eq!(app.active_workspace_index_for_test(), 1);
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn palette_rename_workspace_row_opens_the_overlay() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.handle_palette_action_for_test("workspace-rename");
     assert!(app.rename_overlay_open_for_test());
     app.commit_rename_for_test("app");
@@ -453,13 +448,9 @@ fn moving_the_last_tab_out_closes_the_source_workspace_app() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn move_tab_is_a_noop_with_a_single_workspace() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     assert_eq!(app.workspace_count_for_test(), 1);
     let token = app.active_session_token_for_test();
     // Single workspace: no destinations, so the picker never opens (W4-v2).
@@ -469,10 +460,6 @@ fn move_tab_is_a_noop_with_a_single_workspace() {
     assert_eq!(app.active_workspace_tab_count_for_test(), 1);
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn rename_band_holds_the_single_pane_opaque_region_under_transparency() {
     // PROMPT-OPACITY: the rename/prompt band paints on its own path (not
@@ -480,7 +467,7 @@ fn rename_band_holds_the_single_pane_opaque_region_under_transparency() {
     // it rendered translucent under a translucent window. With no modal open
     // the span is `None` (the opaque-window path stays byte-identical); opening
     // a workspace rename must mark the band's cells opaque.
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     assert!(
         app.single_pane_overlay_opaque_region_for_test().is_none(),
         "no modal open ⇒ no opaque span (opaque path is byte-identical)"
@@ -506,17 +493,13 @@ fn rename_band_holds_the_single_pane_opaque_region_under_transparency() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn secondary_instance_raises_the_restore_suppressed_notice() {
     // SECONDARY-INSTANCE-NOTICE: a second concurrent window is silently inert on
     // restore/autosave. When the user expects restore, the startup gate must
     // surface the one-line banner so the silence stops reading as "restore
     // didn't work".
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.set_primary_instance_for_test(false);
     app.set_restore_workspaces_for_test(true);
     app.notice_secondary_instance_for_test();
@@ -529,14 +512,10 @@ fn secondary_instance_raises_the_restore_suppressed_notice() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn primary_instance_stays_silent_on_the_restore_notice() {
     // The owner of the lock restores and autosaves normally — no notice.
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.set_primary_instance_for_test(true);
     app.set_restore_workspaces_for_test(true);
     app.notice_secondary_instance_for_test();
@@ -546,15 +525,11 @@ fn primary_instance_stays_silent_on_the_restore_notice() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn secondary_instance_without_restore_expectation_stays_silent() {
     // With restore off the user is not relying on it, so the secondary window
     // has nothing to explain — no notice.
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.set_primary_instance_for_test(false);
     app.set_restore_workspaces_for_test(false);
     app.notice_secondary_instance_for_test();
@@ -564,32 +539,49 @@ fn secondary_instance_without_restore_expectation_stays_silent() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn open_layout_onto_pristine_window_opens_without_a_prompt() {
     // LAYOUT-OPEN-MODE: a bare launch is a single pristine workspace, so opening
     // a layout goes straight through (the pristine-consume path) with no
     // Replace/Add prompt — even when the named layout doesn't exist (it then
     // raises a "not found" notice, but never the mode dialog).
-    let mut app = app_or_skip!();
-    assert_eq!(app.workspace_count_for_test(), 1);
-    // The lone pane is a shell known to be idle at its prompt.
-    app.set_active_foreground_job_for_test(crate::pty::ForegroundJob::None);
+    //
+    // Loading a layout prepares the state and layouts folders, so the case runs
+    // against a fresh redirected base and never touches the real ones.
+    let real_layouts = {
+        let _env = crate::test_lock::test_env_lock();
+        crate::native::persistence::layouts_dir()
+    };
+    let real_layouts_existed = real_layouts.exists();
+    let base = crate::test_dirs::fresh_temp_dir("odytty-layout-open-");
+    let redirected_layouts = super::config_env::with_config_base(&base, true, || {
+        let mut app = headless_app();
+        assert_eq!(app.workspace_count_for_test(), 1);
+        // The lone pane is a shell known to be idle at its prompt.
+        app.set_active_foreground_job_for_test(crate::pty::ForegroundJob::None);
 
-    app.open_layout_for_test("no-such-layout");
+        app.open_layout_for_test("no-such-layout");
+        assert!(
+            !app.confirm_open_layout_open_for_test(),
+            "a pristine window opens a layout directly, no prompt"
+        );
+        crate::native::persistence::layouts_dir()
+    });
     assert!(
-        !app.confirm_open_layout_open_for_test(),
-        "a pristine window opens a layout directly, no prompt"
+        redirected_layouts.starts_with(&base) && redirected_layouts.is_dir(),
+        "the layout load prepares the redirected layouts folder: {}",
+        redirected_layouts.display()
     );
+    if !real_layouts_existed {
+        assert!(
+            !real_layouts.exists(),
+            "the layout load must not create the real layouts folder: {}",
+            real_layouts.display()
+        );
+    }
+    let _ = std::fs::remove_dir_all(&base);
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn open_layout_asks_when_the_lone_pane_job_is_busy_or_unknown() {
     // A running job, or one that cannot be read (every Windows ConPTY pane),
@@ -598,7 +590,7 @@ fn open_layout_asks_when_the_lone_pane_job_is_busy_or_unknown() {
         crate::pty::ForegroundJob::Running,
         crate::pty::ForegroundJob::Unknown,
     ] {
-        let mut app = app_or_skip!();
+        let mut app = headless_app();
         app.set_active_foreground_job_for_test(job);
         app.open_layout_for_test("no-such-layout");
         assert!(app.confirm_open_layout_open_for_test(), "{job:?} asks");

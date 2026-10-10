@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! F6-i7 App-level image paste-through tests. These drive a real `App` (with a
-//! real `EventLoop` proxy so the session spawns succeed; skipped when no PTY is
-//! available) through the production paste path — `handle_paste_shortcut` and
+//! real `EventLoop` proxy where a case spawns a session, and none otherwise)
+//! through the production paste path, `handle_paste_shortcut` and
 //! the confirm-prompt commit/cancel — with a synthetic clipboard image and a
 //! synthetic remote-integrated upload target. The pure argv/target builders are
 //! tested in `ssh_connect.rs`; here we pin the App gating + confirm flow:
@@ -14,22 +14,33 @@ use super::super::session::{Session, SessionToken, WorkspaceSet};
 use super::*;
 
 fn app_with_proxy() -> Result<App, &'static str> {
+    Ok(app_over(Some(event_loop_proxy_for_test()?)))
+}
+
+/// An App whose workspace set has no event loop proxy, for cases that never
+/// spawn a session. They need no winit loop, so they also run on macOS and on
+/// hosts without a display.
+fn headless_app() -> App {
+    app_over(None)
+}
+
+fn app_over(
+    proxy: Option<winit::event_loop::EventLoopProxy<crate::native::pty::UserEvent>>,
+) -> App {
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let headless = Arc::new(crate::native::session::HeadlessSession::new(dims));
-    let proxy = event_loop_proxy_for_test()?;
     let sessions = WorkspaceSet::new(
         Session::new_headless(SessionToken(0), terminal, writer, headless),
-        Some(proxy),
+        proxy,
     );
-    let app = App::new_with_sessions(
+    App::new_with_sessions(
         NativeOptions::default(),
         sessions,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
-    Ok(app)
+    )
 }
 
 /// Build a headless `App` (no `EventLoop`, no window) whose sole session's PTY
@@ -128,13 +139,9 @@ fn tiny_png() -> Vec<u8> {
     vec![0x89, b'P', b'N', b'G', 1, 2, 3, 4]
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn image_paste_prompts_then_uploads_on_confirm() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.set_active_remote_upload_for_test("deploy@web1.example.invalid");
     app.set_remote_image_paste_enabled_for_test(true);
     let png = tiny_png();
@@ -159,13 +166,9 @@ fn image_paste_prompts_then_uploads_on_confirm() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn image_paste_cancel_sends_nothing() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.set_active_remote_upload_for_test("deploy@web1.example.invalid");
     app.set_remote_image_paste_enabled_for_test(true);
     app.set_clipboard_image_for_test(Some(tiny_png()));
@@ -210,13 +213,9 @@ fn switching_tabs_cancels_a_pending_image_upload() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn image_paste_disabled_setting_is_a_no_op() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.set_active_remote_upload_for_test("deploy@web1.example.invalid");
     app.set_remote_image_paste_enabled_for_test(false);
     app.set_clipboard_image_for_test(Some(tiny_png()));
@@ -228,13 +227,9 @@ fn image_paste_disabled_setting_is_a_no_op() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn image_paste_ignored_on_a_non_remote_tab() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     // No upload descriptor => a local/plain-ssh tab; image paste never engages.
     app.set_remote_image_paste_enabled_for_test(true);
     app.set_clipboard_image_for_test(Some(tiny_png()));
@@ -246,13 +241,9 @@ fn image_paste_ignored_on_a_non_remote_tab() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn image_paste_over_the_cap_is_refused_without_prompting() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.set_active_remote_upload_for_test("deploy@web1.example.invalid");
     app.set_remote_image_paste_enabled_for_test(true);
     // One byte over the fixed encoded-PNG cap.

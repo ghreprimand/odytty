@@ -598,7 +598,7 @@ mod tests {
         runtime.shutdown();
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn listener_fault_tears_down_and_retries_only_after_off_and_on() {
         use std::sync::atomic::{AtomicUsize, Ordering};

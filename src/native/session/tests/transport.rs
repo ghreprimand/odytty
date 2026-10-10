@@ -12,9 +12,8 @@ use super::*;
 // This test only needs a real `EventLoopProxy` so the connect action can
 // spawn a PTY-backed session; there is no headless seam for the concrete
 // winit proxy type without abstracting the whole PTY-pump wake path, so it
-// is ignored on macOS as an accepted v0.3.0 stopgap. The connect/spawn
-// logic stays covered on Linux CI, with a Windows command arm ready for
-// Phase 4 CI once the remaining Windows compile gates clear.
+// is ignored on macOS. The proxy-backed cases here run on Windows and on
+// Linux hosts with a display; a headless Linux host reports them unavailable.
 #[cfg_attr(
     target_os = "macos",
     ignore = "winit EventLoop cannot be built off the main thread on macOS"
@@ -27,7 +26,7 @@ fn spawned_local_pane_wires_shell_owns_cursor_from_backend() {
     // returns true (≠ the model default false), so a missing/incorrect wire
     // FAILS here; on Linux both are false (byte-identical), so this is the
     // cross-platform funnel guard that only Windows can fully exercise.
-    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = tabset_with_proxy_for_test() else {
         return;
     };
     let token = sessions
@@ -65,7 +64,7 @@ fn spawned_local_pane_wires_shell_owns_cursor_from_backend() {
 )]
 #[test]
 fn panes_spawned_before_the_first_surface_grid_start_with_it() {
-    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = tabset_with_proxy_for_test() else {
         return;
     };
     sessions.held_launches_pending = false;
@@ -106,12 +105,18 @@ fn panes_spawned_before_the_first_surface_grid_start_with_it() {
 )]
 #[test]
 fn a_held_pane_with_a_failed_resize_starts_only_after_a_successful_retry() {
-    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = tabset_with_proxy_for_test() else {
         return;
     };
     let early = sessions
         .spawn(Dimensions::new(20, 8), None)
         .expect("spawn before the surface grid");
+    // A second real local pane held at the same time whose resize did not
+    // fail. The seed pane (token 0) is headless and has no local PTY, so it
+    // cannot stand in for a clean held pane.
+    let clean = sessions
+        .spawn(Dimensions::new(20, 8), None)
+        .expect("spawn a clean pane before the surface grid");
     let failed_at = std::time::Instant::now();
     {
         let session = sessions.sessions.get_mut(&early).expect("early pane");
@@ -127,10 +132,7 @@ fn a_held_pane_with_a_failed_resize_starts_only_after_a_successful_retry() {
             local_pty_is_held(&sessions, early),
             "a dirty pane stays held"
         );
-        assert!(
-            !local_pty_is_held(&sessions, SessionToken(0)),
-            "a clean pane starts"
-        );
+        assert!(!local_pty_is_held(&sessions, clean), "a clean pane starts");
         assert!(sessions.held_launches_pending);
     }
 
@@ -149,6 +151,7 @@ fn a_held_pane_with_a_failed_resize_starts_only_after_a_successful_retry() {
         "released by the retry"
     );
 
+    assert!(!sessions.close(clean));
     assert!(!sessions.close(early));
     assert!(sessions.close(SessionToken(0)));
 }
@@ -161,7 +164,7 @@ fn a_held_pane_with_a_failed_resize_starts_only_after_a_successful_retry() {
 )]
 #[test]
 fn held_launch_fallback_is_armed_by_the_window_not_at_spawn() {
-    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = tabset_with_proxy_for_test() else {
         return;
     };
     let before = sessions
@@ -217,7 +220,7 @@ fn local_pty_fallback_armed(sessions: &WorkspaceSet, token: SessionToken) -> boo
 )]
 #[test]
 fn spawned_local_pane_seeds_working_directory_before_osc7() {
-    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = tabset_with_proxy_for_test() else {
         return;
     };
     let expected = std::env::current_dir()
@@ -264,10 +267,12 @@ fn spawn_inherits_an_explicit_working_directory() {
     // cwd seeds the pane's advisory directory to that path (before any OSC 7),
     // so New Tab / Duplicate Tab opens where the active pane was. Distinct
     // from the None path, which falls back to the process cwd.
-    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = tabset_with_proxy_for_test() else {
         return;
     };
-    let inherited = std::path::PathBuf::from("/tmp/odytty-inherited-cwd");
+    // The child starts in this directory, so it has to exist.
+    let inherited = crate::test_dirs::fresh_temp_dir("odytty-inherited-cwd-");
+    let expected = inherited.to_string_lossy().into_owned();
     let token = sessions
         .spawn(Dimensions::new(20, 8), Some(inherited.clone()))
         .expect("spawn local session in cwd");
@@ -278,13 +283,14 @@ fn spawn_inherits_an_explicit_working_directory() {
         let terminal = session.terminal.lock().expect("terminal lock");
         assert_eq!(
             terminal.current_working_directory(),
-            Some("/tmp/odytty-inherited-cwd"),
+            Some(expected.as_str()),
             "a new tab seeded with an explicit cwd reports it before the first OSC 7"
         );
     }
 
     assert!(!sessions.close(token));
     assert!(sessions.close(SessionToken(0)));
+    let _ = std::fs::remove_dir_all(&inherited);
 }
 
 #[test]
@@ -389,7 +395,7 @@ fn resize_all_panes_honors_shell_owns_cursor_through_app_entry_point() {
 )]
 #[test]
 fn connect_action_spawns_new_session_with_stub_command() {
-    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = tabset_with_proxy_for_test() else {
         return;
     };
     #[cfg(not(windows))]
@@ -447,7 +453,7 @@ fn classify_remote_exit_maps_255_to_reconnect_and_everything_else_to_close() {
 #[cfg(not(windows))]
 #[test]
 fn ssh_session_stores_reconnect_anchor_but_a_local_shell_does_not() {
-    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = tabset_with_proxy_for_test() else {
         return;
     };
     let ssh = sessions
@@ -513,7 +519,7 @@ fn remote_upload_for_engages_only_on_integrated_hosts() {
 #[cfg(not(windows))]
 #[test]
 fn restored_integrated_remote_pane_exposes_its_upload_target() {
-    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = tabset_with_proxy_for_test() else {
         return;
     };
     let host = crate::connection_hosts::parse_adhoc_target("root@host.example.invalid")
@@ -558,7 +564,7 @@ fn restored_integrated_remote_pane_exposes_its_upload_target() {
 #[cfg(not(windows))]
 #[test]
 fn restored_plain_remote_pane_leaves_paste_through_unset() {
-    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = tabset_with_proxy_for_test() else {
         return;
     };
     let host = crate::connection_hosts::parse_adhoc_target("root@host.example.invalid")
@@ -598,7 +604,7 @@ fn restored_plain_remote_pane_leaves_paste_through_unset() {
 #[cfg(not(windows))]
 #[test]
 fn arm_reconnect_holds_the_tab_open_on_a_255_drop_and_paints_the_banner() {
-    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = tabset_with_proxy_for_test() else {
         return;
     };
     let ssh = sessions
@@ -647,7 +653,7 @@ fn arm_reconnect_holds_the_tab_open_on_a_255_drop_and_paints_the_banner() {
 #[cfg(not(windows))]
 #[test]
 fn arm_reconnect_declines_a_clean_exit() {
-    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = tabset_with_proxy_for_test() else {
         return;
     };
     let ssh = sessions
@@ -680,7 +686,7 @@ fn arm_reconnect_declines_a_clean_exit() {
 #[cfg(not(windows))]
 #[test]
 fn a_local_shell_never_arms_reconnect() {
-    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = tabset_with_proxy_for_test() else {
         return;
     };
     // The startup session at token 0 is a plain local shell with no
@@ -696,7 +702,7 @@ fn a_local_shell_never_arms_reconnect() {
 #[cfg(not(windows))]
 #[test]
 fn reconnect_respawns_into_the_same_token_and_clears_the_prompt() {
-    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = tabset_with_proxy_for_test() else {
         return;
     };
     // A slightly longer-lived stub so the first spawn is comfortably alive,
@@ -736,7 +742,7 @@ fn reconnect_respawns_into_the_same_token_and_clears_the_prompt() {
 #[cfg(not(windows))]
 #[test]
 fn reconnect_resets_stale_input_reporting_modes() {
-    let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = tabset_with_proxy_for_test() else {
         return;
     };
     let ssh = sessions

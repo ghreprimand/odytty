@@ -10,9 +10,10 @@
 //!   clipboard) and, being drained, cannot resurface on switch-back; a write from
 //!   the focused session still reaches the clipboard.
 //!
-//! These drive a real `App` over a real `EventLoop` proxy (so a second tab can
-//! spawn); skipped when no PTY is available, ignored on macOS (off-main-thread
-//! winit `EventLoop`).
+//! These drive a real `App`. Cases that spawn a second tab need a real
+//! `EventLoop` proxy: they return early when the environment has no loop and are
+//! ignored on macOS (off-main-thread winit `EventLoop`). The rest run without a
+//! proxy on every platform.
 
 use super::super::app::osc52::PromptDecision;
 use super::super::session::{Session, SessionToken, WorkspaceSet};
@@ -20,14 +21,26 @@ use super::*;
 use crate::settings::Osc52WritePolicy;
 
 fn app_with_proxy() -> Result<App, &'static str> {
+    Ok(app_over(Some(event_loop_proxy_for_test()?)))
+}
+
+/// An App whose workspace set has no event loop proxy, for cases that never
+/// spawn a session. They need no winit loop, so they also run on macOS and on
+/// hosts without a display.
+fn headless_app() -> App {
+    app_over(None)
+}
+
+fn app_over(
+    proxy: Option<winit::event_loop::EventLoopProxy<crate::native::pty::UserEvent>>,
+) -> App {
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let headless = Arc::new(crate::native::session::HeadlessSession::new(dims));
-    let proxy = event_loop_proxy_for_test()?;
     let sessions = WorkspaceSet::new(
         Session::new_headless(SessionToken(0), terminal, writer, headless),
-        Some(proxy),
+        proxy,
     );
     let mut app = App::new_with_sessions(
         NativeOptions::default(),
@@ -36,7 +49,7 @@ fn app_with_proxy() -> Result<App, &'static str> {
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
     app.on_window_focus_changed_for_test(true);
-    Ok(app)
+    app
 }
 
 macro_rules! app_or_skip {
@@ -176,13 +189,9 @@ fn focused_osc52_write_reaches_clipboard() {
     assert!(!notice.contains("hi"), "clipboard content stays out of UI");
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn focused_osc52_write_obeys_window_focus_and_off_policy() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.reset_last_clipboard_write_for_test();
 
     app.on_window_focus_changed_for_test(false);
@@ -197,13 +206,9 @@ fn focused_osc52_write_obeys_window_focus_and_off_policy() {
     assert_eq!(app.last_clipboard_write_for_test(), None);
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn osc52_ask_coalesces_and_allow_once_does_not_persist() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.set_osc52_write_policy_for_test(Osc52WritePolicy::Ask);
     app.reset_last_clipboard_write_for_test();
 
@@ -261,13 +266,9 @@ fn osc52_ask_session_decisions_are_ephemeral_and_cancel_on_staleness() {
     assert_eq!(app.osc52_prompt_metadata_for_test(), None);
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn osc52_ask_deny_session_blocks_later_writes() {
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.set_osc52_write_policy_for_test(Osc52WritePolicy::Ask);
     app.advance_tab_bytes_at_position_for_test(0, OSC52_WRITE_HI);
     app.drain_clipboard_requests_for_test();
@@ -329,16 +330,12 @@ fn background_osc52_read_never_reaches_clipboard() {
     assert_eq!(app.clipboard_read_text_calls_for_test(), 1);
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn active_session_osc52_read_denied_while_window_unfocused() {
     // C41: even the active session must not read the clipboard while the OdyTTY
     // window itself is unfocused -- otherwise a foreground program in the active
     // tab could exfiltrate the clipboard while the user works elsewhere.
-    let mut app = app_or_skip!();
+    let mut app = headless_app();
     app.enable_osc52_read_for_test("private text");
     app.set_window_focus_for_test(false);
 

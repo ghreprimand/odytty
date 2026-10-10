@@ -3,10 +3,10 @@
 //! fallback, default delete/rename, import future-key/password refusal,
 //! malformed catalog recovery, and restore of launch_profile.
 //!
-//! Drives a real `App` with an `EventLoop` proxy so `handle_new_tab_with_profile`
-//! can spawn real PTY children. Fixtures redirect the config base so no user
-//! profile store is touched. macOS skips proxy-backed cases (off-main-thread
-//! EventLoop forbidden by AppKit).
+//! Drives a real `App`, with an `EventLoop` proxy where a case needs
+//! `handle_new_tab_with_profile` to spawn real PTY children. Fixtures redirect
+//! the config base so no user profile store is touched. macOS ignores the
+//! proxy-backed cases (AppKit forbids an off-main-thread EventLoop).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -72,22 +72,33 @@ fn write_cwd_profile(name: &str, cwd: &str) {
 }
 
 fn app_with_proxy() -> Result<App, &'static str> {
+    Ok(app_over(Some(event_loop_proxy_for_test()?)))
+}
+
+/// An App whose workspace set has no event loop proxy, for cases that never
+/// spawn a session. They need no winit loop, so they also run on macOS and on
+/// hosts without a display.
+fn headless_app() -> App {
+    app_over(None)
+}
+
+fn app_over(
+    proxy: Option<winit::event_loop::EventLoopProxy<crate::native::pty::UserEvent>>,
+) -> App {
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let headless = Arc::new(crate::native::session::HeadlessSession::new(dims));
-    let proxy = event_loop_proxy_for_test()?;
     let sessions = WorkspaceSet::new(
         Session::new_headless(SessionToken(0), terminal, writer, headless),
-        Some(proxy),
+        proxy,
     );
-    let app = App::new_with_sessions(
+    App::new_with_sessions(
         NativeOptions::default(),
         sessions,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
-    Ok(app)
+    )
 }
 
 macro_rules! app_or_skip {
@@ -97,6 +108,62 @@ macro_rules! app_or_skip {
             Err(_) => return,
         }
     }};
+}
+
+/// An explicit profile shell present on every supported CI runner. Windows has
+/// no `/bin/sh`; a profile naming it fails to spawn and opens no tab.
+#[cfg(unix)]
+const EXPLICIT_SHELL: &str = "/bin/sh";
+#[cfg(windows)]
+const EXPLICIT_SHELL: &str = "cmd.exe";
+
+/// The line that prints `ODY_TEST` in [`EXPLICIT_SHELL`], ending in the byte
+/// the shell reads as Enter (ConPTY takes a carriage return).
+#[cfg(unix)]
+const ECHO_IN_EXPLICIT_SHELL: &[u8] = b"echo $ODY_TEST\n";
+#[cfg(windows)]
+const ECHO_IN_EXPLICIT_SHELL: &[u8] = b"echo %ODY_TEST%\r";
+
+/// The line that prints `ODY_TEST` in the default shell: a POSIX-family login
+/// shell on Unix, PowerShell on Windows, where `$ODY_TEST` would name an unset
+/// PowerShell variable rather than the environment entry.
+#[cfg(unix)]
+const ECHO_IN_DEFAULT_SHELL: &[u8] = b"echo $ODY_TEST\n";
+#[cfg(windows)]
+const ECHO_IN_DEFAULT_SHELL: &[u8] = b"echo $env:ODY_TEST\r";
+
+/// How long a spawned shell may take to print its prompt and then the echoed
+/// value. PowerShell on a CI runner starts far slower than a POSIX shell. The
+/// waits return as soon as the text appears.
+#[cfg(unix)]
+const SHELL_BUDGET: Duration = Duration::from_secs(3);
+#[cfg(windows)]
+const SHELL_BUDGET: Duration = Duration::from_secs(20);
+
+/// An App with an event-loop proxy whose launch geometry is already settled,
+/// as it is in a running window by the time a profile tab can be opened. A
+/// window that has not drawn its first grid holds new Windows shells (see
+/// `crate::pty::spawn_held`), and this fixture never draws one.
+fn settled_app_with_proxy() -> Result<App, &'static str> {
+    let mut app = app_with_proxy()?;
+    app.settle_launch_geometry_for_test();
+    Ok(app)
+}
+
+/// Wait until the shell in `session` has drawn something (its prompt), so
+/// typed input is not raced against shell startup. Returns either way at the
+/// deadline; the caller's own assertion decides the outcome.
+fn wait_for_shell_output(app: &App, session: usize, budget: Duration) {
+    let deadline = Instant::now() + budget;
+    while Instant::now() < deadline {
+        let text = app
+            .tab_plain_text_at_position_for_test(session)
+            .unwrap_or_default();
+        if !text.trim().is_empty() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }
 
 fn wait_for_plain_text(app: &App, session: usize, needle: &str, budget: Duration) -> String {
@@ -141,7 +208,9 @@ fn profile_env_applies_without_shell_or_command() {
     let base = temp_config_base("env-default");
     with_config_base(&base, || {
         write_env_profile("alpha-env", &[("ODY_TEST", "alpha")], None);
-        let mut app = app_or_skip!();
+        let Ok(mut app) = settled_app_with_proxy() else {
+            return;
+        };
         let before = app.active_workspace_tab_count_for_test();
         app.new_tab_with_profile_for_test("alpha-env");
         assert_eq!(
@@ -149,9 +218,10 @@ fn profile_env_applies_without_shell_or_command() {
             before + 1,
             "profile tab must open"
         );
-        app.write_active_session_for_test(b"echo $ODY_TEST\n");
         let session = app.active_workspace_tab_count_for_test() - 1;
-        let text = wait_for_plain_text(&app, session, "alpha", Duration::from_secs(3));
+        wait_for_shell_output(&app, session, SHELL_BUDGET);
+        app.write_active_session_for_test(ECHO_IN_DEFAULT_SHELL);
+        let text = wait_for_plain_text(&app, session, "alpha", SHELL_BUDGET);
         assert!(
             text.contains("alpha"),
             "DefaultShell spawn must apply profile env; screen={text:?}"
@@ -170,14 +240,17 @@ fn profile_env_applies_without_shell_or_command() {
 fn profile_env_applies_with_explicit_shell() {
     let base = temp_config_base("env-shell");
     with_config_base(&base, || {
-        write_env_profile("alpha-sh", &[("ODY_TEST", "alpha")], Some("/bin/sh"));
-        let mut app = app_or_skip!();
+        write_env_profile("alpha-sh", &[("ODY_TEST", "alpha")], Some(EXPLICIT_SHELL));
+        let Ok(mut app) = settled_app_with_proxy() else {
+            return;
+        };
         let before = app.active_workspace_tab_count_for_test();
         app.new_tab_with_profile_for_test("alpha-sh");
         assert_eq!(app.active_workspace_tab_count_for_test(), before + 1);
-        app.write_active_session_for_test(b"echo $ODY_TEST\n");
         let session = app.active_workspace_tab_count_for_test() - 1;
-        let text = wait_for_plain_text(&app, session, "alpha", Duration::from_secs(3));
+        wait_for_shell_output(&app, session, SHELL_BUDGET);
+        app.write_active_session_for_test(ECHO_IN_EXPLICIT_SHELL);
+        let text = wait_for_plain_text(&app, session, "alpha", SHELL_BUDGET);
         assert!(
             text.contains("alpha"),
             "explicit shell spawn must apply profile env; screen={text:?}"
@@ -472,16 +545,12 @@ fn deleting_global_default_profile_clears_setting_and_new_tab_is_plain() {
 
 // ---- (f) renaming the default profile updates the setting key ---------------
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn renaming_global_default_profile_updates_the_setting_key() {
     let base = temp_config_base("rename-default");
     with_config_base(&base, || {
         write_env_profile("oldname", &[("ODY_TEST", "x")], None);
-        let mut app = app_or_skip!();
+        let mut app = headless_app();
         app.set_global_default_launch_profile_for_test("oldname");
         let mut renamed = LaunchProfile::new("newname").expect("name");
         renamed
@@ -605,7 +674,7 @@ fn malformed_profile_is_listed_with_reason_and_bytes_unchanged() {
 fn restore_keeps_launch_profile_on_profile_tabs() {
     let base = temp_config_base("restore");
     with_config_base(&base, || {
-        write_env_profile("alpha", &[("ODY_TEST", "alpha")], Some("/bin/sh"));
+        write_env_profile("alpha", &[("ODY_TEST", "alpha")], Some(EXPLICIT_SHELL));
         let mut app = app_or_skip!();
         app.new_tab_with_profile_for_test("alpha");
         app.new_tab_with_profile_for_test("alpha");
