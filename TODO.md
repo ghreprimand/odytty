@@ -1953,7 +1953,8 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
       keep their static fallback chains.
 - [x] Monochrome atlas construction admits font metrics before allocation;
       device dimensions and a 192 MiB bitmap budget also bound dynamic growth
-      on Linux Wayland, Linux X11, macOS and Windows.
+      on Linux Wayland, Linux X11, macOS and Windows. The 8192 pixel ceiling
+      applies to construction; native growth uses the device texture limit.
 
 - [x] DECSERA retains stored cell rendition and protection when clearing
       characters and wide-pair fragments, with parser and reflow regressions.

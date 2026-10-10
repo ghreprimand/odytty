@@ -144,6 +144,8 @@ fn create_atlas_texture(
     atlas_texture
 }
 
+// CPU atlas admission does not make GPU allocation or upload fallible here.
+// Growth recreates and uploads the whole texture under existing GPU error handling.
 fn create_color_atlas_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,

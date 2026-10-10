@@ -69,11 +69,11 @@ fn invalid_scale_cannot_create_unbounded_cell_geometry() {
 #[test]
 fn growth_slot_ceiling_respects_bitmap_budget_without_allocating_it() {
     let mut atlas = GlyphAtlas::build_with_subpixel(&wide_font(), 64.0, SubpixelMode::Rgb);
-    atlas.set_texture_dimension_limit(u32::MAX);
+    atlas.set_texture_dimension_limit(16384);
     let rows = atlas.max_slots.div_ceil(atlas.cols);
     let bytes = atlas_byte_len(atlas.width, rows * slot_h(atlas.cell), 4);
     assert!(bytes <= 192 * 1024 * 1024, "growth admits {bytes} bytes");
-    assert!(rows * slot_h(atlas.cell) <= 8192);
+    assert!(rows * slot_h(atlas.cell) <= 16384);
 }
 
 #[test]
@@ -171,4 +171,59 @@ fn supported_hidpi_maximum_keeps_natural_cell_geometry() {
             8192
         ));
     }
+}
+
+#[test]
+fn ordinary_hidpi_growth_retains_device_capacity() {
+    let mut atlas = GlyphAtlas::build(&font(), 24.0);
+    // Model an ordinary 34px-high HiDPI cell without allocating its full cache.
+    atlas.cell = CellSize {
+        width: 18,
+        height: 34,
+        baseline: 26,
+    };
+    atlas.width = atlas.cols * slot_w(atlas.cell);
+    atlas.set_texture_dimension_limit(16384);
+    assert_eq!(atlas.max_slots, 5024);
+    assert!(atlas.max_slots > 5000);
+    assert!(
+        atlas_byte_len(
+            atlas.width,
+            atlas.max_slots / atlas.cols * slot_h(atlas.cell),
+            1
+        ) < MAX_ATLAS_BYTES
+    );
+}
+
+#[test]
+fn growth_crosses_construction_axis_ceiling_without_moving_slots() {
+    let mut atlas = GlyphAtlas::build(&font(), 24.0);
+    atlas.set_texture_dimension_limit(16384);
+    let resident = atlas.data.clone();
+    let spans = atlas.slot_span.clone();
+    let beyond = (8192 / slot_h(atlas.cell) + 1) * atlas.cols;
+    while atlas.next_slot <= beyond {
+        let next = atlas.next_slot;
+        assert_eq!(atlas.allocate_slots(1), Some(next));
+    }
+    assert!(atlas.height > 8192 && atlas.height <= 16384);
+    assert_eq!(&atlas.data[..resident.len()], resident.as_slice());
+    assert_eq!(&atlas.slot_span[..spans.len()], spans.as_slice());
+}
+
+#[test]
+fn minimal_fallback_constructor_uses_actual_gutter_extent() {
+    let atlas = GlyphAtlas::build_with_dimension_limit(&font(), 24.0, SubpixelMode::Off, 1.0, 112);
+    assert_eq!((atlas.cell.width, atlas.cell.height), (1, 1));
+    assert_eq!((atlas.width, atlas.height), (112, 42));
+}
+
+#[test]
+fn native_constructor_retains_growth_limit_above_initial_ceiling() {
+    let headless = GlyphAtlas::build(&font(), 24.0);
+    let native =
+        GlyphAtlas::build_with_dimension_limit(&font(), 24.0, SubpixelMode::Off, 1.0, 16384);
+    assert_eq!(native.data, headless.data);
+    assert_eq!(native.cell, headless.cell);
+    assert!(native.max_slots > headless.max_slots);
 }

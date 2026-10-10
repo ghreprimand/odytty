@@ -12,6 +12,8 @@ use crate::atlas::CellSize;
 const ATLAS_COLS: u32 = 16;
 const ATLAS_GROW_ROWS: u32 = 4;
 const MAX_COLOR_GLYPH_SLOTS: u32 = 16384;
+// Separate RGBA bitmap budget; GPU texture and temporary uploads add memory.
+// Retain color residency independently of the monochrome coverage budget.
 const MAX_COLOR_BITMAP_BYTES: usize = 256 * 1024 * 1024;
 
 /// Stable identity for a shaped color glyph or cluster.

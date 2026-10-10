@@ -77,8 +77,13 @@ impl GlyphAtlas {
                     .div_ceil(ATLAS_GROW_ROWS)
                     * ATLAS_GROW_ROWS;
             let height = rows.checked_mul(slot_h(self.cell))?;
-            let bytes = atlas_byte_len(self.width, height, self.subpixel.bytes_per_pixel());
-            if height > MAX_ATLAS_DIMENSION || bytes > MAX_ATLAS_BYTES {
+            if height > self.max_texture_dimension {
+                return None;
+            }
+            let bytes = (self.width as usize)
+                .checked_mul(height as usize)?
+                .checked_mul(self.subpixel.bytes_per_pixel() as usize)?;
+            if bytes > MAX_ATLAS_BYTES {
                 return None;
             }
             // Exact reservation prevents Vec's geometric growth from doubling

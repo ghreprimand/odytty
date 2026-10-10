@@ -36,7 +36,8 @@ impl GlyphAtlas {
     }
 
     /// Apply the texture limit before constructing the initial CPU bitmap.
-    /// Devices must support the minimal fallback atlas (112 pixels per axis).
+    /// Devices must support the minimal fallback atlas: 112px wide, 42px high.
+    /// Its 1px cell has a 3px border on each side (bleed plus ink overflow).
     pub fn build_with_dimension_limit(
         font: &FontHandle,
         px: f32,
@@ -44,9 +45,9 @@ impl GlyphAtlas {
         line_height: f32,
         max_dimension: u32,
     ) -> Self {
-        let max_dimension = max_dimension.min(MAX_ATLAS_DIMENSION);
+        let initial_limit = max_dimension.min(MAX_ATLAS_DIMENSION);
         assert!(
-            max_dimension >= 112,
+            initial_limit >= 112,
             "texture limit cannot hold a fallback atlas"
         );
         let px = if px.is_finite() {
@@ -55,13 +56,13 @@ impl GlyphAtlas {
             16.0
         };
         let mut cell = cell_geometry(font, px, line_height);
-        if !initial_geometry_fits(cell, subpixel, max_dimension) {
+        if !initial_geometry_fits(cell, subpixel, initial_limit) {
             cell = CellSize {
                 width: 8,
                 height: 16,
                 baseline: 13,
             };
-            if !initial_geometry_fits(cell, subpixel, max_dimension) {
+            if !initial_geometry_fits(cell, subpixel, initial_limit) {
                 cell = CellSize {
                     width: 1,
                     height: 1,
@@ -128,6 +129,7 @@ impl GlyphAtlas {
             capacity_rows,
             next_slot: base_slots,
             max_slots: MAX_ATLAS_SLOTS,
+            max_texture_dimension: max_dimension,
             dynamic: HashMap::new(),
             shaped: HashMap::new(),
             px,

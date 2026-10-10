@@ -72,14 +72,14 @@ impl GlyphAtlas {
     /// Existing base glyphs stay resident; new glyphs use the fallback once
     /// another complete atlas row would cross `max_dimension`.
     pub fn set_texture_dimension_limit(&mut self, max_dimension: u32) {
+        self.max_texture_dimension = max_dimension;
         let byte_rows = MAX_ATLAS_BYTES
             / atlas_byte_len(
                 self.width,
                 slot_h(self.cell),
                 self.subpixel.bytes_per_pixel(),
             );
-        let rows =
-            (max_dimension.min(MAX_ATLAS_DIMENSION) / slot_h(self.cell)).min(byte_rows as u32);
+        let rows = (max_dimension / slot_h(self.cell)).min(byte_rows as u32);
         let reachable_rows = self.capacity_rows
             + rows.saturating_sub(self.capacity_rows) / ATLAS_GROW_ROWS * ATLAS_GROW_ROWS;
         self.max_slots = reachable_rows

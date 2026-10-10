@@ -128,6 +128,8 @@ sessions.
 - **GPU text and inline media:** bundled and system fonts, fallback chains,
   HiDPI rebuilds, color emoji with device-bounded atlas admission where a color
   font is available, Kitty graphics, and Sixel share the `wgpu` renderer.
+  Atlas bitmap budgets bound cache residency, not total GPU memory; see the
+  [capacity limits](SPEC.md#bound-emoji-atlas-capacity).
 - **International text:** Unicode 17 terminal widths for Indic, Southeast
   Asian, and emoji sequences, font shaping for the enabled script groups, and
   opt-in bidirectional display; see the [feature reference](docs/features.md)

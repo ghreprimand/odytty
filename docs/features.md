@@ -162,7 +162,8 @@ shells and full-screen terminal applications:
 DECSERA erases character and cluster payloads while retaining stored cell
 rendition and protection, including blanks produced by wide-pair boundary
 repair. Erased hyperlink metadata is cleared. DECERA, DECSEL and DECSED keep
-the current-blank rendition policy.
+the current-blank rendition policy; the [specification](../SPEC.md)
+records the VT510 basis and compatibility choice.
 These terminal-core rules are shared by Linux Wayland, Linux X11, macOS and
 Windows.
 
@@ -376,10 +377,12 @@ or oversized font metrics use an 8 by 16 pixel fallback cell. Very small
 texture limits use a 1 by 1 pixel fallback cell. Physical raster
 sizes are bounded to 512 pixels; admitted cell width is at most 512 pixels
 and height at most 1024 pixels.
-Initial construction and growth share an 8192 pixel texture-axis ceiling and
-192 MiB coverage-bitmap budget, with the active GPU limit applied before native
-construction and rebuilds. Exhausted dynamic residency uses the existing
-missing-glyph path. These bounds apply on Linux Wayland, Linux X11, macOS and
+Initial construction has an 8192 pixel texture-axis ceiling and a 192 MiB
+coverage-bitmap budget, with the active GPU limit applied before native
+construction and rebuilds. Dynamic growth uses the device texture limit and
+the same byte budget, preserving capacity on devices with larger textures.
+Headless construction and growth default to the 8192 pixel axis limit.
+Exhausted dynamic residency uses the existing missing-glyph path. These bounds apply on Linux Wayland, Linux X11, macOS and
 Windows; terminal text, logical cell ownership and copying are unchanged.
 
 Victor Mono is bundled and selected by default at 20 logical pixels with line
@@ -677,6 +680,9 @@ Colour-glyph residency is capped at 16,384 slots, the GPU texture limit, and a
 reservation. An initial page that cannot fit uses a transparent 1x1 texture
 and monochrome fallback; resident compatible glyphs survive later refusal.
 This policy is shared by Linux Wayland, Linux X11, macOS and Windows.
+The CPU reservation fallback does not cover GPU allocation or upload failure.
+Growth recreates and uploads the whole texture; the bitmap ceiling is not a
+total-memory bound. The separate monochrome bitmap budget is 192 MiB.
 
 Variation selectors, flags, keycaps, skin tones, and common ZWJ clusters are
 supported by the color-glyph renderer. Unicode 17 listed VS16 bases, supported

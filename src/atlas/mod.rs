@@ -113,9 +113,9 @@ const ATLAS_GROW_ROWS: u32 = 4;
 /// cannot grow the atlas without bound. Beyond this, new glyphs use the
 /// fallback box instead of consuming a slot.
 const MAX_ATLAS_SLOTS: u32 = 8192;
-/// Shared CPU/GPU coverage budget, independent of slot count and font metrics.
+/// Per-bitmap budget; a GPU texture of equal size and upload buffers are additional.
 const MAX_ATLAS_BYTES: usize = 192 * 1024 * 1024;
-/// Headless construction uses the same conservative texture-axis ceiling.
+/// Conservative initial texture-axis ceiling, also the headless growth default.
 const MAX_ATLAS_DIMENSION: u32 = 8192;
 
 /// First dynamic slot: fallback (0) + 95 printable ASCII (1..=95).
@@ -807,8 +807,10 @@ pub struct GlyphAtlas {
     /// Next free slot for dynamic insertion; also the current slot count.
     next_slot: u32,
     /// Slot ceiling imposed by bitmap bytes, texture height and slot count.
-    /// Headless callers use the same byte and axis bounds.
+    /// Headless growth defaults to the construction axis ceiling.
     max_slots: u32,
+    /// Active texture axis limit, rechecked before allocating a growth page.
+    max_texture_dimension: u32,
     /// Resident non-ASCII `(style, codepoint)` → slot index. A codepoint the
     /// font lacks is cached pointing at [`FALLBACK_SLOT`] so the decision is made
     /// once. Keyed by style so bold/italic variants get distinct slots; the

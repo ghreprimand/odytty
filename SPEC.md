@@ -305,8 +305,13 @@ invalid per xterm convention.
 **Rectangle operations** (`src/core/screen/rect.rs`). DECCRA, DECFRA, DECERA,
 and DECSERA are implemented. DECSERA clears erasable character and cluster
 payloads while retaining each cell's stored SGR and protection attributes.
-DECERA uses the current blank rendition. DECSEL and DECSED retain the
-current-blank compatibility policy rather than DECSERA's retained rendition.
+DECERA uses the current blank rendition. The [VT510 programmer manual](https://vt100.net/mirror/mds-199909/cd3/term/vt510rmb.pdf),
+DECERA (printed page 5-50), explicitly erases visual attributes; DECSERA
+(page 5-126) explicitly retains SGR and protection attributes. DECSEL and
+DECSED (page 5-125) specify erasable characters and extent but do not specify
+SGR retention. OdyTTY keeps its existing current-blank policy for those line
+and display forms; this is a compatibility choice, not a claim that the manual
+requires their rendition policy.
 DECCRA uses a snapshot-copy strategy: the source cells are copied into a temporary buffer before the destination write, so
 overlapping regions produce correct results without requiring a scratch page.
 Rectangle coordinates are 1-based, inclusive, and clamp to the visible page.
@@ -2613,10 +2618,12 @@ or oversized font metrics use an 8 by 16 pixel fallback cell. Very small
 texture limits use a 1 by 1 pixel fallback cell. Physical raster
 sizes are bounded to 512 pixels; admitted cell width is at most 512 pixels
 and height at most 1024 pixels.
-Initial construction and growth share an 8192 pixel texture-axis ceiling and
-192 MiB coverage-bitmap budget, with the active GPU limit applied before native
-construction and rebuilds. Exhausted dynamic residency uses the existing
-missing-glyph path. These bounds apply on Linux Wayland, Linux X11, macOS and
+Initial construction has an 8192 pixel texture-axis ceiling and a 192 MiB
+coverage-bitmap budget, with the active GPU limit applied before native
+construction and rebuilds. Dynamic growth uses the device texture limit and
+the same byte budget, preserving capacity on devices with larger textures.
+Headless construction and growth default to the 8192 pixel axis limit.
+Exhausted dynamic residency uses the existing missing-glyph path. These bounds apply on Linux Wayland, Linux X11, macOS and
 Windows; terminal text, logical cell ownership and copying are unchanged.
 
 Text is cell-based: each printable base scalar occupies one or two columns
@@ -3104,6 +3111,16 @@ reservation precede allocation and growth. Zero, overflowing, over-budget or
 device-incompatible initial cell geometry declines color residency and uses a
 transparent 1x1 texture, preserving cell metrics and monochrome fallback.
 Startup and scale/font rebuilds use the same device-bound constructor.
+
+The 256 MiB color budget preserves the separate RGBA cache's admitted
+capacity; the 192 MiB monochrome budget bounds its separate coverage cache.
+Each ceiling bounds one CPU bitmap and the equally sized GPU texture,
+not total process or device memory. CPU reallocation can temporarily retain
+old and new buffers. GPU growth recreates the texture and uploads the entire
+bitmap, so old textures and upload staging also add temporary memory.
+CPU admission or reservation failure preserves monochrome fallback. GPU
+allocation and upload failures use the renderer's existing GPU error handling;
+they do not provide a guaranteed per-glyph monochrome fallback.
 
 At a slot, bitmap or device limit, a new insertion returns
 `ColorGlyphAtlasError::Full`; existing compatible slots stay lookupable,

@@ -64,10 +64,12 @@ or oversized font metrics use an 8 by 16 pixel fallback cell. Very small
 texture limits use a 1 by 1 pixel fallback cell. Physical raster
 sizes are bounded to 512 pixels; admitted cell width is at most 512 pixels
 and height at most 1024 pixels.
-Initial construction and growth share an 8192 pixel texture-axis ceiling and
-192 MiB coverage-bitmap budget, with the active GPU limit applied before native
-construction and rebuilds. Exhausted dynamic residency uses the existing
-missing-glyph path. These bounds apply on Linux Wayland, Linux X11, macOS and
+Initial construction has an 8192 pixel texture-axis ceiling and a 192 MiB
+coverage-bitmap budget, with the active GPU limit applied before native
+construction and rebuilds. Dynamic growth uses the device texture limit and
+the same byte budget, preserving capacity on devices with larger textures.
+Headless construction and growth default to the 8192 pixel axis limit.
+Exhausted dynamic residency uses the existing missing-glyph path. These bounds apply on Linux Wayland, Linux X11, macOS and
 Windows; terminal text, logical cell ownership and copying are unchanged.
 
 This matrix is the same support statement carried by [`docs/features.md`](features.md):
