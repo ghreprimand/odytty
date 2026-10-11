@@ -323,7 +323,8 @@ so that count alone does not establish execution. Dedicated CI validation steps
 retain successful test output on Linux, macOS, and Windows. Unix shell round trips
 are not compiled on Windows; GPU validation there uses available adapters.
 
-Linux CI also installs Xvfb and xauth and runs `bash scripts/ci-display.sh`.
+Linux CI also installs Xvfb, xauth and the X11 keyboard runtime
+`libxkbcommon-x11-0` and runs `bash scripts/ci-display.sh`.
 The separate virtual-display check requires the event-loop proof population to
 report executed cases and zero unavailable cases. It preserves failed assertions
 and does not retry them on another backend. Without Xvfb, a local run can use

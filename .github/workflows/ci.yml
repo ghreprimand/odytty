@@ -71,7 +71,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libfontconfig1-dev libfreetype6-dev mesa-vulkan-drivers zsh fish xvfb xauth
+            pkg-config libfontconfig1-dev libfreetype6-dev mesa-vulkan-drivers zsh fish xvfb xauth libxkbcommon-x11-0
 
       # Cache only the dependency-download dirs (~/.cargo), NOT `target`.
       # `target` grows without bound across runs, and with `restore-keys`

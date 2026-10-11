@@ -8,17 +8,17 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-GPU = (
-    "cursor_glow_shader_and_pipeline_validate",
-    "cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws",
-    "programming_ligature_vertices_submit_through_the_real_cell_pipeline",
-)
-SHELL = (
-    "installed_shells_roundtrip_hostile_utf8_path_bytes",
-    "installed_shells_roundtrip_non_utf8_and_control_bytes",
-    "installed_shells_roundtrip_multi_path_batch_order",
-    "installed_shells_roundtrip_via_positional_parameter",
-)
+SCRIPT = (ROOT / "scripts/ci-validation.sh").read_text(encoding="utf-8")
+
+
+def script_names(array):
+    """Read one name array from ci-validation.sh so the fixture cannot drift."""
+    body = SCRIPT.split(f"{array}=(\n", 1)[1].split("\n)", 1)[0]
+    return tuple(line.strip() for line in body.splitlines() if line.strip())
+
+
+GPU = script_names("gpu_names")
+SHELL = script_names("shell_names")
 PROOFS = [f"VALIDATION_EXECUTED test={name}" for name in GPU] + [
     f"VALIDATION_EXECUTED test={name} shell={shell}"
     for name in SHELL for shell in ("bash", "zsh", "fish")
@@ -44,6 +44,11 @@ class RequiredValidation(unittest.TestCase):
                 env=environment, capture_output=True, text=True, timeout=15,
                 check=False,
             )
+
+    def test_fixture_reads_every_required_name(self):
+        self.assertEqual(len(GPU), 20)
+        self.assertEqual(len(SHELL), 4)
+        self.assertEqual(len(set(GPU + SHELL)), len(GPU + SHELL))
 
     def test_complete_proof_set_passes(self):
         self.assertEqual(self.run_fixture(PROOFS).returncode, 0)

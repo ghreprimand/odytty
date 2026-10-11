@@ -1648,7 +1648,12 @@ mod tests {
             let lifted = enforce_min_contrast(fg, bg, 17.0);
             assert_eq!(lifted, enforce_min_contrast_unclamped(fg, bg, 17.0));
             assert!(shown_contrast(lifted, bg) < 17.0);
-            assert_eq!(enforce_min_contrast(lifted, bg, 17.0), lifted);
+            // The lift re-bisects on the same line, so a second application agrees
+            // to float rounding only (MSVC and Unix libm differ in the last bits).
+            let again = enforce_min_contrast(lifted, bg, 17.0);
+            for (x, y) in again.into_iter().zip(lifted) {
+                assert!((x - y).abs() <= 1e-5, "{again:?} vs {lifted:?}");
+            }
         }
     }
 

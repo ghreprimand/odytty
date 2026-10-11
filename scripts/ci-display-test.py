@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class DisplayValidation(unittest.TestCase):
     def test_workflow_requires_virtual_display_proof(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        self.assertIn("xvfb xauth", workflow)
+        self.assertIn("xvfb xauth libxkbcommon-x11-0", workflow)
         self.assertIn("bash scripts/ci-display.sh", workflow)
 
     def run_fixture(self, summary, status=0):

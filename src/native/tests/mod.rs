@@ -404,10 +404,8 @@ fn event_loop_dependent_tests_all_execute_in_one_process() {
         .filter(|line| line.contains(EVENT_LOOP_PROOF_UNAVAILABLE))
         .count();
     println!("event-loop harness: executed={executed} unavailable={unavailable}");
-    // Name the child's failing cases so a red run says which ones: the harness
-    // ends a failed run with a `failures:` list of indented names. A child
-    // that died without that summary (abort, signal, timeout) gets the tail
-    // of its stderr instead.
+    // Always retain stderr on failure, even when libtest lists failing cases:
+    // an initialization panic can otherwise hide the missing runtime library.
     let failed: Vec<&str> = stdout
         .rsplit_once("\nfailures:\n")
         .map(|(_, list)| {
@@ -416,16 +414,8 @@ fn event_loop_dependent_tests_all_execute_in_one_process() {
                 .collect()
         })
         .unwrap_or_default();
-    let detail = if failed.is_empty() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let lines: Vec<&str> = stderr.lines().collect();
-        format!(
-            "no failure summary; stderr tail:\n{}",
-            lines[lines.len().saturating_sub(20)..].join("\n")
-        )
-    } else {
-        format!("failing cases: {failed:?}")
-    };
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let detail = format!("failing cases: {failed:?}; child stderr:\n{stderr}");
 
     assert!(
         output.status.success(),

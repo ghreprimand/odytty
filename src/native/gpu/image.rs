@@ -460,9 +460,9 @@ impl BgImageGpu {
     /// Failure is non-destructive by design: if the file has been deleted,
     /// replaced, or become undecodable since load, the existing texture is kept
     /// and the wallpaper stays on screen. The failure is remembered, so later
-    /// resizes do not re-read the file until the image is loaded again. Dropping the background because a
-    /// window was dragged wider would be a far worse outcome than showing a
-    /// slightly soft one.
+    /// resizes do not re-read the file until the image is loaded again.
+    /// Dropping the background because a window was dragged wider would be a
+    /// far worse outcome than showing a slightly soft one.
     pub(in crate::native) fn resample_for_surface(
         &mut self,
         device: &wgpu::Device,
@@ -1448,10 +1448,8 @@ mod tests {
         device.poll(wgpu::PollType::wait_indefinitely()).ok();
     }
 
-    /// The live surface-sizing path against a real device and the real 4K
-    /// bundled asset: a small window loads a small texture, growth past the
-    /// headroom re-reads the image, a repeat of the same size does not, and a
-    /// shrink keeps what it has.
+    /// A resize re-read that fails keeps the texture and is remembered: a later
+    /// resize does not open the file again, even once the file is back.
     #[test]
     fn a_failed_resize_re_read_is_not_repeated_on_later_resizes() {
         let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
@@ -1492,6 +1490,10 @@ mod tests {
         device.poll(wgpu::PollType::wait_indefinitely()).ok();
     }
 
+    /// The live surface-sizing path against a real device and the real 4K
+    /// bundled asset: a small window loads a small texture, growth past the
+    /// headroom re-reads the image, a repeat of the same size does not, and a
+    /// shrink keeps what it has.
     #[test]
     fn background_texture_follows_the_window_on_a_live_device() {
         let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
