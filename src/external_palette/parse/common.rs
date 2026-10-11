@@ -54,8 +54,9 @@ pub(super) fn assemble(
 }
 
 /// Parse line-oriented `key = value` color maps (theme / colors.toml style).
-/// Values may be bare `#RRGGBB` or quoted. Non-color values are ignored;
-/// callers require the complete set of color keys.
+/// Values may be bare `#RRGGBB` or quoted. A key the providers read as a color
+/// must hold one, and may appear once; any other key is metadata and its
+/// non-color values are ignored. Callers require the complete set of color keys.
 pub(super) fn parse_flat_color_map(
     text: &str,
 ) -> Result<BTreeMap<String, Srgb>, ExternalPaletteError> {
@@ -83,14 +84,31 @@ pub(super) fn parse_flat_color_map(
                 line_index + 1
             )));
         }
+        let known = is_known_color_key(&key);
         let value = strip_quotes(value_raw.trim());
-        if value.is_empty() {
-            continue;
-        }
-        let Some(color) = parse_hex(value) else {
-            // Non-color values (booleans, strings) are ignored for color maps.
+        let color = if value.is_empty() {
+            None
+        } else {
+            parse_hex(value)
+        };
+        let Some(color) = color else {
+            // A key a provider reads must hold a color: a malformed value is
+            // refused instead of leaving an earlier or fallback value in its
+            // place. Other keys are metadata (booleans, strings) and ignored.
+            if known {
+                return Err(ExternalPaletteError::Malformed(format!(
+                    "line {}: {key} needs a color value",
+                    line_index + 1
+                )));
+            }
             continue;
         };
+        if known && map.contains_key(&key) {
+            return Err(ExternalPaletteError::Malformed(format!(
+                "line {}: duplicate color key {key}",
+                line_index + 1
+            )));
+        }
         if map.len() >= MAX_EXTERNAL_PALETTE_ENTRIES && !map.contains_key(&key) {
             return Err(ExternalPaletteError::TooManyEntries);
         }
@@ -99,11 +117,66 @@ pub(super) fn parse_flat_color_map(
     Ok(map)
 }
 
+/// Lowercase a flat key and drop its documented separators (`_` and `-`, so
+/// `bright_red` and `bright-red` name `brightred`). A key with any other
+/// character is metadata: it keeps its lowercase spelling and so can never
+/// collide with a key a provider reads.
 fn normalize_flat_key(raw: &str) -> String {
-    raw.chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .flat_map(|c| c.to_lowercase())
-        .collect()
+    let key = raw.trim();
+    if key
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        key.chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .flat_map(|c| c.to_lowercase())
+            .collect()
+    } else {
+        key.to_lowercase()
+    }
+}
+
+/// The normalized keys the flat providers read as colors.
+fn is_known_color_key(key: &str) -> bool {
+    const NAMED: &[&str] = &[
+        "foreground",
+        "background",
+        "clear",
+        "cursor",
+        "selection",
+        "search",
+        "border",
+        "inactive",
+        "muted",
+        "darkerbackground",
+        "darkforeground",
+        "brightforeground",
+        "red",
+        "green",
+        "yellow",
+        "blue",
+        "magenta",
+        "cyan",
+        "brightred",
+        "brightgreen",
+        "brightyellow",
+        "brightblue",
+        "brightmagenta",
+        "brightcyan",
+    ];
+    if NAMED.contains(&key) {
+        return true;
+    }
+    let indexed = |prefix: &str, radix: u32, width: Option<usize>, max: u32| {
+        key.strip_prefix(prefix).is_some_and(|digits| {
+            !digits.is_empty()
+                && width.is_none_or(|width| digits.len() == width)
+                && digits.chars().all(|c| c.is_digit(radix))
+                && u32::from_str_radix(digits, radix).is_ok_and(|index| index <= max)
+                && (width.is_some() || digits == "0" || !digits.starts_with('0'))
+        })
+    };
+    indexed("color", 10, None, 15) || indexed("base", 16, Some(2), 15)
 }
 
 /// Keep hashes inside colours; only whitespace-separated suffixes are comments.

@@ -243,6 +243,28 @@ fn sticky_refcount_frees_when_the_line_leaves_the_ring() {
 }
 
 #[test]
+fn trimming_the_parked_primary_history_frees_its_buttons_at_once() {
+    let mut term = enabled_terminal(20, 3);
+    term.set_scrollback_limit(10);
+    feed_osc(&mut term, T2_DEFINE_STICKY);
+    feed(&mut term, b"go");
+    feed_osc(&mut term, T2_END);
+    for _ in 0..6 {
+        feed(&mut term, b"\r\nfiller");
+    }
+    assert_eq!(term.button_entry_count(), 1, "history still holds the line");
+    // The alternate screen parks the primary and its history.
+    feed(&mut term, b"\x1b[?1049h");
+    assert_eq!(term.button_entry_count(), 1);
+    term.set_scrollback_limit(1);
+    assert_eq!(
+        term.button_entry_count(),
+        0,
+        "the trimmed parked history surrenders its entry without waiting for a rebuild"
+    );
+}
+
+#[test]
 fn invalidated_button_stays_gray_until_its_lines_leave() {
     let mut term = enabled_terminal(20, 3);
     term.set_scrollback_limit(2);

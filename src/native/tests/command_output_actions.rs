@@ -111,11 +111,12 @@ fn top_visible_row(app: &App) -> usize {
 }
 
 #[test]
-fn failed_navigation_uses_only_explicit_nonzero_statuses() {
+fn failed_navigation_from_the_live_bottom_lands_on_the_nearest_failure() {
     let (mut app, _) = app_with(&failed_and_successful_commands());
     assert_eq!(app.scrollback_len_for_test(), 45, "fixture scrolls 45 rows");
     // From the live bottom, previous lands on the nearest failure (exit 3, prompt
-    // row 36), never on the exit-0 command at row 34 or the later prompt.
+    // row 36). Status filtering is pinned by
+    // `failed_navigation_skips_a_nearer_success_and_an_unmarked_command`.
     app.jump_failed_command_for_test(false);
     assert_eq!(
         top_visible_row(&app),
@@ -123,6 +124,94 @@ fn failed_navigation_uses_only_explicit_nonzero_statuses() {
         "previous failed: the exit 3 block"
     );
     assert!(app.open_notice_message_for_test().is_none());
+}
+
+/// One failed command, then a successful one and one with no exit status, each
+/// with filler output so the failure scrolls off the grid. Prompt rows: bad 0,
+/// ok 32, unmarked 64, final prompt 96.
+fn failure_then_success_and_unmarked_commands() -> Vec<u8> {
+    let pad = "pad\r\n".repeat(30);
+    let mut stream = Vec::new();
+    stream.extend_from_slice(
+        format!("\x1b]133;A\x07$ bad7\r\n\x1b]133;C\x07out\r\n{pad}\x1b]133;D;7\x07").as_bytes(),
+    );
+    stream.extend_from_slice(
+        format!("\x1b]133;A\x07$ ok\r\n\x1b]133;C\x07out\r\n{pad}\x1b]133;D;0\x07").as_bytes(),
+    );
+    stream.extend_from_slice(
+        format!("\x1b]133;A\x07$ unmarked\r\n\x1b]133;C\x07out\r\n{pad}").as_bytes(),
+    );
+    stream.extend_from_slice(b"\x1b]133;A\x07$ ");
+    stream
+}
+
+#[test]
+fn failed_navigation_skips_a_nearer_success_and_an_unmarked_command() {
+    let (mut app, _) = app_with(&failure_then_success_and_unmarked_commands());
+    // From the live bottom the nearest earlier blocks are the exit 0 command
+    // and the one with no recorded status; neither is a failure.
+    app.jump_failed_command_for_test(false);
+    assert_eq!(
+        top_visible_row(&app),
+        0,
+        "previous failed lands on the only failure, past the nearer blocks"
+    );
+    assert!(app.open_notice_message_for_test().is_none());
+    // Nothing after it is a failure either.
+    app.jump_failed_command_for_test(true);
+    assert_eq!(top_visible_row(&app), 0);
+    assert_eq!(
+        app.open_notice_message_for_test().as_deref(),
+        Some("No next failed command.")
+    );
+}
+
+/// Four failed commands of seven rows each, then the prompt, on a history capped
+/// at five rows. Prompt rows before any eviction: 0, 7, 14, 21; final prompt 28.
+fn four_failures_on_capped_history() -> (App, Arc<Mutex<Terminal>>) {
+    let (app, terminal) = headless_app_for_test();
+    terminal.lock().expect("terminal").set_scrollback_limit(5);
+    let mut stream = Vec::new();
+    for name in ["f1", "f2", "f3", "f4"] {
+        stream.extend_from_slice(
+            format!(
+                "\x1b]133;A\x07$ {name}\r\n\x1b]133;C\x07out\r\n{}\x1b]133;D;1\x07",
+                "pad\r\n".repeat(5)
+            )
+            .as_bytes(),
+        );
+    }
+    stream.extend_from_slice(b"\x1b]133;A\x07$ ");
+    terminal.lock().expect("terminal").advance(&stream);
+    (app, terminal)
+}
+
+#[test]
+fn failed_navigation_anchor_follows_rows_that_eviction_shifts() {
+    let (mut app, terminal) = four_failures_on_capped_history();
+    assert_eq!(app.scrollback_len_for_test(), 5, "history is at its cap");
+    // The nearest failure before the middle of the live view is the third one,
+    // on screen, so the view stays at the live bottom.
+    app.jump_failed_command_for_test(false);
+    assert_eq!(top_visible_row(&app), 5);
+    // Three lines of output evict three rows: every retained row, the third
+    // failure included, now has an absolute row three lower, while the length
+    // and the offset (and so the top row) are unchanged.
+    terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"a\r\nb\r\nc\r\n");
+    assert_eq!(app.scrollback_len_for_test(), 5);
+    assert_eq!(top_visible_row(&app), 5);
+    // The next previous steps from where the third failure now is, to the
+    // second one (row 7 before eviction, row 4 now), rather than finding the
+    // third again from its stale row.
+    app.jump_failed_command_for_test(false);
+    assert_eq!(
+        top_visible_row(&app),
+        4,
+        "previous steps to the second failure, not back to the third"
+    );
 }
 
 #[test]

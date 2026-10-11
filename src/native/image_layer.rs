@@ -197,8 +197,8 @@ pub(super) fn placement_quad_with_padding_and_row_offset(
         placement.source.height.min(max_source_h)
     };
 
-    let cell_extent_w = (placement.display_columns as u32).saturating_mul(cell.width);
-    let cell_extent_h = (placement.display_rows as u32).saturating_mul(cell.height);
+    let cell_extent_w = cell_extent_px(placement.display_columns, cell.width);
+    let cell_extent_h = cell_extent_px(placement.display_rows, cell.height);
     let visible_w = requested_source_w.min(cell_extent_w);
     let visible_h = requested_source_h.min(cell_extent_h);
     if visible_w == 0 || visible_h == 0 {
@@ -271,8 +271,8 @@ pub(super) fn placement_quad_with_origin(
         placement.source.height.min(max_source_h)
     };
 
-    let cell_extent_w = (placement.display_columns as u32).saturating_mul(cell.width);
-    let cell_extent_h = (placement.display_rows as u32).saturating_mul(cell.height);
+    let cell_extent_w = cell_extent_px(placement.display_columns, cell.width);
+    let cell_extent_h = cell_extent_px(placement.display_rows, cell.height);
     let visible_w = requested_source_w.min(cell_extent_w);
     let visible_h = requested_source_h.min(cell_extent_h);
     if visible_w == 0 || visible_h == 0 {
@@ -1361,4 +1361,12 @@ fn fs_backing(input: VsOut) -> @location(0) vec4<f32> {{
 }}
 "#
     )
+}
+
+/// Pixel extent of `cells` cells of `cell_px` pixels. A cell count past
+/// `u32::MAX` saturates instead of wrapping to a small or zero extent.
+fn cell_extent_px(cells: usize, cell_px: u32) -> u32 {
+    u32::try_from(cells)
+        .unwrap_or(u32::MAX)
+        .saturating_mul(cell_px)
 }

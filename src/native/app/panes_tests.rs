@@ -372,10 +372,11 @@ fn pane_relative_cell_measures_from_the_drawn_grid_origin() {
 }
 
 /// The pane layout's own rects, with the leading remainder absorbed into the
-/// grid origin, map every drawn cell centre back to that cell through the
-/// production pointer mapping. The left leaf of a 101 px content with a 1 px
-/// divider carries a non-zero absorbed x offset, so a wrong origin shifts the
-/// result by a column.
+/// grid origin, map the first and last pixel of every drawn cell back to that
+/// cell through the production pointer mapping. The left leaf of a 101 px
+/// content with a 1 px divider carries a non-zero absorbed x offset, smaller
+/// than half a cell, so only the last-pixel samples shift by a column when the
+/// origin is ignored (the cell centres alone would still round-trip).
 #[test]
 fn pane_relative_cell_round_trips_every_cell_centre_of_a_layout_pane() {
     use crate::native::layout::{PaneNode, SplitAxis, layout_rects, pane_grid_origin};
@@ -399,13 +400,15 @@ fn pane_relative_cell_round_trips_every_cell_centre_of_a_layout_pane() {
         let origin = pane_grid_origin(rect, content, cell.width, cell.height);
         for row in 0..rows {
             for column in 0..columns {
-                let x = origin[0] + (column as f32 + 0.5) * cell.width as f32;
-                let y = origin[1] + (row as f32 + 0.5) * cell.height as f32;
-                assert_eq!(
-                    pane_relative_cell(rect, origin, cell, f64::from(x), f64::from(y)),
-                    Some(CellPoint { row, column }),
-                    "cell ({column},{row}) of {rect:?}"
-                );
+                for (fx, fy) in [(0.5, 0.5), (0.5, 0.5 + 15.0), (7.5, 0.5), (7.5, 15.5)] {
+                    let x = origin[0] + column as f32 * cell.width as f32 + fx;
+                    let y = origin[1] + row as f32 * cell.height as f32 + fy;
+                    assert_eq!(
+                        pane_relative_cell(rect, origin, cell, f64::from(x), f64::from(y)),
+                        Some(CellPoint { row, column }),
+                        "cell ({column},{row}) of {rect:?} at ({fx},{fy})"
+                    );
+                }
             }
         }
     }

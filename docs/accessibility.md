@@ -12,8 +12,9 @@ for keyboard control see [`keybindings.md`](keybindings.md).
 OdyTTY adjusts text/background contrast at render time against its modeled
 terminal background, including background images and treatments. `min_contrast`
 is a requested target, not a guarantee for every displayed pixel: some targets
-cannot be reached against a given background, and gamut clipping, later visual
-adjustments, and desktop compositing can change the final contrast.
+cannot be reached against a given background, later visual adjustments and
+desktop compositing can change the final contrast, and saturated colours can
+stay below the floor (see below).
 
 | Key | Env var | Default | Range |
 | --- | --- | --- | --- |
@@ -26,6 +27,15 @@ Builder uses the same metric as the render floor, so authoring and rendering
 agree on what contrast means. The builder authors against WCAG AA 4.5, while
 the render floor defaults to 17.0; rendering may therefore lift a role above the
 ratio shown by the builder.
+
+The floor is checked on the colour that is drawn (each channel clamped to the
+sRGB cube and rounded to a byte). A colour that already meets it is never
+changed. A colour that does not is lifted along its own hue by the smallest
+lightness step that reaches the floor. Very saturated colours (for example ANSI
+red and magenta on the default theme at `17.0`) cannot reach the floor by
+lightness alone without turning near-white, so they keep their hue and a lighter
+shade that can display below the target; lowering `min_contrast` brings every
+colour inside the floor.
 
 Note: the `render_quality = plain` fast path turns the floor **off** (it forces
 `min_contrast` to `1.0`). If you want a calmer, effect-free look *and* the

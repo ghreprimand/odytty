@@ -19,6 +19,27 @@ mod allocation;
 pub(crate) use allocation::fresh_socket_dir;
 pub(crate) use allocation::{fresh_dir, fresh_temp_dir};
 
+/// A fresh scratch directory removed when dropped, including when an assertion
+/// panics, so fixtures never outlive the test that owns them.
+pub(crate) struct ScratchDir(std::path::PathBuf);
+
+impl ScratchDir {
+    /// Create `<temp>/<prefix>...` exclusively (see [`fresh_temp_dir`]).
+    pub(crate) fn new(prefix: &str) -> Self {
+        Self(fresh_temp_dir(prefix))
+    }
+
+    pub(crate) fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for ScratchDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// Wait for a dropped listener's inherited descriptors to close before probing
 /// stale-socket behavior. Each nonblocking connect and the whole wait are bounded.
 #[cfg(unix)]
@@ -86,5 +107,24 @@ mod tests {
             assert!(dir.is_dir());
         }
         std::fs::remove_dir_all(&base).expect("clean up");
+    }
+    #[test]
+    fn a_scratch_dir_is_removed_when_its_test_panics() {
+        let path = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let seen = path.clone();
+        let outcome = std::panic::catch_unwind(move || {
+            let scratch = ScratchDir::new("otsd");
+            std::fs::write(scratch.path().join("file"), b"data").expect("write");
+            *seen.lock().expect("lock") = Some(scratch.path().to_path_buf());
+            panic!("an assertion failed after the fixture was written");
+        });
+        assert!(outcome.is_err());
+        let path = path.lock().expect("lock").clone().expect("path recorded");
+        assert!(!path.exists(), "the unwound fixture is cleaned up");
+        let kept = ScratchDir::new("otsd");
+        let kept_path = kept.path().to_path_buf();
+        assert!(kept_path.is_dir());
+        drop(kept);
+        assert!(!kept_path.exists());
     }
 }

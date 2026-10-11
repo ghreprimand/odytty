@@ -59,7 +59,8 @@ fn representative_sequences_cover_em2_cases() {
 
 #[test]
 fn directory_discovery_finds_noto_color_emoji_by_filename() {
-    let root = unique_temp_dir("odytty-emoji-discovery");
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-emoji-discovery");
+    let root = scratch.path().to_path_buf();
     let nested = root.join("fonts/noto");
     std::fs::create_dir_all(&nested).expect("create temp font dir");
     let font_path = nested.join("NotoColorEmoji.ttf");
@@ -68,8 +69,6 @@ fn directory_discovery_finds_noto_color_emoji_by_filename() {
     let found =
         discover_noto_color_emoji_in(std::slice::from_ref(&root)).expect("emoji path found");
     assert_eq!(found.path, font_path);
-
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -77,7 +76,8 @@ fn directory_discovery_finds_apple_color_emoji_ttc() {
     // macOS ships Apple Color Emoji as a .ttc (sbix). Discovery must find it by
     // filename just like Noto, so emoji render on macOS out of the box. The
     // `.ttc` extension is part of the gap: it must be collected as a font file.
-    let root = unique_temp_dir("odytty-emoji-apple");
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-emoji-apple");
+    let root = scratch.path().to_path_buf();
     let nested = root.join("System/Library/Fonts");
     std::fs::create_dir_all(&nested).expect("create temp font dir");
     let font_path = nested.join("Apple Color Emoji.ttc");
@@ -86,13 +86,12 @@ fn directory_discovery_finds_apple_color_emoji_ttc() {
     let found =
         discover_noto_color_emoji_in(std::slice::from_ref(&root)).expect("apple emoji path found");
     assert_eq!(found.path, font_path);
-
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn directory_discovery_finds_segoe_ui_emoji_by_filename() {
-    let root = unique_temp_dir("odytty-emoji-segoe");
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-emoji-segoe");
+    let root = scratch.path().to_path_buf();
     let nested = root.join("Windows/Fonts");
     std::fs::create_dir_all(&nested).expect("create temp font dir");
     let font_path = nested.join("seguiemj.ttf");
@@ -101,14 +100,12 @@ fn directory_discovery_finds_segoe_ui_emoji_by_filename() {
     let found =
         discover_noto_color_emoji_in(std::slice::from_ref(&root)).expect("segoe emoji path found");
     assert_eq!(found.path, font_path);
-
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn directory_discovery_accepts_a_generic_colr_cpal_face() {
-    let root = unique_temp_dir("odytty-generic-colr-discovery");
-    std::fs::create_dir_all(&root).expect("create generic font directory");
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-generic-colr-discovery");
+    let root = scratch.path().to_path_buf();
     let generic = root.join("GenericEmoji.ttf");
     std::fs::copy(fixture_font("color-emoji-colr-v1.ttf"), &generic)
         .expect("copy generic COLR fixture");
@@ -116,16 +113,14 @@ fn directory_discovery_accepts_a_generic_colr_cpal_face() {
     let found = discover_noto_color_emoji_in(std::slice::from_ref(&root))
         .expect("generic COLR/CPAL face found");
     assert_eq!(found.path, generic);
-
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn discovery_falls_through_unloadable_color_faces_to_one_that_loads() {
     // Two faces named after platform color-emoji fonts fail to load; a third
     // file that only carries COLR/CPAL tables is the first one that works.
-    let root = unique_temp_dir("odytty-emoji-fallthrough");
-    std::fs::create_dir_all(&root).expect("create temp font dir");
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-emoji-fallthrough");
+    let root = scratch.path().to_path_buf();
     std::fs::write(root.join("NotoColorEmoji.ttf"), b"not a real font").expect("write marker");
     std::fs::write(root.join("seguiemj.ttf"), b"not a real font either").expect("write marker");
     let generic = root.join("GenericEmoji.ttf");
@@ -143,14 +138,12 @@ fn discovery_falls_through_unloadable_color_faces_to_one_that_loads() {
     let inventory = crate::text::FontFileInventory::new(vec![root.clone()]);
     let font = super::load_color_emoji_font_in_inventory(&inventory).expect("named face loads");
     assert_eq!(font.path(), named.as_path());
-
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn an_unloadable_fontconfig_answer_falls_through_to_the_inventory() {
-    let root = unique_temp_dir("odytty-emoji-fontconfig-fallthrough");
-    std::fs::create_dir_all(&root).expect("create temp font dir");
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-emoji-fontconfig-fallthrough");
+    let root = scratch.path().to_path_buf();
     let broken = root.join("NotoColorEmoji.ttf");
     std::fs::write(&broken, b"not a real font").expect("write marker");
     let inventory_face = root.join("seguiemj.ttf");
@@ -165,7 +158,6 @@ fn an_unloadable_fontconfig_answer_falls_through_to_the_inventory() {
     let font = super::load_color_emoji_font_after_for_test(Some(answer), &inventory)
         .expect("the inventory supplies a face after fontconfig's fails");
     assert_eq!(font.path(), inventory_face.as_path());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -565,16 +557,6 @@ fn host_noto_color_emoji_probe_records_shape_and_color_metadata() {
     );
 }
 
-fn unique_temp_dir(prefix: &str) -> PathBuf {
-    let mut path = std::env::temp_dir();
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock after epoch")
-        .as_nanos();
-    path.push(format!("{prefix}-{}-{nanos}", std::process::id()));
-    path
-}
-
 fn fixture_font(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/fonts")
@@ -689,8 +671,8 @@ fn colr_probe_corpus() -> Vec<(String, Vec<u8>)> {
 
 #[test]
 fn colr_cpal_directory_probe_matches_the_parsed_font_answer() {
-    let root = unique_temp_dir("odytty-colr-directory-probe");
-    std::fs::create_dir_all(&root).expect("create probe dir");
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-colr-directory-probe");
+    let root = scratch.path().to_path_buf();
     let mut accepted = Vec::new();
     for (index, (label, bytes)) in colr_probe_corpus().into_iter().enumerate() {
         let path = root.join(format!("probe-{index}.ttf"));
@@ -722,7 +704,6 @@ fn colr_cpal_directory_probe_matches_the_parsed_font_answer() {
             .any(|label| label.starts_with("JetBrainsMono")),
         "accepted: {accepted:?}"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]

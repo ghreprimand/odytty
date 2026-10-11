@@ -241,6 +241,11 @@ pub(in crate::native) struct BgImageGpu {
     /// does the source have any more to give" without touching the file.
     source_dimensions: (u32, u32),
     texture_dimensions: (u32, u32),
+    /// A resize-driven re-read of `source` failed. Later resizes keep the
+    /// current texture without opening the file again, so a window drag does
+    /// not repeat the open, decode and warning on every event; loading the
+    /// image again from settings starts over.
+    resample_failed: bool,
     /// WCAG relative luminance of the active theme background — the `l_bg` the
     /// scrim is computed against, and the only thing the scrim needs from the
     /// theme. Stored as the derived scalar rather than the whole theme so a
@@ -421,6 +426,7 @@ impl BgImageGpu {
             source: (path.to_path_buf(), blur_radius),
             source_dimensions,
             texture_dimensions: (width, height),
+            resample_failed: false,
             theme_l_bg: theme_background_luminance(theme),
             l_treat_max,
             l_treat_min,
@@ -453,7 +459,8 @@ impl BgImageGpu {
     ///
     /// Failure is non-destructive by design: if the file has been deleted,
     /// replaced, or become undecodable since load, the existing texture is kept
-    /// and the wallpaper stays on screen. Dropping the background because a
+    /// and the wallpaper stays on screen. The failure is remembered, so later
+    /// resizes do not re-read the file until the image is loaded again. Dropping the background because a
     /// window was dragged wider would be a far worse outcome than showing a
     /// slightly soft one.
     pub(in crate::native) fn resample_for_surface(
@@ -463,7 +470,7 @@ impl BgImageGpu {
         surface: (u32, u32),
         cell_bg_opacity: f32,
     ) -> bool {
-        if !self.needs_resample_for(surface) {
+        if self.resample_failed || !self.needs_resample_for(surface) {
             return false;
         }
         let limit = device.limits().max_texture_dimension_2d;
@@ -473,6 +480,7 @@ impl BgImageGpu {
                 "background_image: cannot re-read {} for the new window size; keeping the current texture",
                 self.source.0.display()
             );
+            self.resample_failed = true;
             return false;
         };
 
@@ -891,12 +899,23 @@ fn create_pipeline(
 mod tests {
     use super::*;
 
-    #[test]
-    fn oversized_background_is_downscaled_at_device_boundary() {
-        let rgba = vec![0x80; 8_193 * 4];
-        let pixels = crate::native::texture_limits::resample_rgba8(rgba, 8_193, 1, 8_192, 1)
-            .expect("valid RGBA");
-        assert_eq!(pixels.len(), 8_192 * 4);
+    /// Sets the process-wide minimum-contrast floor and restores the value it
+    /// replaced when dropped, including when an assertion fails. Hold
+    /// `render_globals_lock` while it lives.
+    struct MinContrastFloor(f32);
+
+    impl MinContrastFloor {
+        fn set(ratio: f32) -> Self {
+            let previous = text::min_contrast();
+            text::set_min_contrast(ratio);
+            Self(previous)
+        }
+    }
+
+    impl Drop for MinContrastFloor {
+        fn drop(&mut self) {
+            text::set_min_contrast(self.0);
+        }
     }
 
     fn dark_theme() -> Theme {
@@ -928,8 +947,8 @@ mod tests {
     fn floor_disabled_needs_no_scrim() {
         // Serialize against every other floor-touching test (shared global).
         let _guard = crate::test_lock::render_globals_lock();
-        // min_contrast defaults to 1.0 (disabled) in tests ⇒ scrim passthrough.
-        text::set_min_contrast(1.0);
+        // A floor of 1.0 is disabled, so the scrim passes through.
+        let _floor = MinContrastFloor::set(1.0);
         let (alpha, _) = compute_scrim(
             1.0,
             0.0,
@@ -943,7 +962,7 @@ mod tests {
     #[test]
     fn dark_theme_bright_image_gets_black_scrim() {
         let _guard = crate::test_lock::render_globals_lock();
-        text::set_min_contrast(4.5);
+        let _floor = MinContrastFloor::set(4.5);
         // Bright image (l_treat_max = 1.0) on a black theme, translucent cells.
         let (alpha, is_white) = compute_scrim(
             1.0,
@@ -954,13 +973,12 @@ mod tests {
         );
         assert!(alpha > 0.0, "bright image on dark theme needs dimming");
         assert!(!is_white, "dark theme uses a black scrim");
-        text::set_min_contrast(1.0);
     }
 
     #[test]
     fn light_theme_dark_image_gets_white_scrim() {
         let _guard = crate::test_lock::render_globals_lock();
-        text::set_min_contrast(4.5);
+        let _floor = MinContrastFloor::set(4.5);
         // Dark image (l_treat_min = 0.0) on a white theme, translucent cells.
         let (alpha, is_white) = compute_scrim(
             0.0,
@@ -971,7 +989,6 @@ mod tests {
         );
         assert!(alpha > 0.0, "dark image on light theme needs lifting");
         assert!(is_white, "light theme uses a white scrim");
-        text::set_min_contrast(1.0);
     }
 
     #[test]
@@ -1179,7 +1196,7 @@ mod tests {
     #[test]
     fn scrim_floor_holds_on_the_resampled_buffer() {
         let _guard = crate::test_lock::render_globals_lock();
-        text::set_min_contrast(4.5);
+        let _floor = MinContrastFloor::set(4.5);
 
         // Worst case for a dark theme: an image containing pure white.
         let source = checkerboard(256, 256);
@@ -1208,7 +1225,6 @@ mod tests {
                 l * (1.0 - scrim)
             );
         }
-        text::set_min_contrast(1.0);
     }
 
     #[test]
@@ -1278,33 +1294,6 @@ mod tests {
         assert_eq!((prepared.width, prepared.height), (32, 32));
     }
 
-    /// Headless device for pipeline-format tests. `None` (⇒ skip) when the
-    /// machine has no usable adapter (e.g. bare CI).
-    fn test_device() -> Option<super::super::HeadlessGpuFixture> {
-        let lifetime = super::super::headless_gpu_lifetime();
-        // Serialize driver init against every other parallel test creating a device.
-        let _init = crate::test_lock::device_creation_lock();
-        let instance = super::super::headless_test_instance(wgpu::Backends::all());
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::default(),
-            force_fallback_adapter: false,
-            compatible_surface: None,
-        }))
-        .ok()?;
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("odytty-bg-image-test-device"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-            experimental_features: wgpu::ExperimentalFeatures::disabled(),
-            memory_hints: wgpu::MemoryHints::default(),
-            trace: wgpu::Trace::Off,
-        }))
-        .ok()?;
-        Some(super::super::HeadlessGpuFixture::new(
-            device, queue, lifetime,
-        ))
-    }
-
     /// Draw `bg` into a fresh render pass whose color target is `format`,
     /// returning any wgpu validation error raised during encoding/submission.
     fn draw_into(
@@ -1362,8 +1351,11 @@ mod tests {
     /// drawing cleanly too.
     #[test]
     fn bg_image_pipeline_retargets_on_scene_format_change() {
-        let Some(gpu) = test_device() else {
-            eprintln!("skipping: no usable GPU adapter");
+        let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+            "bg_image_pipeline_retargets_on_scene_format_change",
+            "odytty-test-device",
+            false,
+        ) else {
             return;
         };
         let device = &gpu.device;
@@ -1414,8 +1406,11 @@ mod tests {
     /// byte-identical until GpuState seeds a translucent value.
     #[test]
     fn set_window_alpha_stores_and_reuploads() {
-        let Some(gpu) = test_device() else {
-            eprintln!("skipping: no usable GPU adapter");
+        let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+            "set_window_alpha_stores_and_reuploads",
+            "odytty-test-device",
+            false,
+        ) else {
             return;
         };
         let device = &gpu.device;
@@ -1458,9 +1453,52 @@ mod tests {
     /// headroom re-reads the image, a repeat of the same size does not, and a
     /// shrink keeps what it has.
     #[test]
+    fn a_failed_resize_re_read_is_not_repeated_on_later_resizes() {
+        let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+            "a_failed_resize_re_read_is_not_repeated_on_later_resizes",
+            "odytty-test-device",
+            false,
+        ) else {
+            return;
+        };
+        let (device, queue) = (&gpu.device, &gpu.queue);
+        let pixels = checkerboard(400, 400);
+        let path = write_png("bg-resample-failure", 400, 400, &pixels);
+        let mut bg = BgImageGpu::load(
+            device,
+            queue,
+            wgpu::TextureFormat::Bgra8UnormSrgb,
+            &path,
+            0,
+            (64, 64),
+            None,
+            &dark_theme(),
+            0.5,
+        )
+        .expect("fixture background loads");
+        let small = bg.texture_dimensions();
+        assert!(
+            bg.needs_resample_for((390, 390)),
+            "growth needs more texels"
+        );
+        std::fs::remove_file(&path).expect("remove the source");
+        assert!(!bg.resample_for_surface(device, queue, (390, 390), 0.5));
+        // The file is back, but the failure is remembered: a later resize keeps
+        // the texture instead of opening the file on every drag event.
+        let restored = write_png("bg-resample-failure", 400, 400, &pixels);
+        assert!(!bg.resample_for_surface(device, queue, (395, 395), 0.5));
+        assert_eq!(bg.texture_dimensions(), small);
+        let _ = std::fs::remove_file(restored);
+        device.poll(wgpu::PollType::wait_indefinitely()).ok();
+    }
+
+    #[test]
     fn background_texture_follows_the_window_on_a_live_device() {
-        let Some(gpu) = test_device() else {
-            eprintln!("skipping: no usable GPU adapter");
+        let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+            "background_texture_follows_the_window_on_a_live_device",
+            "odytty-test-device",
+            false,
+        ) else {
             return;
         };
         let device = &gpu.device;

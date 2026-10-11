@@ -8,10 +8,11 @@
 //! batch can never change which pixels an image paints or let a run escape
 //! its pane.
 //!
-//! GPU-gated: each test skips when no adapter is available.
+//! GPU-gated: each test skips with a `VALIDATION_SKIP` line when no adapter is
+//! available, and fails instead when `ODYTTY_REQUIRE_GPU_TESTS` is set.
 
 use super::gpu::ViewportUniform;
-use super::gpu_tests::{TEST_SURFACE_FORMAT, test_device_with_hdr};
+use super::gpu_tests::TEST_SURFACE_FORMAT;
 use super::image_layer::{ImageLayer, ImageUpload, PaneImageInput, PaneImageUpload};
 use crate::atlas::CellSize;
 use crate::graphics::{GraphicsProtocol, PlacementId, SourceRect, StoredImageId, VisiblePlacement};
@@ -210,7 +211,11 @@ fn assert_alternating_runs(pixels: &[u8], width: u32, rows: usize, columns: usiz
 
 #[test]
 fn one_image_placeholder_grid_batches_into_one_draw_and_paints_every_run() {
-    let Some(gpu) = test_device_with_hdr() else {
+    let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+        "one_image_placeholder_grid_batches_into_one_draw_and_paints_every_run",
+        "odytty-test-device",
+        false,
+    ) else {
         return;
     };
     let device = &gpu.device;
@@ -274,7 +279,11 @@ fn one_image_placeholder_grid_batches_into_one_draw_and_paints_every_run() {
 
 #[test]
 fn pane_runs_batch_only_under_one_scissor_and_stay_inside_their_pane() {
-    let Some(gpu) = test_device_with_hdr() else {
+    let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+        "pane_runs_batch_only_under_one_scissor_and_stay_inside_their_pane",
+        "odytty-test-device",
+        false,
+    ) else {
         return;
     };
     let device = &gpu.device;

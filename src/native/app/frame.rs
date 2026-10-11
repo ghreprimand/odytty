@@ -304,7 +304,10 @@ impl App {
     /// leave the wake set (see [`App::next_wake_deadline`]).
     pub(super) fn enter_gpu_device_lost(&mut self) {
         if !self.gpu_device_lost {
-            tracing::error!("GPU device was lost; rendering is paused until OdyTTY is restarted");
+            tracing::error!(
+                "GPU device was lost; rendering is paused until this window is closed and reopened \
+                 (OpenGL: until OdyTTY is restarted)"
+            );
         }
         self.gpu_device_lost = true;
         self.skip_episode = SkipEpisode::default();

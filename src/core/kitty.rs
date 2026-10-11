@@ -426,6 +426,10 @@ fn handle_command(
         command
     };
 
+    if animation_frame_key_unrepresentable(&command.control) {
+        return Err(KittyError::MalformedControl);
+    }
+
     // Dispatch by action type.
     match command.control.action {
         Some('d') => process_delete_command(graphics, &command.control, cursor_row, cursor_col),
@@ -458,6 +462,19 @@ fn handle_command(
             named_transports_enabled,
         ),
     }
+}
+
+/// `c` and `r` are read twice: as bounded placement extents (`usize`) and, for
+/// animation commands, as frame indices (`u32`). A value that fits the extent
+/// but not a frame index leaves the frame reading absent, which an animation
+/// command would take as "key omitted" and run a different command. Refuse it
+/// once the action is known; placement commands keep their wider extents.
+fn animation_frame_key_unrepresentable(control: &ControlData) -> bool {
+    let animation = matches!(control.action, Some('f' | 'a' | 'c'))
+        || (control.action == Some('d') && matches!(control.delete_specifier, Some('f' | 'F')));
+    animation
+        && ((control.display_columns.is_some() && control.frame_base.is_none())
+            || (control.display_rows.is_some() && control.frame_target.is_none()))
 }
 
 /// Whether `control` continues the pending chunked transfer rather than

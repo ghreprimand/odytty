@@ -7,10 +7,7 @@ use odytty::grid;
 
 #[test]
 fn blank_cell_renders_pure_background() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // All-spaces grid, cursor hidden: every pixel must be the exact background.
     let snapshot = row_snapshot(4, "");
     let frame = composite(&snapshot, &atlas, CursorStyle::Block);
@@ -27,10 +24,7 @@ fn blank_cell_renders_pure_background() {
 
 #[test]
 fn placeholder_char_emits_no_glyph_ink() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // U+10EEEE stays in the Snapshot for copy/paste, but must not paint tofu.
     let mut terminal = Terminal::new(4, 2);
     terminal.advance(format!("{}", odytty::core::PLACEHOLDER_CHAR).as_bytes());
@@ -52,10 +46,7 @@ fn placeholder_char_emits_no_glyph_ink() {
 
 #[test]
 fn placeholder_underline_decoration_still_draws() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     let mut terminal = Terminal::new(2, 1);
     terminal.advance(format!("\x1b[4m{}", odytty::core::PLACEHOLDER_CHAR).as_bytes());
     let snapshot = terminal.snapshot();
@@ -80,10 +71,7 @@ fn placeholder_underline_decoration_still_draws() {
 
 #[test]
 fn known_glyph_inks_within_its_cell() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // 'H' in column 0, blanks elsewhere. 'H' is a plain ASCII glyph with no side
     // bearing overflow, so its ink stays inside cell 0; neighbor cells stay blank.
     let snapshot = row_snapshot(4, "H");
@@ -108,10 +96,7 @@ fn known_glyph_inks_within_its_cell() {
 
 #[test]
 fn subpixel_atlas_composites_known_glyph() {
-    let Some((_font, atlas)) = setup_subpixel() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup_subpixel();
     let snapshot = row_snapshot(4, "H");
     let frame = composite(&snapshot, &atlas, CursorStyle::Block);
 

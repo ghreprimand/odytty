@@ -302,6 +302,70 @@ fn sixel_spam_stays_within_store_limits() {
     }
 }
 
+/// Default (scrolling) mode twin of the DECSDM-set case: each image anchors at
+/// the cursor, which then moves to column 0 of the row below the image.
+#[test]
+fn sixel_spam_stays_within_store_limits_in_the_default_mode() {
+    let mut t = Terminal::new(80, 24);
+    let limits = ImageStoreLimits {
+        max_decoded_bytes: 4096,
+        max_images: 4,
+    };
+    *t.graphics_mut() = crate::graphics::ImageScene::new(limits);
+
+    let mut admitted = Vec::new();
+    for index in 0..20usize {
+        t.advance(&solid_16x6_red());
+        let last = t.graphics().placements().last().unwrap().clone();
+        assert_eq!(
+            (last.anchor.row, last.anchor.column),
+            (index as isize, 0),
+            "image {index} anchors at the cursor"
+        );
+        assert_eq!((last.display_columns, last.display_rows), (2, 1));
+        assert_eq!(
+            t.screen().cursor(),
+            Position {
+                row: index + 1,
+                column: 0
+            }
+        );
+        admitted.push(last.image_id);
+        assert!(t.graphics().store().contains(last.image_id));
+        assert_eq!(t.graphics().store().len(), (index + 1).min(4));
+        assert_eq!(
+            t.graphics().store().decoded_bytes(),
+            (index + 1).min(4) * 384
+        );
+    }
+    let retained = &admitted[16..];
+    assert_eq!(
+        t.graphics()
+            .store()
+            .iter_ids()
+            .collect::<std::collections::BTreeSet<_>>(),
+        retained
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
+    );
+    assert_eq!(
+        t.visible_graphics(0)
+            .iter()
+            .map(|p| (p.image_id, p.row, p.column))
+            .collect::<Vec<_>>(),
+        [
+            (admitted[16], 16, 0),
+            (admitted[17], 17, 0),
+            (admitted[18], 18, 0),
+            (admitted[19], 19, 0)
+        ]
+    );
+    for id in &admitted[..16] {
+        assert!(!t.graphics().store().contains(*id));
+    }
+}
+
 #[test]
 fn eviction_removes_oldest_sixel_placements() {
     let mut t = Terminal::new(80, 24);
@@ -334,6 +398,40 @@ fn eviction_removes_oldest_sixel_placements() {
     let vis = t.visible_graphics(0);
     assert_eq!(
         vis.iter()
+            .map(|p| (p.image_id, p.row, p.column))
+            .collect::<Vec<_>>(),
+        [(admitted[1], 4, 0), (admitted[2], 9, 0)]
+    );
+}
+
+#[test]
+fn eviction_removes_oldest_sixel_placements_in_the_default_mode() {
+    let mut t = Terminal::new(80, 24);
+    let limits = ImageStoreLimits {
+        max_decoded_bytes: 1024 * 1024,
+        max_images: 2,
+    };
+    *t.graphics_mut() = crate::graphics::ImageScene::new(limits);
+
+    let mut admitted = Vec::new();
+    for row in [0, 4, 9] {
+        t.advance(format!("\x1b[{};1H", row + 1).as_bytes());
+        t.advance(&solid_16x6_red());
+        admitted.push(t.graphics().placements().last().unwrap().image_id);
+        assert_eq!(
+            t.screen().cursor(),
+            Position {
+                row: row + 1,
+                column: 0
+            }
+        );
+    }
+    assert_eq!(t.graphics().store().len(), 2);
+    assert_eq!(t.graphics().store().decoded_bytes(), 2 * 384);
+    assert!(!t.graphics().store().contains(admitted[0]));
+    assert_eq!(
+        t.visible_graphics(0)
+            .iter()
             .map(|p| (p.image_id, p.row, p.column))
             .collect::<Vec<_>>(),
         [(admitted[1], 4, 0), (admitted[2], 9, 0)]
@@ -445,6 +543,44 @@ fn sixel_display_rows_clamp_to_screen_like_columns() {
             expected
         );
         assert_eq!(t.screen().cursor(), Position { row, column });
+    }
+}
+
+#[test]
+fn sixel_display_rows_clamp_to_screen_in_the_default_mode() {
+    // 48x36 px at 8x8 cells is 6 columns by 5 rows. The extent clamps to the
+    // screen from the cursor, and the cursor lands on the row below the image
+    // or, when that is past the screen, on the last row.
+    for (screen_rows, row, column, expected, cursor) in [
+        (4, 0, 0, (6, 4), (3, 0)),
+        (4, 1, 0, (6, 3), (3, 0)),
+        (4, 2, 18, (2, 2), (3, 0)),
+        (10, 2, 0, (6, 5), (7, 0)),
+        (10, 5, 17, (3, 5), (9, 0)),
+    ] {
+        let mut t = Terminal::new(20, screen_rows);
+        t.set_cell_metrics(8, 8);
+        t.advance(format!("\x1b[{};{}H", row + 1, column + 1).as_bytes());
+        t.advance(&solid_48x36_red());
+        let stored = t.graphics().placements();
+        assert_eq!(stored.len(), 1, "rows {screen_rows} at {row},{column}");
+        assert_eq!(
+            (stored[0].anchor.row, stored[0].anchor.column),
+            (row as isize, column)
+        );
+        assert_eq!(
+            (stored[0].display_columns, stored[0].display_rows),
+            expected,
+            "rows {screen_rows} at {row},{column}"
+        );
+        assert_eq!(
+            t.screen().cursor(),
+            Position {
+                row: cursor.0,
+                column: cursor.1
+            },
+            "rows {screen_rows} at {row},{column}"
+        );
     }
 }
 

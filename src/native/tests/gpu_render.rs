@@ -547,53 +547,12 @@ fn synchronized_output_hold_retains_trail_glow_and_streak_inputs() {
 
 // Required CI validation uses a software Vulkan adapter; optional local tests
 // retain the default backend selection and report unavailable prerequisites.
+// The policy is shared with every other headless GPU test.
 fn validation_device(
     test: &str,
     label: &'static str,
 ) -> Option<crate::native::gpu::HeadlessGpuFixture> {
-    let required = std::env::var_os("ODYTTY_REQUIRE_GPU_TESTS").is_some();
-    let lifetime = crate::native::gpu::headless_gpu_lifetime();
-    let init_guard = crate::test_lock::device_creation_lock();
-    let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
-    if required {
-        descriptor.backends = wgpu::Backends::VULKAN;
-    }
-    let instance = crate::native::gpu::headless_test_instance(descriptor.backends);
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::default(),
-        force_fallback_adapter: required,
-        compatible_surface: None,
-    }));
-    if !crate::native::test_support::availability::available(
-        test,
-        "GPU-adapter",
-        adapter.is_ok(),
-        required,
-    ) {
-        return None;
-    }
-    let adapter = adapter.expect("availability checked");
-    let device = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        label: Some(label),
-        required_features: wgpu::Features::empty(),
-        required_limits: wgpu::Limits::default(),
-        experimental_features: wgpu::ExperimentalFeatures::disabled(),
-        memory_hints: wgpu::MemoryHints::default(),
-        trace: wgpu::Trace::Off,
-    }));
-    if !crate::native::test_support::availability::available(
-        test,
-        "GPU-device",
-        device.is_ok(),
-        required,
-    ) {
-        return None;
-    }
-    drop(init_guard);
-    let (device, queue) = device.expect("availability checked");
-    Some(crate::native::gpu::HeadlessGpuFixture::new(
-        device, queue, lifetime,
-    ))
+    crate::native::test_support::gpu_device::headless_device(test, label, false)
 }
 
 #[test]

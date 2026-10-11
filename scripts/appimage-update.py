@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
 """Verify an AppImage update control file before release publication."""
 import argparse
 import hashlib

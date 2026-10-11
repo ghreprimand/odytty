@@ -232,7 +232,11 @@ impl CommandBuilder {
         self
     }
 
-    /// Terminal advertisement plus profile env overrides for a direct exec spawn.
+    /// Terminal advertisement plus profile env overrides for a direct exec
+    /// spawn: a profile command, `odytty -e`, a one-shot shell command, and a
+    /// session-host command all start from this environment, so each drops an
+    /// inherited `ODYTTY_SHELL_INTEGRATION` that would make an integration
+    /// snippet in the child skip its body.
     #[cfg(any(unix, windows))]
     pub(crate) fn apply_standard_exec_env(
         &mut self,
@@ -412,9 +416,49 @@ impl CommandBuilder {
     }
 }
 
+/// The command a direct exec spawn (`odytty -e`, a session-host command)
+/// runs, with the standard exec environment. Shared by both backends.
+#[cfg(any(unix, windows))]
+pub(crate) fn exec_command_builder(
+    program: OsString,
+    args: Vec<OsString>,
+    working_directory: Option<PathBuf>,
+) -> CommandBuilder {
+    let mut command = CommandBuilder::new(program);
+    for arg in args {
+        command.arg(arg);
+    }
+    command.apply_standard_exec_env(&std::collections::BTreeMap::new());
+    if let Some(path) = working_directory {
+        command.current_dir(path);
+    }
+    command
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A direct exec spawn drops an inherited `ODYTTY_SHELL_INTEGRATION`, as
+    /// the default-shell and profile-command spawns do, so an integration
+    /// snippet the child sources does not skip its body.
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn exec_spawn_scrubs_inherited_shell_integration_marker() {
+        let command = exec_command_builder("prog".into(), vec!["arg".into()], None);
+        assert!(
+            command
+                .env_remove_for_test()
+                .iter()
+                .any(|k| k == "ODYTTY_SHELL_INTEGRATION")
+        );
+        assert!(
+            command
+                .env_for_test()
+                .iter()
+                .any(|(k, v)| k == "TERM" && v == "xterm-256color")
+        );
+    }
 
     /// F3: a key present in both `env` and `env_remove` must resolve the same
     /// way on both PTY backends. The lists are kept disjoint at push time (later

@@ -34,7 +34,7 @@ mod tests;
 
 pub(super) use arrangement::{ArrangeOutcome, FloatStep};
 pub(super) use lifecycle::SHUTDOWN_REAP_DEADLINE;
-pub(super) use model::{Session, SessionToken, WorkspaceSet};
+pub(super) use model::{FailedNavAnchor, Session, SessionToken, WorkspaceSet};
 pub(super) use persistence::{RestoreReport, RestoredLocalLeaf};
 pub(super) use presentation::CursorComparison;
 pub(super) use reparent::{MoveError, MoveScope, MovedContent, MovedRestore};

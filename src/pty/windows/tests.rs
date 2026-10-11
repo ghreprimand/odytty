@@ -6,6 +6,41 @@ fn decode(units: &[u16]) -> String {
 }
 
 #[test]
+fn one_shot_shell_command_scrubs_inherited_shell_integration_marker() {
+    let builder = shell_command_builder("true");
+    assert!(
+        builder
+            .env_remove_for_test()
+            .iter()
+            .any(|key| key == "ODYTTY_SHELL_INTEGRATION")
+    );
+}
+
+#[test]
+fn interior_nul_in_any_spawn_field_is_refused() {
+    let clean = CommandBuilder::new("cmd.exe");
+    assert!(reject_interior_nul(&clean).is_ok());
+    let mut arg = CommandBuilder::new("cmd.exe");
+    arg.arg("/C");
+    arg.arg("echo a\0rest");
+    let mut program = CommandBuilder::new("cmd\0.exe");
+    program.arg("/C");
+    let mut dir = CommandBuilder::new("cmd.exe");
+    dir.current_dir("C:\\tmp\0x");
+    let mut env_value = CommandBuilder::new("cmd.exe");
+    env_value.env("ODYTTY_NUL_PROBE", "a\0b");
+    for (name, command) in [
+        ("argument", arg),
+        ("program", program),
+        ("working directory", dir),
+        ("environment value", env_value),
+    ] {
+        let error = reject_interior_nul(&command).expect_err(name);
+        assert!(error.to_string().contains(name), "{name}: {error}");
+    }
+}
+
+#[test]
 fn clamp_i16_caps_at_signed_max() {
     assert_eq!(clamp_i16(0), 0);
     assert_eq!(clamp_i16(80), 80);
@@ -379,6 +414,47 @@ fn build_env_block_replaces_override_and_is_nul_terminated() {
         "TERM override must appear exactly once"
     );
     assert!(term_entries[0].eq_ignore_ascii_case("TERM=xterm-256color"));
+}
+
+#[test]
+fn build_env_block_keeps_last_override_per_case_insensitive_name() {
+    // The standard terminal environment sets TERM and a profile `env` entry
+    // can set it again (here in another case, as Windows names are
+    // case-insensitive). The block must carry exactly one TERM entry, holding
+    // the later value, instead of both.
+    let overrides = vec![
+        (OsString::from("TERM"), OsString::from("xterm-256color")),
+        (OsString::from("ODYTTY_DUP_PROBE"), OsString::from("first")),
+        (OsString::from("term"), OsString::from("vt100")),
+        (OsString::from("ODYTTY_DUP_PROBE"), OsString::from("second")),
+    ];
+    let block = build_env_block(&overrides, &[]);
+    let mut entries: Vec<String> = Vec::new();
+    let mut current: Vec<u16> = Vec::new();
+    for &unit in &block {
+        if unit == 0 {
+            if current.is_empty() {
+                break;
+            }
+            entries.push(String::from_utf16_lossy(&current));
+            current.clear();
+        } else {
+            current.push(unit);
+        }
+    }
+    let named = |name: &str| -> Vec<&String> {
+        let prefix = format!("{name}=");
+        entries
+            .iter()
+            .filter(|entry| entry.to_ascii_uppercase().starts_with(&prefix))
+            .collect()
+    };
+    assert_eq!(named("TERM"), vec!["term=vt100"], "entries: {entries:?}");
+    assert_eq!(
+        named("ODYTTY_DUP_PROBE"),
+        vec!["ODYTTY_DUP_PROBE=second"],
+        "entries: {entries:?}"
+    );
 }
 
 #[test]

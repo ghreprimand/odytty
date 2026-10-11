@@ -9,6 +9,12 @@ pub(crate) fn permitted(path: &Path) -> bool {
     permitted_for_platform(path, cfg!(windows))
 }
 
+/// [`permitted`] for an explicit platform, for callers that inject it so the
+/// Windows rule is testable everywhere.
+pub(crate) fn permitted_for(path: &Path, windows: bool) -> bool {
+    permitted_for_platform(path, windows)
+}
+
 fn permitted_for_platform(path: &Path, windows: bool) -> bool {
     // OsStr's self-synchronizing encoding preserves ASCII separators, including
     // on Windows paths with unpaired UTF-16 surrogates. No lossy conversion,
@@ -30,6 +36,21 @@ pub(crate) fn existing_dir(path: &Path) -> bool {
 
 fn existing_dir_with(path: &Path, windows: bool, probe: impl FnOnce(&Path) -> bool) -> bool {
     permitted_for_platform(path, windows) && probe(path)
+}
+
+/// The message for a working directory that failed [`existing_dir`]: a network
+/// or device path is refused by policy even when it exists, so it says so
+/// instead of claiming the directory is missing.
+pub(crate) fn unusable_message(path: &Path, shown: &str) -> String {
+    unusable_message_for_platform(path, shown, cfg!(windows))
+}
+
+fn unusable_message_for_platform(path: &Path, shown: &str, windows: bool) -> String {
+    if permitted_for_platform(path, windows) {
+        format!("working directory {shown:?} does not exist")
+    } else {
+        format!("working directory {shown:?} is a network or device path, which is not allowed")
+    }
 }
 
 /// An invalid explicit directory falls back to a permitted home directory.
@@ -69,6 +90,29 @@ mod tests {
                 "rejected cwd reached a probe"
             )));
         }
+    }
+
+    #[test]
+    fn a_refused_directory_is_not_reported_as_missing() {
+        for path in [
+            r"\\wsl.localhost\Ubuntu\home",
+            r"//wsl$/Ubuntu",
+            r"\\?\C:\fixture",
+        ] {
+            let message = unusable_message_for_platform(Path::new(path), path, true);
+            assert!(message.contains("network or device path"), "{message}");
+            assert!(!message.contains("does not exist"), "{message}");
+        }
+        // A permitted path that failed the probe really is missing, and a
+        // double slash is an ordinary path off Windows.
+        assert!(
+            unusable_message_for_platform(Path::new(r"C:\fixture"), "C:", true)
+                .contains("does not exist")
+        );
+        assert!(
+            unusable_message_for_platform(Path::new("//fixture"), "//fixture", false)
+                .contains("does not exist")
+        );
     }
 
     #[test]

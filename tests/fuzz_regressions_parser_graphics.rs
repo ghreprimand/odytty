@@ -6,7 +6,7 @@
 //! named transports, and Sixel output bounds without depending on libFuzzer.
 
 use odytty::core::Terminal;
-use odytty::graphics::sixel::{SixelBackground, decode_sixel};
+use odytty::graphics::sixel::{SixelBackground, SixelError, decode_sixel};
 use odytty::parser::{OdyParser, Params, VtDispatch};
 
 fn decode_hex(fixture: &str) -> Vec<u8> {
@@ -199,6 +199,43 @@ fn sixel_fixture_has_checked_rgba_extent() {
 
     assert!(image.width <= 10_000);
     assert!(image.height <= 10_000);
-    assert!(pixels <= 40_000_000);
+    // The decoder's pixel budget (the default image store's decoded-byte cap).
+    assert!(pixels <= 16_777_216);
     assert_eq!(image.rgba.len(), pixels * 4);
+}
+
+/// Raster attributes alone (`"Pan;Pad;Ph;Pv`) are checked against the decoder's
+/// caps before any canvas is allocated. A declaration one row over the pixel
+/// budget is refused at the code's real limit, and a declaration exactly at the
+/// budget decodes, so raising or removing the cap fails here.
+#[test]
+fn sixel_raster_declaration_is_refused_just_over_the_pixel_budget() {
+    for (width, height) in [(4096, 4097), (4097, 4096), (9999, 9999)] {
+        let payload = format!("\"1;1;{width};{height}#0;2;100;0;0~");
+        let result = decode_sixel(payload.as_bytes(), SixelBackground::Opaque);
+        // Compared by shape: a decoded image would print as megabytes of pixels.
+        assert!(
+            matches!(&result, Err(SixelError::TooLarge { width: w, height: h })
+                if (*w, *h) == (width, height)),
+            "{width}x{height}: {:?}",
+            result.as_ref().map(|image| (image.width, image.height))
+        );
+    }
+}
+
+#[test]
+fn sixel_raster_declaration_at_the_pixel_budget_decodes_to_that_extent() {
+    let image = decode_sixel(b"\"1;1;4096;4096#0;2;100;0;0~", SixelBackground::Opaque)
+        .expect("a declaration exactly at the pixel budget decodes");
+    assert_eq!((image.width, image.height), (4096, 4096));
+    assert_eq!(image.rgba.len(), 4096 * 4096 * 4);
+}
+
+/// A declared extent above an axis cap is clamped to the cap, not refused, when
+/// the clamped extent fits the pixel budget.
+#[test]
+fn sixel_raster_axis_over_the_cap_is_clamped() {
+    let image = decode_sixel(b"\"1;1;100000;100#0;2;100;0;0~", SixelBackground::Opaque)
+        .expect("an over-wide declaration clamps to the axis cap");
+    assert_eq!((image.width, image.height), (10_000, 100));
 }

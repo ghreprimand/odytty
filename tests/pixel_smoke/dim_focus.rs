@@ -9,10 +9,7 @@ use crate::harness::*;
 
 #[test]
 fn dim_attribute_lowers_cell_luminance() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // Same glyph, bright vs dim foreground. Dim scales the fg, so the summed
     // luminance over the cell's ink must drop while the background is unchanged.
     let bright = composite(&row_snapshot(1, "\x1b[97mM"), &atlas, CursorStyle::Block);
@@ -38,10 +35,7 @@ fn dim_attribute_lowers_cell_luminance() {
 
 #[test]
 fn perceptual_dim_delta_is_confined_to_dim_cells() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // Two-cell row: col0 is a plain glyph, col1 carries the SGR-dim attribute.
     // The reference renders the same two glyphs with no dim anywhere.
     let plain = composite(&row_snapshot(2, "MM"), &atlas, CursorStyle::Block);
@@ -85,10 +79,7 @@ fn perceptual_dim_delta_is_confined_to_dim_cells() {
 /// focused frame is pixel-identical to the pre-feature renderer.
 #[test]
 fn focus_dim_off_is_pixel_identical_to_focused() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     let snapshot = row_snapshot(4, "Mix!");
     let focused = composite(&snapshot, &atlas, CursorStyle::Block);
     let off = composite_focus_dim(&snapshot, &atlas, CursorStyle::Block, 0.0);
@@ -104,10 +95,7 @@ fn focus_dim_off_is_pixel_identical_to_focused() {
 /// the floor against the dimmed background (legibility wins by construction).
 #[test]
 fn unfocused_focus_dim_recedes_grid_and_floor_keeps_text_legible() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     let snapshot = row_snapshot(4, "Mix!");
     let focused = composite(&snapshot, &atlas, CursorStyle::Block);
     let unfocused = composite_focus_dim(&snapshot, &atlas, CursorStyle::Block, 0.3);
@@ -161,10 +149,7 @@ fn unfocused_focus_dim_recedes_grid_and_floor_keeps_text_legible() {
 /// layer. Global-free: the process floor stays at its 1.0 default throughout.
 #[test]
 fn block_cursor_floor_keeps_under_glyph_legible_in_composite() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // The suite runs entirely at the default (identity) floor; assert it so a
     // future global-mutating test added here would trip this guard rather than
     // silently perturb the passthrough claim.
@@ -250,10 +235,7 @@ fn block_cursor_floor_keeps_under_glyph_legible_in_composite() {
 /// per-call parameter, never the process floor.
 #[test]
 fn focus_dim_dims_background_fill_preserving_hue() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // A saturated blue background so hue drift is measurable.
     let snapshot = styled_row_snapshot(1, b"\x1b[48;2;40;70;160m", "X");
     let focused = composite(&snapshot, &atlas, CursorStyle::Block);

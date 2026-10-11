@@ -345,10 +345,10 @@ fn parse_session_new(args: &[String]) -> Result<DetachedSessionOptions, String> 
             }
             "--working-directory" | "--working-dir" => {
                 index += 1;
-                options.working_directory = Some(PathBuf::from(
-                    args.get(index)
-                        .ok_or_else(|| format!("{arg} requires a value"))?,
-                ));
+                let path = args
+                    .get(index)
+                    .ok_or_else(|| format!("{arg} requires a value"))?;
+                options.working_directory = Some(PathBuf::from(non_empty_value(arg, path)?));
                 index += 1;
             }
             "-e" | "--execute" => {
@@ -367,10 +367,12 @@ fn parse_session_new(args: &[String]) -> Result<DetachedSessionOptions, String> 
                     options.app_id = Some(application_id_value("--class", app_id)?);
                     index += 1;
                 } else if let Some(path) = arg.strip_prefix("--working-directory=") {
-                    options.working_directory = Some(PathBuf::from(path));
+                    options.working_directory =
+                        Some(PathBuf::from(non_empty_value("--working-directory", path)?));
                     index += 1;
                 } else if let Some(path) = arg.strip_prefix("--working-dir=") {
-                    options.working_directory = Some(PathBuf::from(path));
+                    options.working_directory =
+                        Some(PathBuf::from(non_empty_value("--working-dir", path)?));
                     index += 1;
                 } else {
                     return Err(format!("unknown odytty new argument: {arg}"));
@@ -587,7 +589,7 @@ pub fn native_options_for_args(
                 let path = args
                     .get(index)
                     .ok_or_else(|| format!("{arg} requires a value"))?;
-                options.working_directory = Some(PathBuf::from(path));
+                options.working_directory = Some(PathBuf::from(non_empty_value(arg, path)?));
                 launch_native = true;
                 index += 1;
             }
@@ -596,7 +598,7 @@ pub fn native_options_for_args(
                 let name = args
                     .get(index)
                     .ok_or_else(|| "--profile requires a value".to_owned())?;
-                options.profile_name = Some(name.clone());
+                options.profile_name = Some(non_empty_value("--profile", name)?);
                 launch_native = true;
                 index += 1;
             }
@@ -633,18 +635,17 @@ pub fn native_options_for_args(
                     launch_native = true;
                     index += 1;
                 } else if let Some(path) = arg.strip_prefix("--working-directory=") {
-                    options.working_directory = Some(PathBuf::from(path));
+                    options.working_directory =
+                        Some(PathBuf::from(non_empty_value("--working-directory", path)?));
                     launch_native = true;
                     index += 1;
                 } else if let Some(path) = arg.strip_prefix("--working-dir=") {
-                    options.working_directory = Some(PathBuf::from(path));
+                    options.working_directory =
+                        Some(PathBuf::from(non_empty_value("--working-dir", path)?));
                     launch_native = true;
                     index += 1;
                 } else if let Some(name) = arg.strip_prefix("--profile=") {
-                    if name.is_empty() {
-                        return Err("--profile requires a value".to_owned());
-                    }
-                    options.profile_name = Some(name.to_owned());
+                    options.profile_name = Some(non_empty_value("--profile", name)?);
                     launch_native = true;
                     index += 1;
                 } else {
@@ -658,6 +659,14 @@ pub fn native_options_for_args(
 }
 
 fn application_id_value(flag: &str, value: &str) -> Result<String, String> {
+    non_empty_value(flag, value)
+}
+
+/// A flag value that names something (a profile, a directory, an application
+/// id) and so cannot be empty, in the spaced and the `=` spelling alike.
+/// `--title` is the deliberate exception: an empty window title is a valid
+/// request and stays accepted in both spellings.
+fn non_empty_value(flag: &str, value: &str) -> Result<String, String> {
     if value.is_empty() {
         Err(format!("{flag} requires a value"))
     } else {
@@ -1104,6 +1113,49 @@ mod tests {
         let command = options.command.expect("command");
         assert_eq!(command.program, OsString::from("btop"));
         assert_eq!(command.args, vec![OsString::from("--utf-force")]);
+    }
+
+    #[test]
+    fn empty_flag_values_are_refused_in_every_spelling_except_title() {
+        for flag in ["--profile", "--working-directory", "--working-dir"] {
+            for args in [
+                vec![flag.to_owned(), String::new()],
+                vec![format!("{flag}=")],
+            ] {
+                assert_eq!(
+                    native_options_for_args(&args, &Settings::default()).expect_err("empty value"),
+                    format!("{flag} requires a value"),
+                    "{args:?}"
+                );
+            }
+        }
+        for flag in ["--working-directory", "--working-dir"] {
+            for args in [
+                vec!["new".to_owned(), flag.to_owned(), String::new()],
+                vec!["new".to_owned(), format!("{flag}=")],
+            ] {
+                assert_eq!(
+                    session_command_for_args(&args).expect_err("empty directory"),
+                    format!("{flag} requires a value"),
+                    "{args:?}"
+                );
+            }
+        }
+        // An empty window title is a request for a blank title, in both forms.
+        for args in [vec!["--title", ""], vec!["--title="]] {
+            let options = native_options_for_args(&strings(&args), &Settings::default())
+                .expect("empty title parses")
+                .expect("native options");
+            assert_eq!(options.title, "", "{args:?}");
+        }
+        for args in [vec!["new", "--title", ""], vec!["new", "--title="]] {
+            let Some(SessionCliCommand::NewDetached(options)) =
+                session_command_for_args(&strings(&args)).expect("empty title parses")
+            else {
+                panic!("expected detached options");
+            };
+            assert_eq!(options.title.as_deref(), Some(""), "{args:?}");
+        }
     }
 
     #[test]

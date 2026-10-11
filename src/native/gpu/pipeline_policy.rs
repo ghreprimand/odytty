@@ -215,15 +215,17 @@ pub(in crate::native) fn text_params(text_gamma: f32) -> [f32; 4] {
     [text_gamma, 0.0, 0.0, 0.0]
 }
 
+/// `None` when the surface reports no formats at all, which the caller turns
+/// into a surface-creation error instead of a panic.
 pub(in crate::native) fn choose_surface_format(
     formats: &[wgpu::TextureFormat],
-) -> (wgpu::TextureFormat, bool) {
+) -> Option<(wgpu::TextureFormat, bool)> {
     let format = formats
         .iter()
         .copied()
         .find(wgpu::TextureFormat::is_srgb)
-        .unwrap_or(formats[0]);
-    (format, format.is_srgb())
+        .or_else(|| formats.first().copied())?;
+    Some((format, format.is_srgb()))
 }
 
 /// Choose device limits that preserve the WebGPU defaults when the adapter can
@@ -296,6 +298,33 @@ pub(in crate::native) fn software_adapter_is_final(stage_index: usize, stages: u
     stage_index + 1 >= stages
 }
 
+/// What [`bring_up_adapter`] does when a stage cannot create a surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::native) enum SurfaceFailureAction {
+    /// A wider stage remains: try it.
+    Widen,
+    /// The last stage failed but an earlier stage held a presentable software
+    /// adapter: use it, so a machine whose only renderer is a software one
+    /// still starts.
+    UseFallback,
+    /// Nothing presentable was found.
+    Fail,
+}
+
+pub(in crate::native) fn surface_failure_action(
+    stage_index: usize,
+    stages: usize,
+    has_fallback: bool,
+) -> SurfaceFailureAction {
+    if stage_index + 1 < stages {
+        SurfaceFailureAction::Widen
+    } else if has_fallback {
+        SurfaceFailureAction::UseFallback
+    } else {
+        SurfaceFailureAction::Fail
+    }
+}
+
 /// Bring up an instance, a presentable surface, and the best adapter available,
 /// trying each backend set from [`backend_stages`] in order.
 ///
@@ -348,15 +377,23 @@ pub(in crate::native) fn bring_up_adapter(
 
         let surface = match instance.create_surface(window.clone()) {
             Ok(surface) => surface,
-            Err(err) => {
-                if index + 1 >= stages.len() {
+            Err(err) => match surface_failure_action(index, stages.len(), fallback.is_some()) {
+                SurfaceFailureAction::Widen => {
+                    tracing::debug!(
+                        "odytty: no presentable surface on backends {backends:?} ({err}); widening the backend set"
+                    );
+                    continue;
+                }
+                SurfaceFailureAction::UseFallback => {
+                    tracing::debug!(
+                        "odytty: no presentable surface on backends {backends:?} ({err}); keeping the software adapter found earlier"
+                    );
+                    break;
+                }
+                SurfaceFailureAction::Fail => {
                     return Err(NativeError::SurfaceCreation(err.to_string()));
                 }
-                tracing::debug!(
-                    "odytty: no presentable surface on backends {backends:?} ({err}); widening the backend set"
-                );
-                continue;
-            }
+            },
         };
 
         if let Some(adapter) = super::presentation_device::cached_adapter(&instance)
@@ -564,8 +601,11 @@ mod instance_owner_tests {
 
     #[test]
     fn headless_gpu_fixture_holds_lifetime_through_handle_teardown() {
-        let Some(gpu) = crate::native::gpu_tests::test_device_with_hdr() else {
-            eprintln!("skipping: no usable GPU adapter");
+        let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+            "headless_gpu_fixture_holds_lifetime_through_handle_teardown",
+            "odytty-test-device",
+            false,
+        ) else {
             return;
         };
         assert!(

@@ -318,6 +318,27 @@ mod tests {
     }
 
     #[test]
+    fn a_profile_saved_with_a_byte_order_mark_loads() {
+        let dir = temp_profiles_dir("bom");
+        fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("dev.profile.json");
+        let profile = LaunchProfile::new("dev").expect("profile");
+        let mut bytes = "\u{feff}".as_bytes().to_vec();
+        bytes.extend(
+            profile
+                .validated_serialization()
+                .expect("serialize")
+                .as_bytes(),
+        );
+        fs::write(&path, bytes).expect("write");
+        assert_eq!(
+            read_profile_file(&path, Some("dev")).expect("read"),
+            profile
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn malformed_file_is_skipped_without_emptying_catalog() {
         let _count_guard = crate::test_lock::catalog_count_lock();
         let dir = temp_profiles_dir("malformed");

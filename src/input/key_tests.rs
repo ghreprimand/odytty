@@ -747,6 +747,77 @@ fn kitty_alternate_keys_add_shifted_and_base_layout_fields() {
     );
 }
 
+/// A punctuation character that arrives without Shift is what its key produces
+/// unshifted, so its code is its own; only a shifted production maps back to
+/// the (US layout) key that makes it with Shift.
+#[test]
+fn kitty_key_code_folds_shifted_punctuation_only_while_shift_is_held() {
+    let report_all = KeyModes {
+        kitty_keyboard_flags: KITTY_REPORT_ALL_KEYS,
+        ..KeyModes::default()
+    };
+    let alternates = KeyModes {
+        kitty_keyboard_flags: KITTY_REPORT_ALL_KEYS | KITTY_REPORT_ALTERNATE_KEYS,
+        ..KeyModes::default()
+    };
+    let shift = Modifiers {
+        shift: true,
+        alt: false,
+        ctrl: false,
+    };
+    // (character, its US unshifted key)
+    for (shifted, unshifted) in [('+', '='), ('"', '\''), ('?', '/'), ('(', '9'), ('~', '`')] {
+        // Unshifted on a layout that has the character on its own key.
+        assert_eq!(
+            encode_key_event(
+                Key::Char(shifted),
+                Modifiers::NONE,
+                report_all,
+                KeyEventType::Press
+            ),
+            format!("\x1b[{}u", shifted as u32).into_bytes(),
+            "{shifted:?} without Shift keeps its own code"
+        );
+        // Shifted: reported as the key, with the produced character alongside.
+        assert_eq!(
+            encode_key_event(Key::Char(shifted), shift, report_all, KeyEventType::Press),
+            format!("\x1b[{};2u", unshifted as u32).into_bytes(),
+            "{shifted:?} with Shift reports the key that makes it"
+        );
+        assert_eq!(
+            encode_key_event(Key::Char(shifted), shift, alternates, KeyEventType::Press),
+            format!(
+                "\x1b[{}:{}:{};2u",
+                unshifted as u32, shifted as u32, unshifted as u32
+            )
+            .into_bytes(),
+            "{shifted:?} alternates with Shift"
+        );
+        // No Shift, so no shifted or base-layout alternate is invented.
+        assert_eq!(
+            encode_key_event(
+                Key::Char(shifted),
+                Modifiers::NONE,
+                alternates,
+                KeyEventType::Press
+            ),
+            format!("\x1b[{}u", shifted as u32).into_bytes(),
+            "{shifted:?} without Shift adds no alternate fields"
+        );
+    }
+    // Letters keep reporting their lowercase key with or without Shift
+    // (Caps Lock produces an uppercase letter with no Shift).
+    assert_eq!(
+        encode_key_event(
+            Key::Char('A'),
+            Modifiers::NONE,
+            report_all,
+            KeyEventType::Press
+        ),
+        b"\x1b[97u"
+    );
+}
+
 #[test]
 fn kitty_associated_text_uses_third_parameter_with_report_all() {
     let modes = KeyModes {

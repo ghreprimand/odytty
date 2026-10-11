@@ -389,6 +389,32 @@ fn existing_endpoint_is_not_removed_to_force_bind_and_replacement_is_preserved()
     let _ = fs::remove_file(&path);
 }
 
+#[test]
+fn a_bound_socket_that_cannot_be_identified_is_removed_not_left_behind() {
+    let fixture = fixture();
+    let parent = fs::symlink_metadata(&fixture.dir).expect("parent metadata");
+    let failed = bind_guarded(fixture.socket.clone(), parent.clone(), |_| {
+        Err(io::Error::other("injected identification failure"))
+    });
+    assert!(failed.is_err());
+    assert!(
+        fs::symlink_metadata(&fixture.socket).is_err(),
+        "the socket file created by the failed bind is removed"
+    );
+    // The path is free again, so a later bind there succeeds.
+    let (listener, guard) = bind_guarded(fixture.socket.clone(), parent, |bound| {
+        fs::symlink_metadata(bound)
+    })
+    .expect("a later bind at the same path");
+    assert!(
+        fs::symlink_metadata(&fixture.socket).is_ok_and(|m| m.file_type().is_socket()),
+        "the healthy bind keeps its socket file until the guard drops"
+    );
+    drop(listener);
+    drop(guard);
+    assert!(fs::symlink_metadata(&fixture.socket).is_err());
+}
+
 // Queue the complete hostile buffer before the real connection handler reads.
 // This tests already-present trailing data, rather than racing later writes
 // against a valid first request that the server may have dispatched already.

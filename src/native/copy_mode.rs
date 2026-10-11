@@ -174,6 +174,45 @@ impl CopyModeContext<'_> {
         self.offscreen_cell.and_then(|fetch| fetch(p))
     }
 
+    /// Whether a visible cell is the trailing spacer of a wide glyph. Off-screen
+    /// cells carry only their resolved character, so they never report one.
+    fn is_wide_spacer(&self, p: AbsoluteCellPoint) -> bool {
+        let cols = self.columns();
+        let Some(vrow) = self.visible_row(p.row) else {
+            return false;
+        };
+        p.column > 0
+            && p.column < cols
+            && self
+                .snapshot
+                .cells
+                .get(vrow * cols + p.column)
+                .is_some_and(|cell| cell.wide_continuation)
+    }
+
+    /// The lead cell of the wide glyph a visible spacer belongs to; any other
+    /// point is returned unchanged.
+    fn glyph_lead(&self, p: AbsoluteCellPoint) -> AbsoluteCellPoint {
+        if self.is_wide_spacer(p) {
+            AbsoluteCellPoint {
+                row: p.row,
+                column: p.column - 1,
+            }
+        } else {
+            p
+        }
+    }
+
+    /// The last cell of the glyph at `p`: its trailing spacer when it is a wide
+    /// lead on screen, else `p` itself.
+    fn glyph_last(&self, p: AbsoluteCellPoint) -> AbsoluteCellPoint {
+        let next = AbsoluteCellPoint {
+            row: p.row,
+            column: p.column + 1,
+        };
+        if self.is_wide_spacer(next) { next } else { p }
+    }
+
     /// Next cell in row-major order within the absolute buffer, or `None` at
     /// the end of content (C24: no longer stops at the viewport bottom).
     fn step_forward(&self, p: AbsoluteCellPoint) -> Option<AbsoluteCellPoint> {
@@ -529,7 +568,9 @@ impl CopyModeState {
 
     /// `e` — advance to the end of the next word.
     fn word_end(&mut self, ctx: &CopyModeContext) {
-        let mut p = match ctx.step_forward(self.cursor) {
+        // Step from the end of the glyph under the caret, so a wide lead does
+        // not stop on its own spacer.
+        let mut p = match ctx.step_forward(ctx.glyph_last(self.cursor)) {
             Some(n) => n,
             None => return,
         };
@@ -551,7 +592,8 @@ impl CopyModeState {
                 break;
             }
         }
-        self.cursor = p;
+        // The caret rests on a wide glyph's lead cell, where `v` `y` copies it.
+        self.cursor = ctx.glyph_lead(p);
     }
 
     /// Toggle a selection of `kind`: turning it off if already active, else
@@ -765,7 +807,13 @@ mod tests {
         s.apply(CopyModeKey::WordBackward, &c);
         assert_eq!(s.cursor(), at(0, 0), "b returns to the start of the run");
         s.apply(CopyModeKey::WordEnd, &c);
-        assert_eq!(s.cursor(), at(0, 3), "e stops on the run's last cell");
+        assert_eq!(
+            s.cursor(),
+            at(0, 2),
+            "e stops on the lead cell of the run's last glyph, not its spacer"
+        );
+        s.apply(CopyModeKey::WordEnd, &c);
+        assert_eq!(s.cursor(), at(0, 7), "a second e moves on to the next word");
     }
 
     #[test]

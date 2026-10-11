@@ -2,7 +2,7 @@
 //! Unit tests for external palette following.
 
 use super::*;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 fn complete_odytty() -> String {
     let mut out = String::from(
@@ -77,15 +77,32 @@ fn complete_colors_json() -> String {
     )
 }
 
-fn temp_path(name: &str) -> std::path::PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "odytty-ext-palette-{name}-{}-{nanos}",
-        std::process::id()
-    ))
+/// A palette file inside an exclusively created directory that is removed when
+/// the test ends, whether or not it passes.
+struct TempFile {
+    path: std::path::PathBuf,
+    _dir: crate::test_dirs::ScratchDir,
+}
+
+impl std::ops::Deref for TempFile {
+    type Target = std::path::PathBuf;
+    fn deref(&self) -> &Self::Target {
+        &self.path
+    }
+}
+
+impl AsRef<std::path::Path> for TempFile {
+    fn as_ref(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+fn temp_path(name: &str) -> TempFile {
+    let dir = crate::test_dirs::ScratchDir::new("odytty-ext-palette-");
+    TempFile {
+        path: dir.path().join(name),
+        _dir: dir,
+    }
 }
 
 #[test]
@@ -99,6 +116,87 @@ fn odytty_complete_parses_and_projects() {
     assert_eq!(theme.foreground, (0xd6, 0xde, 0xf4));
     assert_eq!(theme.background, (0x0c, 0x12, 0x24));
     assert_eq!(theme.palette[0], (0x00, 0x00, 0x00));
+}
+
+fn parse_flat(provider: ExternalPaletteProvider, text: &str) -> Result<(), ExternalPaletteError> {
+    parse_palette_bytes(provider, text.as_bytes()).map(|_| ())
+}
+
+#[test]
+fn a_malformed_duplicate_of_a_required_color_is_refused_not_ignored() {
+    // The earlier valid value must not survive a later malformed one.
+    for provider in [
+        ExternalPaletteProvider::OdyttyAnsi,
+        ExternalPaletteProvider::ColorsToml,
+    ] {
+        let base = if provider == ExternalPaletteProvider::OdyttyAnsi {
+            complete_odytty()
+        } else {
+            complete_colors_toml_legacy()
+        };
+        parse_flat(provider, &base).expect("the unmodified source parses");
+        for extra in [
+            "foreground = not-a-color\n",
+            "foreground = \n",
+            "foreground = #ffffff\n",
+            "COLOR_3 = #123\n",
+        ] {
+            let text = format!("{base}{extra}");
+            assert!(
+                matches!(
+                    parse_flat(provider, &text),
+                    Err(ExternalPaletteError::Malformed(_))
+                ),
+                "{provider:?} accepted a repeated or malformed required key: {extra:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_invalid_known_color_is_refused_even_when_a_fallback_would_complete_the_set() {
+    // A complete Base16 set must not paper over a broken explicit OdyTTY key.
+    let mut text = complete_base16();
+    text.push_str("foreground = oops\n");
+    assert!(matches!(
+        parse_flat(ExternalPaletteProvider::OdyttyAnsi, &text),
+        Err(ExternalPaletteError::Malformed(_))
+    ));
+    // An optional stop with a malformed value is refused too, not defaulted.
+    let text = format!(
+        "{}clear = oops\n",
+        complete_odytty().replace("clear = #070b18\n", "")
+    );
+    assert!(matches!(
+        parse_flat(ExternalPaletteProvider::OdyttyAnsi, &text),
+        Err(ExternalPaletteError::Malformed(_))
+    ));
+}
+
+#[test]
+fn unrelated_keys_stay_metadata_and_cannot_collide_with_color_keys() {
+    let base = complete_odytty();
+    for extra in [
+        "name = \"Dusk\"\n",
+        "author = someone\n",
+        "dark = true\n",
+        // Punctuation other than `_` and `-` does not fold into a color key.
+        "fore.ground = oops\n",
+        "colo r3 = oops\n",
+        "color#3 = oops\n",
+        "fore-ground-x = oops\n",
+    ] {
+        parse_flat(
+            ExternalPaletteProvider::OdyttyAnsi,
+            &format!("{base}{extra}"),
+        )
+        .unwrap_or_else(|error| panic!("{extra:?} is metadata: {error:?}"));
+    }
+    // The documented separators still name the color.
+    let text = base.replace("foreground =", "fore_ground =");
+    parse_flat(ExternalPaletteProvider::OdyttyAnsi, &text).expect("underscore separator");
+    let text = base.replace("foreground =", "FORE-GROUND =");
+    parse_flat(ExternalPaletteProvider::OdyttyAnsi, &text).expect("hyphen separator");
 }
 
 #[test]
@@ -177,7 +275,6 @@ fn enabled_follow_performs_first_read_on_refresh() {
     ));
     assert_eq!(palette_read_count_for_test(), before + 1);
     assert!(matches!(follow.status(), FollowStatus::Applied));
-    let _ = std::fs::remove_file(path);
 }
 
 #[test]
@@ -206,7 +303,6 @@ fn content_replacement_with_same_length_reloads() {
     std::fs::write(&path, replacement).expect("replace");
     let second = follow.poll(now + Duration::from_secs(2));
     assert!(matches!(second, FollowPollOutcome::Applied(_)));
-    let _ = std::fs::remove_file(path);
 }
 
 #[test]
@@ -236,7 +332,6 @@ fn malformed_retains_last_known_good() {
         follow.status(),
         FollowStatus::RetainedLastKnownGood { .. }
     ));
-    let _ = std::fs::remove_file(path);
 }
 
 #[test]
@@ -257,7 +352,6 @@ fn disabled_follower_never_reads() {
     );
     let _ = follow.poll(Instant::now() + Duration::from_secs(5));
     assert_eq!(palette_read_count_for_test(), before);
-    let _ = std::fs::remove_file(path);
 }
 
 #[test]
@@ -490,7 +584,6 @@ fn transient_disappearance_retains_last_known_good_then_reapplies_on_return() {
         other => panic!("expected Applied on return, got {other:?}"),
     }
     assert!(matches!(follow.status(), FollowStatus::Applied));
-    let _ = std::fs::remove_file(path);
 }
 
 #[test]
@@ -520,7 +613,6 @@ fn identical_content_rewrite_does_not_reapply() {
         matches!(outcome, FollowPollOutcome::Unchanged),
         "identical content must not re-apply"
     );
-    let _ = std::fs::remove_file(path);
 }
 
 #[test]
@@ -547,7 +639,6 @@ fn a_bad_first_source_yields_no_theme_and_no_last_known_good() {
         "a bad first source must not manufacture a last-known-good theme"
     );
     assert!(matches!(follow.status(), FollowStatus::Error { .. }));
-    let _ = std::fs::remove_file(path);
 }
 
 #[test]

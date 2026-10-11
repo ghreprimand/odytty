@@ -385,9 +385,12 @@ pub(in crate::core) fn reflow_lines_with_options(
             if cursor_target == Some(i) {
                 cursor_dest = Some((new_combined.len(), row_cells.len()));
             }
-            if mark_target == Some(i)
-                || (unit == 2
-                    && mark_target == Some(i + 1)
+            // A boundary stamped on a wide owner's continuation cell follows
+            // the owner head, whatever width the owner takes now: its
+            // continuation is dropped when the owner degrades to one column,
+            // and that dropped cell must not move the boundary a second time.
+            if (mark_target == Some(i) && !(cell.wide_continuation && i > 0))
+                || (mark_target == Some(i + 1)
                     && cells.get(i + 1).is_some_and(|next| next.wide_continuation))
             {
                 mark_dest = Some((new_combined.len(), row_cells.len()));

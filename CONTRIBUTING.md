@@ -182,12 +182,17 @@ By making a contribution to this project, I certify that:
 - Keep source files below 2000 lines (enforced by the production-file guard). Prefer new focused modules
   over growing large files; extract large test suites into sibling test files
   named `{module}_tests.rs`.
-- Give every new source file the mandatory license header. Each `.rs` file under
-  `src/`, `tests/`, and `benches/`, and each `.wgsl` under `src/`, must have
-  `// SPDX-License-Identifier: GPL-3.0-only` as its literal first line. The
-  `source_files_carry_gpl_spdx_header` test in `tests/license_headers.rs` fails
-  `cargo test` otherwise, so a new module or `{module}_tests.rs` file without it
-  reports a "missing GPL SPDX header on line 1" failure.
+- Give every new source file the mandatory license header. Each `.rs` file
+  under `src/`, `tests/`, `benches/`, `build_support/` and `fuzz/` (and the root
+  `build.rs`), and each `.wgsl` under `src/`, must have
+  `// SPDX-License-Identifier: GPL-3.0-only` as its literal first line. Each
+  `.py` file under `scripts/`, `.github/scripts/` and `tests/` must have
+  `# SPDX-License-Identifier: GPL-3.0-only` as its first line, or its second
+  after a shebang. The `source_files_carry_gpl_spdx_header` test in
+  `tests/license_headers.rs` fails `cargo test` otherwise, so a new module or
+  `{module}_tests.rs` file without it reports a "missing GPL SPDX header"
+  failure. The shipped installers and packaging manifests under `dist/`,
+  workflow YAML and TOML configuration are outside the check.
 
 ## Ownership boundary
 
@@ -299,12 +304,20 @@ state. These test contracts apply on Linux, macOS and Windows.
 
 Linux CI installs Mesa Vulkan drivers, zsh, and fish, then runs
 `bash scripts/ci-validation.sh`. This required check selects a software Vulkan
-adapter and verifies execution markers for three shader/pipeline tests and
-four quoting tests in each of bash, zsh, and fish. Missing prerequisites,
-missing execution markers, and failed assertions fail the check.
+adapter and verifies execution markers for the library's headless GPU tests
+(shader, pipeline, image, overlay and readback tests, listed in the script)
+and four quoting tests in each of bash, zsh, and fish. Missing prerequisites,
+missing execution markers, and failed assertions fail the check. Those GPU
+tests acquire their device through `src/native/test_support/gpu_device.rs`,
+so a new one shares this policy and belongs in the script's list. Three keep
+their own setup: the GL sibling-device test (ignored by default; it needs a
+headless GL host), the dual-source subpixel shader test (it needs an optional
+adapter feature and skips without it), and the integration tests in
+`tests/gpu_composite_smoke.rs`, which cannot reach the library's test helpers.
 
-Outside this check, these pipeline and quoting tests emit named
-`VALIDATION_SKIP` lines for unavailable GPU prerequisites or Unix shells. Use `cargo test --locked -- --show-output` to retain
+Outside this check, these GPU and quoting tests emit named `VALIDATION_SKIP`
+lines for unavailable GPU prerequisites or Unix shells. Use
+`cargo test --locked -- --show-output` to retain
 those lines; the Rust harness still reports an early-returning test as `ok`,
 so that count alone does not establish execution. Dedicated CI validation steps
 retain successful test output on Linux, macOS, and Windows. Unix shell round trips
@@ -321,7 +334,12 @@ separately. These fixture ownership rules apply on Linux, macOS and Windows.
 
 The default `cargo test` run is bounded and deterministic. Platform-gated cases
 and PTY smokes that need optional host applications report unavailable or
-skipped work separately from executed assertions. Integration test buckets
+skipped work separately from executed assertions: a test that cannot run for
+want of a GPU adapter, a color-emoji font or a host program prints a fixed
+`odytty-test-outcome: unavailable-hardware ...` line with a running count and
+returns, so the skip is visible in the captured output and is never read as a
+pass of its assertions. The pixel suites use the compiled-in text face and are
+never skipped for want of a font. Integration test buckets
 include:
 
 - `mouse_protocol` - mouse-tracking protocol coverage.
@@ -370,6 +388,15 @@ ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture
 Each fuzzer prints a `fuzz-budget` line with the iteration count and its
 source. A value that is not a positive integer is ignored with a warning on
 stderr, and the line then reports `source=default-after-invalid-env`.
+
+The grid scan in that file checks cell ownership, not only the width of the first
+scalar: a spacer must follow a head that owns two columns by the model's rule (a
+width-2 first scalar, or retained extension scalars), carry no text, and never
+follow padding or another spacer. The generators seed the multi-scalar owners
+the grapheme work ships (Brahmic conjuncts, Thai and Lao SARA AM, Tibetan marks,
+VS16 and keycap sequences, ZWJ, modifier and flag clusters) beside the CJK and
+emoji seeds, so a change to cluster ownership is exercised by the rectangle,
+erase, resize and chunk-split churn. Add new owner shapes to `CLUSTER_OWNERS`.
 
 The graphics surface has a separate ignored tier covering Kitty/Sixel parsing,
 transport paths, mixed streams, and shared-memory lifecycle. Run it for graphics

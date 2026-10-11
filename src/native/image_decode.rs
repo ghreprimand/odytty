@@ -259,37 +259,119 @@ mod tests {
         assert!(decode_image_rgba_bytes(&bytes).is_none());
     }
 
-    #[test]
-    fn dimension_bomb_is_refused_by_the_limit() {
-        // A PNG that *declares* a dimension past MAX_IMAGE_DIM must be rejected
-        // by the pre-decode width/height limit rather than attempting the
-        // allocation. We forge a PNG signature + IHDR declaring a huge width.
-        let bytes = forge_png_ihdr(MAX_IMAGE_DIM + 1, 1);
-        assert!(
-            decode_image_rgba_bytes(&bytes).is_none(),
-            "an over-limit declared dimension must be refused, not allocated"
-        );
+    /// Every decode entry point, over the same PNG bytes: the two byte
+    /// decoders directly and the two file decoders through a temp file.
+    fn decode_through_every_entry_point(name: &str, bytes: &[u8]) -> [bool; 4] {
+        let path = crate::test_dirs::fresh_temp_dir("oid").join(format!("{name}.png"));
+        std::fs::write(&path, bytes).expect("write fixture");
+        let identity = |width, height| (width, height);
+        let decoded = [
+            decode_image_rgba_bytes(bytes).is_some(),
+            decode_image_rgba_fit_bytes(bytes, identity).is_some(),
+            decode_image_rgba(&path).is_some(),
+            decode_image_rgba_fit(&path, identity).is_some(),
+        ];
+        let _ = std::fs::remove_dir_all(path.parent().expect("fixture dir"));
+        decoded
     }
 
-    /// Build a PNG signature + a single IHDR chunk declaring `width`×`height`
-    /// (8-bit RGBA). No image data follows — enough for the decoder to read the
-    /// header and apply the dimension limit before any pixel allocation.
-    fn forge_png_ihdr(width: u32, height: u32) -> Vec<u8> {
-        let mut out = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+    #[test]
+    fn a_real_image_one_pixel_past_the_axis_limit_is_refused() {
+        // A complete, valid PNG one pixel wider than MAX_IMAGE_DIM (a few
+        // hundred bytes compressed, about 48 KB decoded): only the decoder
+        // limit refuses it. The control at the limit decodes.
+        let past = encode_solid(MAX_IMAGE_DIM + 1, 1, ImageFormat::Png);
+        assert_eq!(decode_through_every_entry_point("past", &past), [false; 4]);
+        let tall = encode_solid(1, MAX_IMAGE_DIM + 1, ImageFormat::Png);
+        assert_eq!(decode_through_every_entry_point("tall", &tall), [false; 4]);
+        let at = encode_solid(MAX_IMAGE_DIM, 1, ImageFormat::Png);
+        assert_eq!(decode_through_every_entry_point("at", &at), [true; 4]);
+    }
+
+    #[test]
+    fn a_real_image_past_the_allocation_budget_is_refused() {
+        // 8,200 x 8,200 RGBA8 is 268,960,000 bytes, past the 256 MiB budget,
+        // with each axis inside MAX_IMAGE_DIM. The PNG is complete and valid
+        // (all-zero rows as one fixed-Huffman deflate stream, under 2 MB), so
+        // only the allocation budget refuses it before any pixel is inflated.
+        const SIDE: u32 = 8_200;
+        assert!(u64::from(SIDE) * u64::from(SIDE) * 4 > MAX_IMAGE_ALLOC_BYTES);
+        const { assert!(SIDE <= MAX_IMAGE_DIM) };
+        let bytes = zero_rgba_png(SIDE, SIDE);
+        assert!(bytes.len() < 2 * 1024 * 1024, "{}", bytes.len());
+        assert_eq!(decode_through_every_entry_point("area", &bytes), [false; 4]);
+    }
+
+    /// A complete RGBA8 PNG whose every pixel is zero, encoded by hand: one
+    /// literal zero, then repeated 258-byte matches at distance 1.
+    fn zero_rgba_png(width: u32, height: u32) -> Vec<u8> {
+        struct Bits {
+            out: Vec<u8>,
+            acc: u64,
+            len: u32,
+        }
+        impl Bits {
+            /// Append `count` bits of `value`, least significant first.
+            fn put(&mut self, value: u32, count: u32) {
+                self.acc |= u64::from(value) << self.len;
+                self.len += count;
+                while self.len >= 8 {
+                    self.out.push(self.acc as u8);
+                    self.acc >>= 8;
+                    self.len -= 8;
+                }
+            }
+            /// Append a Huffman code, which deflate stores most significant
+            /// bit first.
+            fn code(&mut self, code: u32, count: u32) {
+                let reversed = code.reverse_bits() >> (32 - count);
+                self.put(reversed, count);
+            }
+        }
+        let total = u64::from(height) * (1 + u64::from(width) * 4);
+        let mut bits = Bits {
+            out: vec![0x78, 0x01],
+            acc: 0,
+            len: 0,
+        };
+        bits.put(1, 1); // final block
+        bits.put(1, 2); // fixed Huffman codes
+        bits.code(0x30, 8); // literal 0
+        let mut remaining = total - 1;
+        while remaining >= 258 {
+            bits.code(0xC5, 8); // length 258 (code 285)
+            bits.code(0, 5); // distance 1 (code 0)
+            remaining -= 258;
+        }
+        for _ in 0..remaining {
+            bits.code(0x30, 8);
+        }
+        bits.code(0, 7); // end of block
+        if bits.len > 0 {
+            bits.put(0, 8 - bits.len);
+        }
+        // Adler-32 of all-zero data: the first sum stays 1, the second is the
+        // byte count.
+        let adler = (((total % 65_521) as u32) << 16) | 1;
+        let mut zlib = bits.out;
+        zlib.extend_from_slice(&adler.to_be_bytes());
+
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
         let mut ihdr = Vec::new();
-        ihdr.extend_from_slice(b"IHDR");
         ihdr.extend_from_slice(&width.to_be_bytes());
         ihdr.extend_from_slice(&height.to_be_bytes());
-        ihdr.extend_from_slice(&[8, 6, 0, 0, 0]); // bit depth 8, color type 6 (RGBA)
-        let len = (ihdr.len() as u32 - 4).to_be_bytes(); // length excludes the type tag
-        let crc = crc32(&ihdr).to_be_bytes();
-        out.extend_from_slice(&len);
-        out.extend_from_slice(&ihdr);
-        out.extend_from_slice(&crc);
-        out
+        ihdr.extend_from_slice(&[8, 6, 0, 0, 0]); // 8-bit RGBA
+        for (kind, data) in [(&b"IHDR"[..], ihdr), (b"IDAT", zlib), (b"IEND", Vec::new())] {
+            let mut chunk = kind.to_vec();
+            chunk.extend_from_slice(&data);
+            png.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            png.extend_from_slice(&chunk);
+            png.extend_from_slice(&crc32(&chunk).to_be_bytes());
+        }
+        png
     }
 
-    /// Minimal CRC-32 (PNG polynomial) for the forged IHDR chunk.
+    /// Minimal CRC-32 (PNG polynomial) for hand-built chunks.
     fn crc32(data: &[u8]) -> u32 {
         let mut crc: u32 = 0xFFFF_FFFF;
         for &byte in data {

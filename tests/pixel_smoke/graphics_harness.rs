@@ -10,12 +10,14 @@
 //!     clear -> background cell quads -> z<0 images -> glyphs/decorations/cursor
 //!           -> color glyphs -> z>=0 images
 //!
-//! `image_placement_quad` and `composite_image_quad` mirror, read-only, the
-//! projection math in `src/native/image_layer.rs::placement_quad` and the
+//! `image_placement_quad` calls the renderer's own projection
+//! (`odytty::native::image_placement_rect_uv`), so a change to that math is seen
+//! here directly. `composite_image_quad` mirrors, read-only, the
 //! `Rgba8UnormSrgb` sample + `ALPHA_BLENDING` straight-alpha blend the GPU image
-//! pipeline performs. If that source math changes, these geometry assertions are
-//! the tripwire. Images are opaque in the structural cases so blending reduces
-//! to replacement and assertions stay font/gamma independent.
+//! pipeline performs, and the draw order above is the contract of `gpu.rs`
+//! (`gpu_tests` exercises the real pass). Images are opaque in the structural
+//! cases so blending reduces to replacement and assertions stay font/gamma
+//! independent.
 
 use odytty::atlas::{CellSize, GlyphAtlas};
 use odytty::core::{CursorStyle, Snapshot, Terminal};
@@ -26,52 +28,17 @@ use odytty::text;
 
 use crate::harness::{Frame, PX, composite_quad, default_bg, quant3};
 
-/// Read-only mirror of `image_layer::placement_quad`: projects a visible
-/// placement into a pixel-space `(rect, uv)` pair, returning `None` when the
-/// placement contributes nothing. Drawn 1:1 (no upscaling); an image larger than
-/// the `c x r` cell box is clipped to it, matching the GPU path.
+/// Projects a visible placement into a pixel-space `(rect, uv)` pair through the
+/// renderer's own projection, returning `None` when the placement contributes
+/// nothing. Drawn 1:1 (no upscaling); an image larger than the `c x r` cell box
+/// is clipped to it, matching the GPU path.
 pub(crate) fn image_placement_quad(
     p: &VisiblePlacement,
     image_width: u32,
     image_height: u32,
     cell: CellSize,
 ) -> Option<([f32; 4], [f32; 4])> {
-    if image_width == 0 || image_height == 0 || p.display_columns == 0 || p.display_rows == 0 {
-        return None;
-    }
-    let source_x = p.source.x.min(image_width);
-    let source_y = p.source.y.min(image_height);
-    let max_source_w = image_width.saturating_sub(source_x);
-    let max_source_h = image_height.saturating_sub(source_y);
-    if max_source_w == 0 || max_source_h == 0 {
-        return None;
-    }
-    let requested_source_w = if p.source.width == 0 {
-        max_source_w
-    } else {
-        p.source.width.min(max_source_w)
-    };
-    let requested_source_h = if p.source.height == 0 {
-        max_source_h
-    } else {
-        p.source.height.min(max_source_h)
-    };
-    let cell_extent_w = (p.display_columns as u32).saturating_mul(cell.width);
-    let cell_extent_h = (p.display_rows as u32).saturating_mul(cell.height);
-    let visible_w = requested_source_w.min(cell_extent_w);
-    let visible_h = requested_source_h.min(cell_extent_h);
-    if visible_w == 0 || visible_h == 0 {
-        return None;
-    }
-    let x0 = p.column as f32 * cell.width as f32 + p.pixel_offset_x as f32;
-    let y0 = p.row as f32 * cell.height as f32 + p.pixel_offset_y as f32;
-    let x1 = x0 + visible_w as f32;
-    let y1 = y0 + visible_h as f32;
-    let u0 = source_x as f32 / image_width as f32;
-    let v0 = source_y as f32 / image_height as f32;
-    let u1 = (source_x + visible_w) as f32 / image_width as f32;
-    let v1 = (source_y + visible_h) as f32 / image_height as f32;
-    Some(([x0, y0, x1, y1], [u0, v0, u1, v1]))
+    odytty::native::image_placement_rect_uv(p, image_width, image_height, cell, [0.0, 0.0])
 }
 
 /// Composite one image quad into the frame with nearest-texel sampling, the

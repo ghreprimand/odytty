@@ -289,9 +289,11 @@ memory immediately before the burst. Lower is better for these memory fields.
 | SE2 | Alacritty | 71.8 [64.0, 72.1] | 262.1 [261.6, 263.2] | 259.6 [259.4, 259.8] | 187.9 [187.4, 193.9] |
 | SE2 | Kitty | 139.7 [134.1, 140.6] | 389.6 [388.7, 390.2] | 365.7 [365.5, 366.8] | 226.7 [225.5, 232.6] |
 
-The SE1 retained-memory result places OdyTTY between Alacritty and Kitty. The
-SE2 result is unfavourable: OdyTTY has the largest peak, after-settle, and
-retained medians. This signal measures retention around one 64,000,000-byte
+On SE1, the OdyTTY peak and after-settle medians sit between Alacritty and
+Kitty, while its retained median (240.9 MB) is the third lowest of four, above
+Kitty (228.8 MB) and below Ghostty (514.3 MB). The SE2 result is
+unfavourable: OdyTTY has the largest peak, after-settle, and retained medians.
+This signal measures retention around one 64,000,000-byte
 burst. It narrows the memory question but does not measure time-based creep and
 is not a substitute for the deferred W7 four-hour workload.
 

@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Attach pump and client outcomes that must stay truthful: a later snapshot
 //! that cannot be applied ends the attachment, the write-timeout setup accepts
-//! only the documented peer-closed failure, and a failed detach keeps failing.
+//! only the proven macOS peer-closed failure, and a failed detach keeps failing.
 
+use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc;
+use std::time::Duration;
 
 use super::*;
 use crate::session_host::protocol::write_host_frame;
+
+/// Upper bound for one fixture pump to reach EOF.
+const PUMP_DEADLINE: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
 struct Events(mpsc::Sender<&'static str>);
@@ -23,12 +28,21 @@ impl AttachEventSink for Events {
 
 /// Run the pump over one end of a socket pair after `script` wrote host frames
 /// to the other end and closed it; returns the sink events in order.
+///
+/// The host end is shut down, not only dropped, so EOF arrives even if a
+/// concurrently forked child inherited the descriptor; a surviving alias pins
+/// that independence. The pump gets a bounded window to finish, and on expiry
+/// its own end is shut down before the join so the join cannot hang.
 fn pump_events(script: impl FnOnce(&mut UnixStream)) -> (Vec<&'static str>, Terminal) {
     let (ours, mut theirs) = UnixStream::pair().expect("socketpair");
     script(&mut theirs);
+    let _alias = theirs.try_clone().expect("host alias");
+    theirs.shutdown(Shutdown::Both).expect("close host end");
     drop(theirs);
+    let pump_end = ours.try_clone().expect("pump end clone");
     let terminal = Arc::new(Mutex::new(Terminal::new(20, 4)));
     let (tx, rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel();
     let pump_terminal = terminal.clone();
     let pump = std::thread::spawn(move || {
         run_attach_pump(
@@ -37,8 +51,14 @@ fn pump_events(script: impl FnOnce(&mut UnixStream)) -> (Vec<&'static str>, Term
             Events(tx),
             SessionToken(5),
         );
+        let _ = done_tx.send(());
     });
-    pump.join().expect("the pump returns at EOF");
+    let finished = done_rx.recv_timeout(PUMP_DEADLINE).is_ok();
+    if !finished {
+        let _ = pump_end.shutdown(Shutdown::Both);
+    }
+    pump.join().expect("the pump thread does not panic");
+    assert!(finished, "the pump returns at EOF within {PUMP_DEADLINE:?}");
     let terminal = Arc::try_unwrap(terminal)
         .ok()
         .expect("the pump released the mirror")
@@ -90,18 +110,49 @@ fn a_later_snapshot_that_decodes_still_restores_and_redraws() {
 }
 
 #[test]
-fn write_timeout_setup_accepts_only_the_peer_closed_failure() {
-    assert!(accept_write_timeout_setup(Ok(())).is_ok());
-    assert!(
-        accept_write_timeout_setup(Err(io::Error::from(io::ErrorKind::InvalidInput))).is_ok(),
-        "the macOS peer-closed EINVAL passes"
-    );
-    for kind in [io::ErrorKind::PermissionDenied, io::ErrorKind::Other] {
-        assert!(
-            accept_write_timeout_setup(Err(io::Error::from(kind))).is_err(),
-            "{kind:?} refuses the attach"
-        );
+fn write_timeout_setup_propagates_failures_on_a_live_socket() {
+    let (ours, _theirs) = UnixStream::pair().expect("socketpair");
+    assert!(settle_write_timeout(&ours, Ok(())).is_ok());
+    // EINVAL on a socket whose peer is still open is not the documented
+    // peer-closed case on any target, so the attach is refused.
+    for code in [libc::EINVAL, libc::EPERM] {
+        let error = settle_write_timeout(&ours, Err(io::Error::from_raw_os_error(code)))
+            .expect_err("live socket option failure refuses the attach");
+        assert_eq!(error.raw_os_error(), Some(code));
     }
+    // A generic InvalidInput with no raw EINVAL is not the macOS report.
+    assert!(
+        settle_write_timeout(&ours, Err(io::Error::from(io::ErrorKind::InvalidInput))).is_err()
+    );
+}
+
+#[test]
+fn write_timeout_setup_tolerates_einval_only_on_a_closed_macos_peer() {
+    let (ours, theirs) = UnixStream::pair().expect("socketpair");
+    // A forked child may hold the peer descriptor, so close the shared socket
+    // explicitly while an alias survives.
+    let _alias = theirs.try_clone().expect("alias");
+    theirs.shutdown(Shutdown::Both).expect("close peer");
+    drop(theirs);
+    let result = settle_write_timeout(&ours, Err(io::Error::from_raw_os_error(libc::EINVAL)));
+    #[cfg(target_os = "macos")]
+    assert!(
+        result.is_ok(),
+        "the proven peer-closed EINVAL passes on macOS"
+    );
+    #[cfg(not(target_os = "macos"))]
+    assert_eq!(
+        result
+            .expect_err("EINVAL is fatal off macOS")
+            .raw_os_error(),
+        Some(libc::EINVAL)
+    );
+    assert_eq!(
+        settle_write_timeout(&ours, Err(io::Error::from_raw_os_error(libc::EPERM)))
+            .expect_err("other errors stay fatal on a closed peer")
+            .raw_os_error(),
+        Some(libc::EPERM)
+    );
 }
 
 #[test]

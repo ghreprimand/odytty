@@ -362,7 +362,8 @@ DTDs refused and at most 20,000 nodes; nesting is at most 64 deep; `use`,
 `href`, and `url(#id)` references may expand to at most 80,000 nodes, and
 cycles are refused; documents with patterns, filters (including CSS filter
 functions), masks, markers, or stylesheet `url(` references are refused, since
-OpenType does not allow the first four in glyph documents; and a converted
+OpenType leaves support for the first four optional and their raster cost is
+outside the budget model; and a converted
 document that would need more than 2^30 pixels of raster work or 256 MiB of
 live layer and clip buffers at its slot size is refused before its canvas is
 allocated. No file, network, or embedded image is loaded, scripts and animation

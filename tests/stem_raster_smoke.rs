@@ -19,8 +19,10 @@
 //! its own integration binary gives it a private process: this is the only code
 //! that touches the global here, so there is no cross-test interference and no
 //! flakiness. Tests still take a local lock and restore the global to the `0.0`
-//! "off" sentinel on exit, so they are robust even when run in parallel within
-//! this binary.
+//! "off" sentinel on exit (a drop guard, so also when a test panics), so they are
+//! robust even when run in parallel within this binary.
+//!
+//! The text face is compiled in, so no case is ever skipped for want of a font.
 
 use std::sync::Mutex;
 
@@ -37,32 +39,68 @@ const PX: f32 = 28.0;
 /// tests, so a non-zero window in one test cannot bleed into another's build.
 static STEM_LOCK: Mutex<()> = Mutex::new(());
 
-/// Build a fresh grayscale atlas at the given stem-darken strength and return a
-/// snapshot of its coverage bytes. The global is restored to the `0.0` off
-/// sentinel before the lock is released, so the process is always left in the
-/// default (classic) state.
-fn raster_at(strength: f32) -> Vec<u8> {
-    let font = text::load_font().expect("system font available (caller gates on load)");
-    let _guard = STEM_LOCK.lock().unwrap();
-    set_stem_darken(strength);
-    let atlas = GlyphAtlas::build(&font, PX);
-    let data = atlas.data.clone();
-    set_stem_darken(0.0); // leave the global at the off sentinel
-    data
+/// Restores the global to the `0.0` off sentinel when dropped, including on
+/// unwind, so a panic while a non-zero strength is set cannot leave the next
+/// test building at it.
+struct StemDarkenReset;
+
+impl Drop for StemDarkenReset {
+    fn drop(&mut self) {
+        set_stem_darken(0.0);
+    }
 }
 
-/// Skip the whole proof when the host has no loadable font (CI images without
-/// one), matching the `pixel_smoke` harness convention.
-fn font_available() -> bool {
-    text::load_font().is_ok()
+/// Run `body` with the global at `strength`, holding the serialization lock. The
+/// global is restored to the `0.0` off sentinel before the lock is released (by
+/// a drop guard, so also on unwind), and a lock poisoned by an earlier failing
+/// test is taken over so the first failure is the one reported rather than a
+/// cascade of poisoned-lock panics.
+fn with_strength<R>(strength: f32, body: impl FnOnce() -> R) -> R {
+    let _guard = STEM_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _reset = StemDarkenReset;
+    set_stem_darken(strength);
+    body()
+}
+
+/// Build a fresh grayscale atlas at the given stem-darkening strength and return
+/// a snapshot of its coverage bytes.
+fn raster_at(strength: f32) -> Vec<u8> {
+    let font = text::load_font().expect("the bundled text face loads");
+    with_strength(strength, || GlyphAtlas::build(&font, PX).data.clone())
+}
+
+/// Coverage bytes of an atlas built under the lock without setting the global,
+/// so it shows whatever strength the last test left behind.
+fn raster_as_left() -> Vec<u8> {
+    let font = text::load_font().expect("the bundled text face loads");
+    let _guard = STEM_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    GlyphAtlas::build(&font, PX).data.clone()
+}
+
+/// A panic while a non-zero strength is set restores the off sentinel and does
+/// not poison the lock for the tests that follow.
+#[test]
+fn a_panic_under_a_hot_strength_restores_the_global_and_the_lock() {
+    let classic = raster_at(0.0);
+    let hot = raster_at(1.0);
+    assert!(classic != hot, "the probe strength must change the raster");
+    let result = std::panic::catch_unwind(|| with_strength(1.0, || panic!("synthetic failure")));
+    assert!(result.is_err());
+    // Compared as booleans: a mismatch would otherwise print the whole atlas.
+    assert!(
+        raster_as_left() == classic,
+        "the global was left at the hot strength"
+    );
+    // The lock is usable again (taken over from the poisoned state).
+    assert!(raster_at(0.0) == classic);
 }
 
 #[test]
 fn default_strength_boosts_midtone_coverage_through_live_raster() {
-    if !font_available() {
-        eprintln!("skipping: no system font");
-        return;
-    }
     // (a) The shipped default (`DEFAULT_STEM_DARKEN`) must visibly change the
     // *live* atlas raster versus the classic 0.0 baseline — proving the
     // default-on appearance flows through the real raster, not just the pure
@@ -98,10 +136,6 @@ fn default_strength_boosts_midtone_coverage_through_live_raster() {
 
 #[test]
 fn opt_out_zero_restores_classic_raster() {
-    if !font_available() {
-        eprintln!("skipping: no system font");
-        return;
-    }
     // (b) The opt-out: building at 0.0 must reproduce the classic, pre-feature
     // raster byte-for-byte, even after a non-zero build has run. raster_at()
     // restores the global to 0.0, so this exercises the real off path.
@@ -116,10 +150,6 @@ fn opt_out_zero_restores_classic_raster() {
 
 #[test]
 fn endpoints_stay_pinned_at_default_strength() {
-    if !font_available() {
-        eprintln!("skipping: no system font");
-        return;
-    }
     // (c) Fully-uncovered (0) and fully-covered (255) samples never move at any
     // strength — only intermediate (anti-aliased edge / thin stem) coverage is
     // boosted. So glyph ink bounds and solid interiors are unchanged.
@@ -136,10 +166,6 @@ fn endpoints_stay_pinned_at_default_strength() {
 
 #[test]
 fn plain_render_quality_neutralizes_stem_through_live_raster() {
-    if !font_available() {
-        eprintln!("skipping: no system font");
-        return;
-    }
     // VE5 plain bypass (L1): `render_quality = plain` derives a neutralized
     // `effective_stem_darken() == 0.0` even when the raw `stem_darken` field is
     // hot. Proven through the LIVE atlas raster: building at the plain-effective

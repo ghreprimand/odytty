@@ -711,7 +711,10 @@ When a flag pair, modifier sequence or ZWJ sequence reaches the renderer as
 separate cells, the next cell joins the color cluster only while it is not
 hidden and has the same rendition (colours, attributes, hyperlink) as the
 first; otherwise each cell keeps its own run, so a hidden or restyled part of
-a sequence is not painted away. Source-owned clusters are unaffected.
+a sequence is not painted away. A selection, search match or copy-mode caret
+that covers only part of such a sequence recolours cells at draw time and does
+not split it: while a cell is highlighted, only its stored attributes and
+hyperlink are compared. Source-owned clusters are unaffected.
 
 VS16 keycaps resolve the font's base-plus-enclosing-keycap color ligature
 when present. The selector remains in logical text and cluster identity;
@@ -738,8 +741,9 @@ is parsed with DTDs refused and checked before conversion: at most 1 MiB raw
 and after gzip decompression, 20,000 XML nodes, nesting depth 64, and 80,000
 nodes once `use`, `href`, and `url(#id)` references are expanded, with
 reference cycles, patterns, filters (including CSS filter functions), masks,
-markers, and stylesheet `url(` references refused; OpenType does not allow
-patterns, filters, masks, or markers in glyph documents. The converted document
+markers, and stylesheet `url(` references refused; OpenType leaves support for
+patterns, filters, masks, and markers optional, and OdyTTY refuses them because
+their raster cost is outside the budget model. The converted document
 is then costed before its canvas is allocated: one that would need more than
 2^30 pixels of raster work or 256 MiB of live layer and clip buffers at its
 slot size is refused. External
@@ -2106,7 +2110,9 @@ floating tab does not show it.
 
 Path detection currently recognizes POSIX path shapes (`/`, `~/`, `./`, `../`).
 Windows drive-absolute (`C:\`, `C:/`), UNC (`\\server\share`), and
-backslash-relative paths are also recognized. Drive-relative forms such as
+backslash-relative paths are also recognized. A UNC or device path is
+recognized as a path shape but never probed, so hovering it offers no open
+action and contacts no host. Drive-relative forms such as
 `C:folder` are deliberately not detected because their meaning depends on
 per-drive process state.
 

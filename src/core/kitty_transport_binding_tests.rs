@@ -107,6 +107,24 @@ fn temp_transport_tolerates_a_name_removed_before_deletion() {
     );
 }
 
+/// A network share or device path named by the escape sequence is refused before
+/// the canonicalizing call that would otherwise contact the host it names.
+#[cfg(windows)]
+#[test]
+fn a_network_path_in_the_sequence_is_refused_before_any_probe() {
+    for path in [
+        r"\\fixture.invalid\share\image.dat",
+        r"//fixture.invalid/share/image.dat",
+        r"\\?\UNC\fixture.invalid\share\image.dat",
+    ] {
+        assert_eq!(
+            transport::read_file_transport(path.as_bytes(), 4096),
+            Err(TransportError::PathNotAllowed),
+            "{path}"
+        );
+    }
+}
+
 #[test]
 fn transport_paths_outside_the_temp_roots_stay_refused() {
     // The admitted root set is injected, so the outside file is outside it by
@@ -123,6 +141,34 @@ fn transport_paths_outside_the_temp_roots_stay_refused() {
         Err(TransportError::PathNotAllowed)
     );
     assert!(file.exists(), "a refused read leaves the file in place");
+}
+
+/// Windows opens the reparse point itself and checks the opened handle, so a
+/// link planted inside the admitted root must not deliver the file it names
+/// outside it. Creating a symbolic link needs a privilege some accounts lack;
+/// a refusal to create one skips the check loudly instead of passing it.
+#[cfg(windows)]
+#[test]
+fn a_planted_final_component_link_does_not_deliver_the_outside_file() {
+    let fixture = FixtureDir::new("win-link");
+    let allowed = fixture.child_dir("allowed");
+    let outside = fixture.child_dir("outside");
+    let target = outside.join("control.bin");
+    std::fs::write(&target, b"outside control bytes").expect("seed outside control file");
+    let link = allowed.join("planted.bin");
+    if let Err(error) = std::os::windows::fs::symlink_file(&target, &link) {
+        eprintln!("skipped: symbolic links cannot be created here: {error}");
+        return;
+    }
+    let _roots = test_hooks::restrict_roots(&[&allowed]);
+    let result = transport::read_file_transport(&path_bytes(&link), 4096);
+    assert_ne!(
+        result,
+        Ok(b"outside control bytes".to_vec()),
+        "the link must not deliver the outside file"
+    );
+    assert!(result.is_err(), "a planted link is refused: {result:?}");
+    assert!(target.exists(), "a refused read leaves the target in place");
 }
 
 // ---------------------------------------------------------------------------

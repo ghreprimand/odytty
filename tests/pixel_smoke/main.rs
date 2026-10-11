@@ -13,9 +13,9 @@
 //!
 //! ## Why structural assertions, not byte-exact goldens
 //!
-//! Rendered pixels depend on whichever monospace face the host actually has
-//! (the embedded/system font differs across machines and CI), so a byte-hash
-//! golden would be brittle and non-portable. These checks instead assert
+//! Rendered pixels depend on the rasterizer and the face's outlines, so a
+//! byte-hash golden would break on any raster or font change that is not a
+//! defect. These checks instead assert
 //! *structural* invariants that hold for any reasonable monospace font: ink
 //! presence within expected bounds, decoration-row presence, the inverse/dim
 //! color relationships, blank-cell purity, box-drawing seam continuity, and
@@ -23,8 +23,8 @@
 //! deliberately omitted to keep the suite portable; the structural layer is the
 //! durable contract.
 //!
-//! Every case skips gracefully (prints and returns) when no system font is
-//! available, matching the rest of the suite's hermeticity.
+//! The text face is compiled in, so no case depends on a system font. The few
+//! cases that depend on what the bundled face contains say so where they skip.
 //!
 //! ## Module layout
 //!
@@ -33,7 +33,8 @@
 //! - [`harness`] — the shared CPU compositor and general helpers.
 //! - [`graphics_harness`] — image/color-glyph compositor helpers (V2/EM3).
 //! - test groups: [`glyph_basics`], [`synthetic`], [`themed_roles`],
-//!   [`dim_focus`], [`decorations`], [`graphics`].
+//!   [`dim_focus`], [`decorations`], [`graphics`], [`background_treatment`],
+//!   [`crt_vignette`], [`cvd`], [`render_quality`], [`window_padding`].
 
 mod graphics_harness;
 mod harness;

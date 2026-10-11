@@ -7,6 +7,7 @@ use crate::core::{
     failed_command_target, resolve_verified_command_handle, verified_command_cell_range,
     verified_command_handle_for_rows, verified_command_ranges, viewport_offset_for_row,
 };
+use crate::native::session::FailedNavAnchor;
 use crate::selection::{AbsoluteCellPoint, AbsoluteSelectionRange};
 
 #[derive(Debug, Clone, Copy)]
@@ -298,6 +299,7 @@ impl App {
             return;
         }
         let scrollback_len = terminal.screen().scrollback_len();
+        let pushed_rows = terminal.screen().pushed_row_count();
         let dimensions = terminal.screen().dimensions();
         let ranges = verified_command_ranges(
             &terminal.prompt_marks(),
@@ -308,12 +310,24 @@ impl App {
         );
         drop(terminal);
         let top_row = scrollback_len.saturating_sub(self.viewport.offset());
-        // The previous jump's landing row while the view has not moved since;
-        // else the selection start; else the middle of the view.
+        // Rows evicted from capped history so far. The anchor is stored in
+        // rows counted from the start of everything ever pushed, so eviction
+        // cannot leave it naming shifted content.
+        let evicted = pushed_rows.saturating_sub(scrollback_len as u64);
+        let live = self.viewport.offset() == 0;
+        // The previous jump's landing row while the view has not moved since
+        // (a view at the live bottom stays there as output arrives); else the
+        // selection start; else the middle of the view.
         let reference = self
             .failed_nav_anchor
-            .filter(|&(_, anchored_top)| anchored_top == top_row)
-            .map(|(row, _)| row)
+            .filter(|anchor| {
+                if anchor.live {
+                    live
+                } else {
+                    anchor.top == (top_row as u64).saturating_add(evicted)
+                }
+            })
+            .and_then(|anchor| usize::try_from(anchor.row.checked_sub(evicted)?).ok())
             .or_else(|| self.selection.range().map(|selection| selection.start.row))
             .unwrap_or_else(|| top_row.saturating_add(dimensions.rows / 2));
         let Some(target) = failed_command_target(&ranges, reference, direction) else {
@@ -327,10 +341,12 @@ impl App {
         if self.viewport.jump_to(offset, scrollback_len) {
             self.on_viewport_changed();
         }
-        self.failed_nav_anchor = Some((
-            target,
-            scrollback_len.saturating_sub(self.viewport.offset()),
-        ));
+        let top_row = scrollback_len.saturating_sub(self.viewport.offset());
+        self.failed_nav_anchor = Some(FailedNavAnchor {
+            row: (target as u64).saturating_add(evicted),
+            top: (top_row as u64).saturating_add(evicted),
+            live: self.viewport.offset() == 0,
+        });
         self.request_selection_redraw();
     }
 

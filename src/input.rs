@@ -179,6 +179,18 @@ pub fn encode_key_event(
     encode_key_event_with_text(key, mods, modes, event_type, text.as_deref())
 }
 
+/// Whether Kitty associated text would be reported for this event, so a caller
+/// that splits one logical string into per-scalar identities can tell when the
+/// generated text carries the whole string instead. Rejected text (empty or
+/// containing controls) and every release report no text.
+pub fn kitty_associated_text_admitted(
+    generated_text: Option<&str>,
+    kitty_flags: u16,
+    event_type: KeyEventType,
+) -> bool {
+    kitty_text::associated_text(generated_text, kitty_flags, event_type).is_some()
+}
+
 /// Encode a key identity with separately supplied generated text.
 /// Releases never carry associated text. Legacy and Win32 encoding use the key.
 pub fn encode_key_event_with_text(
@@ -357,7 +369,8 @@ fn win32_event_from_neutral_key(key: Key, mods: Modifiers) -> Option<Win32KeyEve
     if mods.alt {
         control_key_state |= WIN32_LEFT_ALT;
     }
-    if mods.shift {
+    // Back-tab is Shift+Tab by identity, whether or not the caller also set Shift.
+    if mods.shift || key == Key::BackTab {
         control_key_state |= WIN32_SHIFT;
     }
     if enhanced {
@@ -606,13 +619,13 @@ impl KittyKeyCode {
     }
 
     fn from_char(ch: char, mods: Modifiers, flags: u16) -> Self {
-        let primary = kitty_char_code(ch);
+        let primary = kitty_char_code(ch, mods.shift);
         if flags & KITTY_REPORT_ALTERNATE_KEYS == 0 {
             return Self::new(primary);
         }
 
         let shifted = mods.shift.then_some(ch as u32);
-        let base_layout = kitty_base_layout_code(ch);
+        let base_layout = kitty_base_layout_code(ch, mods.shift);
         Self {
             primary,
             shifted,
@@ -692,9 +705,19 @@ fn kitty_modifier(mods: Modifiers) -> u8 {
     1 + u8::from(mods.shift) + (u8::from(mods.alt) << 1) + (u8::from(mods.ctrl) << 2)
 }
 
-fn kitty_char_code(ch: char) -> u32 {
+/// The unshifted key code Kitty reports for a produced character. Letters are
+/// reported lowercase. Shifted punctuation maps back to its US-layout key only
+/// while Shift is held: without Shift the character is already what the key
+/// produces unshifted (a `+` key on a layout that has one), and folding it to
+/// `=` would report a different key.
+fn kitty_char_code(ch: char, shift: bool) -> u32 {
+    if ch.is_ascii_uppercase() {
+        return ch.to_ascii_lowercase() as u32;
+    }
+    if !shift {
+        return ch as u32;
+    }
     let base = match ch {
-        'A'..='Z' => ch.to_ascii_lowercase(),
         ')' => '0',
         '!' => '1',
         '@' => '2',
@@ -721,8 +744,8 @@ fn kitty_char_code(ch: char) -> u32 {
     base as u32
 }
 
-fn kitty_base_layout_code(ch: char) -> Option<u32> {
-    let base = kitty_char_code(ch);
+fn kitty_base_layout_code(ch: char, shift: bool) -> Option<u32> {
+    let base = kitty_char_code(ch, shift);
     (base != ch as u32).then_some(base)
 }
 

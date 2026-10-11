@@ -80,6 +80,9 @@ mod isolated_copy {
                 )
             };
             assert!(fd >= 0, "create owned shm segment");
+            // The guard owns the descriptor and the name from here, so a
+            // failed size or mapping assertion below still closes and unlinks.
+            let segment = Self { name, fd };
             assert_eq!(unsafe { libc::ftruncate(fd, data.len() as libc::off_t) }, 0);
             // SAFETY: map exactly the segment length for one copy, then unmap.
             let addr = unsafe {
@@ -97,7 +100,7 @@ mod isolated_copy {
                 std::ptr::copy_nonoverlapping(data.as_ptr(), addr.cast::<u8>(), data.len());
                 assert_eq!(libc::munmap(addr, data.len()), 0);
             }
-            Self { name, fd }
+            segment
         }
     }
 

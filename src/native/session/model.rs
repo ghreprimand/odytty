@@ -50,6 +50,20 @@ pub(in crate::native) struct SessionToken(pub(in crate::native) u64);
 // tokens between arenas without re-keying. Single-window and every test keep the
 // unchanged `0, 1, 2, ...` sequence because their base is 0.
 
+/// Where a failed-command jump landed, in rows counted from the first row ever
+/// pushed into history (the absolute row plus the rows evicted so far), so
+/// eviction from capped history cannot leave it naming shifted content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::native) struct FailedNavAnchor {
+    /// The prompt row the jump targeted.
+    pub(in crate::native) row: u64,
+    /// The row then shown at the top of the viewport.
+    pub(in crate::native) top: u64,
+    /// The view was at the live bottom, which stays valid while it stays there
+    /// even as output moves the rows beneath it.
+    pub(in crate::native) live: bool,
+}
+
 pub(in crate::native) struct Session {
     pub(in crate::native) id: SessionToken,
     pub(in crate::native) terminal: Arc<Mutex<Terminal>>,
@@ -210,12 +224,11 @@ pub(in crate::native) struct Session {
     pub(in crate::native) search: SearchUi,
     pub(in crate::native) hints: Option<HintsUi>,
     pub(in crate::native) copy_mode: Option<CopyModeState>,
-    /// Where the last failed-command jump landed: the prompt row it targeted and
-    /// the absolute row then shown at the top of the viewport. The next jump
-    /// steps from that row while the view still starts at the same top row, so
-    /// repeated previous/next walks the failures instead of finding the same
-    /// block again from the middle of the view. Any scroll invalidates it.
-    pub(in crate::native) failed_nav_anchor: Option<(usize, usize)>,
+    /// Where the last failed-command jump landed. The next jump steps from that
+    /// row while the view has not moved since, so repeated previous/next walks
+    /// the failures instead of finding the same block again from the middle of
+    /// the view. Any scroll invalidates it.
+    pub(in crate::native) failed_nav_anchor: Option<FailedNavAnchor>,
     pub(in crate::native) search_restore_viewport: Option<usize>,
     pub(in crate::native) last_scrollback_len: usize,
     /// Physical output-row baseline, shared by rendering and trim reconciliation.

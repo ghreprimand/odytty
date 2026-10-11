@@ -708,7 +708,9 @@ bytes emitted only when negotiated.
 
 Alternate-key reporting adds shifted and
 base-layout key-code subfields for character CSI-u events where OdyTTY can
-derive them from the logical key. Associated-text reporting appends printable
+derive them from the logical key. Shifted punctuation maps back to its
+US-layout key only while Shift is held; a punctuation character that arrives
+without Shift keeps its own key code and carries no alternate fields. Associated-text reporting appends printable
 generated text code points as the third CSI-u parameter when combined with
 report-all.
 
@@ -1725,10 +1727,11 @@ that closed while the picker was open, including when names are duplicated.
     via WCAG relative luminance on the displayed colour (channels clamped to the
     sRGB cube and rounded to bytes). The lift is applied by bisecting OKLab
     lightness while preserving hue. A colour that already meets the floor as
-    displayed is never changed, however saturated. Chroma is reduced toward
-    neutral only when the lightness move alone cannot reach the floor; if no
-    colour can, pure black or pure white is used
-    (`src/color.rs:enforce_min_contrast`). Theme generation, CVD adaptation and
+    displayed is never changed, however saturated. Chroma is never reduced: a
+    saturated colour whose lightness move alone cannot reach the floor as
+    displayed keeps its hue-preserving lift and may display below the floor;
+    if no colour at all can reach it against the background, pure black or pure
+    white is used (`src/color.rs:enforce_min_contrast`). Theme generation, CVD adaptation and
     the theme author floor roles with the unclamped search
     (`enforce_min_contrast_unclamped`) and then gamut-map and re-check the
     bytes themselves, so their results are unchanged.
@@ -1754,8 +1757,9 @@ that closed while the picker was open, including when names are duplicated.
   replaced lossily; payloads are bounded by the parser's 128 KiB OSC cap.
 
   Windows rejects decoded paths with two leading slash/backslash separators,
-  including UNC and device paths. Restored and interactive cwd validation and
-  ConPTY spawn apply the same check before filesystem probes or child creation;
+  including UNC and device paths. Restored and interactive cwd validation, the
+  interactive path probe, Kitty named-transport path admission, and ConPTY spawn
+  apply the same check before filesystem probes or child creation;
   an invalid directory falls back to a permitted home or the default directory.
   OSC 7 refuses double-slash paths on every platform before storing them.
   This OSC boundary does not alter explicit-directory input handling.
@@ -1888,7 +1892,9 @@ that closed while the picker was open, including when names are duplicated.
   independently of the SGR bold attribute; bold SGR still contrasts against your
   chosen base. Uses real font weight faces only - an unresolvable weight name
   falls back to the regular face. Changes rebuild the glyph atlas through the
-  same path as `font_family`.
+  same path as `font_family`. An explicit `font` file supplies every style
+  while it is set, so neither `font_weight` nor `font_family` is searched and
+  bold and italic are synthesized from that file.
 
 - Window decorations toggle (`window_decorations`, on by default): shows or
   hides the native window titlebar and borders. On Wayland, client-side
@@ -2021,10 +2027,12 @@ that closed while the picker was open, including when names are duplicated.
   read-only candidate sources. Shell history reads are bounded to a 1 MiB tail
   window, 20,000 physical lines scanned, 5,000 returned entries, and 4,096
   characters per entry by default. Supported history formats are bash/plain
-  line history, zsh extended history, and Fish `- cmd:` rows including simple
-  block commands. Recent directories are fed from already-parsed OSC 7 cwd
-  values; the source layer never writes history files, never logs history
-  contents, and never sends candidates over the network.
+  line history, zsh history (extended rows, multi-line commands continued with
+  a trailing backslash, and metafied non-ASCII bytes), and Fish `- cmd:` rows
+  with Fish's `\\` and `\n` escapes decoded and quotes kept as typed. Recent
+  directories are fed from already-parsed OSC 7 cwd values; the source layer
+  never writes history files, never logs history contents, and never sends
+  candidates over the network.
 
 - Native command-palette overlay: exposed as the `command-palette` bindable
   action, which ships a default `Ctrl+Shift+P` chord (a `Ctrl+Shift+<letter>`

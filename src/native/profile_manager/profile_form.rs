@@ -435,7 +435,7 @@ impl ProfileManager {
                 && Some(dir) != loaded_wd
                 && !crate::native::persistence::dir_exists_for_spawn(std::path::Path::new(dir))
             {
-                self.error = Some(format!("working directory {dir:?} does not exist"));
+                self.error = Some(crate::cwd::unusable_message(std::path::Path::new(dir), dir));
                 return ProfileManagerOutcome::Consumed;
             }
             profile.appearance.theme = nonempty_opt(&self.draft_theme);

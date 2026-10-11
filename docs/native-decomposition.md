@@ -382,7 +382,8 @@ GPU invariants:
   frame reports it; resize, reconfigure, and surface recreation leave the
   surface alone; the window's redraws return before any GPU step; and its
   render-only timers leave the wake set. Rendering stays paused until the
-  window is restarted, and the pause is logged once.
+  window is closed and reopened (OpenGL windows share one device, so until
+  OdyTTY is restarted), and the pause is logged once.
 - Target-format changes rebuild every cell, cursor, colour, image, background,
   and post-processing pipeline together.
 - Atlas texture, sampler, binding, and CPU atlas state rebuild together.

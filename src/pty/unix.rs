@@ -83,6 +83,16 @@ fn unpack_cell_metrics(packed: u64) -> CellMetrics {
     CellMetrics::new((packed >> 32) as u32, (packed & 0xffff_ffff) as u32)
 }
 
+/// A one-shot `$SHELL -lc <command>` with the standard exec environment:
+/// terminal advertisement plus the nested-launch integration scrub.
+fn shell_command_builder(command: &str) -> CommandBuilder {
+    let mut builder = CommandBuilder::new(default_shell_program());
+    builder.arg("-lc");
+    builder.arg(command);
+    builder.apply_standard_exec_env(&std::collections::BTreeMap::new());
+    builder
+}
+
 /// Resolve the interactive shell without assuming a desktop session exported
 /// `SHELL`. Graphical launchers are allowed to omit it; on Fedora `/bin/sh` is
 /// Bash, so the old fallback looked like Bash after exec while its `sh`
@@ -240,13 +250,7 @@ impl PtySession {
     }
 
     pub fn spawn_shell_command(dimensions: Dimensions, command: &str) -> Result<Self> {
-        let shell = default_shell_program();
-        let mut command_builder = CommandBuilder::new(shell);
-        command_builder.arg("-lc");
-        command_builder.arg(command);
-        command_builder.apply_terminal_env();
-
-        Self::spawn_command(dimensions, command_builder)
+        Self::spawn_command(dimensions, shell_command_builder(command))
     }
 
     pub fn spawn_exec(
@@ -255,15 +259,10 @@ impl PtySession {
         args: Vec<OsString>,
         working_directory: Option<PathBuf>,
     ) -> Result<Self> {
-        let mut command = CommandBuilder::new(program);
-        for arg in args {
-            command.arg(arg);
-        }
-        command.apply_terminal_env();
-        if let Some(path) = working_directory {
-            command.current_dir(path);
-        }
-        Self::spawn_command(dimensions, command)
+        Self::spawn_command(
+            dimensions,
+            super::exec_command_builder(program, args, working_directory),
+        )
     }
 
     /// The launch-time shell family; attached and remote sessions are gated by the caller.
@@ -582,7 +581,9 @@ fn proc_stat_pgrp(stat: &str) -> Option<u32> {
     let after_comm = stat.get(stat.rfind(')')? + 1..)?;
     let mut fields = after_comm.split_whitespace();
     let state = fields.next()?;
-    if state.len() != 1 || !state.chars().all(|c| c.is_ascii_uppercase()) {
+    // proc(5) states are letters, including lowercase `t` (tracing stop)
+    // and, on older kernels, `x` and `w`.
+    if state.len() != 1 || !state.chars().all(|c| c.is_ascii_alphabetic()) {
         return None;
     }
     fields.next()?.parse::<u32>().ok()?;
@@ -624,15 +625,36 @@ fn foreground_group_is_launch_child_only(launch_pid: u32) -> bool {
             }
             Err(_) => return false,
         };
-        if proc_stat_pgrp(&stat) != Some(launch_pid) {
-            continue;
+        match stat_group_verdict(&stat, pid, launch_pid) {
+            StatGroupVerdict::Outside => {}
+            StatGroupVerdict::Launch => found_launch = true,
+            StatGroupVerdict::Refuse => return false,
         }
-        if pid != launch_pid {
-            return false;
-        }
-        found_launch = true;
     }
     found_launch
+}
+
+/// How one `/proc/<pid>/stat` entry bears on the launch-group scan.
+#[cfg(target_os = "linux")]
+#[derive(Debug, PartialEq, Eq)]
+enum StatGroupVerdict {
+    /// The process is outside the launch group.
+    Outside,
+    /// The process is the launch child itself.
+    Launch,
+    /// Another group member, or a stat that cannot be read as one, may hide
+    /// a member: refuse.
+    Refuse,
+}
+
+#[cfg(target_os = "linux")]
+fn stat_group_verdict(stat: &str, pid: u32, launch_pid: u32) -> StatGroupVerdict {
+    match proc_stat_pgrp(stat) {
+        None => StatGroupVerdict::Refuse,
+        Some(pgrp) if pgrp != launch_pid => StatGroupVerdict::Outside,
+        Some(_) if pid == launch_pid => StatGroupVerdict::Launch,
+        Some(_) => StatGroupVerdict::Refuse,
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -887,6 +909,17 @@ mod tests {
         rows: 24,
         columns: 80,
     };
+
+    #[test]
+    fn one_shot_shell_command_scrubs_inherited_shell_integration_marker() {
+        let builder = shell_command_builder("true");
+        assert!(
+            builder
+                .env_remove_for_test()
+                .iter()
+                .any(|key| key == "ODYTTY_SHELL_INTEGRATION")
+        );
+    }
 
     #[test]
     fn default_shell_resolution_uses_login_shell_when_desktop_omits_shell() {

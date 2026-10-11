@@ -359,17 +359,18 @@ pub(crate) fn atlas_coverage_rgb(atlas: &GlyphAtlas, x: usize, y: usize) -> [f32
     }
 }
 
-/// Load the system font + a build-size atlas, or `None` to skip the test.
-pub(crate) fn setup() -> Option<(FontHandle, GlyphAtlas)> {
-    let font = text::load_font().ok()?;
+/// The bundled font and a build-size atlas. The face is compiled in, so this
+/// cannot fail and no test is ever skipped for want of a font.
+pub(crate) fn setup() -> (FontHandle, GlyphAtlas) {
+    let font = text::load_font().expect("the bundled text face loads");
     let atlas = GlyphAtlas::build(&font, PX);
-    Some((font, atlas))
+    (font, atlas)
 }
 
-pub(crate) fn setup_subpixel() -> Option<(FontHandle, GlyphAtlas)> {
-    let font = text::load_font().ok()?;
+pub(crate) fn setup_subpixel() -> (FontHandle, GlyphAtlas) {
+    let font = text::load_font().expect("the bundled text face loads");
     let atlas = GlyphAtlas::build_with_subpixel(&font, PX, SubpixelMode::Rgb);
-    Some((font, atlas))
+    (font, atlas)
 }
 
 /// Snapshot for a 1-row grid with `text` typed into it, cursor hidden so only

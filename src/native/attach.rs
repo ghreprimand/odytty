@@ -208,12 +208,17 @@ impl AttachClient {
         // C-4: bound every write to the host so a stopped host can never park the
         // main thread (resize) or the mutex-holding writer thread indefinitely.
         // The bound is mandatory, so only the documented peer-closed case may
-        // pass unset: macOS reports EINVAL for a timeout on a `try_clone`d
-        // socket whose peer already closed, and every write to such a socket
-        // fails at once rather than blocking. Any other failure refuses the
-        // attach instead of leaving writes unbounded.
-        accept_write_timeout_setup(stream.set_write_timeout(Some(ATTACH_WRITE_TIMEOUT)))
-            .context("bound session-host attach writes")?;
+        // pass unset: macOS reports EINVAL for a timeout on a socket whose peer
+        // already closed, and every write to such a socket fails at once rather
+        // than blocking. The shared session-host policy tolerates that raw
+        // EINVAL only on macOS and only when a nonblocking poll proves the peer
+        // hung up; any other failure refuses the attach instead of leaving
+        // writes unbounded.
+        settle_write_timeout(
+            &stream,
+            stream.set_write_timeout(Some(ATTACH_WRITE_TIMEOUT)),
+        )
+        .context("bound session-host attach writes")?;
         Ok((
             Self {
                 stream,
@@ -541,14 +546,12 @@ pub(super) struct AttachReader {
     stream: UnixStream,
 }
 
-/// Settle the attach write-timeout setup: success, or the EINVAL a socket whose
-/// peer already closed reports on macOS, is accepted; any other failure is
-/// returned, because an unset send timeout would leave writes unbounded.
-fn accept_write_timeout_setup(result: io::Result<()>) -> io::Result<()> {
-    match result {
-        Err(error) if error.kind() == io::ErrorKind::InvalidInput => Ok(()),
-        other => other,
-    }
+/// Settle the attach write-timeout setup through the session-host socket
+/// policy: success passes, raw EINVAL passes only on macOS with a proven
+/// closed peer, and every other failure is returned, because an unset send
+/// timeout would leave writes unbounded.
+fn settle_write_timeout(stream: &UnixStream, result: io::Result<()>) -> io::Result<()> {
+    crate::session_host::checked_socket_timeout(stream, result)
 }
 
 /// Read frames until the host's initial [`HostFrame::Snapshot`] arrives, or the

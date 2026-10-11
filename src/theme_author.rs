@@ -82,15 +82,14 @@ pub fn nudge(color: Srgb, dl: f32, dc: f32, dh: f32) -> Srgb {
 /// the **final quantized 8-bit bytes**, not on the intermediate float color, so
 /// the value returned here is exactly what the renderer will draw against the
 /// same partner — *authored == rendered*. The underlying
-/// [`enforce_min_contrast`] moves OKLab lightness (hue preserved, chroma reduced
-/// only when lightness alone cannot reach the floor) and picks the lightness
-/// direction that increases contrast, so the
+/// `palette_gen::floor_role` moves OKLab lightness (hue
+/// preserved, gamut-mapped along the hue, bytes re-checked) and picks the
+/// lightness direction that increases contrast, so the
 /// snap lifts a too-dark role lighter on a dark surface and pushes a too-light
 /// role darker on a light surface.
 ///
 /// `floor <= 1.0` is an exact passthrough no-op: there is no floor to enforce, so
-/// `candidate` is returned bit-for-bit (matching [`enforce_min_contrast`]'s
-/// contract).
+/// `candidate` is returned bit-for-bit (matching the render floor's passthrough).
 ///
 /// Best-effort cap: against a near-mid-grey partner, even pure black or white may
 /// not reach a high `floor`; in that pathological case the most-contrasting

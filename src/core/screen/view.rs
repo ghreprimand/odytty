@@ -517,6 +517,12 @@ impl Screen {
         self.ambiguous_wide = host.ambiguous_wide;
         self.scrollback.set_ambiguous_wide(host.ambiguous_wide);
         self.scrollback.set_limit(host.scrollback.limit());
+        // An alternate-screen restore parks a blank primary whose history
+        // replaces the active one on return; it follows the same host settings.
+        if let Some(stored) = self.primary_screen.as_mut() {
+            stored.scrollback.set_ambiguous_wide(host.ambiguous_wide);
+            stored.scrollback.set_limit(host.scrollback.limit());
+        }
     }
 
     /// Produce a visible-grid snapshot at a scrollback viewport offset.

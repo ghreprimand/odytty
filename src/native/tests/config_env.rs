@@ -48,6 +48,35 @@ impl Drop for ConfigEnvRestore {
     }
 }
 
+/// One extra process variable set for a fixture and restored, present or
+/// absent, when the guard drops, including on unwind. The caller holds the
+/// shared environment lock until the guard drops.
+struct EnvVarRestore {
+    key: &'static str,
+    previous: Option<OsString>,
+}
+
+impl EnvVarRestore {
+    fn set(key: &'static str, value: &str) -> Self {
+        let previous = std::env::var_os(key);
+        // SAFETY: callers hold test_env_lock throughout mutation and restoration.
+        unsafe { std::env::set_var(key, value) };
+        Self { key, previous }
+    }
+}
+
+impl Drop for EnvVarRestore {
+    fn drop(&mut self) {
+        // SAFETY: this guard drops before its caller releases test_env_lock.
+        unsafe {
+            match &self.previous {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+}
+
 pub(in crate::native) fn with_config_base<R>(
     base: &Path,
     redirect_xdg: bool,
@@ -107,6 +136,44 @@ fn config_environment_restores_present_and_absent_values_on_unwind() {
                 Some(&"synthetic fixture failure")
             );
             assert_eq!(KEYS.map(std::env::var_os), expected);
+        }
+    }
+}
+
+#[test]
+fn extra_variable_restorer_restores_present_and_absent_values_on_unwind() {
+    let _env = crate::test_lock::test_env_lock();
+    let key = "ODYTTY_SYNTHETIC_RESTORE_PROBE";
+    let original = std::env::var_os(key);
+    for present in [false, true] {
+        // SAFETY: the shared environment lock covers this fixture's lifetime.
+        unsafe {
+            if present {
+                std::env::set_var(key, "synthetic-before");
+            } else {
+                std::env::remove_var(key);
+            }
+        }
+        let expected = std::env::var_os(key);
+        let panic = std::panic::catch_unwind(|| {
+            let _restore = EnvVarRestore::set(key, "synthetic-during");
+            assert_eq!(
+                std::env::var_os(key),
+                Some(OsString::from("synthetic-during"))
+            );
+            panic!("synthetic fixture failure");
+        });
+        assert!(
+            panic.is_err(),
+            "the fixture must reach its deliberate panic"
+        );
+        assert_eq!(std::env::var_os(key), expected, "present={present}");
+    }
+    // SAFETY: still under the shared environment lock.
+    unsafe {
+        match original {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
         }
     }
 }
@@ -483,20 +550,14 @@ fn launch_inputs_on_another_thread_ignore_a_redirected_config() {
         let config = crate::settings::config_file_path().expect("a redirected config path");
         std::fs::create_dir_all(config.parent().expect("config dir")).expect("config dir");
         std::fs::write(&config, "font_size = 13\n").expect("write config");
-        let previous = std::env::var_os(key);
-        // SAFETY: `with_config_base` holds the shared environment lock.
-        unsafe { std::env::set_var(key, "13") };
+        // Restored on drop, so a panic on the resolving thread cannot leave the
+        // setting changed for the next test that holds the lock.
+        let font_size = EnvVarRestore::set(key, "13");
         let here = crate::native::app::profile_launch::launch_inputs_for_test();
         let there = std::thread::spawn(crate::native::app::profile_launch::launch_inputs_for_test)
             .join()
             .expect("the resolving thread completes");
-        // SAFETY: still under the shared environment lock.
-        unsafe {
-            match previous {
-                Some(value) => std::env::set_var(key, value),
-                None => std::env::remove_var(key),
-            }
-        }
+        drop(font_size);
         assert!(here.0, "the lock holder reads the redirected config");
         assert!(here.1.contains_key(key), "the lock holder reads {key}");
         assert!(!there.0, "another thread read the redirected config");

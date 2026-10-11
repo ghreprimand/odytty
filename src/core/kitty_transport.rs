@@ -270,6 +270,12 @@ fn admit_path(path: &Path) -> Result<AdmittedPath, TransportError> {
     // canonicalize the parent directory and verify containment. The opened
     // handle's own location is verified again in `open_admitted`.
     let parent = path.parent().ok_or(TransportError::InvalidPath)?;
+    // A path from the escape sequence that names a network share or device is
+    // refused before any filesystem call: canonicalizing it would open a
+    // connection to a host the output chose.
+    if !crate::cwd::permitted(parent) {
+        return Err(TransportError::PathNotAllowed);
+    }
     let canonical_parent = std::fs::canonicalize(parent)
         .map_err(|e| TransportError::IoError(format!("canonicalize parent: {e}")))?;
     let file_name = path.file_name().ok_or(TransportError::InvalidPath)?;

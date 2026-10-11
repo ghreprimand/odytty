@@ -32,14 +32,31 @@ impl Frame {
     }
 }
 
-fn setup() -> Option<(GlyphAtlas, EmojiRasterizer)> {
-    let text_font = odytty::text::load_font().ok()?;
+/// The bundled text face's atlas. The face is compiled in, so this cannot fail
+/// and no test that needs only text is ever skipped.
+fn text_atlas() -> GlyphAtlas {
+    let text_font = odytty::text::load_font().expect("the bundled text face loads");
+    GlyphAtlas::build(&text_font, 24.0)
+}
+
+/// A rasterizer over a discovered color-emoji font, or `None` when the machine
+/// has none.
+fn emoji_rasterizer() -> Option<EmojiRasterizer> {
     let found = discover_noto_color_emoji()?;
     let emoji_font = EmojiFont::load(found.path).ok()?;
-    Some((
-        GlyphAtlas::build(&text_font, 24.0),
-        EmojiRasterizer::from_font(emoji_font),
-    ))
+    Some(EmojiRasterizer::from_font(emoji_font))
+}
+
+static EMOJI_SKIPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Report a test that did not run because no color-emoji font was discovered.
+/// The test returns success, which is not a pass of its assertions, so the
+/// outcome is a fixed, countable token in the captured output.
+fn skip_without_emoji_font(test: &str) {
+    let count = EMOJI_SKIPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    eprintln!(
+        "odytty-test-outcome: unavailable-hardware color-emoji-font test={test} skipped={count}"
+    );
 }
 
 fn snapshot_for(text: &str, columns: usize) -> odytty::core::Snapshot {
@@ -50,9 +67,9 @@ fn snapshot_for(text: &str, columns: usize) -> odytty::core::Snapshot {
 }
 
 fn assert_one_cluster_run(text: &str, covered_columns: u8) {
-    let Some((atlas, mut rasterizer)) = setup() else {
-        eprintln!("skipping: text font or Noto Color Emoji unavailable");
-        return;
+    let atlas = text_atlas();
+    let Some(mut rasterizer) = emoji_rasterizer() else {
+        return skip_without_emoji_font(&format!("assert_one_cluster_run({text:?})"));
     };
     let snapshot = snapshot_for(text, 16);
     let mut color_atlas = ColorGlyphAtlas::new(atlas.cell);
@@ -190,9 +207,9 @@ fn multi_codepoint_clusters_keep_source_ownership_before_color_rendering() {
 
 #[test]
 fn real_emoji_renders_through_color_segment_over_background() {
-    let Some((atlas, mut rasterizer)) = setup() else {
-        eprintln!("skipping: text font or Noto Color Emoji unavailable");
-        return;
+    let atlas = text_atlas();
+    let Some(mut rasterizer) = emoji_rasterizer() else {
+        return skip_without_emoji_font("real_emoji_renders_through_color_segment_over_background");
     };
     let mut terminal = Terminal::new(2, 1);
     terminal.advance(b"\x1b[?25l");
@@ -221,9 +238,9 @@ fn real_emoji_renders_through_color_segment_over_background() {
 
 #[test]
 fn vs15_stays_coverage_vs16_enters_color_path() {
-    let Some((atlas, mut rasterizer)) = setup() else {
-        eprintln!("skipping: text font or Noto Color Emoji unavailable");
-        return;
+    let atlas = text_atlas();
+    let Some(mut rasterizer) = emoji_rasterizer() else {
+        return skip_without_emoji_font("vs15_stays_coverage_vs16_enters_color_path");
     };
     let mut text_terminal = Terminal::new(1, 1);
     text_terminal.advance("\u{2764}\u{FE0E}".as_bytes());
@@ -251,9 +268,11 @@ fn multi_codepoint_clusters_render_as_one_cluster_keyed_color_glyph() {
 
 #[test]
 fn keycap_cluster_is_color_when_resolved_and_visible_fallback_otherwise() {
-    let Some((atlas, mut rasterizer)) = setup() else {
-        eprintln!("skipping: text font or Noto Color Emoji unavailable");
-        return;
+    let atlas = text_atlas();
+    let Some(mut rasterizer) = emoji_rasterizer() else {
+        return skip_without_emoji_font(
+            "keycap_cluster_is_color_when_resolved_and_visible_fallback_otherwise",
+        );
     };
     let snapshot = snapshot_for("1\u{FE0F}\u{20E3}", 4);
     let mut color_atlas = ColorGlyphAtlas::new(atlas.cell);
@@ -280,10 +299,7 @@ fn keycap_cluster_is_color_when_resolved_and_visible_fallback_otherwise() {
 
 #[test]
 fn unresolved_cluster_keeps_coverage_fallback_visible() {
-    let Some((atlas, _)) = setup() else {
-        eprintln!("skipping: no system text font available");
-        return;
-    };
+    let atlas = text_atlas();
     let snapshot = snapshot_for("1\u{FE0F}\u{20E3}", 4);
     let mut color_atlas = ColorGlyphAtlas::new(atlas.cell);
     let mut rasterizer = EmojiRasterizer::new(None);
@@ -300,10 +316,7 @@ fn unresolved_cluster_keeps_coverage_fallback_visible() {
 
 #[test]
 fn cluster_run_suppresses_all_covered_source_foregrounds() {
-    let Some((atlas, _)) = setup() else {
-        eprintln!("skipping: no system text font available");
-        return;
-    };
+    let atlas = text_atlas();
     let snapshot = snapshot_for("AB", 4);
     let key = odytty::emoji::ColorGlyphKey::new(1, ColorGlyphId::Cluster(9), 24.0, 1.0, 2);
     let runs = [odytty::grid::ColorGlyphRun::cluster(0, 0, key, 2)];
@@ -327,9 +340,9 @@ fn cluster_run_suppresses_all_covered_source_foregrounds() {
 
 #[test]
 fn resident_color_run_suppresses_coverage_foreground_quad() {
-    let Some((atlas, mut rasterizer)) = setup() else {
-        eprintln!("skipping: text font or Noto Color Emoji unavailable");
-        return;
+    let atlas = text_atlas();
+    let Some(mut rasterizer) = emoji_rasterizer() else {
+        return skip_without_emoji_font("resident_color_run_suppresses_coverage_foreground_quad");
     };
     let mut terminal = Terminal::new(2, 1);
     terminal.advance(b"\x1b[?25l");

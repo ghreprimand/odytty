@@ -467,9 +467,11 @@ fn cluster_candidate(snapshot: &Snapshot, row: usize, column: usize) -> Option<C
 /// when the two arrive as separate cells (a snapshot that did not form the
 /// cluster as one owner). A hidden owner is never consumed, and cells whose
 /// renditions differ stay separate color runs, so a colour, hidden or
-/// hyperlink change inside the sequence is not painted away.
+/// hyperlink change inside the sequence is not painted away. Only the stored
+/// rendition counts: a selection, search match or copy-mode caret that covers
+/// part of a sequence recolours cells at render time and must not split it.
 fn joins_cluster(head: &crate::core::Cell, next: &crate::core::Cell) -> bool {
-    !next.attrs.hidden() && head.attrs == next.attrs
+    !next.attrs.hidden() && head.attrs.same_stored_rendition(&next.attrs)
 }
 
 fn zwj_cluster_candidate(

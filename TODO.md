@@ -1373,9 +1373,9 @@ a floor; surpassing it is the standing ambition.
       `17.0` is the fresh-install readability floor; `1.0` is the exact
       passthrough opt-out. The floor is measured via WCAG
       relative luminance on the displayed (clamped, byte-rounded) colour; the
-      lift bisects OKLab lightness while preserving hue, reducing chroma only
-      when lightness alone cannot reach the floor
-      (`src/color.rs:enforce_min_contrast`).
+      lift bisects OKLab lightness while preserving hue and chroma. A saturated
+      colour whose lightness alone cannot reach the floor keeps its hue-preserving
+      lift and may display below it (`src/color.rs:enforce_min_contrast`).
   - [x] Universal legibility guarantee: the contrast floor now provably
         covers every text color. The glyph path is color-type-agnostic, so
         256-color and truecolor foregrounds already pass through the same single

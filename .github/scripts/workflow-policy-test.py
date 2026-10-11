@@ -45,6 +45,30 @@ class WorkflowContracts(unittest.TestCase):
                 with self.subTest(workflow=path.name):
                     self.assertNotIn(opener, block)
 
+    def test_every_python_test_file_is_run_by_a_workflow(self):
+        # A test nothing runs pins nothing: the Python tooling hardening checks
+        # lived unreferenced for a release. Each Python test file must be
+        # named, as `python3 <path>`, by some workflow step.
+        steps = "\n".join(
+            block
+            for path in (ROOT / ".github/workflows").glob("*.yml")
+            for block in run_blocks(path)
+        )
+        candidates = [
+            *(ROOT / "tests").glob("*.py"),
+            *(ROOT / "scripts").glob("*-test.py"),
+            *(ROOT / "scripts").glob("*-tests.py"),
+            *(ROOT / ".github/scripts").glob("*-test.py"),
+        ]
+        self.assertTrue(candidates, "no Python test files found")
+        for path in sorted(candidates):
+            relative = path.relative_to(ROOT).as_posix()
+            with self.subTest(file=relative):
+                self.assertTrue(
+                    f"python3 {relative}" in steps,
+                    f"{relative} is run by no workflow step",
+                )
+
     def test_all_release_derivations_reject_bad_tag_before_records(self):
         blocks = [block for block in run_blocks(ROOT / ".github/workflows/release.yml")
                   if 'echo "version=$version"' in block]

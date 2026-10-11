@@ -1,24 +1,40 @@
 // SPDX-License-Identifier: GPL-3.0-only
-#![cfg(unix)]
+//! Command-line surface tests.
+//!
+//! Platform behavior: the output formats (`--list-themes`, `--list-fonts`,
+//! `--show-config`), the usage text, the session-command argument parser and
+//! the `--show-config` binary run are platform-neutral and run on Linux, macOS
+//! and Windows. The detached-session execution surface (host, attach and list
+//! over Unix sockets) is Unix-only, so only the tests marked `#[cfg(unix)]`
+//! exercise it; on Windows those verbs are refused and the usage text says so.
 
 #[path = "../src/test_dirs/allocation.rs"]
 pub mod scratch_dirs;
 
 use std::fs;
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use odytty::native::NativeCommand;
+use odytty::text::FontInventoryEntry;
+
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+#[cfg(unix)]
 use std::thread;
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
+#[cfg(unix)]
 use odytty::core::Dimensions;
-use odytty::native::NativeCommand;
+#[cfg(unix)]
 use odytty::session_host::{
     HostCommand, HostConfig, HostExitReason, ListedSession, SessionMetadata, now_unix_ms, run_host,
     write_session_metadata,
 };
-use odytty::text::FontInventoryEntry;
 
+// Shared with the binary, which uses the parts a test crate does not call.
+#[allow(dead_code)]
 #[path = "../src/cli.rs"]
 mod cli;
 
@@ -141,6 +157,7 @@ fn session_command_parser_accepts_list_and_attach() {
     ));
 }
 
+#[cfg(unix)]
 #[test]
 fn attach_without_flag_is_live_and_carries_the_session_id() {
     // `odytty attach <id>` (no flag) is a LIVE attach: it must route to the
@@ -160,6 +177,7 @@ fn attach_without_flag_is_live_and_carries_the_session_id() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn attach_diagnostic_flag_stays_cli_only() {
     // `--diagnostic` preserves the script-friendly dump path: it must NOT route
@@ -205,6 +223,7 @@ fn attach_rejects_unknown_flag_and_extra_id() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn live_attach_id_is_none_for_list_and_new_detached() {
     // list and new must never route to the native window.
@@ -219,6 +238,7 @@ fn live_attach_id_is_none_for_list_and_new_detached() {
     assert_eq!(new.live_attach_id(), None);
 }
 
+#[cfg(unix)]
 #[test]
 fn native_attach_options_set_attach_session_and_nothing_else() {
     // The CLI arg must flow into NativeOptions.attach_session, and every other
@@ -282,6 +302,7 @@ fn session_command_parser_rejects_incomplete_session_commands() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn list_sessions_output_is_readable_and_name_first() {
     let output = cli::list_sessions_output(&[
@@ -307,6 +328,7 @@ fn list_sessions_output_is_readable_and_name_first() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn attach_no_id_resolver_errors_when_no_sessions_exist() {
     let options = cli::SessionAttachOptions {
@@ -318,6 +340,7 @@ fn attach_no_id_resolver_errors_when_no_sessions_exist() {
     assert_eq!(error.to_string(), "no live sessions to attach");
 }
 
+#[cfg(unix)]
 #[test]
 fn attach_no_id_resolver_attaches_single_session() {
     let options = cli::SessionAttachOptions {
@@ -342,6 +365,7 @@ fn attach_no_id_resolver_attaches_single_session() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn attach_resolver_keeps_explicit_id_live_without_enumerating() {
     let action = cli::resolve_attach(&cli::SessionAttachOptions {
@@ -357,6 +381,7 @@ fn attach_resolver_keeps_explicit_id_live_without_enumerating() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn attach_no_id_resolver_lists_multiple_sessions_and_requires_choice() {
     let options = cli::SessionAttachOptions {
@@ -393,6 +418,7 @@ fn attach_no_id_resolver_lists_multiple_sessions_and_requires_choice() {
     assert!(output.contains("multiple live sessions; specify an id: odytty attach <id>"));
 }
 
+#[cfg(unix)]
 #[test]
 fn new_detached_prints_session_id_without_spawning_in_tests() {
     // Short prefix: this test binds a real session-host socket, so the runtime
@@ -413,6 +439,7 @@ fn new_detached_prints_session_id_without_spawning_in_tests() {
     assert_eq!(output, "id=s-test\n");
 }
 
+#[cfg(unix)]
 #[test]
 fn new_detached_spawn_failure_cleans_up_orphaned_metadata() {
     // audit C27: the `.meta` file is written BEFORE the host is spawned; when
@@ -443,6 +470,7 @@ fn new_detached_spawn_failure_cleans_up_orphaned_metadata() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn attach_reports_unknown_session_without_creating_daemons() {
     let temp = TempDir::new("odytty-cli-attach-missing");
@@ -460,6 +488,7 @@ fn attach_reports_unknown_session_without_creating_daemons() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn list_and_attach_use_live_session_host_without_scrollback_dump() {
     // Short prefix: this test binds a real session-host socket, so the runtime
@@ -575,12 +604,31 @@ fn show_config_reads_temp_config_and_applies_env_override() {
     )
     .expect("write temp config");
 
-    let output = Command::new(odytty_bin())
-        .arg("--show-config")
+    let mut command = Command::new(odytty_bin());
+    command.arg("--show-config");
+    #[cfg(unix)]
+    command
         .env_clear()
-        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default());
+    // Windows keeps its inherited system variables (clearing them can stop a
+    // process from starting) and drops only the OdyTTY overrides.
+    #[cfg(not(unix))]
+    for (key, _) in std::env::vars_os() {
+        if key
+            .to_string_lossy()
+            .to_ascii_uppercase()
+            .starts_with("ODYTTY_")
+        {
+            command.env_remove(key);
+        }
+    }
+    // `APPDATA` is the Windows config base; `XDG_CONFIG_HOME` and `HOME` the
+    // others. Redirecting all of them keeps every platform inside `temp`.
+    let output = command
         .env("XDG_CONFIG_HOME", temp.path())
         .env("HOME", temp.path())
+        .env("APPDATA", temp.path())
+        .env("LOCALAPPDATA", temp.path())
         .env("ODYTTY_FONT_SIZE", "21")
         .env("ODYTTY_RENDER_QUALITY", "plain")
         .output()
@@ -628,7 +676,11 @@ struct TempDir {
 
 impl TempDir {
     fn new(prefix: &str) -> Self {
+        // Unix sockets live under a short base; elsewhere the platform temp.
+        #[cfg(unix)]
         let path = scratch_dirs::fresh_socket_dir(prefix);
+        #[cfg(not(unix))]
+        let path = scratch_dirs::fresh_temp_dir(prefix);
         Self { path }
     }
 
@@ -643,6 +695,7 @@ impl Drop for TempDir {
     }
 }
 
+#[cfg(unix)]
 fn wait_for_socket(socket_path: &Path) {
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {

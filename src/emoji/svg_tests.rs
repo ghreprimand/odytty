@@ -385,15 +385,8 @@ fn capability_probes_report_svg_coverage() {
 
 #[test]
 fn discovery_accepts_svg_only_faces_after_colr_faces() {
-    let root = std::env::temp_dir().join(format!(
-        "odytty-svg-discovery-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
-    std::fs::create_dir_all(&root).expect("create temp font dir");
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-svg-discovery-");
+    let root = scratch.path().to_path_buf();
     let svg_only = root.join("AaaVectorEmoji.ttf");
     std::fs::copy(fixture_font("color-emoji-svg.ttf"), &svg_only).expect("copy SVG fixture");
 
@@ -412,8 +405,6 @@ fn discovery_accepts_svg_only_faces_after_colr_faces() {
     assert_eq!(loaded.path(), colr.as_path());
     let found = discover_noto_color_emoji_in(std::slice::from_ref(&root)).expect("found");
     assert_eq!(found.path, colr);
-
-    let _ = std::fs::remove_dir_all(root);
 }
 
 const SVG_OPEN: &str =

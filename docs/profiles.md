@@ -45,7 +45,9 @@ Each profile is one hand-editable JSON document under the profiles directory:
 the profile name; the `.profile.json` suffix is required. A directory scan
 examines at most 1,024 directory entries of any kind (other files, folders,
 and malformed profiles all count), returns at most 256 profiles, reads at most
-1 MiB per file, and retains at most 100 parse warnings. Profile files load in
+1 MiB per file, and retains at most 100 parse warnings. A file saved with a
+leading UTF-8 byte order mark, as some Windows editors write, loads normally;
+the same applies to `odytty.conf`, theme files, and external palette files. Profile files load in
 name order. A scan that stops at either limit adds a warning, which the Profile
 Manager shows. OdyTTY keeps the last parsed catalog and reuses it while every
 profile file's name, size, and modification time are unchanged, together with
@@ -311,7 +313,9 @@ asks for suggestions, never on the default launch path:
   explicit and separately tested.
 
 Environment values pass through fork/exec on Unix and fold into the ConPTY
-environment block on Windows. Environment keys and values are validated against
+environment block on Windows. A profile value replaces any variable of the same
+name that the terminal sets itself, such as `TERM`, so the shell receives one
+entry holding the profile value; on Windows the name match ignores case. Environment keys and values are validated against
 the platform's rules at the schema boundary before launch, so a profile cannot
 carry a name the target platform's process environment cannot represent.
 With shell integration on, a profile `HOME` is also where zsh reads its startup

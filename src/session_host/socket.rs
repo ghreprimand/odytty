@@ -398,7 +398,7 @@ impl Read for SocketReadDeadline<'_> {
 
 /// Propagate socket-option failures, except EINVAL on a proven closed macOS
 /// peer. A zero-timeout poll proves closure without consuming buffered bytes.
-pub(super) fn checked_socket_timeout(
+pub(crate) fn checked_socket_timeout(
     stream: &UnixStream,
     result: io::Result<()>,
 ) -> io::Result<()> {

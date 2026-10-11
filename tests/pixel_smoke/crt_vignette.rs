@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! CPU guards for the CRT vignette post-process math.
+//!
+//! The brightness formula below is a CPU model of `bloom.wgsl`'s
+//! `crt_brightness`, not the shader. `the_cpu_model_uses_the_shaders_constants`
+//! fails when the model's constants, clamp bounds or dither table differ from
+//! the shader source or the settings caps; the real shader is exercised by
+//! `gpu_composite_smoke`.
 
 use crate::harness::{Frame, frames_match, luminance};
 
@@ -7,6 +13,10 @@ const PI: f32 = std::f32::consts::PI;
 const CRT_SOFT_DIM_MAX: f32 = 0.30;
 const CRT_SOFT_KNEE_WIDTH: f32 = 0.08;
 const CRT_DITHER_AMPLITUDE: f32 = 1.0 / 255.0;
+const CRT_SCANLINE_CAP: f32 = 0.35;
+const CRT_VIGNETTE_CAP: f32 = 0.45;
+const CRT_PERIOD_RANGE: (f32, f32) = (2.0, 12.0);
+const CRT_EDGE_SMOOTHSTEP: (f32, f32) = (0.25, 1.45);
 const BAYER_8X8: [f32; 64] = [
     0.0, 48.0, 12.0, 60.0, 3.0, 51.0, 15.0, 63.0, 32.0, 16.0, 44.0, 28.0, 35.0, 19.0, 47.0, 31.0,
     8.0, 56.0, 4.0, 52.0, 11.0, 59.0, 7.0, 55.0, 40.0, 24.0, 36.0, 20.0, 43.0, 27.0, 39.0, 23.0,
@@ -88,6 +98,86 @@ fn crt_vignette_soft_knee_has_no_hard_floor_step() {
     );
 }
 
+/// The numbers in the first `const NAME: f32 = ...;` line of the shader.
+fn shader_const(source: &str, name: &str) -> f32 {
+    let line = source
+        .lines()
+        .find(|line| line.trim_start().starts_with(&format!("const {name}:")))
+        .unwrap_or_else(|| panic!("shader has no const {name}"));
+    let expr = line
+        .split_once('=')
+        .and_then(|(_, rest)| rest.split(';').next())
+        .unwrap_or_else(|| panic!("const {name} has no value"))
+        .trim();
+    match expr.split_once('/') {
+        Some((a, b)) => a.trim().parse::<f32>().unwrap() / b.trim().parse::<f32>().unwrap(),
+        None => expr.parse::<f32>().unwrap(),
+    }
+}
+
+/// The two literals after the `crt.<field>` argument of a shader `clamp`.
+fn shader_clamp(source: &str, field: &str) -> (f32, f32) {
+    let start = source
+        .find(&format!("clamp(crt.{field},"))
+        .unwrap_or_else(|| panic!("shader does not clamp crt.{field}"));
+    let args = &source[start..];
+    let args = &args[args.find(',').unwrap() + 1..args.find(')').unwrap()];
+    let mut bounds = args.split(',').map(|v| v.trim().parse::<f32>().unwrap());
+    (bounds.next().unwrap(), bounds.next().unwrap())
+}
+
+#[test]
+fn the_cpu_model_uses_the_shaders_constants() {
+    let shader = include_str!("../../src/shaders/bloom.wgsl");
+    assert_eq!(shader_const(shader, "CRT_SOFT_DIM_MAX"), CRT_SOFT_DIM_MAX);
+    assert_eq!(
+        shader_const(shader, "CRT_SOFT_KNEE_WIDTH"),
+        CRT_SOFT_KNEE_WIDTH
+    );
+    assert_eq!(
+        shader_const(shader, "OUTPUT_DITHER_AMPLITUDE"),
+        CRT_DITHER_AMPLITUDE
+    );
+    assert_eq!(
+        shader_clamp(shader, "scanline_intensity"),
+        (0.0, CRT_SCANLINE_CAP)
+    );
+    assert_eq!(
+        shader_clamp(shader, "vignette_strength"),
+        (0.0, CRT_VIGNETTE_CAP)
+    );
+    assert_eq!(shader_clamp(shader, "scanline_period"), CRT_PERIOD_RANGE);
+    // The settings accept exactly what the shader will not clamp further.
+    assert_eq!(
+        odytty::settings::MAX_CRT_SCANLINE_INTENSITY,
+        CRT_SCANLINE_CAP
+    );
+    assert_eq!(
+        odytty::settings::MAX_CRT_VIGNETTE_STRENGTH,
+        CRT_VIGNETTE_CAP
+    );
+    assert_eq!(
+        odytty::settings::MAX_CRT_SCANLINE_PERIOD,
+        CRT_PERIOD_RANGE.1
+    );
+
+    let smoothstep_call = "smoothstep(0.25, 1.45, dot(centered, centered))";
+    assert!(
+        shader.contains(smoothstep_call) && CRT_EDGE_SMOOTHSTEP == (0.25, 1.45),
+        "the vignette edge smoothstep differs from the model"
+    );
+
+    // The 8x8 ordered-dither table, in order.
+    let table = &shader[shader.find("array<f32, 64>(").expect("dither table") + 15..];
+    let table = &table[..table.find(");").expect("dither table end")];
+    let shader_table: Vec<f32> = table
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|token| !token.is_empty())
+        .map(|token| token.parse::<f32>().unwrap())
+        .collect();
+    assert_eq!(shader_table, BAYER_8X8);
+}
+
 #[test]
 fn crt_corner_brightness_stays_above_readability_floor() {
     let brightness = crt_brightness(
@@ -95,9 +185,11 @@ fn crt_corner_brightness_stays_above_readability_floor() {
         [512.0, 512.0],
         CrtParams {
             enabled: true,
-            scanline_intensity: 0.18,
+            // The most the settings accept for each, so the soft cap is what
+            // keeps the corner readable.
+            scanline_intensity: odytty::settings::MAX_CRT_SCANLINE_INTENSITY,
             scanline_period: 2.0,
-            vignette_strength: 0.16,
+            vignette_strength: odytty::settings::MAX_CRT_VIGNETTE_STRENGTH,
         },
     );
 
@@ -155,14 +247,16 @@ fn crt_brightness(uv: [f32; 2], dims: [f32; 2], params: CrtParams) -> f32 {
     }
 
     let y_px = uv[1] * dims[1].max(1.0);
-    let period = params.scanline_period.clamp(2.0, 12.0);
+    let period = params
+        .scanline_period
+        .clamp(CRT_PERIOD_RANGE.0, CRT_PERIOD_RANGE.1);
     let wave = 0.5 + 0.5 * ((y_px / period) * 2.0 * PI).cos();
-    let scanline_dim = params.scanline_intensity.clamp(0.0, 0.18) * wave;
+    let scanline_dim = params.scanline_intensity.clamp(0.0, CRT_SCANLINE_CAP) * wave;
 
     let centered = [uv[0] * 2.0 - 1.0, uv[1] * 2.0 - 1.0];
     let dist2 = centered[0] * centered[0] + centered[1] * centered[1];
-    let edge = smoothstep(0.25, 1.45, dist2);
-    let vignette_dim = params.vignette_strength.clamp(0.0, 0.16) * edge;
+    let edge = smoothstep(CRT_EDGE_SMOOTHSTEP.0, CRT_EDGE_SMOOTHSTEP.1, dist2);
+    let vignette_dim = params.vignette_strength.clamp(0.0, CRT_VIGNETTE_CAP) * edge;
 
     let total_dim = (1.0 - (1.0 - scanline_dim) * (1.0 - vignette_dim)).clamp(0.0, 1.0);
     let knee_start = CRT_SOFT_DIM_MAX - CRT_SOFT_KNEE_WIDTH;

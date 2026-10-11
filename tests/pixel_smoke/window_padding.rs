@@ -8,9 +8,7 @@ use crate::harness::{composite, composite_with_padding, frames_match, row_snapsh
 
 #[test]
 fn zero_window_padding_is_pixel_identical_to_legacy_layout() {
-    let Some((_font, atlas)) = setup() else {
-        return;
-    };
+    let (_font, atlas) = setup();
     let snapshot = row_snapshot(4, "\x1b[31mA\x1b[0mB\x1b[7mC\x1b[0mD");
 
     let legacy = composite(&snapshot, &atlas, CursorStyle::Block);

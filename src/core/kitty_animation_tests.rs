@@ -255,6 +255,69 @@ fn animation_control_states_and_current_frame_are_applied() {
     );
 }
 
+/// `c` and `r` are placement extents for most commands and frame indices for
+/// animation commands. A value past `u32::MAX` is a valid extent but not a frame
+/// index, and must be refused rather than read as an omitted key.
+#[test]
+fn animation_frame_keys_past_u32_are_refused_and_change_nothing() {
+    let past_u32 = u64::from(u32::MAX) + 1;
+    let mut terminal = terminal_with_animated_image();
+    terminal.advance(&apc(
+        "a=f,i=1,f=32,s=2,v=2,z=40",
+        &canvas([40, 50, 60, 255]),
+    ));
+    let _ = terminal.take_host_output();
+    let frames = frame_count(&terminal, 1);
+    let id = stored_id(&terminal, 1);
+    let state = |terminal: &Terminal| {
+        terminal
+            .graphics()
+            .store()
+            .get(id)
+            .expect("image")
+            .frames
+            .state()
+    };
+    let before = state(&terminal);
+
+    let frame_payload = canvas([1, 2, 3, 255]);
+    for command in [
+        apc(
+            &format!("a=f,i=1,f=32,s=2,v=2,c={past_u32}"),
+            &frame_payload,
+        ),
+        apc(
+            &format!("a=f,i=1,f=32,s=2,v=2,r={past_u32}"),
+            &frame_payload,
+        ),
+        apc_no_payload(&format!("a=a,i=1,s=3,c={past_u32}")),
+        apc_no_payload(&format!("a=a,i=1,s=3,r={past_u32}")),
+        apc_no_payload(&format!("a=c,i=1,c={past_u32},r=1")),
+        apc_no_payload(&format!("a=c,i=1,c=1,r={past_u32}")),
+        apc_no_payload(&format!("a=d,d=f,i=1,r={past_u32}")),
+        apc_no_payload(&format!("a=d,d=F,i=1,c={past_u32}")),
+    ] {
+        terminal.advance(&command);
+        assert_eq!(
+            terminal.take_host_output(),
+            b"\x1b_G;malformed-control\x1b\\",
+            "{}",
+            String::from_utf8_lossy(&command)
+        );
+        assert_eq!(
+            frame_count(&terminal, 1),
+            frames,
+            "no frame stored or removed"
+        );
+        assert_eq!(state(&terminal), before, "playback state is untouched");
+    }
+
+    // A placement keeps the wider extent: it clamps to the screen instead.
+    terminal.advance(&apc_no_payload(&format!("a=p,i=1,c={past_u32},r=2")));
+    let reply = String::from_utf8_lossy(&terminal.take_host_output()).into_owned();
+    assert!(!reply.contains("malformed-control"), "{reply}");
+}
+
 #[test]
 fn animation_control_for_an_image_without_frames_reports_enoent() {
     let mut terminal = terminal_with_animated_image();

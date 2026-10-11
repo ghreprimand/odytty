@@ -737,9 +737,6 @@ fn drain_pty_events(
     Ok(())
 }
 
-/// Fetch one event without exceeding the per-loop fairness budget. Kept
-/// separate from event handling so the starvation boundary is unit-testable
-/// without constructing a live PTY session.
 /// The rejection sent to a client whose protocol or snapshot versions differ
 /// from this host's. A host keeps the versions of the binary that started it, so
 /// after an upgrade a session it still hosts cannot be attached by the newer
@@ -759,6 +756,9 @@ fn incompatible_versions_message(hello: &ClientHello) -> String {
     )
 }
 
+/// Fetch one event without exceeding the per-loop fairness budget. Kept
+/// separate from event handling so the starvation boundary is unit-testable
+/// without constructing a live PTY session.
 fn next_pty_event(pty_rx: &Receiver<PtyEvent>, processed: usize) -> Option<PtyEvent> {
     if processed >= MAX_PTY_EVENTS_PER_TICK {
         return None;
@@ -1615,6 +1615,15 @@ mod launch_tests {
             let config = parse_internal_host_args(&args(list)).expect("parse");
             assert_eq!(working_directory_of(&config), Some(&PathBuf::from("/work")));
         }
+    }
+
+    #[test]
+    fn zero_dimensions_are_refused_at_the_argument_boundary() {
+        for list in [&["--cols", "0"][..], &["--rows", "0"][..]] {
+            assert!(parse_internal_host_args(&args(list)).is_err(), "{list:?}");
+        }
+        let config = parse_internal_host_args(&args(&[])).expect("defaults parse");
+        assert!(config.dimensions.columns > 0 && config.dimensions.rows > 0);
     }
 
     #[test]

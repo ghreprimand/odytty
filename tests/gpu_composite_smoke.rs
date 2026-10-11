@@ -91,15 +91,10 @@ struct CrtUniform {
 
 #[test]
 fn passthrough_composite_matches_direct_render_bytes() {
-    let Some(gpu) = gpu_device() else {
-        eprintln!("skipping: no GPU adapter available");
+    let Some(gpu) = hdr_gpu("passthrough_composite_matches_direct_render_bytes") else {
         return;
     };
-    let (device, queue, hdr_supported) = (&gpu.device, &gpu.queue, gpu.hdr_supported);
-    assert!(
-        hdr_supported,
-        "Rgba16Float must support render attachment + filterable texture binding"
-    );
+    let (device, queue) = (&gpu.device, &gpu.queue);
 
     let direct_scene_pipeline = create_scene_pipeline(device, FORMAT, SCENE_SHADER);
     let offscreen_scene_pipeline = create_scene_pipeline(device, HDR_FORMAT, SCENE_SHADER);
@@ -191,15 +186,10 @@ fn below_threshold_scene_emits_no_bloom() {
 }
 
 fn assert_bloom_scene(scene: &str, has_bright_patch: bool) {
-    let Some(gpu) = gpu_device() else {
-        eprintln!("skipping: no GPU adapter available");
+    let Some(gpu) = hdr_gpu("assert_bloom_scene") else {
         return;
     };
-    let (device, queue, hdr_supported) = (&gpu.device, &gpu.queue, gpu.hdr_supported);
-    assert!(
-        hdr_supported,
-        "Rgba16Float must support render attachment + filterable texture binding"
-    );
+    let (device, queue) = (&gpu.device, &gpu.queue);
 
     let direct_scene_pipeline = create_scene_pipeline(device, FORMAT, scene);
     let offscreen_scene_pipeline = create_scene_pipeline(device, HDR_FORMAT, scene);
@@ -383,15 +373,10 @@ fn assert_bloom_scene(scene: &str, has_bright_patch: bool) {
 
 #[test]
 fn crt_off_is_exact_and_crt_on_bounded_dims_lit_cells() {
-    let Some(gpu) = gpu_device() else {
-        eprintln!("skipping: no GPU adapter available");
+    let Some(gpu) = hdr_gpu("crt_off_is_exact_and_crt_on_bounded_dims_lit_cells") else {
         return;
     };
-    let (device, queue, hdr_supported) = (&gpu.device, &gpu.queue, gpu.hdr_supported);
-    assert!(
-        hdr_supported,
-        "Rgba16Float must support render attachment + filterable texture binding"
-    );
+    let (device, queue) = (&gpu.device, &gpu.queue);
 
     let direct_scene_pipeline = create_scene_pipeline(device, FORMAT, SCENE_SHADER);
     let offscreen_scene_pipeline = create_scene_pipeline(device, HDR_FORMAT, SCENE_SHADER);
@@ -517,6 +502,26 @@ fn crt_off_is_exact_and_crt_on_bounded_dims_lit_cells() {
 
 // Mirror of image_layer::SCRIM_ALPHA for the replicated fs_backing below.
 const SMOKE_SCRIM_ALPHA: f32 = 0.72;
+
+/// The replicated scrim alpha must be the production one. Read from the
+/// production source because the constant is crate-private; this needs no GPU,
+/// so it runs everywhere.
+#[test]
+fn replicated_scrim_alpha_matches_the_production_constant() {
+    let source = include_str!("../src/native/image_layer.rs");
+    let line = source
+        .lines()
+        .find(|line| line.contains("const SCRIM_ALPHA: f32 ="))
+        .expect("image_layer.rs defines SCRIM_ALPHA");
+    let value = line
+        .split_once('=')
+        .and_then(|(_, rest)| rest.trim().strip_suffix(';'))
+        .expect("SCRIM_ALPHA has a literal value")
+        .trim()
+        .parse::<f32>()
+        .expect("SCRIM_ALPHA is a float literal");
+    assert_eq!(value, SMOKE_SCRIM_ALPHA);
+}
 
 fn overlay_shader_source() -> String {
     format!(
@@ -820,12 +825,10 @@ fn render_overlay_frame(
 
 #[test]
 fn viewer_image_survives_post_effects() {
-    let Some(gpu) = gpu_device() else {
-        eprintln!("skipping: no GPU adapter available");
+    let Some(gpu) = hdr_gpu("viewer_image_survives_post_effects") else {
         return;
     };
-    let (device, queue, hdr_supported) = (&gpu.device, &gpu.queue, gpu.hdr_supported);
-    assert!(hdr_supported, "HDR offscreen required");
+    let (device, queue) = (&gpu.device, &gpu.queue);
 
     // A flat opaque mid-gray image. After CRT+bloom + the overlay pass, the
     // whole fit-rect must be that gray with NO scanline modulation.
@@ -870,12 +873,10 @@ fn viewer_image_survives_post_effects() {
 
 #[test]
 fn viewer_scrim_dims_whole_viewport() {
-    let Some(gpu) = gpu_device() else {
-        eprintln!("skipping: no GPU adapter available");
+    let Some(gpu) = hdr_gpu("viewer_scrim_dims_whole_viewport") else {
         return;
     };
-    let (device, queue, hdr_supported) = (&gpu.device, &gpu.queue, gpu.hdr_supported);
-    assert!(hdr_supported, "HDR offscreen required");
+    let (device, queue) = (&gpu.device, &gpu.queue);
 
     // 8×6 opaque red image (fits centered at x∈[4,12), y∈[3,9) in the 16×12
     // frame). The lightbox scrim must dim the WHOLE viewport — including the
@@ -929,12 +930,10 @@ fn viewer_scrim_dims_whole_viewport() {
 
 #[test]
 fn cleared_viewer_frame_is_byte_identical() {
-    let Some(gpu) = gpu_device() else {
-        eprintln!("skipping: no GPU adapter available");
+    let Some(gpu) = hdr_gpu("cleared_viewer_frame_is_byte_identical") else {
         return;
     };
-    let (device, queue, hdr_supported) = (&gpu.device, &gpu.queue, gpu.hdr_supported);
-    assert!(hdr_supported, "HDR offscreen required");
+    let (device, queue) = (&gpu.device, &gpu.queue);
 
     let gray = vec![200u8; (8 * 6 * 4) as usize];
     let mut gray_rgba = gray.clone();
@@ -992,8 +991,10 @@ static GPU_FIXTURE_LOCK: Mutex<()> = Mutex::new(());
 #[test]
 fn gpu_fixture_keeps_driver_lifetime_serialized() {
     let Some(gpu) = gpu_device() else {
-        eprintln!("skipping: no usable GPU adapter");
-        return;
+        return report_unavailable(
+            "gpu_fixture_keeps_driver_lifetime_serialized",
+            "gpu-adapter",
+        );
     };
     assert!(
         matches!(
@@ -1003,6 +1004,32 @@ fn gpu_fixture_keeps_driver_lifetime_serialized() {
         "the fixture must hold its driver lifetime lock until its handles drop"
     );
     drop(gpu);
+}
+
+static GPU_UNAVAILABLE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Report a test that did not run for want of the hardware it needs. The test
+/// returns success, which is not a pass of its assertions, so the outcome is a
+/// fixed, countable token in the captured output.
+fn report_unavailable(test: &str, reason: &str) {
+    let count = GPU_UNAVAILABLE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    eprintln!("odytty-test-outcome: unavailable-hardware {reason} test={test} unavailable={count}");
+}
+
+/// A GPU fixture whose adapter can render and filter the HDR offscreen format,
+/// or `None` after reporting why the test cannot run: a machine with no usable
+/// adapter, and an adapter that lacks the HDR format, are the same
+/// unavailable-hardware outcome, never a pass and never a failure.
+fn hdr_gpu(test: &str) -> Option<GpuFixture> {
+    let Some(gpu) = gpu_device() else {
+        report_unavailable(test, "gpu-adapter");
+        return None;
+    };
+    if !gpu.hdr_supported {
+        report_unavailable(test, "hdr-render-format");
+        return None;
+    }
+    Some(gpu)
 }
 
 fn gpu_device() -> Option<GpuFixture> {

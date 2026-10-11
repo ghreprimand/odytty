@@ -65,10 +65,7 @@ fn all_hot(quality: RenderQuality) -> Settings {
 /// equality assertion can actually fail.
 #[test]
 fn plain_render_quality_is_pixel_identical_to_minimal() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
 
     // Global-free guarantee: the shared suite runs at the identity floor, and
     // this layer must not perturb it. Assert it so a future global-mutating test

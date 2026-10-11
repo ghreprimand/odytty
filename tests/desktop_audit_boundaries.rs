@@ -120,5 +120,7 @@ fn desktop_name_decodes_string_escapes_before_display() {
         "[Desktop Entry]\nType=Application\nName=Fixture\\sViewer\\tPanel\\\\Label\nExec=fixture-viewer %f\n");
     let apps = enumerate_open_with(&Probe, &env, "fixture.png");
     assert_eq!(apps.len(), 1);
-    assert_eq!(apps[0].name, "Fixture Viewer\tPanel\\Label");
+    // `\s` is a space, `\t` a tab (shown as a word separator, since the overlay
+    // drops controls and would otherwise merge the words) and `\\` a backslash.
+    assert_eq!(apps[0].name, "Fixture Viewer Panel\\Label");
 }

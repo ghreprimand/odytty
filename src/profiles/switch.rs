@@ -109,6 +109,9 @@ fn host_matches(host: Option<&str>, pattern: &str) -> bool {
         if suffix.is_empty() {
             return false;
         }
+        // Compare bytes: the suffix length can end inside a multi-byte
+        // character of the host, where a `str` slice would panic.
+        let (host, suffix) = (host.as_bytes(), suffix.as_bytes());
         return host.len() >= suffix.len()
             && host[host.len() - suffix.len()..].eq_ignore_ascii_case(suffix);
     }
@@ -316,6 +319,14 @@ mod tests {
         assert!(!host_matches(Some("host.example.evil"), "*.example"));
         assert!(!host_matches(Some("notexample"), "*.example"));
         assert!(host_matches(Some("anything"), "*"));
+    }
+
+    #[test]
+    fn host_wildcard_suffix_ending_inside_a_multibyte_host_character_does_not_panic() {
+        // `é` is two bytes, so a one-byte suffix starts inside it.
+        assert!(!host_matches(Some("host-\u{e9}"), "*x"));
+        assert!(host_matches(Some("caf\u{e9}.example"), "*\u{e9}.example"));
+        assert!(!host_matches(Some("caf\u{e9}"), "*E\u{301}"));
     }
 
     #[test]

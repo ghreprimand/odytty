@@ -613,6 +613,24 @@ mod tests {
     use super::super::{Appearance, MIN_CONTRAST};
     use super::*;
 
+    /// Every embedded built-in, parsed (light and dark alike, with their
+    /// authoring fields), serializes to text that re-parses to an equal spec
+    /// and serializes to the same bytes again.
+    #[test]
+    fn every_parsed_builtin_round_trips_through_serialize() {
+        for &(name, source) in REGISTRY {
+            let spec = ThemeSpec::parse(source, |m| panic!("built-in {name:?} warning: {m}"));
+            let text = spec.serialize();
+            let reparsed = ThemeSpec::parse(&text, |m| panic!("{name:?} re-parse warning: {m}"));
+            assert_eq!(reparsed, spec, "round-trip changed {name}");
+            assert_eq!(
+                reparsed.serialize(),
+                text,
+                "serialize not stable for {name}"
+            );
+        }
+    }
+
     /// Re-parse a built-in's embedded source into its spec (for tests that need
     /// the authoring-only fields, e.g. the `appearance` flag).
     fn spec_for(name: &str) -> ThemeSpec {

@@ -232,6 +232,32 @@ fn proc_stat_pgrp_uses_field_after_final_comm_parenthesis() {
 
 #[cfg(target_os = "linux")]
 #[test]
+fn traced_group_members_are_seen_and_unparsable_stats_refuse() {
+    // A ptrace-stopped member reports lowercase `t`; older kernels report `x`.
+    assert_eq!(proc_stat_pgrp("18 (gdb target) t 1 4242 3"), Some(4242));
+    assert_eq!(proc_stat_pgrp("18 (dead) x 1 4242 3"), Some(4242));
+    assert_eq!(
+        stat_group_verdict("18 (gdb target) t 1 4242 3", 18, 4242),
+        StatGroupVerdict::Refuse,
+        "a traced member of the launch group refuses the drop"
+    );
+    assert_eq!(
+        stat_group_verdict("4242 (bash) S 1 4242 3", 4242, 4242),
+        StatGroupVerdict::Launch
+    );
+    assert_eq!(
+        stat_group_verdict("19 (other) S 1 77 3", 19, 4242),
+        StatGroupVerdict::Outside
+    );
+    assert_eq!(
+        stat_group_verdict("malformed", 20, 4242),
+        StatGroupVerdict::Refuse,
+        "a stat that cannot be parsed hides a possible member"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 fn foreground_group_scan_stays_true_for_idle_bash_under_proc_churn() {
     // Evidence probe: while many short-lived processes churn /proc, an idle
     // sole-member Bash group must keep returning true. A transient non-ENOENT/

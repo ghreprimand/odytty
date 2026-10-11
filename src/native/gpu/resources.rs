@@ -543,6 +543,7 @@ pub(in crate::native) struct GpuState {
     /// (`(start, end, face)` ranges). Reinstalled whenever the atlas is rebuilt.
     pub(super) symbol_map_fonts: Vec<(u32, u32, Arc<FontHandle>)>,
     pub(super) font_path: Option<PathBuf>,
+    pub(super) font_path_explicit: bool,
     pub(super) font_family: String,
     /// Last-applied RV7 font-weight variant suffix, retained for change
     /// detection. Empty (the default) keeps the regular-face load path, so the
@@ -752,7 +753,9 @@ impl GpuState {
         }
 
         let caps = surface.get_capabilities(&adapter);
-        let (format, surface_is_srgb) = choose_surface_format(&caps.formats);
+        let (format, surface_is_srgb) = choose_surface_format(&caps.formats).ok_or_else(|| {
+            NativeError::SurfaceCreation("the GPU surface reports no formats".to_owned())
+        })?;
         if !surface_is_srgb {
             tracing::warn!(
                 "odytty: GPU surface offered no sRGB format; using {format:?}; text and colors may render darker than intended"
@@ -1188,6 +1191,7 @@ impl GpuState {
             symbol_map,
             symbol_map_fonts,
             font_path: options.font_path.clone(),
+            font_path_explicit: options.font_path_explicit,
             font_family: options.font_family.clone(),
             font_weight: options.font_weight.clone(),
             scroll_frac_offset: 0.0,
@@ -1457,6 +1461,7 @@ impl GpuState {
         }
 
         let font_changed = self.font_path != options.font_path
+            || self.font_path_explicit != options.font_path_explicit
             || self.font_family != options.font_family
             || self.font_weight != options.font_weight;
         let subpixel_changed = self.subpixel != next_subpixel;
@@ -1514,6 +1519,7 @@ impl GpuState {
         let next_fonts = if font_changed {
             Some(StyleFonts::load_from(
                 options.font_path.as_deref(),
+                options.font_path_explicit,
                 &options.font_family,
                 &options.font_weight,
             )?)
@@ -1527,6 +1533,7 @@ impl GpuState {
             self.fonts = fonts;
             self.font_zero = false;
             self.font_path = options.font_path.clone();
+            self.font_path_explicit = options.font_path_explicit;
             self.font_family = options.font_family.clone();
             self.font_weight = options.font_weight.clone();
         }

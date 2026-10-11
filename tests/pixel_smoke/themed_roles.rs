@@ -12,10 +12,7 @@ use crate::harness::*;
 
 #[test]
 fn inverse_swaps_foreground_and_background_fill() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // Normal 'X': the cell is dominated by the background fill.
     let normal = composite(&row_snapshot(2, "X"), &atlas, CursorStyle::Block);
     // Inverse 'X': the cell fill becomes the foreground color.
@@ -42,10 +39,7 @@ fn inverse_swaps_foreground_and_background_fill() {
 
 #[test]
 fn themed_selection_is_default_style_and_off_path_matches_legacy_inverse() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     let range = SelectionRange {
         start: CellPoint { row: 0, column: 1 },
         end: CellPoint { row: 0, column: 1 },
@@ -90,10 +84,7 @@ fn themed_selection_is_default_style_and_off_path_matches_legacy_inverse() {
 
 #[test]
 fn themed_cursor_default_differs_and_off_path_matches_foreground_cursor() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     let fg = RgbColor::new(0xCC, 0xCC, 0xCC);
     let bg = RgbColor::new(0x0B, 0x0C, 0x10);
     let themed_cursor = RgbColor::new(0x4C, 0xD9, 0x9F);
@@ -119,10 +110,7 @@ fn themed_cursor_default_differs_and_off_path_matches_foreground_cursor() {
 
 #[test]
 fn legacy_search_colors_remain_black_on_yellow_and_inverse() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     let mut cells = "al al"
         .chars()
         .map(|ch| Cell::new(ch, Attrs::default()))
@@ -169,10 +157,7 @@ fn legacy_search_colors_remain_black_on_yellow_and_inverse() {
 /// pale selection fill could otherwise collapse toward the inverse fill).
 #[test]
 fn themed_roles_resolve_real_theme_colors_on_light_and_dark() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
 
     for name in ["odyssey", "odyssey-light"] {
         let theme = Theme::from_name(name).unwrap_or_else(|| panic!("missing built-in {name}"));

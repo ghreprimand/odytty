@@ -15,9 +15,10 @@
 //! resvg release and must be re-checked when that dependency changes.
 //!
 //! Filters, masks, markers, patterns, and images are outside the model:
-//! OpenType does not allow the first four in glyph documents, `svg` refuses
-//! them before conversion, and every image resolver returns nothing. A tree
-//! that still carries one is refused here as well.
+//! OpenType leaves support for the first four optional, `svg` refuses them
+//! before conversion because their raster cost is outside this model, and
+//! every image resolver returns nothing. A tree that still carries one is
+//! refused here as well.
 
 use resvg::tiny_skia::{PathSegment, Point, Rect, Transform};
 use resvg::usvg;

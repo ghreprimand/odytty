@@ -370,6 +370,13 @@ impl Attrs {
     /// envelope reconstructs SGR flags field-by-field, excluding this bit), so
     /// it stays a pure render annotation on the frame snapshot.
     const F_SELECTED: u16 = 1 << 8;
+    /// Render-only marker: a presentation pass (selection, search match, copy
+    /// mode caret) replaced this cell's colours or inverse. The stored colours
+    /// are no longer recoverable from the frame snapshot, so rendition
+    /// comparisons that must not see presentation (color-cluster joining) skip
+    /// colour, inverse and selection state on a marked cell. Never emitted by
+    /// the parser and never serialized.
+    const F_RECOLORED: u16 = 1 << 9;
 
     #[inline]
     fn flag(&self, mask: u16) -> bool {
@@ -469,6 +476,38 @@ impl Attrs {
     #[inline]
     pub fn set_selected(&mut self, value: bool) {
         self.set_flag(Self::F_SELECTED, value);
+    }
+
+    /// Render-only marker set by presentation passes that recolour a cell (see
+    /// [`Self::F_RECOLORED`]).
+    #[inline]
+    pub fn recolored(&self) -> bool {
+        self.flag(Self::F_RECOLORED)
+    }
+    #[inline]
+    pub fn set_recolored(&mut self, value: bool) {
+        self.set_flag(Self::F_RECOLORED, value);
+    }
+
+    /// Whether two cells carry the same rendition as the application stored
+    /// it. Colours, inverse and selection state that a presentation pass may
+    /// have replaced are ignored when either cell is marked
+    /// [`Self::recolored`]; two unmarked cells still compare their colours, so a
+    /// genuine colour difference between them stays a difference.
+    pub fn same_stored_rendition(&self, other: &Attrs) -> bool {
+        let colors_known = !self.recolored() && !other.recolored();
+        let strip = |attrs: &Attrs| {
+            let mut stored = *attrs;
+            if !colors_known {
+                stored.foreground = Color::Default;
+                stored.background = Color::Default;
+                stored.set_inverse(false);
+            }
+            stored.set_selected(false);
+            stored.set_recolored(false);
+            stored
+        };
+        strip(self) == strip(other)
     }
 
     pub fn effective_underline_style(&self) -> UnderlineStyle {

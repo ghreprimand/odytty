@@ -21,10 +21,7 @@ use crate::harness::*;
 /// global-mutator unit test.
 #[test]
 fn u1_default_floor_passthrough_mixed_fg_and_underline_color() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     assert_eq!(text::min_contrast(), 1.0, "suite must run at the 1.0 floor");
 
     // col0: 256-color fg glyph; col1: truecolor fg glyph; col2: explicit SGR-58
@@ -68,10 +65,7 @@ fn u1_default_floor_passthrough_mixed_fg_and_underline_color() {
 
 #[test]
 fn underline_attribute_inks_a_decoration_row() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     let snapshot = row_snapshot(1, "\x1b[4mU");
     let frame = composite(&snapshot, &atlas, CursorStyle::Block);
 
@@ -98,10 +92,7 @@ fn underline_attribute_inks_a_decoration_row() {
 
 #[test]
 fn strikethrough_attribute_inks_a_decoration_row() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     let snapshot = row_snapshot(1, "\x1b[9mS");
     let frame = composite(&snapshot, &atlas, CursorStyle::Block);
 
@@ -126,10 +117,7 @@ fn strikethrough_attribute_inks_a_decoration_row() {
 
 #[test]
 fn box_drawing_horizontal_joins_across_the_cell_seam() {
-    let Some((font, mut atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (font, mut atlas) = setup();
     // U+2500 BOX DRAWINGS LIGHT HORIZONTAL in two adjacent cells. The classic
     // seam-continuity check: the horizontal stroke must run unbroken across the
     // boundary between the two cells with no blank column at the join.
@@ -169,10 +157,7 @@ fn box_drawing_horizontal_joins_across_the_cell_seam() {
 
 #[test]
 fn wide_char_spans_two_cells_without_double_draw() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // A wide char occupies a lead cell + a continuation spacer. Whether the font
     // has the glyph or renders the fallback box, exactly one glyph quad is
     // emitted for the pair (the spacer draws nothing), and ink stays within the
@@ -223,10 +208,7 @@ fn wide_glyph_inks_across_the_seam_when_supported() {
     // cell's right edge. Skips on hosts without such a font (the validation host
     // here), where the always-running atlas unit test
     // `rasterize_clip_width_relieves_wide_glyph_clipping` proves the mechanism.
-    let Some((font, mut atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (font, mut atlas) = setup();
     let Some(wide) = find_supported_wide_glyph(&mut atlas, &font) else {
         eprintln!("skipping: no wide (CJK/fullwidth) glyph in the loaded font");
         return;
@@ -285,10 +267,7 @@ fn wide_glyph_inks_across_the_seam_when_supported() {
 
 #[test]
 fn bar_cursor_inks_only_a_thin_left_stripe() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // Visible bar cursor on a blank cell at (0,0): a thin vertical stripe at the
     // cell's left edge, not a full-cell block. Assert the left column inks while
     // the right half of the cell stays background.

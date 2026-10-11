@@ -305,22 +305,56 @@ fn zero_sized_or_out_of_bounds_sources_emit_no_quad() {
 }
 
 #[test]
-fn visible_placement_row_already_includes_scrollback_projection() {
-    let projected = placement(5, 2, StoredImageId(9));
-    let quad = placement_quad(
-        &projected,
-        5,
-        5,
-        CellSize {
-            width: 7,
-            height: 11,
-            baseline: 8,
-        },
-    )
-    .expect("quad");
+fn content_gap_shifts_the_placement_on_both_axes() {
+    let mut placement = placement(2, 3, StoredImageId(7));
+    placement.pixel_offset_x = 1;
+    placement.pixel_offset_y = -2;
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    };
+    let quad = |gap: [f32; 2]| {
+        placement_quad_with_padding_and_row_offset(
+            &placement,
+            20,
+            12,
+            cell,
+            WindowPadding::ZERO,
+            1,
+            2,
+            gap,
+        )
+        .expect("quad")
+        .rect
+    };
+    let flush = quad([0.0, 0.0]);
+    let gapped = quad([3.0, 5.0]);
+    assert_eq!(
+        gapped,
+        [
+            flush[0] + 3.0,
+            flush[1] + 5.0,
+            flush[2] + 3.0,
+            flush[3] + 5.0
+        ]
+    );
+}
 
-    assert_eq!(quad.rect[0], 14.0);
-    assert_eq!(quad.rect[1], 55.0);
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn a_display_extent_past_u32_saturates_instead_of_wrapping() {
+    // 2^32 + 4 columns would wrap to 4 and 2^32 rows to 0 (no quad at all).
+    let mut placement = placement(0, 0, StoredImageId(3));
+    placement.display_columns = (1usize << 32) + 4;
+    placement.display_rows = 1usize << 32;
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    };
+    let quad = placement_quad(&placement, 40, 20, cell).expect("a quad is drawn");
+    assert_eq!(quad.rect, [0.0, 0.0, 40.0, 20.0]);
 }
 
 // ---------------------------------------------------------------------------

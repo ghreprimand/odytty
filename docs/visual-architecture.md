@@ -326,8 +326,10 @@ highest-priority additions.
   contrast floor applied at render time (`ODYTTY_MIN_CONTRAST`, `min_contrast`).
   Value `1.0` = exact passthrough; the fresh-install default is `17.0`.
   The floor is measured via WCAG
-  relative luminance; lift is applied by bisecting OKLab lightness while
-  preserving hue and chroma (`src/color.rs:enforce_min_contrast`).
+  relative luminance on the displayed (clamped, byte-rounded) colour; lift is
+  applied by bisecting OKLab lightness while preserving hue and chroma. A
+  saturated colour whose lightness alone cannot reach the floor keeps its hue
+  and may display below it (`src/color.rs:enforce_min_contrast`).
 - **Geometric box-drawing / Powerline rendering (landed):** U+2500–257F,
   U+2580–259F, Braille, and Powerline separators rendered as pixel-perfect
   geometry at exact cell size rather than font glyphs. Controlled by

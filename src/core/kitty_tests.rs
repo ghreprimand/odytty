@@ -437,23 +437,59 @@ fn kitty_oversized_payload_is_rejected_by_store_cap() {
     );
 }
 
+/// Each case carries a coherent 1x1 RGBA payload, so the control field named in
+/// the case is the only thing wrong with it. A control key that does not parse
+/// drops the whole command without a reply; the cases that do answer pin the
+/// reply for their own defect.
 #[test]
-fn kitty_malformed_control_inputs_never_panic() {
-    let cases: &[&[u8]] = &[
-        b"\x1b_Gf,a=T;AAAA\x1b\\",
-        b"\x1b_Gf=32,a=TT,s=1,v=1;AAAA\x1b\\",
-        b"\x1b_Gf=32,a=T,s=x,v=1;AAAA\x1b\\",
-        b"\x1b_Gf=32,a=T,s=1,v=1,m=1;AAAA\x1b\\",
-        b"\x1b_Gm=0;AAAA\x1b\\",
-        b"\x1b_Gf=32,a=T,s=1,v=1;A===\x1b\\",
+fn kitty_malformed_control_fields_are_refused_with_coherent_payloads() {
+    const OK: &[u8] = b"\x1b_G;OK\x1b\\";
+    let cases: &[(&str, &[u8], &[u8])] = &[
+        ("key without a value", b"\x1b_Gf,a=T;AAAAAA==\x1b\\", b""),
+        (
+            "action of two characters",
+            b"\x1b_Gf=32,a=TT,s=1,v=1;AAAAAA==\x1b\\",
+            b"",
+        ),
+        (
+            "non-numeric width",
+            b"\x1b_Gf=32,a=T,s=x,v=1;AAAAAA==\x1b\\",
+            b"",
+        ),
+        (
+            "continuation without a pending transfer",
+            b"\x1b_Gm=0;AAAAAA==\x1b\\",
+            b"\x1b_G;unsupported-format\x1b\\",
+        ),
+        (
+            "undecodable payload",
+            b"\x1b_Gf=32,a=T,s=1,v=1;A===\x1b\\",
+            b"\x1b_G;invalid-payload\x1b\\",
+        ),
+        (
+            "an id and an image number together",
+            b"\x1b_Gf=32,a=T,i=1,I=1,s=1,v=1;AAAAAA==\x1b\\",
+            b"\x1b_G;EINVAL:id-and-number\x1b\\",
+        ),
+        (
+            "first chunk of an unfinished transfer",
+            b"\x1b_Gf=32,a=T,s=1,v=1,m=1;AAAAAA==\x1b\\",
+            OK,
+        ),
     ];
-
-    for case in cases {
+    for (label, case, reply) in cases {
         let mut t = Terminal::new(20, 4);
         t.advance(case);
-        let _ = t.take_host_output();
-        assert!(t.visible_graphics(0).is_empty());
+        assert_eq!(&t.take_host_output(), reply, "{label}");
+        assert!(t.visible_graphics(0).is_empty(), "{label}");
+        assert_eq!(t.graphics().store().len(), 0, "{label}: nothing stored");
     }
+
+    // The same payload and fields, with the defect removed, are accepted.
+    let mut t = Terminal::new(20, 4);
+    t.advance(b"\x1b_Gf=32,a=T,s=1,v=1;AAAAAA==\x1b\\");
+    assert_eq!(t.take_host_output(), OK);
+    assert_eq!(t.visible_graphics(0).len(), 1);
 }
 
 #[test]

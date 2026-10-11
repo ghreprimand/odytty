@@ -9,9 +9,8 @@
 //! is distinct from the geometric one — i.e. disabling the feature leaves the
 //! font-glyph path untouched.
 //!
-//! Like the other pixel-smoke suites, every case skips gracefully (prints and
-//! returns) when no system font is available, so headless CI without fonts stays
-//! green.
+//! The text face is compiled in, so no case depends on a system font and none
+//! is ever skipped.
 
 use odytty::atlas::GlyphAtlas;
 use odytty::text::{self, FontHandle};
@@ -19,12 +18,12 @@ use odytty::text::{self, FontHandle};
 /// Build pixel size (matches the other pixel-smoke suites' scale band).
 const PX: f32 = 18.0;
 
-/// Load the system font + a geometric-enabled atlas, or `None` to skip.
-fn setup(geometric: bool) -> Option<(FontHandle, GlyphAtlas)> {
-    let font = text::load_font().ok()?;
+/// Load the bundled font and an atlas with the geometric path on or off.
+fn setup(geometric: bool) -> (FontHandle, GlyphAtlas) {
+    let font = text::load_font().expect("the bundled text face loads");
     let mut atlas = GlyphAtlas::build(&font, PX);
     atlas.set_geometric_boxdraw(geometric);
-    Some((font, atlas))
+    (font, atlas)
 }
 
 /// Sample the grayscale coverage at cell-relative `(cx, cy)` for `ch`, after
@@ -50,10 +49,7 @@ fn cell_coverage(
 
 #[test]
 fn geometric_box_corner_joins_line_seamlessly() {
-    let Some((font, mut atlas)) = setup(true) else {
-        println!("skip: no system font");
-        return;
-    };
+    let (font, mut atlas) = setup(true);
     let (w, h) = (atlas.cell.width, atlas.cell.height);
     // For every row where the corner '┌' inks its right edge, the line '─' must
     // ink its left edge — so the two adjacent cells meet with no gap.
@@ -74,10 +70,7 @@ fn geometric_box_corner_joins_line_seamlessly() {
 
 #[test]
 fn geometric_cross_spans_both_axes() {
-    let Some((font, mut atlas)) = setup(true) else {
-        println!("skip: no system font");
-        return;
-    };
+    let (font, mut atlas) = setup(true);
     let (w, h) = (atlas.cell.width, atlas.cell.height);
     let midx = w / 2;
     let midy = h / 2;
@@ -90,10 +83,7 @@ fn geometric_cross_spans_both_axes() {
 
 #[test]
 fn geometric_full_block_fills_the_cell() {
-    let Some((font, mut atlas)) = setup(true) else {
-        println!("skip: no system font");
-        return;
-    };
+    let (font, mut atlas) = setup(true);
     let (w, h) = (atlas.cell.width, atlas.cell.height);
     // Every pixel of the full block '█' cell is solid.
     for y in 0..h {
@@ -110,17 +100,26 @@ fn geometric_full_block_fills_the_cell() {
 #[test]
 fn off_path_takes_the_font_glyph_and_geometric_block_is_solid() {
     // The off atlas takes the untouched font-glyph path; the geometric atlas
-    // fills the full block exhaustively. The primary invariant is that the
-    // geometric cell is solid — a property the font glyph does not generally
-    // share, which is what makes the geometric path worthwhile.
-    let (Some((font_on, mut on)), Some((_font_off, _off))) = (setup(true), setup(false)) else {
-        println!("skip: no system font");
-        return;
-    };
+    // fills the full block exhaustively. The geometric cell is solid, and the
+    // two atlases rasterize the covered set differently, so disabling the
+    // feature really does leave the font-glyph path in place.
+    let (font_on, mut on) = setup(true);
+    let (font_off, mut off) = setup(false);
     let (w, h) = (on.cell.width, on.cell.height);
     let ch = '\u{2588}'; // full block
     let on_solid = (0..h)
         .flat_map(|y| (0..w).map(move |x| (x, y)))
         .all(|(x, y)| cell_coverage(&mut on, &font_on, ch, x, y).unwrap() == 255);
     assert!(on_solid, "geometric full block must be solid");
+
+    // Rasterize the same set into both atlases in the same order.
+    for ch in ['\u{2500}', '\u{250C}', '\u{253C}', '\u{2588}'] {
+        on.ensure(&font_on, ch);
+        off.ensure(&font_off, ch);
+    }
+    assert_eq!(on.width, off.width, "atlases pack the same set alike");
+    assert_ne!(
+        on.data, off.data,
+        "the off path must rasterize box drawing from the font, not geometry"
+    );
 }

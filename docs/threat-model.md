@@ -504,7 +504,9 @@ the reference implementation.
   Drive-letter working directories are handled on Windows. Decoded paths with
   two leading slash/backslash separators are refused on Windows, including UNC
   and device forms. The same guard precedes metadata probes for interactive,
-  restored and profile cwds, and ConPTY child creation for direct callers.
+  restored and profile cwds, the interactive path hover probe, the canonicalizing
+  call that admits a Kitty named-transport path, and ConPTY child creation for
+  direct callers.
   Fallback home directories also pass the guard. Unix double-slash paths keep
   their local semantics. Prompt marks are
   bounded by the same string caps as other operating-system commands (B1).

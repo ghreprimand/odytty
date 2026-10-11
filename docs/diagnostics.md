@@ -234,6 +234,12 @@ reached fan-out while the receiver set was empty; no `broadcast-fanout` line at
 all means the input never reached fan-out. Typed bytes, text, titles, and paths
 are never recorded, and nothing is logged while the gate is off.
 
+The physical key codes are not redacted: on a typical layout they spell out
+what was typed, including a password entered at a prompt, so a log captured
+with this gate on is a keystroke trace. Enable it only to reproduce the issue,
+avoid typing secrets while it is on, and review or trim the log before
+attaching it to a report.
+
 The gate uses warning-level application logging so it remains retrievable from
 `odytty.log`, including on Windows. Turn it off after the keyboard issue has
 been captured.
@@ -264,8 +270,10 @@ diagnostic serves and for the companion host-side capture script.
   stays active, and reload warnings are capped so a single suppressed-count
   record replaces any flood.
 - A lost GPU surface is recreated automatically. If the GPU device itself is
-  lost, rendering pauses and a clear error is logged (rendering resumes when
-  the window is restarted) rather than the window crashing.
+  lost, rendering pauses and a clear error is logged rather than the window
+  crashing. With Vulkan, Metal, and DX12 the device belongs to the window, so
+  rendering resumes in a window that is closed and reopened. OpenGL windows
+  share one device, so OpenGL rendering resumes only after OdyTTY is restarted.
 - After the window sits idle, the first frame on return can briefly stall while
   a starved compositor swapchain releases buffers. The surface is reconfigured
   on window focus/restore to shorten that recovery. Each run of skipped frames

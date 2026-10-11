@@ -185,9 +185,12 @@ pub fn enumerate_open_with(
         let Some(argv) = exec_to_argv(exec, abs) else {
             continue;
         };
+        // Decoded `\t`, `\n` and `\r` are word separators in a label: the overlay
+        // painter drops controls, which would otherwise join the words.
         let name = entry
             .name
             .filter(|n| !n.trim().is_empty())
+            .map(|n| n.replace(['\t', '\n', '\r'], " "))
             .unwrap_or_else(|| id.trim_end_matches(".desktop").to_owned());
         apps.push(DesktopApp { id, name, argv });
         if apps.len() >= MAX_OPEN_WITH {
@@ -722,6 +725,28 @@ mod tests {
         let apps = enumerate_open_with(&probe("image/png"), &env, "/x/a.png");
         assert_eq!(apps.len(), 1);
         assert_eq!(apps[0].name, "Good");
+    }
+
+    #[test]
+    fn decoded_whitespace_controls_in_a_name_separate_the_label_words() {
+        let mut files = HashMap::new();
+        files.insert(
+            PathBuf::from("/data/applications/mimeinfo.cache"),
+            "[MIME Cache]\nimage/png=fixture.desktop;\n".to_owned(),
+        );
+        files.insert(
+            PathBuf::from("/data/applications/fixture.desktop"),
+            "[Desktop Entry]\nType=Application\nName=Fixture\\sViewer\\tPanel\\nTwo\nExec=fx %f\n"
+                .to_owned(),
+        );
+        let env = MapEnv {
+            config_dirs: vec![],
+            data_dirs: vec![PathBuf::from("/data")],
+            files,
+        };
+        let apps = enumerate_open_with(&probe("image/png"), &env, "/x/a.png");
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].name, "Fixture Viewer Panel Two");
     }
 
     #[test]

@@ -43,6 +43,7 @@ impl StyleFonts {
     pub(super) fn load(options: &NativeOptions) -> Result<Self, NativeError> {
         Self::load_from(
             options.font_path.as_deref(),
+            options.font_path_explicit,
             &options.font_family,
             &options.font_weight,
         )
@@ -63,13 +64,19 @@ impl StyleFonts {
     /// emboldening/thinning). Bold/italic discovery ALWAYS uses the plain
     /// `font_family` (not the weight query), so the SGR bold attribute stays
     /// visually distinct from the chosen base weight.
+    ///
+    /// An explicit `font` file (`font_path_explicit`) always wins: it supplies
+    /// every style slot, and neither the weight nor the family is searched, so
+    /// a host-installed copy of the configured family never mixes in.
     pub(super) fn load_from(
         font_path: Option<&Path>,
+        font_path_explicit: bool,
         font_family: &str,
         font_weight: &str,
     ) -> Result<Self, NativeError> {
         Self::load_from_dirs(
             font_path,
+            font_path_explicit,
             font_family,
             font_weight,
             &text::font_search_dirs(),
@@ -79,12 +86,18 @@ impl StyleFonts {
     /// [`Self::load_from`] over explicit font roots, so tests stay hermetic.
     fn load_from_dirs(
         font_path: Option<&Path>,
+        font_path_explicit: bool,
         font_family: &str,
         font_weight: &str,
         dirs: &[PathBuf],
     ) -> Result<Self, NativeError> {
         if font_path.is_none() && text::is_bundled_font_family(font_family) {
             return Self::load_bundled(font_family, font_weight);
+        }
+        if let Some(path) = font_path.filter(|_| font_path_explicit) {
+            let regular = text::load_font_with_path(Some(path))
+                .map_err(|err| NativeError::Text(err.to_string()))?;
+            return Ok(Self::regular(regular));
         }
 
         let regular = if font_weight.trim().is_empty() {
@@ -416,8 +429,25 @@ fn env_flag_override(name: &str) -> Option<bool> {
 mod tests {
     use super::*;
 
-    fn startup_fixture_dir() -> PathBuf {
-        crate::test_dirs::fresh_temp_dir("osf")
+    /// A fresh font fixture directory, removed when the guard drops, so a
+    /// failed assertion does not leave it in the shared temp directory.
+    struct FixtureDir(PathBuf);
+
+    impl std::ops::Deref for FixtureDir {
+        type Target = PathBuf;
+        fn deref(&self) -> &PathBuf {
+            &self.0
+        }
+    }
+
+    impl Drop for FixtureDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn startup_fixture_dir() -> FixtureDir {
+        FixtureDir(crate::test_dirs::fresh_temp_dir("osf"))
     }
 
     fn bundled_regular_path() -> PathBuf {
@@ -434,18 +464,71 @@ mod tests {
         let semibold = dir.join("TestMono-SemiBold.ttf");
         std::fs::copy(bundled_regular_path(), &semibold).expect("copy loadable face");
         let ranked =
-            text::resolve_font_weight_faces("TestMono", "Bold", std::slice::from_ref(&dir));
+            text::resolve_font_weight_faces("TestMono", "Bold", std::slice::from_ref(&*dir));
         assert_eq!(ranked, [dir.join("TestMono-Bold.ttf"), semibold.clone()]);
-        let fonts =
-            StyleFonts::load_from_dirs(None, "TestMono", "Bold", std::slice::from_ref(&dir))
-                .expect("fonts load");
+        let fonts = StyleFonts::load_from_dirs(
+            None,
+            false,
+            "TestMono",
+            "Bold",
+            std::slice::from_ref(&*dir),
+        )
+        .expect("fonts load");
         let expected = std::fs::read(&semibold).expect("read loadable face");
         assert_eq!(
             fonts.regular.as_slice(),
             expected.as_slice(),
             "the next weight candidate is used, not the regular fallback"
         );
-        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_explicit_font_file_supplies_every_style_without_family_discovery() {
+        // The configured family is installed with Regular and Bold faces, and
+        // a weight is set; an explicit file must still be the only face used.
+        let dir = startup_fixture_dir();
+        let assets = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/fonts/jetbrains-mono");
+        for face in [
+            "JetBrainsMono-Regular.ttf",
+            "JetBrainsMono-Bold.ttf",
+            "JetBrainsMono-Italic.ttf",
+        ] {
+            std::fs::copy(assets.join(face), dir.join(face)).expect("copy family face");
+        }
+        let explicit = assets.join("JetBrainsMono-Light.ttf");
+        let expected = std::fs::read(&explicit).expect("read explicit face");
+        for weight in ["", "Bold"] {
+            let fonts = StyleFonts::load_from_dirs(
+                Some(&explicit),
+                true,
+                text::JETBRAINS_FONT_FAMILY,
+                weight,
+                std::slice::from_ref(&*dir),
+            )
+            .expect("fonts load");
+            assert_eq!(fonts.regular.as_slice(), expected.as_slice(), "{weight:?}");
+            for (style, face) in [
+                ("bold", &fonts.bold),
+                ("italic", &fonts.italic),
+                ("bold italic", &fonts.bold_italic),
+            ] {
+                assert!(
+                    Arc::ptr_eq(&fonts.regular, face),
+                    "{weight:?} {style} comes from the explicit file"
+                );
+            }
+        }
+        // The same path resolved from a family (not explicit) still discovers
+        // that family's styled faces.
+        let resolved = StyleFonts::load_from_dirs(
+            Some(&dir.join("JetBrainsMono-Regular.ttf")),
+            false,
+            text::JETBRAINS_FONT_FAMILY,
+            "",
+            std::slice::from_ref(&*dir),
+        )
+        .expect("fonts load");
+        assert!(!Arc::ptr_eq(&resolved.regular, &resolved.bold));
     }
 
     #[test]
@@ -480,6 +563,12 @@ mod tests {
             "explicit override must lead, with bundled v3+v2 following, got {}",
             chain.len()
         );
+        let expected = std::fs::read(&path).expect("read explicit face");
+        assert_eq!(
+            chain[0].as_slice(),
+            expected.as_slice(),
+            "the explicit face is first in the chain"
+        );
     }
 
     #[test]
@@ -504,7 +593,7 @@ mod tests {
             None,
             || {
                 inventory_factories.set(inventory_factories.get() + 1);
-                text::FontFileInventory::new(vec![dir.clone()])
+                text::FontFileInventory::new(vec![dir.to_path_buf()])
             },
             |inventory| {
                 let font = crate::emoji::discover_noto_color_emoji_in_inventory(inventory)
@@ -532,13 +621,12 @@ mod tests {
             startup.emoji_rasterizer.has_font(),
             "the emoji consumer must resolve the color fixture"
         );
-
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn zero_feature_applies_to_every_style_face_and_keeps_the_synthetic_mask() {
-        let fonts = StyleFonts::load_from(None, text::JETBRAINS_FONT_FAMILY, "").expect("bundled");
+        let fonts =
+            StyleFonts::load_from(None, false, text::JETBRAINS_FONT_FAMILY, "").expect("bundled");
         let zeroed = fonts.with_zero_feature(true);
         assert_eq!(zeroed.synthetic_mask(), fonts.synthetic_mask());
         for style in [

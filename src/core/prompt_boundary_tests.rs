@@ -81,3 +81,56 @@ fn a_mark_adopted_from_a_continuation_row_measures_from_the_line_start() {
     }
     assert_eq!(end_offset(scrollback.prompt_mark_at(3, 0)), Some(4));
 }
+
+/// One wide owner then `$`, with the command end stamped on the owner's
+/// continuation cell (offset 1), as a snapshot taken mid-owner can leave it.
+fn continuation_boundary_line() -> Vec<Line> {
+    let mut row = Line::unwrapped(vec![
+        cell('\u{6f22}'),
+        Cell::wide_spacer(Attrs::default()),
+        cell('$'),
+    ]);
+    row.prompt_mark = Some(PromptKind::CommandEndAt {
+        exit: Some(0),
+        logical_offset: 1,
+    });
+    vec![row]
+}
+
+#[test]
+fn a_boundary_on_a_wide_continuation_follows_the_owner_head_when_it_stays_wide() {
+    let lines = logical_from_physical(&continuation_boundary_line());
+    let projected = project_logical(lines.iter(), 4);
+    assert_eq!(end_offset(projected[0].prompt_mark), Some(0));
+}
+
+#[test]
+fn a_boundary_on_a_wide_continuation_follows_the_owner_head_when_it_degrades_lazy() {
+    // A one-column grid cannot hold the pair: the owner takes one cell and its
+    // continuation is dropped, so the boundary must not keep its old offset.
+    let lines = logical_from_physical(&continuation_boundary_line());
+    let projected = project_logical(lines.iter(), 1);
+    assert_eq!(end_offset(projected[0].prompt_mark), Some(0));
+}
+
+#[test]
+fn a_boundary_on_a_wide_continuation_follows_the_owner_head_when_it_degrades_eager() {
+    use super::reflow::{ReflowOptions, reflow_lines_with_options};
+    use super::types::{Dimensions, Position};
+    let mut scrollback = Vec::new();
+    let mut rows = continuation_boundary_line();
+    reflow_lines_with_options(
+        &mut scrollback,
+        &mut rows,
+        Dimensions::new(1, 4),
+        Position { row: 0, column: 0 },
+        ReflowOptions::default(),
+    );
+    let marked: Vec<_> = scrollback
+        .iter()
+        .chain(&rows)
+        .filter_map(|line| line.prompt_mark)
+        .collect();
+    assert_eq!(marked.len(), 1);
+    assert_eq!(end_offset(Some(marked[0])), Some(0));
+}

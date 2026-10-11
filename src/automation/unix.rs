@@ -111,6 +111,33 @@ impl Drop for EndpointGuard {
     }
 }
 
+/// Bind the endpoint and take ownership of the socket file it created. If the
+/// file cannot be identified for the guard, it is removed here: the guard that
+/// would remove it does not exist yet, and a stale file at the path would make
+/// every later bind there fail with `AddrInUse`.
+fn bind_guarded(
+    path: PathBuf,
+    parent: Metadata,
+    identify: impl FnOnce(&Path) -> io::Result<Metadata>,
+) -> io::Result<(UnixListener, EndpointGuard)> {
+    let listener = UnixListener::bind(&path)?;
+    let socket = match identify(&path) {
+        Ok(socket) => socket,
+        Err(error) => {
+            let _ = fs::remove_file(&path);
+            return Err(error);
+        }
+    };
+    Ok((
+        listener,
+        EndpointGuard {
+            socket,
+            path,
+            parent,
+        },
+    ))
+}
+
 /// Holds a bounded listener thread. Drop stops acceptance, cancels waiting
 /// requests and joins at most eight workers, each under an absolute I/O deadline.
 /// It never removes an existing endpoint to make startup succeed.
@@ -168,12 +195,7 @@ impl Server {
     ) -> io::Result<Self> {
         let path = endpoint_path(path)?;
         let parent = fs::symlink_metadata(path.parent().ok_or_else(denied)?)?;
-        let listener = UnixListener::bind(&path)?;
-        let guard = EndpointGuard {
-            socket: fs::symlink_metadata(&path)?,
-            path,
-            parent,
-        };
+        let (listener, guard) = bind_guarded(path, parent, |bound| fs::symlink_metadata(bound))?;
         fs::set_permissions(&guard.path, Permissions::from_mode(0o600))?;
         listener.set_nonblocking(true)?;
         let stopped = Arc::new(AtomicBool::new(false));

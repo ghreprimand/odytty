@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Opt-in, privacy-safe diagnostics for compositor keyboard delivery.
+//! Opt-in trace of keyboard and IME event shape for compositor keyboard
+//! delivery.
 //!
 //! `ODYTTY_KEY_EVENT_DIAGNOSTICS=on` records the identities and state attached
-//! to winit keyboard and IME events. Printable text is never recorded: text
-//! fields are reduced to character/byte counts, while a single control code is
-//! identified numerically so editing-key delivery can be diagnosed.
+//! to winit keyboard and IME events. Text fields are reduced to character and
+//! byte counts, and a single control code is identified numerically so
+//! editing-key delivery can be diagnosed. Physical key codes are recorded as
+//! they are, so a log captured while typing contains the keystrokes, including
+//! anything typed at a password prompt. Enable it only for a reproduction.
 
 use std::ffi::OsStr;
 use std::fmt;

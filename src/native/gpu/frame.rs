@@ -334,25 +334,11 @@ impl GpuState {
 /// keeps seeing the loss and stays off the lost device, instead of the first
 /// frame consuming the signal and a later redraw acquiring and presenting on
 /// it again.
+///
+/// `GpuState::render`, `resize`, `reconfigure` and `recreate_surface` each
+/// check it first. Those guards need a window-backed GPU state, so they have
+/// no unit test here; the App's device-lost handling is covered by
+/// `native/app/device_loss_tests.rs`.
 pub(super) fn device_loss_latched(device_lost: &AtomicBool) -> bool {
     device_lost.load(Ordering::Acquire)
-}
-
-#[cfg(test)]
-mod device_loss_tests {
-    use super::*;
-
-    #[test]
-    fn device_loss_stays_latched_across_every_later_frame() {
-        let device_lost = AtomicBool::new(false);
-        assert!(!device_loss_latched(&device_lost));
-        // The device-lost callback stores `true` once.
-        device_lost.store(true, Ordering::Release);
-        for _ in 0..3 {
-            assert!(
-                device_loss_latched(&device_lost),
-                "a second redraw must not render on the lost device"
-            );
-        }
-    }
 }

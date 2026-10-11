@@ -764,8 +764,15 @@ fn wrap_for_width_hard_splits_overlong_words() {
 }
 
 #[test]
-fn basename_handles_both_separators() {
+fn basename_follows_the_platform_separators() {
     assert_eq!(basename("/keys/id_ed25519"), "id_ed25519");
-    assert_eq!(basename(r"C:\keys\id_rsa"), "id_rsa");
     assert_eq!(basename("bare"), "bare");
+    // Windows splits on a backslash too; elsewhere it is part of the filename.
+    #[cfg(windows)]
+    assert_eq!(basename(r"C:\keys\id_rsa"), "id_rsa");
+    #[cfg(not(windows))]
+    {
+        assert_eq!(basename(r"/keys/odd\name"), r"odd\name");
+        assert_eq!(basename(r"C:\keys\id_rsa"), r"C:\keys\id_rsa");
+    }
 }

@@ -155,6 +155,23 @@ use session::{
     Session, SessionToken, WorkspaceSet, apply_local_backend_caps, seed_initial_working_directory,
 };
 
+/// One visible image placement projected into a pixel-space rectangle and a UV
+/// rectangle, exactly as the renderer projects it for a pane whose grid starts at
+/// `origin` (`[0.0, 0.0]` for a lone pane). Hidden from the documentation: it
+/// exists so the pixel-smoke suite composites with the production projection
+/// instead of a copy of it.
+#[doc(hidden)]
+pub fn image_placement_rect_uv(
+    placement: &crate::graphics::VisiblePlacement,
+    image_width: u32,
+    image_height: u32,
+    cell: crate::atlas::CellSize,
+    origin: [f32; 2],
+) -> Option<([f32; 4], [f32; 4])> {
+    image_layer::placement_quad_with_origin(placement, image_width, image_height, cell, origin)
+        .map(|quad| (quad.rect, quad.uv))
+}
+
 pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), NativeError> {
     panic_log::install_panic_hook();
 

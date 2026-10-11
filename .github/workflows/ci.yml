@@ -369,6 +369,7 @@ jobs:
           python3 .github/scripts/derive-version-test.py
           python3 .github/scripts/workflow-policy-test.py
           python3 scripts/ci-validation-test.py
+          python3 tests/python_security_tooling.py
 
       - name: Documentation convergence fixtures and status check
         run: |

@@ -165,6 +165,13 @@ pub fn read_shell_history_with_limits(
     let Some(bytes) = read_tail(path, limits.max_bytes) else {
         return Vec::new();
     };
+    // zsh stores some bytes of non-ASCII text metafied; restore them before
+    // the UTF-8 conversion so the recalled command is the text that was typed.
+    let bytes = if format == ShellHistoryFormat::ZshExtended {
+        unmetafy_zsh(bytes)
+    } else {
+        bytes
+    };
     let text = String::from_utf8_lossy(&bytes);
     let lines = bounded_tail_lines(&text, limits.max_lines);
     let entries = parse_history_entries(&lines, format, limits.max_entry_chars);
@@ -185,11 +192,36 @@ fn parse_history_entries(
     match format {
         ShellHistoryFormat::Auto => Vec::new(),
         ShellHistoryFormat::Fish => parse_fish_history_entries(lines, max_entry_chars),
-        ShellHistoryFormat::Plain | ShellHistoryFormat::ZshExtended => lines
+        ShellHistoryFormat::ZshExtended => parse_zsh_history_entries(lines, max_entry_chars),
+        ShellHistoryFormat::Plain => lines
             .iter()
-            .filter_map(|line| parse_history_line(line, format, max_entry_chars))
+            .filter_map(|line| normalize_entry(line, max_entry_chars))
             .collect(),
     }
+}
+
+/// The zsh metafication marker: the byte after it is the original byte XOR
+/// 0x20.
+const ZSH_META: u8 = 0x83;
+
+/// Undo zsh's history metafication. A trailing marker with no byte after it
+/// is dropped.
+fn unmetafy_zsh(bytes: Vec<u8>) -> Vec<u8> {
+    if !bytes.contains(&ZSH_META) {
+        return bytes;
+    }
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut iter = bytes.into_iter();
+    while let Some(byte) = iter.next() {
+        if byte == ZSH_META {
+            if let Some(next) = iter.next() {
+                out.push(next ^ 0x20);
+            }
+        } else {
+            out.push(byte);
+        }
+    }
+    out
 }
 
 fn dedupe_most_recent(entries: Vec<String>, max_entries: usize) -> Vec<String> {
@@ -336,95 +368,84 @@ fn resolve_format(path: &Path, format: ShellHistoryFormat) -> ShellHistoryFormat
     }
 }
 
-fn parse_history_line(
-    line: &str,
-    format: ShellHistoryFormat,
-    max_entry_chars: usize,
-) -> Option<String> {
-    match format {
-        ShellHistoryFormat::Auto => None,
-        ShellHistoryFormat::Plain => normalize_entry(line, max_entry_chars),
-        ShellHistoryFormat::ZshExtended => parse_zsh_extended(line, max_entry_chars),
-        ShellHistoryFormat::Fish => parse_fish_history(line, max_entry_chars),
-    }
-}
-
-fn parse_zsh_extended(line: &str, max_entry_chars: usize) -> Option<String> {
-    let trimmed = line.trim_end_matches('\r');
-    if !trimmed.starts_with(": ") {
-        return normalize_entry(trimmed, max_entry_chars);
-    }
-    let (_, command) = trimmed.split_once(';')?;
-    normalize_entry(command, max_entry_chars)
-}
-
-fn parse_fish_history(line: &str, max_entry_chars: usize) -> Option<String> {
-    let trimmed = line.trim_start().trim_end_matches('\r');
-    let rest = trimmed.strip_prefix("- cmd:")?.trim_start();
-    let unquoted = strip_matching_quotes(rest);
-    normalize_entry(unquoted, max_entry_chars)
-}
-
-fn parse_fish_history_entries(lines: &[&str], max_entry_chars: usize) -> Vec<String> {
+/// Parse zsh history lines. zsh writes a multi-line command as physical lines
+/// that each end in an unescaped backslash; the backslash stands for the
+/// newline, so those lines join into one entry.
+fn parse_zsh_history_entries(lines: &[&str], max_entry_chars: usize) -> Vec<String> {
     let mut entries = Vec::new();
-    let mut index = 0;
-    while index < lines.len() {
-        let trimmed = lines[index].trim_start().trim_end_matches('\r');
-        let Some(rest) = trimmed.strip_prefix("- cmd:") else {
-            index += 1;
-            continue;
-        };
-
-        let rest = rest.trim_start();
-        if is_yaml_block_scalar(rest) {
-            let (command, next_index) = collect_fish_block_command(lines, index + 1);
-            if let Some(entry) = normalize_entry(&command, max_entry_chars) {
-                entries.push(entry);
+    let mut pending: Option<String> = None;
+    for line in lines {
+        let line = line.trim_end_matches('\r');
+        let mut command = match pending.take() {
+            Some(mut joined) => {
+                joined.push('\n');
+                joined.push_str(line);
+                joined
             }
-            index = next_index;
+            None => match line.strip_prefix(": ") {
+                Some(extended) => match extended.split_once(';') {
+                    Some((_, command)) => command.to_owned(),
+                    None => continue,
+                },
+                None => line.to_owned(),
+            },
+        };
+        let trailing = command.bytes().rev().take_while(|&b| b == b'\\').count();
+        if trailing % 2 == 1 {
+            command.pop();
+            pending = Some(command);
             continue;
         }
-
-        let unquoted = strip_matching_quotes(rest);
-        if let Some(entry) = normalize_entry(unquoted, max_entry_chars) {
+        if let Some(entry) = normalize_entry(&command, max_entry_chars) {
             entries.push(entry);
         }
-        index += 1;
+    }
+    // A continuation cut off by the end of the file is still the start of a
+    // command.
+    if let Some(command) = pending
+        && let Some(entry) = normalize_entry(&command, max_entry_chars)
+    {
+        entries.push(entry);
     }
     entries
 }
 
-fn is_yaml_block_scalar(value: &str) -> bool {
-    matches!(value, "|" | "|-" | "|+" | ">" | ">-" | ">+")
+/// Parse fish history: each `- cmd: ` line holds one command, written by fish
+/// with backslash escaped as `\\` and newline as `\n`. fish does not quote the
+/// value, so quote characters are part of the command.
+fn parse_fish_history_entries(lines: &[&str], max_entry_chars: usize) -> Vec<String> {
+    lines
+        .iter()
+        .filter_map(|line| {
+            let trimmed = line.trim_start().trim_end_matches('\r');
+            let rest = trimmed.strip_prefix("- cmd:")?;
+            let rest = rest.strip_prefix(' ').unwrap_or(rest);
+            normalize_entry(&unescape_fish(rest), max_entry_chars)
+        })
+        .collect()
 }
 
-fn collect_fish_block_command(lines: &[&str], mut index: usize) -> (String, usize) {
-    let mut command = String::new();
-    while let Some(line) = lines.get(index) {
-        if !line.starts_with("    ") && !line.starts_with('\t') {
-            break;
+/// Decode fish's history escapes: `\\` is a backslash and `\n` a newline. Any
+/// other backslash is kept as written.
+fn unescape_fish(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
         }
-        if !command.is_empty() {
-            command.push('\n');
+        match chars.next() {
+            Some('\\') => out.push('\\'),
+            Some('n') => out.push('\n'),
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
         }
-        command.push_str(line.trim_start().trim_end_matches('\r'));
-        index += 1;
     }
-    (command, index)
-}
-
-fn strip_matching_quotes(value: &str) -> &str {
-    if value.len() < 2 {
-        return value;
-    }
-    let bytes = value.as_bytes();
-    let first = bytes[0];
-    let last = bytes[bytes.len() - 1];
-    if (first == b'\'' && last == b'\'') || (first == b'"' && last == b'"') {
-        &value[1..value.len() - 1]
-    } else {
-        value
-    }
+    out
 }
 
 fn normalize_entry(raw: &str, max_entry_chars: usize) -> Option<String> {
@@ -554,7 +575,7 @@ mod tests {
     fn fish_history_reads_cmd_rows_when_present() {
         let path = write_fixture(
             "fish_history",
-            b"- cmd: cargo build\n  when: 1700000000\n- cmd: \"git status\"\n",
+            b"- cmd: cargo build\n  when: 1700000000\n- cmd: git status\n",
         );
 
         let entries =
@@ -565,16 +586,50 @@ mod tests {
     }
 
     #[test]
-    fn fish_history_accepts_multiline_blocks_and_truncated_blocks() {
+    fn fish_history_decodes_fish_escapes_and_keeps_quotes() {
+        // The layout fish writes: backslash doubled, newline as `\n`, and no
+        // quoting of the value, so quotes belong to the command.
         let path = write_fixture(
-            "fish-block",
-            b"- cmd: |-\n    echo one\n    echo two\n  when: 1700000000\n- cmd: |-\n  when: 1700000001\n- cmd: tail\n",
+            "fish-escapes",
+            b"- cmd: echo \"hi\" \\\\ there\n  when: 1700000000\n- cmd: \"a\" \"b\"\n  when: 1700000001\n- cmd: echo one\\necho two\n  when: 1700000002\n- cmd: printf '\\\\n'\n",
         );
 
         let entries =
             read_shell_history_with_limits(&path, ShellHistoryFormat::Fish, small_limits());
 
-        assert_eq!(entries, vec!["tail", "echo one\necho two"]);
+        assert_eq!(
+            entries,
+            vec![
+                "printf '\\n'",
+                "echo one\necho two",
+                "\"a\" \"b\"",
+                "echo \"hi\" \\ there",
+            ]
+        );
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn zsh_history_joins_continued_lines_and_unmetafies() {
+        // U+0118 is C4 98; zsh writes the 98 byte as 0x83 then 98 ^ 0x20 =
+        // 0xB8. U+00E9 (C3 A9) is outside the metafied range and stays raw.
+        let path = write_fixture(
+            "zsh-multi",
+            b": 1700000000:0;echo one\\\n echo two\n: 1700000001:0;echo caf\xc3\xa9 \xc4\x83\xb8\n: 1700000002:0;echo kept\\\\\n: 1700000003:0;ls\n",
+        );
+
+        let entries =
+            read_shell_history_with_limits(&path, ShellHistoryFormat::ZshExtended, small_limits());
+
+        assert_eq!(
+            entries,
+            vec![
+                "ls",
+                "echo kept\\\\",
+                "echo caf\u{e9} \u{118}",
+                "echo one\n echo two"
+            ]
+        );
         let _ = fs::remove_file(path);
     }
 

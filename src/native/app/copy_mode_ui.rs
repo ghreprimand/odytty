@@ -352,6 +352,7 @@ impl App {
         if let Some(cell) = snapshot.cells.get_mut(vrow * cols + col) {
             let inverted = cell.attrs.inverse();
             cell.attrs.set_inverse(!inverted);
+            cell.attrs.set_recolored(true);
         }
     }
 
@@ -643,6 +644,32 @@ mod tests {
             painted.cells[next..next + cols],
             snapshot.cells[next..next + cols],
             "the row below stays unpainted"
+        );
+    }
+
+    #[test]
+    fn the_caret_cell_is_marked_recolored_so_cluster_joins_ignore_it() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        seed(&app, "abc");
+        assert!(app.enter_copy_mode());
+        let caret = app.copy_mode.as_ref().map(|cm| cm.cursor()).unwrap();
+        let snapshot = app.terminal.lock().unwrap().snapshot();
+        let mut painted = snapshot.clone();
+        app.paint_copy_mode_cells(&mut painted, &ctx_for(&app));
+        let cols = painted.dimensions.columns;
+        let index = caret.row * cols + caret.column;
+        assert!(painted.cells[index].attrs.recolored());
+        assert!(!snapshot.cells[index].attrs.recolored());
+        assert_ne!(
+            painted.cells[index].attrs.inverse(),
+            snapshot.cells[index].attrs.inverse()
+        );
+        assert!(
+            painted.cells[index]
+                .attrs
+                .same_stored_rendition(&snapshot.cells[index].attrs)
         );
     }
 

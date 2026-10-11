@@ -14,9 +14,12 @@
 //! invoked, so it needs no visual gate. Its one non-negotiable is that it
 //! *cannot emit an unreadable theme*. Every floored role clears the authoring
 //! floor against its mapped surface by construction — the final step is a loop
-//! of [`color::enforce_min_contrast`](crate::color::enforce_min_contrast) over
-//! those roles, the same primitive the render-time floor (U1) and the
-//! interactive snap-to-floor (U2) use, so all three layers agree.
+//! of `floor_role` over those roles, which runs
+//! [`color::enforce_min_contrast_unclamped`](crate::color::enforce_min_contrast_unclamped),
+//! gamut-maps along the hue and re-checks the bytes. The interactive
+//! snap-to-floor (U2) uses the same function; the render-time floor
+//! ([`color::enforce_min_contrast`](crate::color::enforce_min_contrast)) shares the
+//! lightness search and the WCAG metric but checks the displayed colour itself.
 //!
 //! ## Determinism
 //!

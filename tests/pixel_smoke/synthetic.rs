@@ -11,10 +11,7 @@ use crate::harness::*;
 /// reaches the rendered frame through the real grid → atlas → composite path.
 #[test]
 fn synthetic_bold_row_inks_heavier_than_regular() {
-    let Some((font, mut atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (font, mut atlas) = setup();
     atlas.set_synthetic_styles(true, false, false);
     let text = "MMMM";
     let cols = text.len();
@@ -44,10 +41,7 @@ fn synthetic_bold_row_inks_heavier_than_regular() {
 /// whereas a Regular row of the same text shows a much smaller delta.
 #[test]
 fn synthetic_italic_row_leans_right() {
-    let Some((font, mut atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (font, mut atlas) = setup();
     atlas.set_synthetic_styles(false, true, false);
     // A single tall glyph: no neighbor cell for sheared overhang to bleed into,
     // so the top-vs-bottom centroid cleanly reflects the shear.
@@ -89,10 +83,7 @@ fn synthetic_italic_row_leans_right() {
 /// contract behind disabling synthesis.
 #[test]
 fn synthetic_mask_off_renders_bold_identical_to_regular() {
-    let Some((font, mut atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (font, mut atlas) = setup();
     atlas.set_synthetic_styles(false, false, false);
     let text = "MMMM";
     let cols = text.len();
@@ -126,10 +117,7 @@ fn synthetic_mask_off_renders_bold_identical_to_regular() {
 /// `synthetic_styles` toggle drives through the renderer's atlas rebuild seam.
 #[test]
 fn synthetic_mask_toggle_gates_bold_weight() {
-    let Some((font, _atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (font, _atlas) = setup();
     let text = "MMMM";
     let cols = text.len();
 

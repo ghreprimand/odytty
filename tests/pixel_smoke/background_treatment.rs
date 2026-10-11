@@ -38,10 +38,7 @@ fn cell_bg_luminance(frame: &Frame, col: usize, row: usize) -> f32 {
 /// is byte-identical to the plain render — the off-path is pixel-identical.
 #[test]
 fn off_path_is_pixel_identical() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     let snapshot = filled_bg_snapshot(12, 8);
     let plain = composite(&snapshot, &atlas, CursorStyle::Block);
     let treated = composite_background_treatment(
@@ -60,10 +57,7 @@ fn off_path_is_pixel_identical() {
 /// unchanged from the plain render (falloff 0 there).
 #[test]
 fn gradient_darkens_toward_bottom() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     let snapshot = filled_bg_snapshot(12, 8);
     let plain = composite(&snapshot, &atlas, CursorStyle::Block);
     let treated = composite_background_treatment(
@@ -96,10 +90,7 @@ fn gradient_darkens_toward_bottom() {
 /// unchanged from the plain render (falloff 0 there).
 #[test]
 fn vignette_darkens_toward_corners() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // Odd extents so a single cell sits at the exact center.
     let snapshot = filled_bg_snapshot(9, 9);
     let plain = composite(&snapshot, &atlas, CursorStyle::Block);
@@ -139,10 +130,7 @@ fn vignette_darkens_toward_corners() {
 /// guarantee at the pixel level.
 #[test]
 fn image_opaque_cells_hide_image_pixel_identical() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     let snapshot = filled_bg_snapshot(12, 8);
     let plain = composite(&snapshot, &atlas, CursorStyle::Block);
     // A vivid image color behind fully-opaque cells must not show through.
@@ -160,10 +148,7 @@ fn image_opaque_cells_hide_image_pixel_identical() {
 /// (monotonic). Proves the `bg[3] *= cell_bg_opacity` alpha path composites.
 #[test]
 fn image_translucent_cells_reveal_image() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     let snapshot = filled_bg_snapshot(12, 8);
     // The grid cells are a gray (200) background; the image is pure white, so
     // letting it show through must raise the cell's composited luminance.

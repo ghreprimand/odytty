@@ -31,7 +31,7 @@
 //! appearance  = dark              # dark | light
 //! foreground  = #d6def4           # alias: fg
 //! background  = #0c1224           # alias: bg
-//! clear       = #070b18           # window clear; defaults to background
+//! clear       = #070b18           # window clear; omitted keeps plain
 //! cursor      = #86c1ff           # semantic roles ↓
 //! selection   = #243352
 //! search      = #4a4018
@@ -41,7 +41,7 @@
 //! ...                             #   (alias: palette0..palette15)
 //! color15     = #f0f4ff
 //! font_family = JetBrains Mono     # optional font hint (forward-compat)
-//! font_size   = 14                 # optional font hint (forward-compat)
+//! font_size   = 14                 # optional font hint, clamped to 6-72
 //! visual      = ambient            # bundled effect: off | ambient | scanlines
 //! ```
 
@@ -95,7 +95,8 @@ pub struct ThemeSpec {
     pub foreground: Srgb,
     /// Default background for `Color::Default` cells.
     pub background: Srgb,
-    /// Window clear color (defaults to `background` when omitted).
+    /// Window clear color. When omitted it keeps the `plain` baseline, not
+    /// this theme's `background`, so a light theme should set it.
     pub clear: Srgb,
     /// The 16 ANSI colors (0–7 normal, 8–15 bright).
     pub palette: [Srgb; 16],
@@ -277,7 +278,14 @@ impl ThemeSpec {
                     spec.font_family = Some(value.to_string()).filter(|s| !s.is_empty());
                 }
                 "fontsize" => match value.parse::<f32>() {
-                    Ok(size) if size.is_finite() && size > 0.0 => spec.font_size = Some(size),
+                    // A hint, clamped to the sizes the app supports so an absurd
+                    // value never becomes a size anything could apply.
+                    Ok(size) if size.is_finite() && size > 0.0 => {
+                        spec.font_size = Some(size.clamp(
+                            crate::settings::MIN_FONT_SIZE_PX,
+                            crate::settings::MAX_FONT_SIZE_PX,
+                        ));
+                    }
                     _ => warn(format!(
                         "line {line_number}: invalid font_size {value:?}; ignoring"
                     )),
@@ -298,12 +306,15 @@ impl ThemeSpec {
     }
 
     /// Serialize to canonical theme-file text. The output re-parses to an equal
-    /// [`ThemeSpec`] (round-trip fixed point). Optional fields are emitted only
+    /// [`ThemeSpec`] (round-trip fixed point) whenever the spec is
+    /// representable: a `name` or `font_family` is written as the file format
+    /// can read it back (see `file_text`), and a `font_size` outside the
+    /// supported range comes back clamped. Optional fields are emitted only
     /// when present.
     pub fn serialize(&self) -> String {
         let mut out = String::new();
         out.push_str("# OdyTTY theme\n");
-        out.push_str(&format!("name = {}\n", self.name));
+        out.push_str(&format!("name = {}\n", file_text(&self.name)));
         out.push_str(&format!("appearance = {}\n", self.appearance.as_str()));
         out.push('\n');
         out.push_str(&format!("foreground = {}\n", hex(self.foreground)));
@@ -323,7 +334,7 @@ impl ThemeSpec {
             out.push('\n');
         }
         if let Some(family) = &self.font_family {
-            out.push_str(&format!("font_family = {family}\n"));
+            out.push_str(&format!("font_family = {}\n", file_text(family)));
         }
         if let Some(size) = self.font_size {
             out.push_str(&format!("font_size = {size}\n"));
@@ -333,6 +344,18 @@ impl ThemeSpec {
         }
         out
     }
+}
+
+/// A free-text value as the theme file can read it back. Control characters
+/// (a newline would start another key) become spaces, the value stops before a
+/// whitespace-preceded `#`, which the format reads as a comment, and the ends
+/// are trimmed as the parser trims them.
+fn file_text(value: &str) -> String {
+    let flat: String = value
+        .chars()
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .collect();
+    strip_inline_comment(flat.trim()).trim().to_owned()
 }
 
 /// Strip an inline trailing `#` comment from an already-trimmed value. A `#`
@@ -515,6 +538,11 @@ mod tests {
         assert_eq!(spec.foreground, Theme::PLAIN.foreground);
         assert_eq!(spec.palette, Theme::PLAIN.palette);
         assert_eq!(spec.cursor, Theme::PLAIN.cursor);
+        // An omitted clear keeps the plain baseline rather than following the
+        // parsed background, as docs/themes.md states.
+        let light = parse_ok("background = #fafafa\n");
+        assert_eq!(light.clear, Theme::PLAIN.clear);
+        assert_ne!(light.clear, light.background);
     }
 
     #[test]
@@ -579,6 +607,46 @@ mod tests {
                 theme.name
             );
         }
+    }
+
+    #[test]
+    fn serialize_writes_text_values_the_parser_reads_back() {
+        let mut spec = ThemeSpec::from_theme(&Theme::ODYSSEY);
+        spec.name = "My #1".to_string();
+        spec.font_family = Some("Font #2".to_string());
+        let reparsed = ThemeSpec::parse(&spec.serialize(), |m| panic!("warn: {m}"));
+        // The comment marker ends the value, as it does in a hand-written file.
+        assert_eq!(reparsed.name, "My");
+        assert_eq!(reparsed.font_family.as_deref(), Some("Font"));
+        // Serializing the reparse is byte-stable.
+        assert_eq!(reparsed.serialize(), spec.serialize());
+        // A hash that is not preceded by whitespace is part of the value.
+        spec.name = "C#".to_string();
+        let reparsed = ThemeSpec::parse(&spec.serialize(), |m| panic!("warn: {m}"));
+        assert_eq!(reparsed.name, "C#");
+    }
+
+    #[test]
+    fn serialize_does_not_let_a_value_start_another_key() {
+        let mut spec = ThemeSpec::from_theme(&Theme::ODYSSEY);
+        spec.name = "Evil\nforeground = #ff0000\r\nclear = #00ff00".to_string();
+        spec.font_family = Some("Fam\nvisual = ambient".to_string());
+        spec.visual = VisualEffect::Off;
+        let reparsed = ThemeSpec::parse(&spec.serialize(), |m| panic!("warn: {m}"));
+        assert_eq!(reparsed.foreground, spec.foreground);
+        assert_eq!(reparsed.clear, spec.clear);
+        assert_eq!(reparsed.visual, VisualEffect::Off);
+        assert_eq!(reparsed.name, "Evil foreground =");
+    }
+
+    #[test]
+    fn font_size_hint_is_clamped_to_the_supported_range() {
+        let spec = parse_ok("font_size = 1e30\n");
+        assert_eq!(spec.font_size, Some(crate::settings::MAX_FONT_SIZE_PX));
+        let spec = parse_ok("font_size = 0.001\n");
+        assert_eq!(spec.font_size, Some(crate::settings::MIN_FONT_SIZE_PX));
+        let spec = parse_ok("font_size = 13.5\n");
+        assert_eq!(spec.font_size, Some(13.5));
     }
 
     #[test]

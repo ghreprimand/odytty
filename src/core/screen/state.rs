@@ -205,6 +205,11 @@ impl Screen {
         self.drain_freed_button_refs();
         if let Some(stored) = self.primary_screen.as_mut() {
             stored.scrollback.set_limit(limit);
+            // The parked primary's history trims too: its freed references go
+            // back at once, not at the next rebuild or return to the primary.
+            for id in stored.scrollback.take_freed_button_ids() {
+                self.buttons.release(id);
+            }
         }
         let trimmed = epochs
             != (

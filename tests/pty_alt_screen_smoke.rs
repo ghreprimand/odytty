@@ -276,12 +276,36 @@ fn fixed_env(command: &mut CommandBuilder) {
     command.env("LC_ALL", "C");
 }
 
+/// Look for the host program a smoke test drives. Either outcome is a fixed,
+/// countable line in the captured output, so a run shows which programs were
+/// exercised and which tests returned success without running: a missing
+/// program is `unavailable-hardware`, never a pass of the test's assertions.
 fn skip_missing(binary: &str) -> Option<PathBuf> {
     let path = command_exists(binary);
-    if path.is_none() {
-        eprintln!("skipping PTY alternate-screen smoke: `{binary}` not found in PATH");
+    match &path {
+        Some(_) => eprintln!("odytty-test-outcome: executed program={binary}"),
+        None => eprintln!("odytty-test-outcome: unavailable-hardware program={binary}"),
     }
     path
+}
+
+/// Neutralize the settings of the developer's `less` that change what the pager
+/// does: `LESS` (for example `-X`, which disables the alternate screen, or
+/// `-F`), `LESSOPEN` and `LESSCLOSE` (input preprocessors), `LESSCHARSET`,
+/// `LESSKEY` and `PAGER`. `less` treats an empty value as unset, so each is set
+/// empty. The smoke tests assert the behavior of `less` as installed.
+fn clean_less_env(command: &mut CommandBuilder) {
+    for key in [
+        "LESS",
+        "LESSOPEN",
+        "LESSCLOSE",
+        "LESSCHARSET",
+        "LESSKEY",
+        "LESSKEY_SYSTEM",
+        "PAGER",
+    ] {
+        command.env(key, "");
+    }
 }
 
 fn less_supports_mouse(path: &Path) -> bool {
@@ -351,6 +375,7 @@ fn less_enters_scrolls_and_restores_primary_screen() -> Result<()> {
     let primary_marker = "PRIMARY-BEFORE-LESS";
     let mut command = CommandBuilder::new(less.to_string_lossy().into_owned());
     fixed_env(&mut command);
+    clean_less_env(&mut command);
     command.env("LESSHISTFILE", "/dev/null");
     command.arg("-S");
     command.arg(file.to_string_lossy().into_owned());
@@ -410,6 +435,7 @@ fn less_mouse_wheel_scrolls_when_mouse_mode_is_enabled() -> Result<()> {
     let primary_marker = "PRIMARY-BEFORE-LESS-MOUSE";
     let mut command = CommandBuilder::new(less.to_string_lossy().into_owned());
     fixed_env(&mut command);
+    clean_less_env(&mut command);
     command.env("LESSHISTFILE", "/dev/null");
     command.arg("--mouse");
     command.arg("--wheel-lines=5");
@@ -841,6 +867,7 @@ fn git_log_pager_restores_primary_screen() -> Result<()> {
     fixed_env(&mut command);
     command.env("GIT_CONFIG_NOSYSTEM", "1");
     command.env("HOME", temp.path().to_string_lossy().into_owned());
+    clean_less_env(&mut command);
     command.env("GIT_PAGER", "less -R");
     // Git defaults LESS=FRX; -X disables smcup/rmcup (alt screen). Override
     // to FR so less uses the alternate screen as it would in a modern terminal.

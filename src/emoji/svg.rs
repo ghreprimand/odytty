@@ -13,8 +13,9 @@
 //! gzip decompression; XML is parsed with DTDs disabled and a node limit;
 //! element nesting, reference expansion (`use`, `href`, and `url(#id)`), and
 //! reference chains are bounded before conversion; documents with patterns,
-//! filters, masks, markers (which OpenType does not allow in glyph documents),
-//! or stylesheet references are refused; and every external-resource resolver
+//! filters, masks, markers (which OpenType leaves optional for implementations
+//! and whose raster cost is outside the budget model), or stylesheet
+//! references are refused; and every external-resource resolver
 //! returns nothing, so no file or network resource is ever read. The raster is
 //! the atlas slot itself, clamped to [`MAX_RASTER_WIDTH`] by
 //! [`MAX_RASTER_HEIGHT`], and `svg_budget` bounds the pixel work and the live
@@ -189,9 +190,9 @@ fn decode_document(raw: &[u8]) -> Option<Vec<u8>> {
     (out.len() <= MAX_DOCUMENT_BYTES).then_some(out)
 }
 
-/// Elements refused outright. OpenType does not allow patterns, filters,
-/// masks, or markers in glyph documents, and their raster cost is outside the
-/// `svg_budget` model.
+/// Elements refused outright. OpenType does not require implementations to
+/// support patterns, filters, masks, or markers in glyph documents, and their
+/// raster cost is outside the `svg_budget` model.
 const REFUSED_ELEMENTS: [&str; 4] = ["pattern", "filter", "mask", "marker"];
 /// Properties that apply a filter (including CSS filter functions), a mask, or
 /// markers, refused for the same reason in attributes and style text.

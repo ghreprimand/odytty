@@ -1738,9 +1738,12 @@ fn project_line_mode<const MODE: u8>(
             finish_row!(Line::wrapped(std::mem::take(&mut row_cells)));
             produced_any = true;
         }
-        if mark_target == Some(i)
-            || (unit == 2
-                && mark_target == Some(i + 1)
+        // A boundary stamped on a wide owner's continuation cell follows the
+        // owner head, whatever width the owner takes now: its continuation is
+        // dropped when the owner degrades to one column, and that dropped cell
+        // must not move the boundary a second time.
+        if (mark_target == Some(i) && !(cell.wide_continuation() && i > 0))
+            || (mark_target == Some(i + 1)
                 && cells
                     .get(i + 1)
                     .is_some_and(|next| next.wide_continuation()))

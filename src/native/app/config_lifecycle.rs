@@ -62,6 +62,7 @@ impl App {
             font_family: parsed.font_family,
             font_weight: parsed.font_weight,
             font_path: parsed.font_path,
+            font_path_explicit: parsed.font_path_explicit,
             font_size_px: parsed.font_size_px,
             text_gamma: parsed.text_gamma,
             subpixel: parsed.subpixel,

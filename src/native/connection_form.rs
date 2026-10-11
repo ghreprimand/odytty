@@ -1242,10 +1242,19 @@ fn truncate_for_width(text: &str, max_chars: usize) -> String {
     text.chars().take(max_chars).collect()
 }
 
-/// The final path component, for browser display. Handles both `/` and `\`
-/// separators so a Windows `%USERPROFILE%\.ssh\id_ed25519` path shows its name.
+/// The final path component, for browser display. Follows the platform's own
+/// separators: on Windows both `/` and `\` split, so a
+/// `%USERPROFILE%\.ssh\id_ed25519` path shows its name; elsewhere only `/`
+/// does, because a backslash is an ordinary filename character there.
+#[cfg(windows)]
 fn basename(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or(path)
+}
+
+/// See the Windows definition above.
+#[cfg(not(windows))]
+fn basename(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
 }
 
 /// Greedy word-wrap for the help footer: split on spaces, packing whole words up

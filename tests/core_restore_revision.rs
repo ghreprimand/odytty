@@ -68,6 +68,23 @@ fn restoring_a_snapshot_keeps_the_host_ambiguous_width_policy() {
 }
 
 #[test]
+fn an_alternate_screen_restore_keeps_the_host_scrollback_limit_for_the_primary() {
+    let mut source = Terminal::new(8, 3);
+    source.advance(b"\x1b[?1049hALT");
+    let envelope = SnapshotEnvelope::from_terminal(&source, SnapshotCaptureLimits::default());
+    let mut target = Terminal::new(8, 3);
+    target.set_scrollback_limit(3);
+    target.restore_from_envelope(&envelope).unwrap();
+    // Returning to the primary swaps in the parked primary's history, which
+    // must follow the host-configured limit, not a default.
+    target.advance(b"\x1b[?1049l");
+    for _ in 0..40 {
+        target.advance(b"line\r\n");
+    }
+    assert_eq!(target.screen().scrollback_len(), 3);
+}
+
+#[test]
 fn deleting_a_marked_line_sets_the_prompt_change_latch() {
     let mut terminal = Terminal::new(8, 4);
     terminal.advance(b"\x1b[2;1H\x1b]133;A\x07P");

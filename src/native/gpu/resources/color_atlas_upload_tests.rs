@@ -5,40 +5,25 @@ use super::*;
 use crate::atlas::CellSize;
 use crate::emoji::{ColorGlyphId, ColorGlyphKey};
 
-/// Headless device whose 2D texture limit is as small as the adapter allows.
-/// `None` (skip, reported on stderr) when no adapter is available.
-fn small_limit_device() -> Option<crate::native::gpu::HeadlessGpuFixture> {
-    let lifetime = crate::native::gpu::headless_gpu_lifetime();
-    let _init = crate::test_lock::device_creation_lock();
-    let instance = crate::native::gpu::headless_test_instance(wgpu::Backends::all());
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::default(),
-        force_fallback_adapter: false,
-        compatible_surface: None,
-    }))
-    .ok()?;
-    let required_limits = wgpu::Limits {
-        max_texture_dimension_2d: 256,
-        ..wgpu::Limits::default()
-    };
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        label: Some("odytty-color-atlas-upload-test-device"),
-        required_features: wgpu::Features::empty(),
-        required_limits,
-        experimental_features: wgpu::ExperimentalFeatures::disabled(),
-        memory_hints: wgpu::MemoryHints::default(),
-        trace: wgpu::Trace::Off,
-    }))
-    .ok()?;
-    Some(crate::native::gpu::HeadlessGpuFixture::new(
-        device, queue, lifetime,
-    ))
+/// Headless device whose 2D texture limit is as small as the adapter allows,
+/// under the shared GPU test availability policy.
+fn small_limit_device(test: &str) -> Option<crate::native::gpu::HeadlessGpuFixture> {
+    crate::native::test_support::gpu_device::headless_device_with_limits(
+        test,
+        "odytty-color-atlas-upload-test-device",
+        false,
+        wgpu::Limits {
+            max_texture_dimension_2d: 256,
+            ..wgpu::Limits::default()
+        },
+    )
 }
 
 #[test]
 fn atlas_wider_than_the_device_limit_builds_a_clamped_texture() {
-    let Some(gpu) = small_limit_device() else {
-        eprintln!("skipped: no headless GPU adapter");
+    let Some(gpu) =
+        small_limit_device("atlas_wider_than_the_device_limit_builds_a_clamped_texture")
+    else {
         return;
     };
     let limit = gpu.device.limits().max_texture_dimension_2d;

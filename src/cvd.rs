@@ -214,9 +214,10 @@ pub fn adapt_palette(spec: &ThemeSpec, ty: CvdType, strength: f32) -> ThemeSpec 
 ///   neutrals that stay near the background rather than being lifted to the
 ///   legible floor.
 ///
-/// [`enforce_min_contrast`] moves OKLab lightness first and reduces chroma only
-/// when lightness alone cannot reach the floor, so the hue separation the remap
-/// created is kept whenever the floor allows it.
+/// [`floor_role`](crate::palette_gen::floor_role) moves OKLab lightness along the
+/// unclamped search ([`crate::color::enforce_min_contrast_unclamped`]), then
+/// gamut-maps along the hue and re-checks the bytes, so the hue separation the
+/// remap created is kept whenever the floor allows it.
 fn validate(spec: &mut ThemeSpec, floor: f32) {
     use crate::palette_gen::{bg_side_neutral_slots, floor_role};
     let bg = to_linear(spec.background);

@@ -39,6 +39,8 @@ pub use protocol::ListedSession;
 pub use client::SessionHostClient;
 #[cfg(unix)]
 pub(crate) use handshake::DeadlineWriter;
+// The native attach client shares the session-host socket-option policy, so
+// both tolerate only the same proven peer-closed macOS failure.
 #[cfg(unix)]
 pub use host::{
     HostCommand, HostConfig, HostExit, HostExitReason, MAX_HOST_SESSIONS, run_host,
@@ -51,6 +53,8 @@ pub use registry::{
 };
 #[cfg(unix)]
 pub(crate) use socket::SocketReadDeadline;
+#[cfg(unix)]
+pub(crate) use socket::checked_socket_timeout;
 #[cfg(unix)]
 pub use socket::{
     RuntimePaths, StartupLock, cleanup_stale_socket, existing_runtime_dir, prepare_runtime_dir,

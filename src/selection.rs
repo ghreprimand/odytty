@@ -700,6 +700,7 @@ fn highlight_cell(cell: &mut crate::core::Cell, themed: Option<SelectionStyle>) 
     // Applied to BOTH paths uniformly so themed and inverse selections composite
     // consistently. Never serialized (the envelope excludes this bit).
     cell.attrs.set_selected(true);
+    cell.attrs.set_recolored(true);
     match themed {
         // Themed (opt-in): explicit fill + floored fg. Clear inverse so
         // the role colors are not re-swapped by the renderer.

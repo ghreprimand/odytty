@@ -372,6 +372,7 @@ fn apply_match_highlight(
         };
         let offset = row * snapshot.dimensions.columns;
         for cell in &mut snapshot.cells[offset + start_column..=offset + end_column] {
+            cell.attrs.set_recolored(true);
             match (themed, current) {
                 // Themed active match: brightened fill + floored fg.
                 (Some(style), true) => {
@@ -516,6 +517,58 @@ mod tests {
         assert!(ui.query.is_empty());
         assert!(ui.matches.is_empty());
         assert_eq!(ui.current, None);
+    }
+
+    /// A search match over only the second owner of a legacy two-cell flag does
+    /// not split the colour cluster the pair forms, in every highlight style.
+    #[test]
+    fn a_search_match_over_half_a_legacy_flag_keeps_the_color_cluster() {
+        use crate::atlas::CellSize;
+        use crate::core::{Attrs, Cell};
+        use crate::emoji::{ColorGlyphAtlas, EmojiFont, EmojiRasterizer};
+
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/fonts/legacy-color-clusters.ttf");
+        let mut rasterizer =
+            EmojiRasterizer::from_font(EmojiFont::load(path).expect("fixture font"));
+        let themed = SearchStyle {
+            fill: [1, 2, 3],
+            fg: [250, 250, 250],
+            active_fill: [4, 5, 6],
+            active_fg: [240, 240, 240],
+        };
+        for (style, current) in [
+            (None, false),
+            (None, true),
+            (Some(themed), false),
+            (Some(themed), true),
+        ] {
+            let mut snapshot = Terminal::new(2, 1).snapshot();
+            let attrs = Attrs::default();
+            snapshot.cells = vec![Cell::new('\u{1f1e6}', attrs), Cell::new('\u{1f1e7}', attrs)];
+            let range = SelectionRange {
+                start: crate::selection::CellPoint { row: 0, column: 1 },
+                end: crate::selection::CellPoint { row: 0, column: 1 },
+            };
+            apply_match_highlight(&mut snapshot, range, current, style);
+            assert!(snapshot.cells[1].attrs.recolored());
+            let mut atlas = ColorGlyphAtlas::new(CellSize {
+                width: 8,
+                height: 16,
+                baseline: 12,
+            });
+            let runs: Vec<_> = rasterizer
+                .build_color_glyph_runs(&snapshot, &mut atlas)
+                .iter()
+                .map(|run| (run.column, run.covered_columns))
+                .collect();
+            assert_eq!(
+                runs,
+                [(0, 2)],
+                "themed={} current={current}",
+                style.is_some()
+            );
+        }
     }
 
     #[test]

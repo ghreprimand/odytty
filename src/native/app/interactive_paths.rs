@@ -27,12 +27,66 @@ pub(crate) struct FsResolveProbe;
 
 impl ResolveProbe for FsResolveProbe {
     fn classify(&self, abs_path: &str) -> Option<FsKind> {
-        let meta = std::fs::symlink_metadata(abs_path).ok()?;
-        Some(if meta.is_dir() {
-            FsKind::Dir
-        } else {
-            FsKind::File
+        classify_permitted(abs_path, cfg!(windows), |path| {
+            std::fs::symlink_metadata(path)
+                .ok()
+                .map(|meta| meta.is_dir())
         })
+    }
+}
+
+/// Classify a path that came from terminal output. On Windows a path starting
+/// with two separators names a network share or a device, and probing it would
+/// open an SMB connection to a host the output chose; such a path never reaches
+/// `probe`. `probe` returns whether the path is a directory, or `None` when it
+/// does not exist.
+fn classify_permitted(
+    abs_path: &str,
+    windows: bool,
+    probe: impl FnOnce(&str) -> Option<bool>,
+) -> Option<FsKind> {
+    if !crate::cwd::permitted_for(std::path::Path::new(abs_path), windows) {
+        return None;
+    }
+    probe(abs_path).map(|is_dir| if is_dir { FsKind::Dir } else { FsKind::File })
+}
+
+#[cfg(test)]
+mod probe_tests {
+    use super::*;
+
+    #[test]
+    fn windows_network_and_device_paths_never_reach_the_probe() {
+        for path in [
+            r"\\fixture.invalid\share\file.txt",
+            r"//fixture.invalid/share/file.txt",
+            r"/\fixture.invalid/share",
+            r"\\?\C:\fixture\file.txt",
+            r"\\.\pipe\fixture",
+        ] {
+            assert_eq!(
+                classify_permitted(path, true, |_| panic!("{path} reached the probe")),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn local_paths_reach_the_probe_and_keep_their_kind() {
+        assert_eq!(
+            classify_permitted(r"C:\fixture\dir", true, |_| Some(true)),
+            Some(FsKind::Dir)
+        );
+        assert_eq!(
+            classify_permitted("/fixture/file", false, |_| Some(false)),
+            Some(FsKind::File)
+        );
+        assert_eq!(classify_permitted("/fixture/none", false, |_| None), None);
+        // A double slash is an ordinary path off Windows.
+        assert_eq!(
+            classify_permitted("//fixture/dir", false, |_| Some(true)),
+            Some(FsKind::Dir)
+        );
     }
 }
 

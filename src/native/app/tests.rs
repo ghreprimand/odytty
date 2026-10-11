@@ -847,10 +847,12 @@ fn config_reload_wake_is_suppressed_while_unfocused() {
     let Some(mut app) = build_idle_app() else {
         return;
     };
-    // A reloader over an owned path always has a deadline, whatever the host's
-    // config location resolves to, so the focus gate is always exercised.
+    // A reloader over a path in a directory this test owns always has a
+    // deadline, whatever the host's config location resolves to, so the focus
+    // gate is always exercised. The path is only stat-ed, never written.
+    let owned = crate::test_dirs::fresh_temp_dir("odytty-reload-wake-");
     app.settings_reloader = crate::settings::SettingsReloader::with_path_for_test(
-        Some(std::path::PathBuf::from("synthetic-config/odytty.conf")),
+        Some(owned.join("odytty.conf")),
         Instant::now(),
     );
     let config_deadline = app
@@ -871,6 +873,7 @@ fn config_reload_wake_is_suppressed_while_unfocused() {
         None,
         "a backgrounded window schedules no timer wake (zero-wake idle)"
     );
+    let _ = std::fs::remove_dir(&owned);
 }
 
 /// NF20 regression: a multiplexer prefix (default Ctrl+B) that is pressed and
@@ -2513,6 +2516,46 @@ fn kitty_associated_text_uses_the_separate_generated_payload() {
         bytes.lock().expect("recorded bytes").as_slice(),
         b"\x1b[101u"
     );
+}
+
+#[test]
+fn kitty_associated_text_rejected_payload_keeps_each_logical_scalar() {
+    let (mut app, bytes) = build_recording_app().expect("headless app");
+    app.terminal.lock().expect("terminal").advance(b"\x1b[>26u");
+    let each_scalar = [
+        (KeyEventType::Press, b"\x1b[101u\x1b[769u".as_slice()),
+        (
+            KeyEventType::Repeat,
+            b"\x1b[101;1:2u\x1b[769;1:2u".as_slice(),
+        ),
+        (
+            KeyEventType::Release,
+            b"\x1b[101;1:3u\x1b[769;1:3u".as_slice(),
+        ),
+    ];
+    // Empty and control-bearing text is refused by the encoder, and a release
+    // never carries text: none of them may drop the second scalar.
+    for (event_type, expected) in each_scalar {
+        let rejected: &[&str] = match event_type {
+            KeyEventType::Release => &["e\u{301}"],
+            _ => &["", "e\n"],
+        };
+        for &text in rejected {
+            bytes.lock().expect("recorded bytes").clear();
+            app.handle_key_event_with_text(
+                WinitKey::Character("e\u{301}".into()),
+                WinitKey::Character("e\u{301}".into()),
+                PhysicalKey::Code(winit::keyboard::KeyCode::KeyE),
+                event_type,
+                Some(text),
+            );
+            assert_eq!(
+                bytes.lock().expect("recorded bytes").as_slice(),
+                expected,
+                "{event_type:?} with {text:?}"
+            );
+        }
+    }
 }
 
 #[test]

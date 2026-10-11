@@ -230,6 +230,11 @@ image address (`i=` or `I=`) and deletes the single frame named by `r=` (the roo
 the following frame promoted when the root is removed. If only the root
 remains, lowercase is a no-op and uppercase removes the image and placements.
 
+On these animation commands `c=` and `r=` are frame indices, so a value past
+4294967295 is refused with a `malformed-control` error instead of being read as
+an omitted key. On placements the same
+keys stay bounded cell extents.
+
 Gaps behave as the protocol specifies: `z=0` is ignored, a positive `z=` is the
 delay in milliseconds before the next frame, and a negative `z=` marks a
 *gapless* frame that is never displayed and exists only as base data for frames

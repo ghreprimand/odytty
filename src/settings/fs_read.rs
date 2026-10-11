@@ -38,11 +38,14 @@ pub(super) const MAX_WARNINGS: usize = 100;
 ///   without loading the whole file (the read stops at `max_bytes + 1`).
 /// - Non-UTF-8 content returns [`io::ErrorKind::InvalidData`] (config/theme
 ///   files are UTF-8 text).
+/// - One leading UTF-8 byte order mark, which Windows editors and PowerShell
+///   write, is removed so the first key or JSON value parses.
 pub(crate) fn read_capped(path: &Path) -> io::Result<String> {
     read_capped_at(path, MAX_CONFIG_BYTES)
 }
 
-/// Read a bounded UTF-8 text file up to `max_bytes`.
+/// Read a bounded UTF-8 text file up to `max_bytes`, without a leading byte
+/// order mark (see [`read_capped`]).
 pub(crate) fn read_capped_at(path: &Path, max_bytes: u64) -> io::Result<String> {
     // Reject non-regular files by stat-ing the path BEFORE opening it, so the
     // rejection is identical on every platform. On Windows `File::open` on a
@@ -75,8 +78,13 @@ pub(crate) fn read_capped_at(path: &Path, max_bytes: u64) -> io::Result<String> 
         ));
     }
 
-    String::from_utf8(buf)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "config file is not valid UTF-8"))
+    let mut text = String::from_utf8(buf).map_err(|_| {
+        io::Error::new(io::ErrorKind::InvalidData, "config file is not valid UTF-8")
+    })?;
+    if text.starts_with('\u{feff}') {
+        text.drain(..'\u{feff}'.len_utf8());
+    }
+    Ok(text)
 }
 
 /// Accumulate warnings into `sink` up to [`MAX_WARNINGS`], counting the rest in
@@ -148,6 +156,23 @@ mod tests {
         File::create(&path).unwrap().write_all(&body).unwrap();
         let err = read_capped(&path).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_leading_byte_order_mark_is_removed_once() {
+        let path = temp_path("bom");
+        File::create(&path)
+            .unwrap()
+            .write_all(b"\xef\xbb\xbffont_size = 12\n")
+            .unwrap();
+        assert_eq!(read_capped(&path).unwrap(), "font_size = 12\n");
+        // Only one leading mark is a byte order mark; a second is content.
+        File::create(&path)
+            .unwrap()
+            .write_all(b"\xef\xbb\xbf\xef\xbb\xbfx")
+            .unwrap();
+        assert_eq!(read_capped(&path).unwrap(), "\u{feff}x");
         let _ = std::fs::remove_file(&path);
     }
 

@@ -13,10 +13,7 @@ use crate::harness::*;
 
 #[test]
 fn negative_z_image_sits_under_glyph_ink() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // 'H' over a full-cell z=-1 image. Render order puts the image above the cell
     // background but below the glyph: the cell's dominant color becomes the image
     // color, yet glyph ink still shows where the strokes land.
@@ -51,10 +48,7 @@ fn negative_z_image_sits_under_glyph_ink() {
 
 #[test]
 fn non_negative_z_image_overdraws_glyph_ink() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // 'H' under a full-cell opaque z=0 image: the image is drawn after the glyph,
     // so every pixel in the cell is exactly the image color.
     let snapshot = row_snapshot(2, "H");
@@ -79,10 +73,7 @@ fn non_negative_z_image_overdraws_glyph_ink() {
 
 #[test]
 fn color_glyph_segment_sits_between_coverage_text_and_above_images() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     let snapshot = row_snapshot(1, "H");
     let mut scene = ImageScene::default();
     let mut color_atlas = ColorGlyphAtlas::new(atlas.cell);
@@ -137,10 +128,7 @@ fn color_glyph_segment_sits_between_coverage_text_and_above_images() {
 
 #[test]
 fn wide_color_glyph_lead_emits_one_two_cell_quad() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     let mut term = Terminal::new(3, 1);
     term.advance(b"\x1b[?25l");
     term.advance("🔥X".as_bytes());
@@ -184,10 +172,7 @@ fn wide_color_glyph_lead_emits_one_two_cell_quad() {
 
 #[test]
 fn equal_z_later_generation_draws_on_top() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // Two overlapping opaque images at the same z: the later-placed one (higher
     // generation) wins. `visible_placements` sorts by (z, generation), so the
     // compositor draws green last.
@@ -210,10 +195,7 @@ fn equal_z_later_generation_draws_on_top() {
 
 #[test]
 fn source_crop_shows_only_cropped_region() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // Image two cells wide: left half red, right half blue. Crop to the right
     // (blue) half via source x/width; only blue should composite.
     let cw = atlas.cell.width;
@@ -260,10 +242,7 @@ fn source_crop_shows_only_cropped_region() {
 
 #[test]
 fn cell_box_scaling_fills_exact_rect() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // An image sized exactly 2x2 cells, placed with c=2/r=2, fills exactly that
     // cell rect and no further.
     let cw = atlas.cell.width;
@@ -307,10 +286,7 @@ fn cell_box_scaling_fills_exact_rect() {
 
 #[test]
 fn pixel_offset_shifts_image_ink() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // A 4x4 image (smaller than a cell) shifted by X/Y within its anchor cell.
     // The opaque block begins exactly at the pixel offset.
     let green = [30u8, 200, 30, 255];
@@ -345,10 +321,7 @@ fn pixel_offset_shifts_image_ink() {
 
 #[test]
 fn cell_anchored_placement_scrolls_with_offset() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // A placement anchored at row 0 follows its anchor line as the viewport
     // scrolls: with a +1 scrollback offset it projects one row down.
     let cyan = [30u8, 200, 200, 255];
@@ -381,21 +354,17 @@ fn cell_anchored_placement_scrolls_with_offset() {
 
 #[test]
 fn sixel_decoded_placement_composites() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     use odytty::graphics::sixel::{SixelBackground, decode_sixel};
     // Minimal sixel body: color 0 = red, paint a 6-wide run of full (6px) sixels.
     let body = b"#0;2;100;0;0!6~";
-    let Ok(image) = decode_sixel(body, SixelBackground::Opaque) else {
-        eprintln!("skipping: sixel decode unavailable");
-        return;
-    };
-    if image.width == 0 || image.height == 0 {
-        eprintln!("skipping: empty sixel decode");
-        return;
-    }
+    // The decoder is plain Rust with no environment dependence: a failure or an
+    // empty image here is a regression, not an unavailable feature.
+    let image = decode_sixel(body, SixelBackground::Opaque).expect("the fixture sixel decodes");
+    assert!(
+        image.width > 0 && image.height > 0,
+        "the fixture sixel decodes to a non-empty image"
+    );
     let mut scene = ImageScene::default();
     let id = scene
         .insert_rgba(None, image.width, image.height, image.rgba)
@@ -425,10 +394,7 @@ fn sixel_decoded_placement_composites() {
 
 #[test]
 fn transparent_image_over_placeholder_has_no_glyph_ink() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     // Placeholder under a semi-transparent z>=0 image: if the cell emitted tofu,
     // glyph-colored pixels would show through the translucent tile. With the
     // suppression rule only the background + image blend remains.

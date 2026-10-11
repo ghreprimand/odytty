@@ -376,6 +376,26 @@ fn win32_normalizes_control_text_to_named_key_records() {
     assert_eq!(press(Key::Char('\t'), SHIFT), "\x1b[9;15;9;1;16;1_");
 }
 
+/// A neutral back-tab carries Shift by identity: with no redundant modifier it
+/// still differs from a plain Tab record by the shift bit, on key-down, repeat
+/// and key-up alike.
+#[test]
+fn neutral_back_tab_without_a_modifier_still_carries_shift() {
+    assert_eq!(press(Key::BackTab, Modifiers::NONE), "\x1b[9;15;9;1;16;1_");
+    assert_eq!(
+        press(Key::BackTab, SHIFT),
+        press(Key::BackTab, Modifiers::NONE)
+    );
+    assert_ne!(
+        press(Key::BackTab, Modifiers::NONE),
+        press(Key::Tab, Modifiers::NONE)
+    );
+    assert_eq!(
+        record(Key::BackTab, Modifiers::NONE, KeyEventType::Release),
+        "\x1b[9;15;9;0;16;1_"
+    );
+}
+
 /// A character with no Win32 identity produces no record rather than a
 /// malformed or partially populated one.
 ///

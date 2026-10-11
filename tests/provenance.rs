@@ -146,9 +146,12 @@ fn precedence_final_fallback_is_unavailable_never_unknown() {
 fn git_archive_substitutes_the_token_and_drops_dot_git() {
     // git + tar are present on the Linux/macOS CI legs and on the Linux dev box;
     // if git cannot even be spawned (a stripped environment), skip rather than
-    // fail on a missing precondition.
+    // fail on a missing precondition. The skip is a fixed, countable token: the
+    // test returning success is not a pass of its assertions.
     if Command::new("git").arg("--version").output().is_err() {
-        eprintln!("skipping: git not available");
+        eprintln!(
+            "odytty-test-outcome: unavailable-hardware git test=git_archive_substitutes_the_token_and_drops_dot_git"
+        );
         return;
     }
 
@@ -165,9 +168,7 @@ fn git_archive_substitutes_the_token_and_drops_dot_git() {
     .unwrap();
     fs::write(repo.join("README"), "fixture\n").unwrap();
 
-    git(repo, &["init", "-q"]);
-    git(repo, &["config", "user.email", "provenance@test.invalid"]);
-    git(repo, &["config", "user.name", "provenance-test"]);
+    git(repo, &["init", "-q", "--template="]);
     git(repo, &["add", "-A"]);
     git(repo, &["commit", "-q", "-m", "fixture commit"]);
 
@@ -179,9 +180,8 @@ fn git_archive_substitutes_the_token_and_drops_dot_git() {
     assert_eq!(archive_subst_sha(&worktree_token), None);
 
     let expected = String::from_utf8(
-        Command::new("git")
+        hermetic_git(repo)
             .args(["rev-parse", "--short", "HEAD"])
-            .current_dir(repo)
             .output()
             .unwrap()
             .stdout,
@@ -236,12 +236,67 @@ fn git_archive_substitutes_the_token_and_drops_dot_git() {
 
 #[cfg(unix)]
 fn git(dir: &Path, args: &[&str]) {
-    let status = Command::new("git")
+    let status = hermetic_git(dir)
         .args(args)
-        .current_dir(dir)
         .status()
         .unwrap_or_else(|err| panic!("spawn git {args:?}: {err}"));
     assert!(status.success(), "git {args:?} failed");
+}
+
+/// A `git` command that reads nothing from the machine it runs on: the
+/// environment is cleared (no inherited `GIT_*` variables), the home and XDG
+/// directories are `dir`, the system and global configuration are disabled, and
+/// the author and committer are fixed. Signing, hooks, templates, attributes
+/// overrides, `core.autocrlf` and the like set in a developer's or runner's git
+/// configuration therefore cannot change the archive this test inspects.
+#[cfg(unix)]
+fn hermetic_git(dir: &Path) -> Command {
+    let mut command = Command::new("git");
+    command
+        .current_dir(dir)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("HOME", dir)
+        .env("XDG_CONFIG_HOME", dir)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_AUTHOR_NAME", "provenance-test")
+        .env("GIT_AUTHOR_EMAIL", "provenance@test.invalid")
+        .env("GIT_COMMITTER_NAME", "provenance-test")
+        .env("GIT_COMMITTER_EMAIL", "provenance@test.invalid");
+    command
+}
+
+/// The fixture repository sees only its own configuration: no system, global or
+/// inherited setting reaches `git`, whatever the machine has configured.
+#[test]
+#[cfg(unix)]
+fn the_fixture_git_reads_no_configuration_from_the_machine() {
+    if Command::new("git").arg("--version").output().is_err() {
+        eprintln!(
+            "odytty-test-outcome: unavailable-hardware git test=the_fixture_git_reads_no_configuration_from_the_machine"
+        );
+        return;
+    }
+    let tmp = TempDir::new("odytty-prov-config");
+    let repo = tmp.path();
+    git(repo, &["init", "-q", "--template="]);
+    let listing = hermetic_git(repo)
+        // Even a hostile setting injected through the process-level `GIT_CONFIG_*`
+        // variables is dropped by the cleared environment.
+        .args(["config", "--list", "--show-origin"])
+        .output()
+        .expect("run git config");
+    assert!(listing.status.success());
+    let listing = String::from_utf8_lossy(&listing.stdout);
+    // `--show-origin` prints the repository's own file as a path relative to it.
+    for line in listing.lines() {
+        assert!(
+            line.starts_with("file:.git/config\t"),
+            "configuration from outside the fixture repository: {line}"
+        );
+    }
+    assert!(!listing.contains("commit.gpgsign"));
 }
 
 /// Self-cleaning directory using the allocator shared with other test crates.

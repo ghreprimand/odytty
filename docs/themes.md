@@ -465,8 +465,12 @@ Colors are written as `#RRGGBB` or `#RGB` (the leading `#` is optional;
 | `inactive` | Inactive/dim color (semantic role). Colors inactive workspace/tab chrome. |
 | `color0` … `color15` | The 16 ANSI colors (0–7 normal, 8–15 bright). Alias: `palette0` … `palette15`. |
 | `font_family` | Optional font-family hint (schema metadata; not applied by theme selection). |
-| `font_size` | Optional font-size hint in px (schema metadata; not applied by theme selection). |
+| `font_size` | Optional font-size hint in px, clamped to 6-72 (schema metadata; not applied by theme selection). |
 | `visual` | Bundled visual-effect profile metadata: `off`, `ambient`, or `scanlines`. `ambient` and `scanlines` are legacy aliases for *each other*; when set and no explicit `crt` value is present, they enable the unified CRT post-process scanline pass instead of a separate cell-shader effect. Theme selection does not auto-apply this field. |
+
+A text value (`name`, `font_family`) ends at a `#` that follows whitespace, which the
+format reads as a comment, and cannot contain a line break; writing a theme
+stores such a value the way it will be read back.
 
 `appearance`, `font_family`, `font_size`, and `visual` are parsed, validated, and
 round-tripped, but none are projected into the running theme:

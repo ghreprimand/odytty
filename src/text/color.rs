@@ -211,9 +211,11 @@ pub fn min_contrast() -> f32 {
 ///
 /// This is the render-facing seam over [`crate::color::enforce_min_contrast`]:
 /// the caller passes the final per-cell `fg`/`bg` (after inverse/dim) and gets
-/// back a best-effort adjustment toward the configured contrast target.
-/// Gamut clipping and later rendering operations can change the displayed
-/// contrast. When the target is at its passthrough value
+/// back a best-effort adjustment toward the configured contrast target. The
+/// floor is checked on the displayed (clamped, byte-rounded) colour; a saturated
+/// colour whose lightness alone cannot reach it keeps its hue and may display
+/// below the target. Later rendering operations (blending, compositing) can
+/// change the displayed contrast. When the target is at its passthrough value
 /// (`1.0`, the default) this returns `fg` unchanged, so the plain path stays
 /// byte-identical until the floor is raised.
 pub fn enforce_contrast_rgba(fg: [f32; 4], bg: [f32; 4]) -> [f32; 4] {

@@ -67,10 +67,7 @@ fn two_color_row(a: Srgb, b: Srgb) -> Snapshot {
 
 #[test]
 fn cvd_adaptation_changes_confusable_pixels_and_off_is_identical() {
-    let Some((_font, atlas)) = setup() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (_font, atlas) = setup();
     let theme = confusable_theme();
     let red = theme.palette[1];
     let green = theme.palette[2];

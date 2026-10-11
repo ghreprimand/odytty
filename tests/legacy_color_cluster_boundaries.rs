@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Project-authored font uses the adjacent font-fixture LICENSE.txt.
 use odytty::atlas::CellSize;
-use odytty::core::{Attrs, Cell, Color, Terminal};
+use odytty::core::{Attrs, Cell, Color, Snapshot, Terminal};
 use odytty::emoji::{ColorGlyphAtlas, EmojiFont, EmojiRasterizer};
+use odytty::selection::{CellPoint, SelectionRange, SelectionStyle, apply_highlight};
 use std::path::PathBuf;
 
 fn rasterizer() -> EmojiRasterizer {
@@ -38,9 +39,17 @@ fn legacy_cells(kind: &str, next_attrs: Attrs) -> Vec<Cell> {
     }
 }
 fn covered_width(kind: &str, attrs: Attrs) -> Vec<(usize, u8)> {
+    covered_width_decorated(kind, attrs, |_| {})
+}
+fn covered_width_decorated(
+    kind: &str,
+    attrs: Attrs,
+    decorate: impl FnOnce(&mut Snapshot),
+) -> Vec<(usize, u8)> {
     let cells = legacy_cells(kind, attrs);
     let mut snapshot = Terminal::new(cells.len(), 1).snapshot();
     snapshot.cells = cells;
+    decorate(&mut snapshot);
     let mut atlas = ColorGlyphAtlas::new(CellSize {
         width: 8,
         height: 16,
@@ -93,10 +102,83 @@ fn differing_legacy_modifier_renditions_remain_separate_color_runs() {
 }
 #[test]
 fn differing_legacy_zwj_renditions_do_not_suppress_the_next_owner() {
-    let runs = differing_rendition_runs("zwj");
-    assert!(
-        runs.iter()
-            .all(|&(column, width)| column != 0 || width <= 2)
+    // The head is drawn on its own two columns and the next owner keeps its own
+    // run; neither is dropped or merged.
+    assert_eq!(differing_rendition_runs("zwj"), [(0, 2), (2, 2)]);
+}
+
+/// Highlight only the columns of the cluster's second owner, the way a partial
+/// selection does before the frame is built.
+fn select_second_owner(kind: &str, themed: Option<SelectionStyle>) -> impl FnOnce(&mut Snapshot) {
+    let first = if kind == "flag" { 1 } else { 2 };
+    let last = if kind == "flag" { 1 } else { 3 };
+    move |snapshot| {
+        apply_highlight(
+            snapshot,
+            SelectionRange {
+                start: CellPoint {
+                    row: 0,
+                    column: first,
+                },
+                end: CellPoint {
+                    row: 0,
+                    column: last,
+                },
+            },
+            themed,
+        );
+    }
+}
+
+#[test]
+fn a_partial_selection_does_not_split_a_legacy_color_cluster() {
+    let themed = SelectionStyle {
+        fill: [10, 20, 30],
+        fg: [200, 210, 220],
+    };
+    for (kind, width) in [("flag", 2), ("modifier", 4), ("zwj", 4)] {
+        for style in [None, Some(themed)] {
+            assert_eq!(
+                covered_width_decorated(kind, Attrs::default(), select_second_owner(kind, style)),
+                [(0, width)],
+                "kind={kind} themed={}",
+                style.is_some()
+            );
+        }
+    }
+}
+
+#[test]
+fn a_selection_covering_the_whole_legacy_cluster_keeps_it_joined() {
+    for (kind, width, last) in [("flag", 2, 1), ("modifier", 4, 3), ("zwj", 4, 3)] {
+        let runs = covered_width_decorated(kind, Attrs::default(), |snapshot| {
+            apply_highlight(
+                snapshot,
+                SelectionRange {
+                    start: CellPoint { row: 0, column: 0 },
+                    end: CellPoint {
+                        row: 0,
+                        column: last,
+                    },
+                },
+                None,
+            );
+        });
+        assert_eq!(runs, [(0, width)], "kind={kind}");
+    }
+}
+
+#[test]
+fn a_selection_does_not_hide_a_stored_restyle_inside_the_cluster() {
+    // The stored difference is not a colour, so the highlight cannot explain it.
+    let mut bold = Attrs::default();
+    bold.set_bold(true);
+    assert_eq!(
+        covered_width_decorated("flag", bold, select_second_owner("flag", None)),
+        [(0, 1), (1, 1)]
     );
-    assert!(runs.contains(&(2, 2)));
+    assert_eq!(
+        covered_width_decorated("modifier", bold, select_second_owner("modifier", None)),
+        [(0, 2), (2, 2)]
+    );
 }

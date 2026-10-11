@@ -321,7 +321,7 @@ fn surface_format_prefers_srgb() {
 
     assert_eq!(
         choose_surface_format(&formats),
-        (wgpu::TextureFormat::Rgba8UnormSrgb, true)
+        Some((wgpu::TextureFormat::Rgba8UnormSrgb, true))
     );
 }
 
@@ -334,7 +334,37 @@ fn surface_format_falls_back_to_first_non_srgb() {
 
     assert_eq!(
         choose_surface_format(&formats),
-        (wgpu::TextureFormat::Bgra8Unorm, false)
+        Some((wgpu::TextureFormat::Bgra8Unorm, false))
+    );
+}
+
+#[test]
+fn surface_format_reports_an_empty_capability_list() {
+    assert_eq!(choose_surface_format(&[]), None);
+}
+
+#[test]
+fn last_stage_surface_failure_keeps_an_earlier_software_adapter() {
+    use super::gpu::{SurfaceFailureAction, surface_failure_action};
+    assert_eq!(
+        surface_failure_action(0, 2, false),
+        SurfaceFailureAction::Widen
+    );
+    assert_eq!(
+        surface_failure_action(0, 2, true),
+        SurfaceFailureAction::Widen
+    );
+    assert_eq!(
+        surface_failure_action(1, 2, true),
+        SurfaceFailureAction::UseFallback
+    );
+    assert_eq!(
+        surface_failure_action(1, 2, false),
+        SurfaceFailureAction::Fail
+    );
+    assert_eq!(
+        surface_failure_action(0, 1, false),
+        SurfaceFailureAction::Fail
     );
 }
 
@@ -672,8 +702,11 @@ fn plain_render_quality_keeps_post_scene_on_swapchain_with_hot_effects() {
 
 #[test]
 fn bloom_scene_offscreen_accepts_live_scene_pipeline_formats() {
-    let Some(gpu) = test_device_with_hdr() else {
-        eprintln!("skipping: no HDR-capable GPU adapter available");
+    let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+        "bloom_scene_offscreen_accepts_live_scene_pipeline_formats",
+        "odytty-test-device",
+        true,
+    ) else {
         return;
     };
     let device = &gpu.device;
@@ -808,8 +841,11 @@ fn bloom_scene_offscreen_accepts_live_scene_pipeline_formats() {
 /// background and glyph regions keep their authored colours.
 #[test]
 fn padded_pane_clip_reaches_pixels_for_background_and_glyph() {
-    let Some(gpu) = test_device_with_hdr() else {
-        eprintln!("skipping: no GPU adapter available");
+    let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+        "padded_pane_clip_reaches_pixels_for_background_and_glyph",
+        "odytty-test-device",
+        false,
+    ) else {
         return;
     };
     let device = &gpu.device;
@@ -1016,30 +1052,6 @@ fn instanced_subpixel_cell_shader_validates_when_supported() {
     );
 }
 
-#[test]
-fn composite_shader_applies_output_dither_without_crt_gate() {
-    let shader = include_str!("../shaders/bloom.wgsl");
-    let composite = shader
-        .split("@fragment\nfn fs_composite_bloom")
-        .nth(1)
-        .expect("composite fragment exists");
-    let brightness_pos = composite
-        .find("crt_brightness")
-        .expect("composite applies CRT brightness seam");
-    let dither_pos = composite
-        .find("output_dither")
-        .expect("composite applies output dither");
-
-    assert!(
-        dither_pos > brightness_pos,
-        "output dither should be applied after effect brightness"
-    );
-    assert!(
-        !composite.contains("if crt.enabled"),
-        "output dither must not be gated by the CRT profile"
-    );
-}
-
 fn post_options(bloom_enabled: bool, crt_enabled: bool) -> post::PostProcessOptions {
     post::PostProcessOptions {
         bloom: BloomOptions {
@@ -1085,8 +1097,11 @@ fn post_options_from_settings(settings: &Settings) -> post::PostProcessOptions {
 fn background_image_pipeline_builds_from_png() {
     // Acquire the GPU lifetime before the render globals. No fixture acquires
     // these locks in reverse order, and device creation keeps its short lock.
-    let Some(gpu) = test_device_with_hdr() else {
-        eprintln!("skipping: no GPU adapter available");
+    let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+        "background_image_pipeline_builds_from_png",
+        "odytty-test-device",
+        false,
+    ) else {
         return;
     };
     let device = &gpu.device;
@@ -1154,7 +1169,11 @@ fn background_image_pipeline_builds_from_png() {
 /// presentation-only invariant. GPU-gated (skips when no adapter is available).
 #[test]
 fn overlay_image_set_and_clear_toggles_presence() {
-    let Some(gpu) = test_device_with_hdr() else {
+    let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+        "overlay_image_set_and_clear_toggles_presence",
+        "odytty-test-device",
+        false,
+    ) else {
         return;
     };
     let device = &gpu.device;
@@ -1230,7 +1249,11 @@ fn overlay_image_set_and_clear_toggles_presence() {
 /// test. Mirrors `overlay_image_set_and_clear_toggles_presence`. GPU-gated.
 #[test]
 fn overlay_image_fit_rect_tracks_set_and_clear() {
-    let Some(gpu) = test_device_with_hdr() else {
+    let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+        "overlay_image_fit_rect_tracks_set_and_clear",
+        "odytty-test-device",
+        false,
+    ) else {
         return;
     };
     let device = &gpu.device;
@@ -1299,7 +1322,11 @@ fn overlay_image_fit_rect_tracks_set_and_clear() {
 /// GPU-gated (skips when no adapter is available).
 #[test]
 fn overlay_draws_image_over_backing_onto_swapchain() {
-    let Some(gpu) = test_device_with_hdr() else {
+    let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+        "overlay_draws_image_over_backing_onto_swapchain",
+        "odytty-test-device",
+        false,
+    ) else {
         return;
     };
     let device = &gpu.device;
@@ -1494,7 +1521,11 @@ fn overlay_draws_image_over_backing_onto_swapchain() {
 /// GPU-gated (skips when no adapter is available).
 #[test]
 fn overlay_uses_linear_sampling_for_scaled_images() {
-    let Some(gpu) = test_device_with_hdr() else {
+    let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+        "overlay_uses_linear_sampling_for_scaled_images",
+        "odytty-test-device",
+        false,
+    ) else {
         return;
     };
     let device = &gpu.device;
@@ -1698,14 +1729,19 @@ fn overlay_uses_linear_sampling_for_scaled_images() {
 ///   respected; the image is not stretched to fill the pane),
 /// - deep in the right pane -> the scene color (no cross-pane bleed).
 ///
-/// GPU-gated (skips when no adapter is available); runs on CI's real GPU.
+/// GPU-gated (skips when no adapter is available); CI runs it on the software
+/// Vulkan adapter its validation step requires.
 #[test]
 fn split_pane_inline_image_renders_clipped_to_its_pane() {
     use crate::graphics::{
         GraphicsProtocol, PlacementId, SourceRect, StoredImageId, VisiblePlacement,
     };
 
-    let Some(gpu) = test_device_with_hdr() else {
+    let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+        "split_pane_inline_image_renders_clipped_to_its_pane",
+        "odytty-test-device",
+        false,
+    ) else {
         return;
     };
     let device = &gpu.device;
@@ -1919,30 +1955,6 @@ fn split_pane_inline_image_renders_clipped_to_its_pane() {
     );
 
     device.poll(wgpu::PollType::wait_indefinitely()).ok();
-}
-
-pub(super) fn test_device_with_hdr() -> Option<super::gpu::HeadlessGpuFixture> {
-    let lifetime = super::gpu::headless_gpu_lifetime();
-    // Serialize driver init against every other parallel test creating a device.
-    let _init = crate::test_lock::device_creation_lock();
-    let instance = super::gpu::headless_test_instance(wgpu::Backends::all());
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::default(),
-        force_fallback_adapter: false,
-        compatible_surface: None,
-    }))
-    .ok()?;
-    post::supported_format(&adapter)?;
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        label: Some("odytty-test-device"),
-        required_features: wgpu::Features::empty(),
-        required_limits: wgpu::Limits::default(),
-        experimental_features: wgpu::ExperimentalFeatures::disabled(),
-        memory_hints: wgpu::MemoryHints::default(),
-        trace: wgpu::Trace::Off,
-    }))
-    .ok()?;
-    Some(super::gpu::HeadlessGpuFixture::new(device, queue, lifetime))
 }
 
 fn single_pixel_texture(
@@ -2349,7 +2361,11 @@ fn image_mode_switch_releases_the_inactive_mode_textures() {
         GraphicsProtocol, PlacementId, SourceRect, StoredImageId, VisiblePlacement,
     };
 
-    let Some(gpu) = test_device_with_hdr() else {
+    let Some(gpu) = crate::native::test_support::gpu_device::headless_device(
+        "image_mode_switch_releases_the_inactive_mode_textures",
+        "odytty-test-device",
+        false,
+    ) else {
         return;
     };
     let device = &gpu.device;

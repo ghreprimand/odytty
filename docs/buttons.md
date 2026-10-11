@@ -217,7 +217,9 @@ variable.
 ## Feature discovery
 
 When the `buttons` master gate is on, OdyTTY sets `ODYTTY_BUTTONS=1` in the
-environment of every new terminal session. Programs that want to tailor their
+environment of every new shell session. A command OdyTTY runs directly (a
+profile command, `odytty -e`, or a session-host command) receives OdyTTY's own
+environment for this variable unchanged. Programs that want to tailor their
 output can test it:
 
 ```sh

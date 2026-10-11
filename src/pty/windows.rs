@@ -230,17 +230,7 @@ impl PtySession {
     }
 
     pub fn spawn_shell_command(dimensions: Dimensions, command: &str) -> Result<Self> {
-        // One-shot: run `command` in the default shell and exit. The flag form
-        // differs by shell family (cmd `/C` vs PowerShell `-NoProfile -Command`),
-        // so resolve the shell and select the arguments accordingly — the
-        // Windows analogue of the Unix `$SHELL -lc` split, not a login shell.
-        let shell = default_shell();
-        let mut command_builder = CommandBuilder::new(shell.program);
-        for arg in one_shot_args(shell.kind, command) {
-            command_builder.arg(arg);
-        }
-        command_builder.apply_terminal_env();
-        Self::spawn_command(dimensions, command_builder)
+        Self::spawn_command(dimensions, shell_command_builder(command))
     }
 
     pub fn spawn_exec(
@@ -249,15 +239,10 @@ impl PtySession {
         args: Vec<OsString>,
         working_directory: Option<PathBuf>,
     ) -> Result<Self> {
-        let mut command = CommandBuilder::new(program);
-        for arg in args {
-            command.arg(arg);
-        }
-        command.apply_terminal_env();
-        if let Some(path) = working_directory {
-            command.current_dir(path);
-        }
-        Self::spawn_command(dimensions, command)
+        Self::spawn_command(
+            dimensions,
+            super::exec_command_builder(program, args, working_directory),
+        )
     }
 
     /// The launch-time shell family; attached and remote sessions are gated by the caller.
@@ -266,6 +251,10 @@ impl PtySession {
     }
 
     pub fn spawn_command(dimensions: Dimensions, mut command: CommandBuilder) -> Result<Self> {
+        // `CreateProcessW` reads the command line and directory up to the
+        // first NUL and the environment block splits on it, so an interior
+        // NUL would silently drop the rest. Refuse it, as Unix `Command` does.
+        reject_interior_nul(&command)?;
         // Refuse network/device cwd prefixes before any Win32 spawn call.
         // This also covers direct CommandBuilder callers and restored state.
         let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
@@ -1175,6 +1164,22 @@ struct ResolvedShell {
     kind: ShellKind,
 }
 
+/// One-shot: run `command` in the default shell and exit, with the standard
+/// exec environment (terminal advertisement plus the nested-launch integration
+/// scrub). The flag form differs by shell family (cmd `/C` vs PowerShell
+/// `-NoProfile -Command`), so the shell is resolved and the arguments selected
+/// accordingly: the Windows analogue of the Unix `$SHELL -lc` split, not a
+/// login shell.
+fn shell_command_builder(command: &str) -> CommandBuilder {
+    let shell = default_shell();
+    let mut builder = CommandBuilder::new(shell.program);
+    for arg in one_shot_args(shell.kind, command) {
+        builder.arg(arg);
+    }
+    builder.apply_standard_exec_env(&std::collections::BTreeMap::new());
+    builder
+}
+
 /// Resolve the default interactive shell, preferring PowerShell so OdyTTY
 /// matches Windows Terminal's command surface out of the box (so `ls`, `cat`,
 /// and other modern commands work — `cmd.exe` only has `dir` and friends).
@@ -1374,6 +1379,36 @@ fn duplicate_owned_handle(handle: &OwnedHandle) -> Result<OwnedHandle> {
     }
 }
 
+/// Refuse a spawn whose program, arguments, working directory, or environment
+/// names or values contain an interior NUL.
+fn reject_interior_nul(command: &CommandBuilder) -> Result<()> {
+    let has_nul = |value: &OsStr| value.encode_wide().any(|unit| unit == 0);
+    let mut fields = std::iter::once(("program", command.program.as_os_str()))
+        .chain(command.args.iter().map(|arg| ("argument", arg.as_os_str())))
+        .chain(
+            command
+                .current_dir
+                .iter()
+                .map(|dir| ("working directory", dir.as_os_str())),
+        )
+        .chain(command.env.iter().flat_map(|(key, value)| {
+            [
+                ("environment name", key.as_os_str()),
+                ("environment value", value.as_os_str()),
+            ]
+        }))
+        .chain(
+            command
+                .env_remove
+                .iter()
+                .map(|key| ("environment name", key.as_os_str())),
+        );
+    match fields.find(|(_, value)| has_nul(value)) {
+        Some((field, _)) => anyhow::bail!("spawn {field} contains a NUL character"),
+        None => Ok(()),
+    }
+}
+
 /// Encode an `OsStr` as a NUL-terminated UTF-16 buffer for the wide Win32 APIs.
 fn to_wide_nul(value: &OsStr) -> Vec<u16> {
     value.encode_wide().chain(std::iter::once(0)).collect()
@@ -1469,11 +1504,26 @@ fn append_arg(line: &mut Vec<u16>, arg: &OsStr) {
 /// the off-gate `ODYTTY_BUTTONS`/`ODYTTY_KEY_ENHANCE`) inherited from an outer
 /// integrated session are dropped so a nested odytty's PowerShell sees them
 /// absent. Matching is case-insensitive like the override shadowing.
+///
+/// `overrides` may name one variable more than once: the standard terminal
+/// environment sets `TERM` and a profile `env` entry may set it again, possibly
+/// in a different case. Only the last entry for each case-insensitive name is
+/// emitted, so the block carries one entry per variable and the later value
+/// wins, as it does on Unix.
 fn build_env_block(overrides: &[(OsString, OsString)], removals: &[OsString]) -> Vec<u16> {
-    let override_keys: Vec<Vec<u16>> = overrides
-        .iter()
-        .map(|(key, _)| key.encode_wide().collect())
-        .collect();
+    // Last occurrence wins: walk the overrides backwards and keep each
+    // case-insensitive name the first time it is seen.
+    let mut unique: Vec<(Vec<u16>, &OsString)> = Vec::with_capacity(overrides.len());
+    for (key, value) in overrides.iter().rev() {
+        let key: Vec<u16> = key.encode_wide().collect();
+        if !unique
+            .iter()
+            .any(|(seen, _)| utf16_eq_ignore_ascii_case(seen, &key))
+        {
+            unique.push((key, value));
+        }
+    }
+    let override_keys: Vec<&[u16]> = unique.iter().map(|(key, _)| key.as_slice()).collect();
     let removal_keys: Vec<Vec<u16>> = removals
         .iter()
         .map(|key| key.encode_wide().collect())
@@ -1481,21 +1531,22 @@ fn build_env_block(overrides: &[(OsString, OsString)], removals: &[OsString]) ->
 
     // Collect the final `KEY=VALUE` entries: base entries whose key is neither
     // shadowed by an override nor scrubbed by a removal, plus one entry per
-    // override.
+    // distinct override name.
     let mut entries: Vec<Vec<u16>> = Vec::new();
     for entry in current_process_env() {
         let key = env_entry_key(&entry);
         if override_keys
             .iter()
-            .chain(removal_keys.iter())
+            .copied()
+            .chain(removal_keys.iter().map(Vec::as_slice))
             .any(|candidate| utf16_eq_ignore_ascii_case(candidate, key))
         {
             continue;
         }
         entries.push(entry);
     }
-    for (key, value) in overrides {
-        let mut entry: Vec<u16> = key.encode_wide().collect();
+    for (key, value) in unique {
+        let mut entry = key;
         entry.push(b'=' as u16);
         entry.extend(value.encode_wide());
         entries.push(entry);

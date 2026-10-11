@@ -73,8 +73,12 @@ pub struct NativeOptions {
     /// family's regular face exactly as before. Bold/italic discovery always
     /// uses the plain `font_family`, so SGR bold stays distinct.
     pub font_weight: String,
-    /// Optional explicit font file from runtime settings.
+    /// Optional font file: the explicit `font` setting, or the regular face
+    /// resolved from a non-bundled `font_family`.
     pub font_path: Option<PathBuf>,
+    /// `font_path` came from the explicit `font` setting. An explicit file
+    /// supplies every style, so weight and family discovery are skipped.
+    pub font_path_explicit: bool,
     /// Font size in logical pixels.
     pub font_size_px: f32,
     /// Glyph coverage gamma used by the cell shader. `1.0` is the legacy
@@ -124,6 +128,7 @@ impl Default for NativeOptions {
             font_family: crate::text::BUNDLED_FONT_FAMILY.to_owned(),
             font_weight: String::new(),
             font_path: None,
+            font_path_explicit: false,
             font_size_px: DEFAULT_FONT_SIZE_PX,
             text_gamma: crate::settings::DEFAULT_TEXT_GAMMA,
             subpixel: SubpixelMode::Off,
@@ -146,6 +151,7 @@ impl NativeOptions {
                 .unwrap_or_else(|| Self::default().font_family),
             font_weight: settings.font_weight.clone(),
             font_path: settings.font_path.clone(),
+            font_path_explicit: settings.explicit_font_path.is_some(),
             font_size_px: settings.font_size_px,
             text_gamma: settings.text_gamma,
             subpixel: settings.subpixel,

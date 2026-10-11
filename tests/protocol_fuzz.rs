@@ -69,6 +69,9 @@
 use odytty::core::{Attrs, Cell, KeyboardModes, MouseProtocol, Terminal};
 use unicode_width::UnicodeWidthChar;
 
+/// The bound on extension scalars a cell retains (`MAX_COMBINING`).
+const MAX_COMBINING_SCALARS: usize = 16;
+
 // ---------------------------------------------------------------------------
 // Determinism scaffolding (house style shared with the FZ1 graphics fuzzer)
 // ---------------------------------------------------------------------------
@@ -280,19 +283,28 @@ fn host_output_cap(input_len: usize) -> usize {
 }
 
 /// Grid self-consistency scan (FZ4). Walk the snapshot and assert the
-/// wide-glyph pairing invariant and cursor bounds:
+/// ownership invariant and cursor bounds. An owner is a head cell (its first
+/// scalar in `ch`, retained extension scalars in `combining`) plus, when it
+/// spans two columns, one `wide_continuation` spacer:
 ///
 /// - the cell buffer is exactly `rows × columns`,
 /// - the cursor row is in bounds and the column never exceeds the width
 ///   (a pending-wrap cursor may rest at `column == columns`),
-/// - every `wide_continuation` spacer sits at column > 0 and immediately
-///   follows a wide head (a non-continuation cell whose `ch` has display
-///   width 2) - so there are no orphaned continuations, and
-/// - every wide head is followed by its continuation spacer and never sits in
-///   the final column.
+/// - every `wide_continuation` spacer sits at column > 0, immediately follows a
+///   head that is not itself a spacer or layout padding, and that head owns two
+///   columns by the model's rule: its first scalar is display width 2, or it
+///   carries extension scalars (a Brahmic conjunct, a Thai or Lao SARA AM, a
+///   VS16 or keycap emoji sequence, a ZWJ or flag cluster),
+/// - a spacer carries no extension scalars and is not layout padding,
+/// - every head whose first scalar is display width 2 has its spacer and never
+///   sits in the final column,
+/// - no cell retains more extension scalars than the bound (16), and
+/// - layout padding (a blank generated to wrap a wide owner) is a plain blank
+///   with no extension scalars.
 ///
 /// Rectangle ops sanitize sliced wide pairs to blanks, so this must hold after
-/// arbitrary DECCRA/DECFRA/DECERA/DECSERA churn over rows carrying CJK glyphs.
+/// arbitrary DECCRA/DECFRA/DECERA/DECSERA churn over rows carrying CJK glyphs
+/// and over the cluster owners the grapheme work ships.
 fn assert_grid_consistent(seed: u64, t: &Terminal) {
     let snap = t.snapshot();
     let cols = snap.dimensions.columns;
@@ -318,21 +330,35 @@ fn assert_grid_consistent(seed: u64, t: &Terminal) {
     for r in 0..rows {
         let row = &snap.cells[r * cols..(r + 1) * cols];
         for (c, cell) in row.iter().enumerate() {
+            assert!(
+                cell.combining().len() <= MAX_COMBINING_SCALARS,
+                "seed={seed}: row {r} col {c} retains {} extension scalars",
+                cell.combining().len()
+            );
+            if cell.layout_padding {
+                assert!(
+                    !cell.wide_continuation && cell.combining().is_empty() && cell.ch == ' ',
+                    "seed={seed}: layout padding at row {r} col {c} is not a plain blank: {cell:?}"
+                );
+            }
             if cell.wide_continuation {
                 assert!(
                     c > 0,
                     "seed={seed}: wide_continuation at column 0, row {r} (orphaned spacer)"
                 );
+                assert!(
+                    cell.combining().is_empty() && !cell.layout_padding,
+                    "seed={seed}: wide_continuation at row {r} col {c} carries text: {cell:?}"
+                );
                 let left = &row[c - 1];
                 assert!(
-                    !left.wide_continuation,
-                    "seed={seed}: back-to-back wide_continuation at row {r} col {c}"
+                    !left.wide_continuation && !left.layout_padding,
+                    "seed={seed}: wide_continuation at row {r} col {c} follows a spacer or padding"
                 );
                 assert!(
-                    UnicodeWidthChar::width(left.ch) == Some(2),
-                    "seed={seed}: wide_continuation at row {r} col {c} not preceded by a \
-                     width-2 head (left ch={:?})",
-                    left.ch
+                    UnicodeWidthChar::width(left.ch) == Some(2) || !left.combining().is_empty(),
+                    "seed={seed}: wide_continuation at row {r} col {c} not preceded by an owner \
+                     of two columns (left={left:?})"
                 );
             } else if UnicodeWidthChar::width(cell.ch) == Some(2) {
                 assert!(
@@ -949,9 +975,54 @@ fn gen_wide_seed(rng: &mut FuzzRng) -> Vec<u8> {
     push_coords(rng, &mut s, 2);
     s.push('H');
     let glyphs = ["世界", "你好", "한글", "日本語", "🌍🚀", "ＡＢ", "漢字"];
-    s.push_str(rng.pick(&glyphs));
+    if rng.below(3) == 0 {
+        s.push_str(rng.pick(&CLUSTER_OWNERS));
+    } else {
+        s.push_str(rng.pick(&glyphs));
+    }
     s.into_bytes()
 }
+
+/// Multi-scalar owners the grapheme work ships, from the fixtures of the
+/// `indic_width_g*`, `cluster_ownership` and `emoji_width_g7` suites: Brahmic
+/// conjuncts and vowel signs (Devanagari, Bengali, Gurmukhi, Gujarati, Odia,
+/// Tamil, Telugu, Kannada, Malayalam, Sinhala, Khmer, Myanmar), Thai, Lao and
+/// Tibetan marks, VS16 and VS15 sequences, ZWJ, modifier, keycap and flag
+/// clusters, and a lone regional indicator. Written as escapes so the source
+/// stays ASCII.
+const CLUSTER_OWNERS: [&str; 31] = [
+    "\u{915}\u{94d}\u{937}",
+    "\u{915}\u{93e}",
+    "\u{995}\u{9cd}\u{9b7}",
+    "\u{a15}\u{a4d}\u{a15}",
+    "\u{a95}\u{acd}\u{ab7}",
+    "\u{b15}\u{b4d}\u{b37}",
+    "\u{b95}\u{bbe}",
+    "\u{c15}\u{c41}\u{c02}",
+    "\u{c95}\u{cbe}\u{c82}",
+    "\u{d15}\u{d4d}\u{d15}\u{d3f}",
+    "\u{d9a}\u{dca}\u{200d}\u{d9a}",
+    "\u{1780}\u{17d2}\u{200d}\u{1780}",
+    "\u{1000}\u{1039}\u{200d}\u{1000}",
+    "\u{e01}\u{e33}",
+    "\u{e81}\u{eb3}",
+    "\u{f40}\u{f90}\u{f72}",
+    "\u{915}\u{94d}",
+    "\u{937}",
+    "\u{2764}\u{fe0f}",
+    "\u{263a}\u{fe0f}",
+    "\u{231a}\u{fe0e}",
+    "\u{1f600}\u{fe0e}",
+    "\u{1f469}\u{200d}\u{1f4bb}",
+    "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}",
+    "\u{1f44d}\u{1f3fd}",
+    "1\u{fe0f}\u{20e3}",
+    "1\u{20e3}",
+    "\u{1f1fa}\u{1f1f8}",
+    "\u{1f1fa}",
+    "e\u{301}\u{302}\u{303}\u{304}\u{305}\u{306}\u{307}\u{308}\u{309}\u{30a}\u{30b}\u{30c}\u{30d}\u{30e}\u{30f}\u{310}\u{311}\u{312}",
+    "\u{915}\u{94d}\u{937}\u{94d}\u{915}\u{94d}\u{937}\u{94d}\u{915}\u{94d}\u{937}",
+];
 
 /// Occasional resets / text interleaved into a stream so surface state mixes
 /// with hard/soft resets and ordinary printing.
