@@ -20,6 +20,10 @@ roadmap.
 
 ## v0.17.0: International Text (in development)
 
+Form-value Backspace uses terminal text-owner boundaries in profiles,
+connections, Settings edits, and Theme Builder save names. Selected prefill
+clearing and ASCII-only Theme Builder typing remain unchanged.
+
 Settings names startup environment overrides in the selected row's help.
 Saved edits remain in the config file; removing the overriding variable
 allows them to take effect on next launch.
@@ -471,6 +475,11 @@ with Rust 1.97.1; the package checkpoint is complete without repeating MSRV test
 - [x] Font picker measures family names in cells, reports a filter with no
       match accurately, and keeps the group header in view at the top; a
       no-op floating move or resize no longer pins a pane's rectangle.
+- [x] Connection form and picker details: the Browse chip hit target comes from
+      the row layout (not the drawn text), signatures cover candidate names,
+      host theme and source tags and the picker purpose, tagged pickers ignore
+      the manager-only Add and Edit keys, and an alias-only host shows its
+      alias beside a user or port.
 - [x] Add select, copy, scoped-search, failed-command navigation, and safe
       plain-text export actions over verified OSC 133 command ranges, including
       same-logical-line soft-wrap boundary collisions without text inference.
@@ -1644,8 +1653,9 @@ feature validates against.
 - [x] Seamless remote SSH terminals: the connect path builds the remote argv
       through an owned builder (`src/ssh_connect.rs`).
   - [x] i1 shell-integration bootstrap: inline bash-only base64 rcfile exec'd on
-        the remote, nothing persisted there, plain-ssh degrade for non-bash or
-        failure; `remote_integration` default on, per-host `Integration on|off`.
+        the remote through POSIX sh, including fish login shells; remote Bash
+        loads login files before interactive config, with login-shell fallback
+        when Bash or base64 is missing or setup fails; `remote_integration` default on, per-host `Integration on|off`.
   - [x] i3 connection reuse: `ControlMaster=auto`/`ControlPersist` over an
         OdyTTY-owned socket; `remote_reuse` default on, per-host `Reuse on|off`;
         compiled out on a Windows client.
@@ -2200,7 +2210,7 @@ scope decisions live in [`docs/memory.md`](docs/memory.md), [`docs/benchmark-res
         field left byte-for-byte untouched) and a per-host `IdentityFile`
         (`ssh -i`, never a stored secret), with a scrolling key browser that only
         accepts visible candidate rows; focus-follow scrolling keeps Add / Edit
-        controls reachable in short windows, with help clipped first; a **Test connection** tri-state probe
+        controls reachable in short windows, with help clipped first; a **Test connection** diagnostic probe
         that carries no password, rejects stale completions after edits or reopening,
         and reports interrupted workers; and a saved-host right-click menu (Open in New
         Tab / Open in New Workspace / Bind Current Workspace, plus Edit / Remove

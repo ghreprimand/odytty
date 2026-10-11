@@ -152,8 +152,10 @@ impl App {
     pub(super) fn sync_settings_external_palette_status(&mut self) {
         let display = self.external_palette_follow.status().as_display();
         if self.overlay.sync_external_palette_status(&display) {
-            // The status row is painted only when a frame is requested, so a
-            // poll that changes it must wake the window.
+            // The status row is painted only when a frame is requested AND
+            // the idle frame gate is open, so a poll that changes it must
+            // wake the window and mark the frame for rebuild.
+            self.needs_rebuild = true;
             #[cfg(test)]
             {
                 self.palette_status_redraws += 1;

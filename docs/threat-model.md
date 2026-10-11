@@ -273,7 +273,8 @@ attacker-chosen bytes to process execution.
   explicit enumeration rather than scattered compile-time conditionals, so the
   macOS and Windows argv branches are unit-tested on any host. Desktop-entry
   reads for the open-with path are bounded at `MAX_DESKTOP_FILE_BYTES` =
-  256 KiB, and content-type sniffing reads at most `MIME_SNIFF_BYTES` = 32 bytes
+  256 KiB (a longer file is read as its complete lines inside the cap, so a
+  command line cut by the cap is never parsed), and content-type sniffing reads at most `MIME_SNIFF_BYTES` = 32 bytes
   (`src/native/app/open_with_ui.rs`, `src/native/app/platform_opener.rs`).
 - **Failure behavior:** a disallowed scheme, an over-length URI, or an
   unresolvable target does not open and does not spawn. Unknown editor
@@ -313,7 +314,10 @@ attacker-chosen bytes to process execution.
   `MAX_COLOR_REG` = 1024 color registers, and `MAX_PARAM` = 99,999,999
   (`src/graphics/sixel.rs`). The pixel cap applies to the drawn extent;
   buffer slack never refuses an image whose drawn pixels fit, because the
-  decoder repacks to a tighter row stride instead. Dimension arithmetic uses
+  decoder repacks to a tighter row stride instead. Row re-layouts are
+  bounded per DCS at 16 canvases of pixels, and a widening band re-lays out in
+  geometric steps, so a small payload cannot repeat near-64 MiB repacks.
+  Dimension arithmetic uses
   checked multiplication because a `u32` squared fits in `u64` but the
   four-byte-per-pixel product does not (`src/graphics/store.rs`).
 - **Failure behavior:** over-cap or malformed payloads produce a protocol error
@@ -609,7 +613,7 @@ the most deliberate omissions.
   writer contract distinguishes a zero-progress send timeout (drop the frame,
   keep the stream) from a partial-progress timeout (`TruncatedWrite`: the
   stream is desynchronized and tears down visibly), so a stalled host cannot
-  silently desynchronize the protocol (`src/session_host/protocol.rs`). Cell and row wire sizes are fixed and
+  silently desynchronize the protocol (`src/session_host/protocol.rs`). Both client writers (the control client and the native attach client) bound a whole frame by one absolute budget, so a host that drains slowly cannot hold a writer or its lock across a large frame. Cell and row wire sizes are fixed and
   bounded (`src/core/snapshot_envelope.rs`). A restored snapshot whose scrollback holds a
   logical line over the live per-line ceiling of 2^20 source cells is refused
   before its history is rebuilt (`src/core/snapshot_envelope/validate.rs`).

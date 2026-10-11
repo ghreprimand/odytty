@@ -160,3 +160,33 @@ fn closing_the_form_drops_the_receiver_without_repainting() {
     assert!(app.overlay_rect_for_test().is_none());
     assert!(!app.needs_rebuild);
 }
+
+#[test]
+fn publickey_only_probe_result_repaints_rejection_through_app() {
+    let mut app = form_app();
+    let tx = injected_probe(&mut app);
+    let result = crate::ssh_connect::classify_probe(false, "Permission denied (publickey).");
+    let before = app.overlay_signature_for_test();
+    app.needs_rebuild = false;
+    tx.send(Ok(result)).unwrap();
+    app.poll_connection_probe();
+    assert!(rows(&mut app).contains("Authentication rejected"));
+    assert!(app.needs_rebuild);
+    assert_ne!(before, app.overlay_signature_for_test());
+    assert!(app.connection_probe.is_none());
+}
+
+#[test]
+fn untrusted_host_key_probe_result_repaints_trust_through_app() {
+    let mut app = form_app();
+    let tx = injected_probe(&mut app);
+    let result = crate::ssh_connect::classify_probe(false, "Host key verification failed.");
+    let before = app.overlay_signature_for_test();
+    app.needs_rebuild = false;
+    tx.send(Ok(result)).unwrap();
+    app.poll_connection_probe();
+    assert!(rows(&mut app).contains("Host key untrusted"));
+    assert!(app.needs_rebuild);
+    assert_ne!(before, app.overlay_signature_for_test());
+    assert!(app.connection_probe.is_none());
+}

@@ -28,13 +28,66 @@ use crate::session_host::protocol::{
 use crate::session_host::{runtime_dir_path, session_socket_path};
 use winit::event::MouseButton as WinitMouseButton;
 
-/// A `0700` runtime dir owned by the current uid, satisfying
-/// `validate_socket_parent`. Best-effort cleanup is left to the OS temp reaper.
-fn unique_runtime_dir() -> PathBuf {
+/// A fresh `0700` runtime dir owned by the current uid, satisfying
+/// `validate_socket_parent`, removed with everything in it when dropped.
+struct RuntimeDir(PathBuf);
+
+impl RuntimeDir {
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for RuntimeDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn unique_runtime_dir() -> RuntimeDir {
     let dir = crate::test_dirs::fresh_socket_dir("oda");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
         .expect("chmod 0700 runtime dir");
-    dir
+    RuntimeDir(dir)
+}
+
+/// How long a fake host waits for the client to connect, and for each read or
+/// write on the accepted stream. A host that hits it panics or sees an error
+/// and drops the stream, so the client's pump reaches EOF and every close that
+/// waits on the pump returns; no fake host can hold a test open past it.
+const FAKE_HOST_DEADLINE: Duration = Duration::from_secs(10);
+
+/// Accept one client within `deadline`, panicking (inside the host thread, so
+/// [`join_within`] re-raises it) if none connects. The accepted stream reads
+/// and writes under the same deadline.
+fn accept_within(listener: &UnixListener, deadline: Duration) -> UnixStream {
+    listener
+        .set_nonblocking(true)
+        .expect("nonblocking fake host listener");
+    let give_up = Instant::now() + deadline;
+    let stream = loop {
+        match listener.accept() {
+            Ok((stream, _)) => break stream,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                assert!(
+                    Instant::now() < give_up,
+                    "no attach client connected within {deadline:?}"
+                );
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            Err(error) => panic!("accept attach client: {error}"),
+        }
+    };
+    stream
+        .set_nonblocking(false)
+        .expect("blocking accepted stream");
+    stream
+        .set_read_timeout(Some(deadline))
+        .expect("fake host read deadline");
+    stream
+        .set_write_timeout(Some(deadline))
+        .expect("fake host write deadline");
+    stream
 }
 
 /// A known hosted terminal: 20x4 grid with three printed lines and the cursor
@@ -44,6 +97,27 @@ fn sample_host_terminal() -> Terminal {
     terminal.set_scrollback_limit(100);
     terminal.advance(b"line-one\r\nline-two\r\nPROMPT$ ");
     terminal
+}
+
+/// The sample screen with two earlier lines already scrolled into history.
+fn host_terminal_with_history() -> Terminal {
+    let mut terminal = Terminal::new(20, 4);
+    terminal.set_scrollback_limit(100);
+    terminal.advance(b"hist-one\r\nhist-two\r\nhist-three\r\nline-one\r\nline-two\r\nPROMPT$ ");
+    terminal
+}
+
+/// The trimmed text of the top visible row with the view scrolled `offset`
+/// rows into history.
+fn history_row_text(terminal: &Terminal, offset: usize) -> String {
+    let snapshot = terminal.snapshot_with_scrollback(offset);
+    let cols = snapshot.dimensions.columns;
+    snapshot.cells[..cols]
+        .iter()
+        .map(|cell| cell.ch)
+        .collect::<String>()
+        .trim_end()
+        .to_owned()
 }
 
 fn snapshot_bytes(terminal: &Terminal) -> Vec<u8> {
@@ -73,11 +147,26 @@ where
     T: Send + 'static,
     F: FnOnce(UnixStream) -> T + Send + 'static,
 {
+    spawn_fake_host_within(snapshot, FAKE_HOST_DEADLINE, script)
+}
+
+/// [`spawn_fake_host`] with an explicit host deadline. The runtime dir is
+/// removed when the host thread finishes.
+fn spawn_fake_host_within<T, F>(
+    snapshot: Vec<u8>,
+    deadline: Duration,
+    script: F,
+) -> (PathBuf, JoinHandle<T>)
+where
+    T: Send + 'static,
+    F: FnOnce(UnixStream) -> T + Send + 'static,
+{
     let dir = unique_runtime_dir();
-    let socket_path = dir.join("attach.sock");
+    let socket_path = dir.path().join("attach.sock");
     let listener = UnixListener::bind(&socket_path).expect("bind fake host");
     let handle = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept attach client");
+        let _dir = dir;
+        let mut stream = accept_within(&listener, deadline);
         let _hello = read_client_hello(&mut stream).expect("read client hello");
         write_host_hello(&mut stream, &HostHello::accepted()).expect("write host hello");
         write_host_frame(&mut stream, &HostFrame::Snapshot(snapshot)).expect("write snapshot");
@@ -92,20 +181,20 @@ fn spawn_resolved_fake_host<T, F>(
     id: &str,
     snapshot: Vec<u8>,
     script: F,
-) -> (PathBuf, JoinHandle<T>)
+) -> (RuntimeDir, JoinHandle<T>)
 where
     T: Send + 'static,
     F: FnOnce(UnixStream) -> T + Send + 'static,
 {
     let base = unique_runtime_dir();
-    let runtime_dir = runtime_dir_path(&base);
+    let runtime_dir = runtime_dir_path(base.path());
     std::fs::create_dir_all(&runtime_dir).expect("create runtime dir");
     std::fs::set_permissions(&runtime_dir, std::fs::Permissions::from_mode(0o700))
         .expect("chmod 0700 runtime dir");
     let socket_path = session_socket_path(&runtime_dir, id).expect("session socket path");
     let listener = UnixListener::bind(&socket_path).expect("bind fake host");
     let handle = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept attach client");
+        let mut stream = accept_within(&listener, FAKE_HOST_DEADLINE);
         let _hello = read_client_hello(&mut stream).expect("read client hello");
         write_host_hello(&mut stream, &HostHello::accepted()).expect("write host hello");
         write_host_frame(&mut stream, &HostFrame::Snapshot(snapshot)).expect("write snapshot");
@@ -144,6 +233,20 @@ fn join_within<T: Send + 'static>(handle: JoinHandle<T>, what: &str) -> T {
              fake host is wedged (never EOFed). Failing fast instead of hanging \
              the suite."
         ),
+    }
+}
+
+/// A write-side client over `stream` whose whole-frame budget is test-sized.
+fn budgeted_client(stream: UnixStream, detached: bool, budget: Duration) -> AttachClient {
+    AttachClient {
+        stream,
+        detach: if detached {
+            DetachState::Sent
+        } else {
+            DetachState::Pending
+        },
+        poisoned: false,
+        write_budget: budget,
     }
 }
 
@@ -222,6 +325,45 @@ impl AttachEventSink for ChannelSink {
     }
 }
 
+/// A fake host that no client ever reaches gives up at its own deadline, so
+/// its join fails fast instead of waiting out [`JOIN_DEADLINE`].
+#[test]
+fn fake_host_without_a_client_gives_up_within_its_deadline() {
+    let (_socket, host) = spawn_fake_host_within(Vec::new(), Duration::from_millis(200), |_| ());
+    let start = Instant::now();
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        join_within(host, "unconnected fake host")
+    }));
+    assert!(outcome.is_err(), "the host reports that no client came");
+    assert!(
+        start.elapsed() < Duration::from_secs(5),
+        "took {:?}",
+        start.elapsed()
+    );
+}
+
+/// A fake host waiting on a client that never writes stops reading at its
+/// deadline and drops the stream, so nothing waiting on the host or the
+/// client's pump stays blocked.
+#[test]
+fn fake_host_read_gives_up_within_its_deadline_on_a_silent_client() {
+    let (socket, host) = spawn_fake_host_within(
+        snapshot_bytes(&sample_host_terminal()),
+        Duration::from_millis(300),
+        drain_until_disconnect,
+    );
+    let (_client, _reader, _terminal) =
+        AttachClient::connect_with(&socket, "silent", test_caps(), test_deadline())
+            .expect("attach connects");
+    let start = Instant::now();
+    join_within(host, "silent-client fake host");
+    assert!(
+        start.elapsed() < Duration::from_secs(5),
+        "took {:?}",
+        start.elapsed()
+    );
+}
+
 #[test]
 fn snapshot_decode_repaints_full_state() {
     let host_terminal = sample_host_terminal();
@@ -242,7 +384,7 @@ fn snapshot_decode_repaints_full_state() {
     assert_eq!(row_text(&terminal, 2), "PROMPT$");
     // Full mirror equality: the restored client terminal matches the host grid.
     assert_eq!(terminal.snapshot().cells, expected.cells);
-    handle.join().expect("host thread");
+    join_within(handle, "fake host thread");
 }
 
 #[test]
@@ -382,7 +524,7 @@ fn window_close_detaches_and_host_survives() {
     // A second detach is a no-op (idempotent), and Drop must not double-send.
     client.detach().expect("idempotent detach");
 
-    let frame = handle.join().expect("host thread");
+    let frame = join_within(handle, "fake host thread");
     assert_eq!(frame, ClientFrame::Detach);
 }
 
@@ -398,7 +540,7 @@ fn resize_is_forwarded() {
             .expect("attach connects");
     client.resize(80, 24).expect("send resize");
 
-    let frame = handle.join().expect("host thread");
+    let frame = join_within(handle, "fake host thread");
     assert_eq!(
         frame,
         ClientFrame::Resize {
@@ -420,7 +562,7 @@ fn input_is_forwarded() {
             .expect("attach connects");
     client.send_input(b"ls\n").expect("send input");
 
-    let frame = handle.join().expect("host thread");
+    let frame = join_within(handle, "fake host thread");
     assert_eq!(frame, ClientFrame::Input(b"ls\n".to_vec()));
 }
 
@@ -438,7 +580,7 @@ fn empty_input_sends_no_frame() {
     client.send_input(b"").expect("empty input is a no-op");
     client.resize(10, 5).expect("send resize");
 
-    let frame = handle.join().expect("host thread");
+    let frame = join_within(handle, "fake host thread");
     assert_eq!(
         frame,
         ClientFrame::Resize {
@@ -451,17 +593,17 @@ fn empty_input_sends_no_frame() {
 #[test]
 fn rejected_attach_errors_without_terminal() {
     let dir = unique_runtime_dir();
-    let socket_path = dir.join("attach.sock");
+    let socket_path = dir.path().join("attach.sock");
     let listener = UnixListener::bind(&socket_path).expect("bind fake host");
     let handle = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept");
+        let mut stream = accept_within(&listener, FAKE_HOST_DEADLINE);
         let _hello = read_client_hello(&mut stream).expect("read client hello");
         write_host_hello(&mut stream, &HostHello::rejected("busy")).expect("write reject");
     });
 
     let result = AttachClient::connect_with(&socket_path, "reject", test_caps(), test_deadline());
     assert!(result.is_err(), "rejected attach must surface an error");
-    handle.join().expect("host thread");
+    join_within(handle, "fake host thread");
 }
 
 #[test]
@@ -473,7 +615,7 @@ fn wedged_host_that_never_accepts_fails_within_the_deadline() {
     // thread, including launch restore — forever. The bounded hello read must now
     // surface an error within the attach deadline instead of hanging.
     let dir = unique_runtime_dir();
-    let socket_path = dir.join("attach.sock");
+    let socket_path = dir.path().join("attach.sock");
     // Bind but NEVER accept: the listener sits idle for the whole test.
     let _listener = UnixListener::bind(&socket_path).expect("bind wedged host");
 
@@ -504,7 +646,7 @@ fn resize_rejects_zero_dimensions() {
             .expect("attach connects");
     assert!(client.resize(0, 24).is_err());
     assert!(client.resize(80, 0).is_err());
-    handle.join().expect("host thread");
+    join_within(handle, "fake host thread");
 }
 
 // ---------------------------------------------------------------------------
@@ -591,7 +733,7 @@ fn app_attach_reconciles_host_dimensions_to_the_window_once() {
     // Two tabs show the one-row top bar, leaving a 100x30 content grid.
     app.set_test_surface_for_test(1000, 620, WindowPadding::ZERO);
     let (tx, _rx) = mpsc::channel();
-    app.attach_session_with_sink_for_test(Some(&base), id, ChannelSink(tx))
+    app.attach_session_with_sink_for_test(Some(base.path()), id, ChannelSink(tx))
         .expect("attach presents the hosted tab");
 
     assert_eq!(app.grid_dims_for_test(), (100, 30));
@@ -625,7 +767,7 @@ fn app_attach_sends_no_resize_when_host_dimensions_already_match() {
     });
     app.set_test_surface_for_test(1000, 620, WindowPadding::ZERO);
     let (tx, _rx) = mpsc::channel();
-    app.attach_session_with_sink_for_test(Some(&base), id, ChannelSink(tx))
+    app.attach_session_with_sink_for_test(Some(base.path()), id, ChannelSink(tx))
         .expect("attach presents the hosted tab");
 
     assert_eq!(app.active_session_grid_dims_for_test(), (100, 30));
@@ -647,7 +789,7 @@ fn attached_tab_resize_forwards_to_socket() {
     let mut set = WorkspaceSet::new(session, None);
     // 800x400 content, 10x20 cell → 80 cols, 20 rows: routed to a `Resize` frame.
     set.resize_all_panes(PaneRect::new(0.0, 0.0, 800.0, 400.0), 10, 20, 1.0, 0.0);
-    let frame = handle.join().expect("host thread");
+    let frame = join_within(handle, "fake host thread");
     assert_eq!(
         frame,
         ClientFrame::Resize {
@@ -720,7 +862,7 @@ fn attached_input_writer_forwards_to_socket() {
         writer.write_all(b"ls\n").expect("write input");
         writer.flush().expect("flush input");
     }
-    let frame = handle.join().expect("host thread");
+    let frame = join_within(handle, "fake host thread");
     assert_eq!(frame, ClientFrame::Input(b"ls\n".to_vec()));
 }
 
@@ -763,11 +905,11 @@ fn transient_send_timeout_drops_frame_and_keeps_input_flowing() {
             }
         }
     }
-    let client = Arc::new(Mutex::new(AttachClient {
-        stream: ours,
-        detach: DetachState::Sent, // suppress the Drop detach frame; irrelevant here
-        poisoned: false,
-    }));
+    let client = Arc::new(Mutex::new(budgeted_client(
+        ours,
+        true,
+        Duration::from_millis(50),
+    )));
     let mut writer = AttachInputWriter {
         client: client.clone(),
     };
@@ -812,11 +954,11 @@ fn transient_send_timeout_drops_frame_and_keeps_input_flowing() {
 #[test]
 fn poisoned_attach_client_does_not_report_input_as_delivered() {
     let (ours, _peer) = UnixStream::pair().expect("socketpair");
-    let client = Arc::new(Mutex::new(AttachClient {
-        stream: ours,
-        detach: DetachState::Sent,
-        poisoned: false,
-    }));
+    let client = Arc::new(Mutex::new(budgeted_client(
+        ours,
+        true,
+        ATTACH_WRITE_TIMEOUT,
+    )));
     let poison = Arc::clone(&client);
     let _ = std::thread::spawn(move || {
         let _guard = poison.lock().expect("initial client lock");
@@ -836,11 +978,7 @@ fn oversized_input_rejection_does_not_poison_the_next_keystroke() {
     use crate::session_host::protocol::MAX_CLIENT_INPUT_LEN;
 
     let (ours, mut peer) = UnixStream::pair().expect("socketpair");
-    let mut client = AttachClient {
-        stream: ours,
-        detach: DetachState::Sent,
-        poisoned: false,
-    };
+    let mut client = budgeted_client(ours, true, ATTACH_WRITE_TIMEOUT);
     let oversized = vec![b'x'; MAX_CLIENT_INPUT_LEN + 1];
 
     let error = client
@@ -871,13 +1009,11 @@ fn oversized_input_rejection_does_not_poison_the_next_keystroke() {
 #[test]
 fn partial_write_timeout_tears_session_down() {
     let (ours, theirs) = UnixStream::pair().expect("socketpair");
-    ours.set_write_timeout(Some(Duration::from_millis(50)))
-        .expect("set write timeout");
-    let client = Arc::new(Mutex::new(AttachClient {
-        stream: ours,
-        detach: DetachState::Sent,
-        poisoned: false,
-    }));
+    let client = Arc::new(Mutex::new(budgeted_client(
+        ours,
+        true,
+        Duration::from_millis(50),
+    )));
     let mut writer = AttachInputWriter { client };
 
     // Empty socket buffer + a frame far larger than it: the kernel accepts
@@ -897,11 +1033,11 @@ fn partial_write_timeout_tears_session_down() {
 fn broken_pipe_on_input_write_stays_fatal() {
     let (ours, theirs) = UnixStream::pair().expect("socketpair");
     drop(theirs);
-    let client = Arc::new(Mutex::new(AttachClient {
-        stream: ours,
-        detach: DetachState::Sent,
-        poisoned: false,
-    }));
+    let client = Arc::new(Mutex::new(budgeted_client(
+        ours,
+        true,
+        ATTACH_WRITE_TIMEOUT,
+    )));
     let mut writer = AttachInputWriter { client };
     // Bounded retry rather than a single write: under a parallel test run,
     // a concurrent fork (PTY-spawning tests) can transiently duplicate the
@@ -966,11 +1102,11 @@ fn window_close_detaches_attached_tab_host_survives() {
     // host keeps the session alive for later reattach.
     let was_last = set.close(SessionToken(0));
     assert!(was_last, "closing the only session reports last");
-    let frame = handle.join().expect("host thread");
+    let frame = join_within(handle, "fake host thread");
     assert_eq!(frame, ClientFrame::Detach);
 }
 
-// --- Phase 14: attach dedup + new-tab/replace orchestration (WorkspaceSet level) ---
+// --- Attach dedup (WorkspaceSet level) and Replace current (App route) ---
 
 /// Dedup (the reported triple-open fix): an attached session records its host
 /// id, `find_attached_tab` locates the open tab, and re-selecting it switches
@@ -1044,69 +1180,99 @@ fn attach_dedup_deep_switches_across_workspaces() {
     join_within(host, "cross-workspace dedup fake host");
 }
 
-/// "Replace current" over a LOCAL current tab: attach appends exactly one tab,
-/// then the previously-active local tab is closed directly (its PTY reaped),
-/// netting one tab with the attached session focused.
+/// A headless App with the geometry the attach presentation path reconciles to.
+fn build_replace_app() -> App {
+    let mut app = build_attach_app(Dimensions::new(20, 8));
+    app.set_test_cell_for_test(crate::text::CellSize {
+        width: 10,
+        height: 20,
+        baseline: 0,
+    });
+    app.set_test_surface_for_test(200, 180, WindowPadding::ZERO);
+    app
+}
+
+/// "Replace current" over a LOCAL current tab, through the App route: the
+/// attach adds one tab, the local tab it replaces is closed, and the attached
+/// tab keeps focus.
 #[test]
-fn attach_replace_closes_local_current_and_focuses_attached() {
-    let (sock, host) = spawn_fake_host(
+fn app_replace_current_closes_local_current_and_focuses_attached() {
+    let id = "s-0003-cccc";
+    let (base, host) = spawn_resolved_fake_host(
+        id,
         snapshot_bytes(&sample_host_terminal()),
         drain_until_disconnect,
     );
-    let mut set = WorkspaceSet::new(build_local_session(), None); // local current, token 0
-    let old_active = set.active_id();
-    assert_eq!(old_active, SessionToken(0));
+    let mut app = build_replace_app();
+    let old_active = app.sessions_mut_for_test().active_id();
+    let (tx, _rx) = mpsc::channel();
+    app.attach_session_replacing_current_with_sink_for_test(Some(base.path()), id, ChannelSink(tx));
 
-    // Mirror App::attach_session_replacing_current: capture old active → attach
-    // new (appends + focus) → close the old tab.
-    let attached = set.push(attached_session_token(&sock, "s-0003-cccc", 1));
-    assert_eq!(set.len(), 2, "attach adds exactly one tab");
-    set.switch(attached);
-    let old_idx = set.position_of_token(old_active).expect("old tab present");
-    let _ = set.close_tab_at(old_idx);
-
+    let set = app.sessions_mut_for_test();
     assert_eq!(set.len(), 1, "replace nets exactly one tab");
+    let attached = set.find_attached_tab(id).expect("the attached tab is open");
     assert_eq!(set.active_id(), attached, "the attached tab stays focused");
-    assert_eq!(set.find_attached_tab("s-0003-cccc"), Some(attached));
+    assert!(set.position_of_token(old_active).is_none());
 
-    set.close(attached);
+    app.close_all_sessions_for_test();
     join_within(host, "replace-local fake host");
 }
 
-/// "Replace current" over a HOSTED/attached current tab: the replaced tab is
-/// closed via the same path, which sends a clean `Detach` (the host keeps the
-/// PTY alive, so the replaced session stays reattachable) rather than a kill.
+/// "Replace current" over a HOSTED current tab, through the App route: the
+/// replaced tab sends a clean `Detach` (the host keeps the session for a later
+/// reattach) rather than a kill, and the new attached tab is focused.
 #[test]
-fn attach_replace_detaches_hosted_current_host_survives() {
-    let (sock_cur, host_cur) = spawn_fake_host(snapshot_bytes(&sample_host_terminal()), |mut s| {
-        read_client_frame(&mut s).expect("read client frame")
-    });
-    let (sock_new, host_new) = spawn_fake_host(
+fn app_replace_current_detaches_hosted_current_host_survives() {
+    let (cur_id, new_id) = ("s-cur-0001", "s-new-0002");
+    let (cur_base, host_cur) = spawn_resolved_fake_host(
+        cur_id,
+        snapshot_bytes(&sample_host_terminal()),
+        collect_until_detach,
+    );
+    let (new_base, host_new) = spawn_resolved_fake_host(
+        new_id,
         snapshot_bytes(&sample_host_terminal()),
         drain_until_disconnect,
     );
+    let mut app = build_replace_app();
+    let (tx, _rx) = mpsc::channel();
+    app.attach_session_with_sink_for_test(Some(cur_base.path()), cur_id, ChannelSink(tx.clone()))
+        .expect("the hosted current tab attaches");
+    assert_eq!(app.sessions_mut_for_test().len(), 2);
 
-    // The CURRENT tab is itself a hosted/attached session (token 0).
-    let current = attached_session_token(&sock_cur, "s-cur-0001", 0);
-    let mut set = WorkspaceSet::new(current, None);
-    let old_active = set.active_id();
-
-    let new_tok = set.push(attached_session_token(&sock_new, "s-new-0002", 1));
-    set.switch(new_tok);
-    let old_idx = set.position_of_token(old_active).expect("old tab present");
-    let _ = set.close_tab_at(old_idx);
-
-    assert_eq!(set.len(), 1, "replace nets one tab");
-    assert_eq!(set.active_id(), new_tok, "the new attached tab is focused");
-    // Replacing a hosted current sends a clean Detach — host survives.
-    let frame = join_within(host_cur, "replaced hosted current");
-    assert_eq!(
-        frame,
-        ClientFrame::Detach,
-        "hosted current detaches cleanly, host survives"
+    app.attach_session_replacing_current_with_sink_for_test(
+        Some(new_base.path()),
+        new_id,
+        ChannelSink(tx),
     );
 
-    set.close(new_tok);
+    // The attach first resized the mirror to the window; the replace then
+    // ends the link with exactly one clean Detach.
+    let frames = join_within(host_cur, "replaced hosted current");
+    assert_eq!(
+        frames.last(),
+        Some(&ClientFrame::Detach),
+        "the hosted current detaches cleanly: {frames:?}"
+    );
+    assert_eq!(
+        frames
+            .iter()
+            .filter(|frame| **frame == ClientFrame::Detach)
+            .count(),
+        1,
+        "{frames:?}"
+    );
+    let set = app.sessions_mut_for_test();
+    assert_eq!(
+        set.len(),
+        2,
+        "the local tab and the new attached tab remain"
+    );
+    assert_eq!(set.find_attached_tab(cur_id), None);
+    let attached = set.find_attached_tab(new_id).expect("the new tab is open");
+    assert_eq!(set.active_id(), attached, "the new attached tab is focused");
+
+    app.close_all_sessions_for_test();
     join_within(host_new, "replace-hosted new host");
 }
 
@@ -1184,7 +1350,7 @@ fn attach_by_id_presents_live_tab_and_repaints() {
     // Lay out the runtime tree the id resolver expects:
     // <base>/<runtime-dir>/<id>.sock, all 0700-owned by this uid.
     let base = unique_runtime_dir();
-    let runtime_dir = runtime_dir_path(&base);
+    let runtime_dir = runtime_dir_path(base.path());
     std::fs::create_dir_all(&runtime_dir).expect("create runtime dir");
     std::fs::set_permissions(&runtime_dir, std::fs::Permissions::from_mode(0o700))
         .expect("chmod 0700 runtime dir");
@@ -1192,9 +1358,9 @@ fn attach_by_id_presents_live_tab_and_repaints() {
     let socket_path = session_socket_path(&runtime_dir, id).expect("socket path");
     let listener = UnixListener::bind(&socket_path).expect("bind fake host");
 
-    let snapshot = snapshot_bytes(&sample_host_terminal());
+    let snapshot = snapshot_bytes(&host_terminal_with_history());
     let handle = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept");
+        let mut stream = accept_within(&listener, FAKE_HOST_DEADLINE);
         let _hello = read_client_hello(&mut stream).expect("read client hello");
         write_host_hello(&mut stream, &HostHello::accepted()).expect("write host hello");
         write_host_frame(&mut stream, &HostFrame::Snapshot(snapshot)).expect("write snapshot");
@@ -1208,12 +1374,13 @@ fn attach_by_id_presents_live_tab_and_repaints() {
     let mut set = WorkspaceSet::new(build_local_session(), None);
     let (tx, rx) = mpsc::channel();
     let token = set
-        .attach_in_new_tab_for_test(Some(&base), id, ChannelSink(tx))
+        .attach_in_new_tab_for_test(Some(base.path()), id, ChannelSink(tx))
         .expect("attach-by-id presents a tab");
 
     // A second (attached) session/tab now exists.
     assert_eq!(set.len(), 2, "attach grafts a new tab");
-    // Full scrollback restored from the host snapshot at connect time.
+    // History rows and the screen are restored from the host snapshot at
+    // connect time.
     {
         let term = set
             .get(token)
@@ -1221,19 +1388,21 @@ fn attach_by_id_presents_live_tab_and_repaints() {
             .terminal
             .lock()
             .unwrap();
-        // The snapshot is restored synchronously at `connect` time, but the live
-        // `Output("XYZ")` frame is applied by the async pump thread — so by the
-        // time we read here the pump may already have appended it. Row 0 is never
-        // touched by the append, so it stays an exact-equality proof of snapshot
-        // restore. Row 2 is the prompt line the live output appends to: assert
-        // the restored PREFIX ("PROMPT$"), which holds both before and after the
-        // append, to prove the prompt line was restored without racing the pump.
-        // The exact appended form ("PROMPT$ XYZ") is asserted by the poll below.
-        assert_eq!(row_text(&term, 0), "line-one");
+        // The snapshot is restored synchronously at `connect` time; the live
+        // `Output("XYZ")` frame is applied later by the pump thread, which may
+        // already have appended it. The history rows and rows 0 to 2 are never
+        // touched by the append, so they are exact. Row 3 is the prompt line the
+        // output appends to, so only its restored prefix is checked here; the
+        // appended form is polled for below.
+        assert_eq!(term.screen().scrollback_len(), 2, "both history rows");
+        assert_eq!(history_row_text(&term, 2), "hist-one");
+        assert_eq!(history_row_text(&term, 1), "hist-two");
+        assert_eq!(row_text(&term, 0), "hist-three");
+        assert_eq!(row_text(&term, 1), "line-one");
         assert!(
-            row_text(&term, 2).starts_with("PROMPT$"),
-            "snapshot must restore the prompt line (row 2 = {:?})",
-            row_text(&term, 2)
+            row_text(&term, 3).starts_with("PROMPT$"),
+            "snapshot must restore the prompt line (row 3 = {:?})",
+            row_text(&term, 3)
         );
     }
 
@@ -1259,7 +1428,7 @@ fn attach_by_id_presents_live_tab_and_repaints() {
             .terminal
             .lock()
             .unwrap();
-        row_text(&term, 2) == "PROMPT$ XYZ"
+        row_text(&term, 3) == "PROMPT$ XYZ"
     });
     assert!(
         applied,
@@ -1269,7 +1438,7 @@ fn attach_by_id_presents_live_tab_and_repaints() {
     // Closing the attached tab cleanly detaches and reaps its pump; the clean
     // Detach also unblocks the host's `drain_until_disconnect`.
     assert!(!set.close(token), "two tabs: closing one is not last");
-    handle.join().expect("host thread");
+    join_within(handle, "fake host thread");
 }
 
 /// Regression: audit P1 — a mid-frame read timeout must not desync the snapshot
@@ -1320,7 +1489,7 @@ fn initial_snapshot_survives_mid_frame_stall() {
     });
 
     let result = read_initial_snapshot(&reader_end, Instant::now() + Duration::from_secs(5));
-    writer.join().expect("writer thread");
+    join_within(writer, "snapshot writer thread");
     let bytes = result.expect("snapshot must survive mid-frame stalls without desync");
     assert_eq!(bytes, expected, "snapshot payload must arrive intact");
 }
@@ -1353,7 +1522,7 @@ fn initial_snapshot_trickle_is_cut_off_at_the_absolute_deadline() {
     let elapsed = start.elapsed();
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     drop(reader_end);
-    writer.join().expect("writer thread");
+    join_within(writer, "snapshot writer thread");
     let error = result.expect_err("a trickling frame must not outlive the deadline");
     assert!(
         format!("{error:#}").contains("timed out"),
@@ -1387,11 +1556,11 @@ fn initial_snapshot_completed_after_the_deadline_is_refused() {
 #[test]
 fn delayed_hello_and_delayed_snapshot_share_one_attach_budget() {
     let dir = unique_runtime_dir();
-    let socket_path = dir.join("attach.sock");
+    let socket_path = dir.path().join("attach.sock");
     let listener = UnixListener::bind(&socket_path).expect("bind fake host");
     let budget = Duration::from_millis(800);
     let handle = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept attach client");
+        let mut stream = accept_within(&listener, FAKE_HOST_DEADLINE);
         let _hello = read_client_hello(&mut stream).expect("read client hello");
         std::thread::sleep(Duration::from_millis(500));
         write_host_hello(&mut stream, &HostHello::accepted()).expect("write host hello");
@@ -1404,7 +1573,7 @@ fn delayed_hello_and_delayed_snapshot_share_one_attach_budget() {
     let start = Instant::now();
     let result = AttachClient::connect_with(&socket_path, "budget", test_caps(), budget);
     let elapsed = start.elapsed();
-    handle.join().expect("host thread");
+    join_within(handle, "fake host thread");
     assert!(
         result.is_err(),
         "hello (0.5s) plus snapshot (0.5s) must not fit one 0.8s budget"
@@ -1422,13 +1591,7 @@ fn delayed_hello_and_delayed_snapshot_share_one_attach_budget() {
 #[test]
 fn resize_truncated_write_poisons_client_against_further_writes() {
     let (ours, theirs) = UnixStream::pair().expect("socketpair");
-    ours.set_write_timeout(Some(Duration::from_millis(50)))
-        .expect("set write timeout");
-    let mut client = AttachClient {
-        stream: ours,
-        detach: DetachState::Sent,
-        poisoned: false,
-    };
+    let mut client = budgeted_client(ours, true, Duration::from_millis(50));
     // Reliable partial-progress path (same shape as the input-writer regression):
     // an oversized Input frame fills what the kernel accepts then times out.
     let oversized = vec![b'x'; 8 * 1024 * 1024];
@@ -1467,13 +1630,7 @@ fn resize_truncated_write_poisons_client_against_further_writes() {
 #[test]
 fn detach_truncated_write_poisons_client_against_further_writes() {
     let (ours, theirs) = UnixStream::pair().expect("socketpair");
-    ours.set_write_timeout(Some(Duration::from_millis(50)))
-        .expect("set write timeout");
-    let mut client = AttachClient {
-        stream: ours,
-        detach: DetachState::Pending,
-        poisoned: false,
-    };
+    let mut client = budgeted_client(ours, false, Duration::from_millis(50));
     let oversized = vec![b'x'; 8 * 1024 * 1024];
     let err = client
         .send_input(&oversized)
@@ -1503,6 +1660,64 @@ fn detach_truncated_write_poisons_client_against_further_writes() {
     drop(theirs);
 }
 
+/// The budget bounds the WHOLE frame, not each kernel write. A host that keeps
+/// draining a little at a time lets every individual write make progress, so a
+/// per-write timeout never fires while the client mutex stays held for as long
+/// as the large paste takes. Cut short mid-frame, the stream is desynced and the
+/// client must be poisoned.
+#[test]
+fn input_to_a_slowly_draining_host_stops_at_the_whole_frame_budget() {
+    let (ours, theirs) = UnixStream::pair().expect("socketpair");
+    let mut client = budgeted_client(ours, true, Duration::from_millis(300));
+    let drainer = std::thread::spawn(move || {
+        let mut reader = &theirs;
+        let mut buffer = [0u8; 4096];
+        // A few kilobytes per tick keeps every kernel write progressing, and
+        // the loop ends at EOF when the client drops its end.
+        while let Ok(read) = std::io::Read::read(&mut reader, &mut buffer) {
+            if read == 0 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    });
+    let error = client
+        .send_input(&vec![b'x'; 1024 * 1024])
+        .expect_err("a frame that cannot finish inside the budget is cut short");
+    assert!(
+        error.chain().any(|cause| cause
+            .downcast_ref::<ProtocolError>()
+            .is_some_and(|error| matches!(error, ProtocolError::TruncatedWrite { .. }))),
+        "partial delivery surfaces as TruncatedWrite: {error:#}"
+    );
+    assert!(client.poisoned, "a truncated frame poisons the client");
+    drop(client);
+    join_within(drainer, "slow drainer");
+}
+
+/// Control for the budget: ordinary backpressure on a host that keeps up still
+/// delivers a large frame whole and leaves the client usable.
+#[test]
+fn large_input_to_a_draining_host_completes_inside_the_budget() {
+    let (ours, theirs) = UnixStream::pair().expect("socketpair");
+    let mut client = budgeted_client(ours, true, ATTACH_WRITE_TIMEOUT);
+    let reader = std::thread::spawn(move || {
+        let mut stream = &theirs;
+        read_client_frame(&mut stream).expect("whole frame")
+    });
+    client
+        .send_input(&vec![b'y'; 1024 * 1024])
+        .expect("a draining host receives the frame");
+    assert!(!client.poisoned);
+    match join_within(reader, "frame reader") {
+        ClientFrame::Input(bytes) => {
+            assert_eq!(bytes.len(), 1024 * 1024);
+            assert!(bytes.iter().all(|byte| *byte == b'y'));
+        }
+        other => panic!("expected an input frame, got {other:?}"),
+    }
+}
+
 /// Idle resize retry: a resize sent while the host is still stalled (send
 /// buffer full) returns at once as a transient failure without poisoning the
 /// client, and a retry after the host drains delivers exactly one frame.
@@ -1526,11 +1741,7 @@ fn nonblocking_resize_retry_never_waits_and_recovers_after_the_host_drains() {
     ours.set_nonblocking(false).expect("blocking again");
     ours.set_write_timeout(Some(ATTACH_WRITE_TIMEOUT))
         .expect("write timeout");
-    let mut client = AttachClient {
-        stream: ours,
-        detach: DetachState::Sent,
-        poisoned: false,
-    };
+    let mut client = budgeted_client(ours, true, ATTACH_WRITE_TIMEOUT);
 
     let start = Instant::now();
     let error = client

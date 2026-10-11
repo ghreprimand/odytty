@@ -299,3 +299,37 @@ fn rename_delete_selection_keeps_caret_before_newly_joined_owner() {
         assert_eq!(app.rename_selection_for_test(), None);
     }
 }
+
+#[test]
+fn settings_value_backspace_deletes_an_owner_through_real_input() {
+    let _guard = crate::test_lock::render_globals_lock();
+    let mut app = headless();
+    app.open_settings_section_for_test("Effects");
+    let panel = app.overlay_signature_for_test().panel;
+    let target = panel
+        .entries
+        .iter()
+        .position(|entry| entry.key == "new_output_fade_ms")
+        .unwrap();
+    for _ in panel.selected..target {
+        app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::ArrowDown), false, false);
+    }
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
+    app.handle_ime(Ime::Commit(format!("x{ZWJ}")));
+    let before = app.overlay_signature_for_test();
+    assert_eq!(
+        before.panel.editing_buffer.as_deref(),
+        Some(format!("x{ZWJ}").as_str())
+    );
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Backspace), false, false);
+    let after = app.overlay_signature_for_test();
+    assert_eq!(after.panel.editing_buffer.as_deref(), Some("x"));
+    assert_ne!(after, before);
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Escape), false, false);
+    assert!(
+        app.overlay_signature_for_test()
+            .panel
+            .editing_buffer
+            .is_none()
+    );
+}

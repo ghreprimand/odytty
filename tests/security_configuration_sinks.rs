@@ -192,8 +192,12 @@ fn remote_paste_targets_are_fixed_hex_and_remote_create_is_noclobber() {
         .last()
         .expect("remote command argument")
         .to_string_lossy();
-    assert!(remote_command.starts_with("umask 077; set -C; cat > '"));
-    assert!(remote_command.ends_with(".png'"));
+    // POSIX redirection enters sh as one quoted script. The generated path
+    // stays a quoted redirect operand inside that script, through both layers.
+    assert_eq!(
+        remote_command,
+        format!("sh -c 'umask 077; set -C; cat > '\\''{target}'\\'''")
+    );
 }
 
 #[test]

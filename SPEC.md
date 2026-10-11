@@ -819,7 +819,9 @@ Unix zsh injection writes forwarding `.zshenv`, `.zprofile`, `.zlogin`, and
 Changes to `ZDOTDIR` in user startup files are carried into later files; the
 user's directory is restored before sourcing `.zshrc` and remains restored
 for the interactive session. Unset and explicitly empty directory states
-remain distinct. A failed wrapper write leaves the spawn command unchanged.
+remain distinct. With no inherited `ZDOTDIR`, the user's directory is the
+child's `HOME`, including a profile's `HOME` override. A failed wrapper write
+leaves the spawn command unchanged.
 Fish prepends its integration data directory to explicit `XDG_DATA_DIRS`, or
 to `/usr/local/share:/usr/share` when that variable is unset or empty.
 These Unix startup paths do not change Windows PowerShell injection.
@@ -1224,6 +1226,13 @@ scope rather than silently inheriting deferred work from a prior release.
 - Sixel graphics: full decoder, terminal integration, DECSDM, GPU image rendering
 
 ### Text And Rendering
+
+Backspace in profile and connection form values, Settings value edits, and
+Theme Builder save names removes the final terminal text owner. Retained marks,
+emoji sequences, and bounded script clusters stay together. Settings retains
+its first-Backspace prefill clearing. Theme Builder name typing remains ASCII
+alphanumeric with hyphens and underscores; color and seed input remains ASCII
+hex. A captured name can retain Unicode from the active theme until edited.
 
 - HiDPI-correct text rasterization across scale factors
 
@@ -1937,7 +1946,10 @@ that closed while the picker was open, including when names are duplicated.
   `odytty session-host` mode hosts one PTY + terminal model, exposes only a
   per-user Unix-domain socket under `$XDG_RUNTIME_DIR/odytty/`, requires a
   `0700` current-user runtime directory, rejects incompatible protocol/snapshot
-  versions, sends a current `SnapshotEnvelope` on every attach, streams
+  versions (a session keeps the versions of the binary that started it, so after
+  an upgrade that changes them the newer client cannot attach to it; the
+  rejection says so, and the session stays usable from the version that started
+  it until it ends), sends a current `SnapshotEnvelope` on every attach, streams
   output/invalidation frames, and reaps the child process. Snapshot format v6
   retains layout-padding provenance as well as G0/G1 designation and SO/SI
   selection. Formats v1 through v5 remain readable; v1 and v2 restore the
@@ -2072,12 +2084,18 @@ that closed while the picker was open, including when names are duplicated.
   candidate visible and accepts clicks only on rendered candidate rows. The
   form scrolls to keep the focused control visible in short windows, collapses
   help before controls, and maps clicks only to rendered fields. It offers a **Test connection** probe that
-  reports an honest tri-state result without ever handling a password. Probe
+  reports authentication, host-key and reachability outcomes without ever handling a password. Probe
   results apply only to the requesting form and unchanged values; interrupted
   workers show an error instead of leaving the form testing. A host-row
   right-click menu opens the selected host in a new tab or a fresh host-bound
   workspace, binds the current workspace to it, or (for OdyTTY-owned rows) edits
   or removes it.
+
+- Imported OpenSSH hosts use their alias as the SSH operand for connections,
+  probes, image uploads and cleanup on Linux, macOS and Windows. OpenSSH
+  resolves alias-specific user, port, identity and routing. Probes distinguish
+  authentication rejection, offered interactive methods, untrusted and changed
+  keys, and connection failures without promising credential success.
 
 - Remote shell integration (`remote_integration`, default on; `remote_reuse`,
   default on; `remote_tmux`, default off): the connect path builds the remote
@@ -2085,8 +2103,11 @@ that closed while the picker was open, including when names are duplicated.
   integration on it injects a bash-only bootstrap - an inline base64 rcfile
   materialized to a temp file on the remote and exec'd as an interactive shell,
   carrying OdyTTY's OSC 133 boundaries onto the remote with nothing persisted
-  there; a non-bash shell or any failure degrades to a byte-identical plain
-  `ssh`. Reuse layers `ControlMaster=auto`/`ControlPersist` over an
+  there. The remote command enters POSIX `sh`, including through a fish login
+  shell. Remote Bash sources the system profile and first readable Bash login
+  file before its interactive config; local Bash startup remains unchanged.
+  Missing Bash or base64 and setup errors fall back to the remote login shell;
+  servers without POSIX sh require integration off. Reuse layers `ControlMaster=auto`/`ControlPersist` over an
   OdyTTY-owned control socket so repeat tabs to the same effective SSH endpoint
   skip the handshake. The socket template delegates identity to OpenSSH's `%C`
   hash of its effective local host, remote host, port, and remote user; OdyTTY

@@ -412,6 +412,9 @@ fn is_selection_delete_key(logical: &WinitKey) -> bool {
 }
 
 #[cfg(test)]
+mod armed_label_tests;
+
+#[cfg(test)]
 mod feedback_state_audit_tests;
 
 #[cfg(test)]

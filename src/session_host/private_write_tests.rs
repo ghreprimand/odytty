@@ -102,3 +102,56 @@ fn startup_lock_stays_exclusive_and_repairs_a_loose_regular_file() {
     drop(held);
     StartupLock::acquire(&lock).expect("released lock is reusable");
 }
+
+#[test]
+fn runtime_dir_preparation_never_changes_the_mode_behind_a_planted_link() {
+    let root = Dir::new("sh-rd-link");
+    let target = root.0.join("elsewhere");
+    fs::create_dir(&target).expect("target dir");
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).expect("loosen target");
+    symlink(&target, root.0.join("odytty")).expect("plant link");
+
+    assert!(
+        prepare_runtime_dir(&root.0).is_err(),
+        "a linked runtime dir is refused"
+    );
+    assert_eq!(mode(&target), 0o755, "the link target keeps its mode");
+}
+
+#[test]
+fn runtime_dir_preparation_creates_private_and_narrows_a_loose_owned_directory() {
+    let root = Dir::new("sh-rd-ok");
+    let dir = prepare_runtime_dir(&root.0).expect("fresh dir");
+    assert_eq!(mode(&dir), 0o700);
+
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).expect("loosen");
+    let again = prepare_runtime_dir(&root.0).expect("existing dir");
+    assert_eq!(again, dir);
+    assert_eq!(mode(&dir), 0o700, "a loose directory of ours is narrowed");
+}
+
+#[test]
+fn metadata_pane_count_is_clamped_on_read() {
+    let root = Dir::new("sh-pane-count");
+    let runtime_dir = prepare_runtime_dir(&root.0).expect("runtime dir");
+    let leaf = session_metadata_path(&runtime_dir, "huge").expect("metadata path");
+    for (written, expected) in [
+        (
+            "18446744073709551615",
+            super::registry::MAX_METADATA_PANE_COUNT,
+        ),
+        ("0", 1),
+        ("7", 7),
+    ] {
+        fs::write(
+            &leaf,
+            format!("version=1\nid=huge\nname=n\ncreated_unix_ms=1\npane_count={written}\n"),
+        )
+        .expect("write metadata");
+        fs::set_permissions(&leaf, fs::Permissions::from_mode(0o600)).expect("private");
+        let read = read_session_metadata(&runtime_dir, "huge")
+            .expect("read")
+            .expect("present");
+        assert_eq!(read.pane_count, expected, "pane_count={written}");
+    }
+}

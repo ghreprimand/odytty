@@ -2141,3 +2141,33 @@ fn query_backspace_removes_one_terminal_owner() {
         assert_eq!(field.query, "");
     }
 }
+
+#[test]
+fn form_values_backspace_removes_whole_owners() {
+    for owner in [
+        "e\u{301}",
+        "\u{1f469}\u{200d}\u{1f4bb}",
+        "\u{1f1fa}\u{1f1f8}",
+        "\u{915}\u{94d}\u{937}",
+        "\u{e01}\u{e33}",
+    ] {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "new_output_fade_ms");
+        panel.handle_input(OverlayInput::Activate);
+        for ch in format!("x{owner}").chars() {
+            panel.handle_input(OverlayInput::Char(ch));
+        }
+        let before = panel.render_signature();
+        panel.handle_input(OverlayInput::Backspace);
+        assert_eq!(
+            panel.render_signature().editing_buffer.as_deref(),
+            Some("x"),
+            "{owner:?}"
+        );
+        assert_ne!(panel.render_signature(), before);
+        for _ in 0..2 {
+            panel.handle_input(OverlayInput::Backspace);
+        }
+        assert_eq!(panel.render_signature().editing_buffer.as_deref(), Some(""));
+    }
+}

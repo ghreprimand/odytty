@@ -422,15 +422,7 @@ pub(in crate::native::app) fn headless() -> App {
 fn with_profile_test_root<R>(f: impl FnOnce(&Path) -> R) -> R {
     use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
-    let base = std::env::temp_dir().join(format!(
-        "odytty-multiwindow-profile-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&base).expect("create synthetic profile root");
+    let base = crate::test_dirs::fresh_temp_dir("odytty-multiwindow-profile-");
     let result = catch_unwind(AssertUnwindSafe(|| {
         crate::native::tests::config_env::with_config_base(&base, true, || f(&base))
     }));
@@ -1626,10 +1618,16 @@ fn owner_bridge_round_trips_a_live_unix_request() {
 
     let mut host = host_of(vec![headless()]);
     host.windows[0].settings.automation_endpoint = true;
-    let dir = std::env::temp_dir().join(format!(
-        "odytty-owner-bridge-{:x}",
-        host.windows[0].process_window_id().0
-    ));
+    // A fresh short directory owned by this run (macOS socket paths are short),
+    // removed on drop even when an assertion fails.
+    struct Fixture(std::path::PathBuf);
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let fixture = Fixture(crate::test_dirs::fresh_socket_dir("odytty-owner-bridge-"));
+    let dir = fixture.0.clone();
     crate::state_dir::prepare_private_dir(&dir).expect("owner-private fixture dir");
     let endpoint = dir.join(format!("control-{}.sock", std::process::id()));
     let (wake_tx, wake_rx) = mpsc::channel();
@@ -1663,7 +1661,6 @@ fn owner_bridge_round_trips_a_live_unix_request() {
     );
     host.automation.shutdown();
     assert!(!endpoint.exists());
-    let _ = std::fs::remove_dir(dir);
 }
 
 #[test]

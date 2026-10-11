@@ -29,6 +29,19 @@ impl App {
         Ok(())
     }
 
+    /// The production Replace route with the attach made over a fake host.
+    #[cfg(all(test, unix))]
+    pub(in crate::native) fn attach_session_replacing_current_with_sink_for_test(
+        &mut self,
+        runtime_base: Option<&Path>,
+        session_id: &str,
+        sink: impl crate::native::attach::AttachEventSink,
+    ) {
+        self.replace_current_with(|app| {
+            app.attach_session_with_sink_for_test(runtime_base, session_id, sink)
+        });
+    }
+
     /// Resize the terminal model and PTY to fit the new physical surface size.
     ///
     /// Idempotent: when the computed whole-cell grid is unchanged (a sub-cell

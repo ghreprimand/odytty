@@ -1652,7 +1652,9 @@ Existing shells do not change until restarted. Bash uses an interactive
 `--rcfile`, so login-shell-only startup files remain the shell's responsibility.
 Existing Bash DEBUG hooks remain active with their incoming command status.
 Zsh forwarding wrappers source user startup files, including `.zshenv` changes
-to `ZDOTDIR`, and restore the user's directory for the session. Fish retains
+to `ZDOTDIR`, and restore the user's directory for the session. A profile that
+sets `HOME` without an inherited `ZDOTDIR` has zsh read its startup files from
+that home. Fish retains
 explicit vendor data paths or the XDG defaults when no paths are configured.
 
 | Windows shell | Integration behavior |
@@ -1891,7 +1893,12 @@ and reports "already saved"; embedded spaces, a leading `-`, and out-of-range
 ports are rejected to prevent option injection.
 
 **Add or edit a host.** Press `Tab` for a blank form, or the right arrow to edit
-the selected OdyTTY-owned host. OpenSSH-imported rows are read-only.
+the selected OdyTTY-owned host. OpenSSH-imported rows are read-only. Both keys
+belong to the connection manager: the saved-host pickers opened for binding a
+workspace, connecting from a tab or replacing a tab ignore them, so a pending
+action is never dropped for the form. A saved host with no `HostName` shows its
+alias as the host beside a user or port (`deploy@box:2200`), and the picker's
+"No matches" line is cut to a narrow body like every other row.
 
 | Form area | Fields and behavior |
 | --- | --- |
@@ -1906,6 +1913,12 @@ visible candidate rows accept a click; its prompt and footer are inert. The
 bytes, and lists at most 256 candidates; when a bound cuts the scan short, a
 notice says so, and typing a path still reaches any other key.
 
+The `[Browse]` chip is located from the row's own layout, not by searching the
+drawn text, so a key path that itself contains `[Browse` is never mistaken for
+it; a chip is a click target while its `[Browse` opening is fully drawn. A
+replaced candidate list, a host's theme or source tag and the picker purpose
+all repaint the overlay even when the query, selection and row count match.
+
 In short windows, the form scrolls to keep the focused control visible,
 including expanded Advanced fields and Save / Cancel. Help collapses before
 controls, and clicks target only the displayed fields.
@@ -1915,13 +1928,14 @@ preserving every other block, comment, and unknown field byte-for-byte.
 `ssh-copy-id` remains the once-only path away from password prompts.
 
 **Test a host.** The form runs a non-interactive background probe and reports
-one of four honest results: reachable with key-based authentication,
-reachable but requiring interactive authentication, host-key mismatch, or
-unreachable. Results apply only to the requesting form and unchanged values.
+key/agent authentication success, available interactive authentication,
+rejected authentication, untrusted host key, changed host key, or an
+unreachable endpoint. Interactive authentication availability does not
+guarantee that credentials will be accepted. Results apply only to the requesting form and unchanged values.
 Editing, retrying, or reopening invalidates an earlier probe. An interrupted
 worker reports an error instead of leaving the form testing.
-OdyTTY never handles a password, and normal connection still works
-for an interactive-auth host.
+OdyTTY never handles a password. A normal connection can prompt for the
+interactive methods advertised by the server.
 
 Connection-launch and probe-start failures are shown in the pane or form rather
 than leaving a selection with no visible result.
@@ -1945,9 +1959,20 @@ Saved hosts support these connection behaviors:
 | `remote_persist` | 10 minutes | Keeps the master socket alive after the last tab closes |
 | `remote_tmux` | `off` | Wraps the remote shell in a persistent tmux session named `odytty` |
 
-The integration wrapper writes a temporary remote rcfile and persists nothing
-on the host. A non-bash shell or any bootstrap failure falls back to plain
-`ssh`, and the tab title becomes `user@host`.
+Imported OpenSSH entries connect through their alias on Linux, macOS and
+Windows. OpenSSH resolves the Host stanza, including its user, port, keys and
+jump route, for connections, probes, image uploads and cleanup.
+
+Remote integration requires a POSIX `sh` on the server. Its quoted command
+also works when the remote login shell is fish. It selects Bash when present,
+loads `/etc/profile` and the first readable `.bash_profile`, `.bash_login` or
+`.profile`, then loads `.bashrc` and the prompt hooks. Local Bash startup is
+unchanged. The temporary wrapper deletes itself on startup. Missing Bash or
+base64 and setup failures fall back to the remote login shell. Disable
+integration for servers without POSIX sh. Image uploads also enter POSIX sh
+so noclobber refuses an existing path regardless of the login shell.
+Windows clients use the same alias and remote-command builders through
+OpenSSH and ConPTY; connection multiplexing remains disabled on Windows.
 
 The tmux behavior is equivalent to:
 
@@ -2112,6 +2137,12 @@ copy mode, hints, overlay navigation, and rebinding.
 
 Use [Configuring OdyTTY](#configuring-odytty) for the in-app settings workflow.
 This section covers theme selection, background images, and transparency.
+
+Backspace in Settings value edits, profile and connection form values, and
+Theme Builder save names removes a whole terminal text owner, including its
+retained marks or emoji sequence. The first Backspace in a selected Settings
+prefill still clears that prefill. Theme Builder keeps its ASCII name and
+hex input policies.
 
 ### Cursor Presentation
 

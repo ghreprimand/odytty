@@ -1332,8 +1332,8 @@ pub struct Settings {
     /// glyphs, decorations, and emoji rise from a visible floor to full
     /// strength while cell backgrounds render exactly as normal from the first
     /// frame (a background veil read as a dark flash on translucent windows).
-    /// Only at the live tail; scrollback and resize snap; the cursor's row
-    /// never fades. Purely presentational.
+    /// Only at the live tail of a single pane; split tabs, scrollback and
+    /// resize snap; the cursor's row never fades. Purely presentational.
     pub new_output_fade: bool,
     /// New-output fade ramp length in milliseconds (VE4). Only acts while
     /// [`Self::new_output_fade`] is on; a longer value makes the fade-in more

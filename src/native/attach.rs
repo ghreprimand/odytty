@@ -48,26 +48,29 @@ use crate::session_host::protocol::{
     read_host_hello, write_client_frame, write_client_hello, write_client_input,
 };
 use crate::session_host::{
-    SocketReadDeadline, existing_runtime_dir, session_socket_path, validate_socket_parent,
+    DeadlineWriter, SocketReadDeadline, existing_runtime_dir, session_socket_path,
+    validate_socket_parent,
 };
 
 use super::pty::{PtyWriter, UserEvent};
 use super::pty_writer::{DroppedInputReason, dropped_input_error};
 use super::session::SessionToken;
 
-/// Bounded write timeout on the attach socket (audit C-4). Every write to the
-/// host -- input, resize, detach -- goes through this stream; a resize is issued
+/// Absolute budget for one whole frame written to the host (audit C-4). Every
+/// write to the host (input, resize, detach) shares this budget; a resize is issued
 /// from the MAIN thread (`resize_all_panes_impl`) while input flows on the pump's
 /// writer thread, and both take the shared `AttachClient` mutex. If the host is
 /// stopped (SIGSTOP / paging / D-state) the socket send buffer fills and an
 /// untimed `sendmsg` parks forever: the main thread then freezes on a window
-/// resize, or behind the mutex the writer thread is holding while parked. A send
-/// timeout bounds every write so a wedged host degrades to a dropped frame (the
-/// mirror already resized locally; input to a wedged shell is moot) instead of an
-/// unbounded UI freeze. Generous enough that ordinary backpressure never trips
-/// it. `SO_SNDTIMEO` is a socket-level option shared across the `try_clone`d fds,
-/// but only the write half ever writes, so setting it on the write stream is
-/// sufficient and leaves the pump's independent `SO_RCVTIMEO` untouched.
+/// resize, or behind the mutex the writer thread is holding while parked. The
+/// budget bounds the whole frame, not each kernel write, so a host that drains
+/// slowly but never stops cannot hold the lock across a large paste either: a
+/// frame that cannot finish in time is dropped when nothing was sent and
+/// poisons the client when it was cut short. A wedged host degrades to a
+/// dropped frame (the mirror already resized locally; input to a wedged shell
+/// is moot) instead of an unbounded UI freeze. Generous enough that ordinary
+/// backpressure never trips it. Each kernel write is set through
+/// [`DeadlineWriter`], which reports an option failure instead of discarding it.
 const ATTACH_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// A sink the attach pump uses to wake the UI when a frame lands. Implemented for
@@ -119,6 +122,9 @@ pub(super) struct AttachClient {
     /// `AttachInputWriter::write` still treats a transient send timeout as
     /// non-fatal (drop the frame, keep the writer), which never sets this flag.
     poisoned: bool,
+    /// Absolute budget for one whole frame ([`ATTACH_WRITE_TIMEOUT`] in
+    /// production; tests shorten it).
+    write_budget: Duration,
 }
 
 impl AttachClient {
@@ -213,6 +219,7 @@ impl AttachClient {
                 stream,
                 detach: DetachState::Pending,
                 poisoned: false,
+                write_budget: ATTACH_WRITE_TIMEOUT,
             },
             AttachReader {
                 stream: read_stream,
@@ -238,8 +245,8 @@ impl AttachClient {
                 max: MAX_CLIENT_INPUT_LEN,
             }));
         }
-        let result =
-            write_client_input(&mut self.stream, bytes).context("write session-host input frame");
+        let result = write_client_input(&mut self.deadline_writer(), bytes)
+            .context("write session-host input frame");
         self.note_write_result(&result);
         result
     }
@@ -251,8 +258,11 @@ impl AttachClient {
             bail!("session-host resize dimensions must be nonzero");
         }
         self.guard_not_poisoned()?;
-        let result = write_client_frame(&mut self.stream, &ClientFrame::Resize { columns, rows })
-            .context("write session-host resize frame");
+        let result = write_client_frame(
+            &mut self.deadline_writer(),
+            &ClientFrame::Resize { columns, rows },
+        )
+        .context("write session-host resize frame");
         self.note_write_result(&result);
         result
     }
@@ -275,6 +285,11 @@ impl AttachClient {
         .context("write session-host resize frame");
         self.note_write_result(&result);
         result
+    }
+
+    /// A writer bounding the next whole frame by an absolute deadline.
+    fn deadline_writer(&self) -> DeadlineWriter<'_> {
+        DeadlineWriter::new(&self.stream, self.write_budget, self.write_budget)
     }
 
     /// Reject a write onto a stream already desynced by a prior partial write.
@@ -313,7 +328,7 @@ impl AttachClient {
         // and removes this client; the error is propagated like the input
         // writer's rather than swallowed.
         let result = self.guard_not_poisoned().and_then(|()| {
-            write_client_frame(&mut self.stream, &ClientFrame::Detach)
+            write_client_frame(&mut self.deadline_writer(), &ClientFrame::Detach)
                 .context("write session-host detach frame")
         });
         self.note_write_result(&result);

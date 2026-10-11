@@ -14,6 +14,7 @@ use crate::input::{KeyEventType, Modifiers};
 use crate::settings::Osc52WritePolicy;
 
 use super::super::clipboard::write_clipboard_selection;
+use super::super::render_helpers::NoticeSurface;
 use super::{App, OverlayFragment, SessionToken};
 
 const NOTICE_RATE_LIMIT: Duration = Duration::from_secs(1);
@@ -293,7 +294,10 @@ impl App {
     pub(in crate::native) fn osc52_prompt_overlay_signature(&self) -> Option<OverlayFragment> {
         self.osc52_write
             .prompt_text()
-            .map(|text| OverlayFragment::OpenNotice { text })
+            .map(|text| OverlayFragment::OpenNotice {
+                text,
+                surface: NoticeSurface::Consent,
+            })
     }
 
     pub(in crate::native) fn paint_osc52_prompt_cells(&self, snapshot: &mut Snapshot) -> bool {

@@ -35,6 +35,9 @@
 //!   images).
 //! - Total painted-column budget per DCS: 16 777 216 `paint_sixel` calls, so a
 //!   repeat-run flood cannot amplify decode work without bound.
+//! - Row re-layout budget per DCS: 16 canvases of pixels allocated by stride
+//!   changes, so an input that keeps reshaping the buffer near the pixel budget
+//!   cannot repeat near-64 MiB repacks without bound.
 //! - An over-wide repeat run rejects the whole image with `TooLarge` (it is
 //!   not clamped to the remaining width).
 //! - Color registers: 0..=1024.
@@ -66,6 +69,14 @@ const MAX_PIXELS: u64 = 16_777_216;
 /// unbounded decode work. Bounded to the pixel budget so total painted columns
 /// cannot exceed one full canvas worth of work per DCS.
 const MAX_PAINT_CALLS: u64 = MAX_PIXELS;
+/// Cumulative pixels a single DCS may allocate for row re-layouts (stride
+/// changes), counted as the new buffer size each time. A re-layout allocates and
+/// copies a whole canvas, so without a bound a small input that keeps changing
+/// the stride near the pixel budget performs unbounded work while its drawn
+/// image stays in budget. Sixteen full canvases is far above what any
+/// geometric widening of a real image needs (each widening at least doubles the
+/// stride, or the stride is tightened once per height step).
+const MAX_REPACK_PIXELS: u64 = 16 * MAX_PIXELS;
 /// Maximum color register index.
 const MAX_COLOR_REG: u16 = 1024;
 /// Maximum numeric parameter value parsed from decimal digits.
@@ -202,6 +213,8 @@ struct Decoder {
     /// column; when it reaches zero the decode fails `TooLarge`, bounding decode
     /// work regardless of how repeat runs and `$` interact.
     paint_budget: u64,
+    /// Pixels allocated so far by stride re-layouts (see `MAX_REPACK_PIXELS`).
+    repacked_pixels: u64,
 }
 
 impl Decoder {
@@ -223,6 +236,7 @@ impl Decoder {
             max_x: 0,
             max_y: 0,
             paint_budget: MAX_PAINT_CALLS,
+            repacked_pixels: 0,
         }
     }
 
@@ -293,7 +307,14 @@ impl Decoder {
             new_cap_w = if u64::from(rounded) * u64::from(true_h) <= MAX_PIXELS {
                 rounded
             } else {
-                true_w
+                // Widest stride the drawn height leaves room for, but no wider
+                // than the geometric step already chosen, so a band that keeps
+                // widening re-lays out O(log W) times instead of once per
+                // column. It is at least `true_w` because the joint drawn
+                // extent fits the budget.
+                let fit = (MAX_PIXELS / u64::from(true_h)).min(u64::from(MAX_WIDTH));
+                let fit = u32::try_from(fit).unwrap_or(MAX_WIDTH);
+                new_cap_w.min(fit).max(true_w)
             };
             let height_room = (MAX_PIXELS / u64::from(new_cap_w)).min(u64::from(MAX_HEIGHT));
             new_cap_h = Self::grow_cap(self.cap_h, need_h, MAX_HEIGHT)
@@ -319,6 +340,15 @@ impl Decoder {
             let nw = new_cap_w as usize;
             let nh = new_cap_h as usize;
             let copy_w = old_w.min(nw);
+            self.repacked_pixels = self
+                .repacked_pixels
+                .saturating_add((nw as u64).saturating_mul(nh as u64));
+            if self.repacked_pixels > MAX_REPACK_PIXELS {
+                return Err(SixelError::TooLarge {
+                    width: true_w,
+                    height: true_h,
+                });
+            }
             let mut buf = vec![0u8; nw * nh * 4];
             for row in 0..old_h.min(nh) {
                 let src = row * old_w * 4;
@@ -622,6 +652,31 @@ pub(crate) fn parse_params(payload: &[u8], start: usize) -> (Vec<u32>, usize) {
 /// skipped, out-of-range parameters are clamped, truncated commands are
 /// abandoned.
 pub fn decode_sixel(payload: &[u8], background: SixelBackground) -> Result<SixelImage, SixelError> {
+    decode_counting_work(payload, background).0
+}
+
+/// Decode and also report the pixels allocated by stride re-layouts, so tests
+/// can bound decode work without timing.
+#[cfg(test)]
+pub(super) fn decode_sixel_with_repack_work(
+    payload: &[u8],
+    background: SixelBackground,
+) -> (Result<SixelImage, SixelError>, u64) {
+    decode_counting_work(payload, background)
+}
+
+fn decode_counting_work(
+    payload: &[u8],
+    background: SixelBackground,
+) -> (Result<SixelImage, SixelError>, u64) {
+    let mut dec = Decoder::new(background);
+    let parsed = decode_into(&mut dec, payload);
+    let work = dec.repacked_pixels;
+    (parsed.and_then(|()| dec.finish()), work)
+}
+
+/// Run the command loop over `payload`; the caller finishes the image.
+fn decode_into(dec: &mut Decoder, payload: &[u8]) -> Result<(), SixelError> {
     if payload.is_empty() {
         return Err(SixelError::Empty);
     }
@@ -631,7 +686,6 @@ pub fn decode_sixel(payload: &[u8], background: SixelBackground) -> Result<Sixel
             height: 0,
         });
     }
-    let mut dec = Decoder::new(background);
     let mut i = 0;
     while i < payload.len() {
         match payload[i] {
@@ -688,5 +742,5 @@ pub fn decode_sixel(payload: &[u8], background: SixelBackground) -> Result<Sixel
             }
         }
     }
-    dec.finish()
+    Ok(())
 }

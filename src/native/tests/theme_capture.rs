@@ -413,3 +413,31 @@ fn short_theme_role_edit_survives_reload_apply_and_cancel() {
         );
     }
 }
+
+#[test]
+fn captured_name_backspace_deletes_an_owner_through_real_input() {
+    let _guard = crate::test_lock::render_globals_lock();
+    let mut theme = distinctive_theme();
+    theme.name = "xe\u{301}";
+    let mut app = app_with_theme(theme);
+    app.open_theme_capture_for_test();
+    app.drive_overlay_key_for_test(WinitKey::Character("s".into()), true, false);
+    for _ in 0.."-capture".len() {
+        app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Backspace), false, false);
+    }
+    let before = app.overlay_signature_for_test();
+    assert!(matches!(&before.theme_builder.editing,
+        Some(crate::native::theme_builder::ThemeBuilderEditSignature::Name { buffer }) if buffer == "xe\u{301}"));
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Backspace), false, false);
+    let after = app.overlay_signature_for_test();
+    assert!(matches!(&after.theme_builder.editing,
+        Some(crate::native::theme_builder::ThemeBuilderEditSignature::Name { buffer }) if buffer == "x"));
+    assert_ne!(after, before);
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Escape), false, false);
+    assert!(
+        app.overlay_signature_for_test()
+            .theme_builder
+            .editing
+            .is_none()
+    );
+}

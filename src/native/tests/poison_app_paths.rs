@@ -224,3 +224,37 @@ fn a_poisoned_session_still_follows_a_window_resize() {
     let dims = crate::native::lock_recover(&terminal).screen().dimensions();
     assert_eq!((dims.columns, dims.rows), (50, 20), "the model was resized");
 }
+
+/// The reply a model gives to an OSC 11 background query, read through the
+/// recovering lock so a poisoned model can still be inspected.
+fn background_answer(terminal: &Arc<Mutex<Terminal>>) -> Vec<u8> {
+    let mut terminal = crate::native::lock_recover(terminal);
+    terminal.advance(b"\x1b]11;?\x1b\\");
+    terminal.take_host_output()
+}
+
+#[test]
+fn an_os_appearance_flip_reaches_a_poisoned_session_model() {
+    let (mut app, _bytes, terminal) = recording_app(b"");
+    poison(&terminal);
+    app.apply_os_theme_for_test(
+        true,
+        Some("odyssey-noir"),
+        Some("plain"),
+        Some(winit::window::Theme::Dark),
+    );
+    let dark = background_answer(&terminal);
+    assert!(!dark.is_empty(), "the poisoned model still answers OSC 11");
+
+    app.apply_os_theme_for_test(
+        true,
+        Some("odyssey-noir"),
+        Some("plain"),
+        Some(winit::window::Theme::Light),
+    );
+    assert_ne!(
+        dark,
+        background_answer(&terminal),
+        "a poisoned model must follow the flip, not keep the stale base colors"
+    );
+}

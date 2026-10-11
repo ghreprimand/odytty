@@ -6,7 +6,7 @@ use std::fs::{self, File};
 use std::io::{self, Read};
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -123,9 +123,38 @@ pub fn runtime_paths(runtime_base: Option<&Path>, session_id: &str) -> Result<Ru
 
 pub fn prepare_runtime_dir(runtime_base: &Path) -> Result<PathBuf> {
     let dir = runtime_dir_path(runtime_base);
-    fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
-    fs::set_permissions(&dir, fs::Permissions::from_mode(RUNTIME_DIR_MODE))
-        .with_context(|| format!("chmod 0700 {}", dir.display()))?;
+    if let Some(parent) = dir.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    // The leaf is created private in the same call, so it is never visible with
+    // the umask default mode. An existing leaf is not an error here: it is
+    // checked below.
+    match fs::DirBuilder::new().mode(RUNTIME_DIR_MODE).create(&dir) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => {
+            return Err(error).with_context(|| format!("create {}", dir.display()));
+        }
+    }
+    // Narrow a pre-existing directory only through a handle that provably is a
+    // real directory owned by this user: `O_NOFOLLOW | O_DIRECTORY` refuses a
+    // planted link, and `fchmod` on the handle cannot land anywhere else. A
+    // path-based chmod would follow a link and change the mode of whatever it
+    // points at before validation could reject it.
+    // SAFETY: geteuid(2) has no preconditions.
+    let uid = unsafe { libc::geteuid() };
+    if let Ok(handle) = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(&dir)
+        && handle
+            .metadata()
+            .is_ok_and(|metadata| metadata.uid() == uid)
+    {
+        handle
+            .set_permissions(fs::Permissions::from_mode(RUNTIME_DIR_MODE))
+            .with_context(|| format!("chmod 0700 {}", dir.display()))?;
+    }
     validate_runtime_dir(&dir)?;
     Ok(dir)
 }

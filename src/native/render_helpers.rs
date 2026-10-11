@@ -159,6 +159,16 @@ impl RenderSignature {
     }
 }
 
+/// Which banner surface a notice paints: the colors and the row coverage both
+/// differ, so equal text on another surface must not reuse cached pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum NoticeSurface {
+    Failure,
+    Neutral,
+    /// The three-row clipboard consent prompt.
+    Consent,
+}
+
 /// Per-contributor render-cache fragment for the overlay registry. `Inert` ⇒
 /// the contributor adds nothing to the composite cache key, so an inactive
 /// feature never perturbs the geometry-update decision. Each active feature
@@ -209,11 +219,15 @@ pub(super) enum OverlayFragment {
     /// inline pre-edit overlay repaints via a Full geometry update. `Inert` when
     /// no composition is in progress.
     ImePreedit { text: String },
-    /// OPEN-NOTICE (P0-2) transient open-failure banner text. Changes when a new
-    /// failure is raised so the banner repaints; `Inert` when no notice is in
-    /// flight (the default / success path), keeping the cache decision
+    /// OPEN-NOTICE (P0-2) transient banner text and painted surface. Changes
+    /// when a new notice is raised, or the same text is raised in another tone
+    /// or as a consent prompt, so the banner repaints; `Inert` when no notice is
+    /// in flight (the default / success path), keeping the cache decision
     /// unchanged.
-    OpenNotice { text: String },
+    OpenNotice {
+        text: String,
+        surface: NoticeSurface,
+    },
     /// UX-A (Phase 11) transient "Ctrl+click to open" discoverability hint.
     /// `Inert` when the hint is not shown (the default / feature-off path), so
     /// the cache decision is unchanged; `ClickHint { shown: true }` while the

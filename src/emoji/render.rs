@@ -569,6 +569,16 @@ fn is_emoji_variation_selector(ch: char) -> bool {
     ch == '\u{FE0F}'
 }
 
+/// Which scalars take the colour route by default.
+///
+/// Policy (ruled, no change): the two pictographic-plane ranges below are
+/// whole blocks, a deliberate superset of Unicode Emoji_Presentation=Yes. A
+/// scalar in them that no colour face covers still draws: the colour route
+/// reports it through `color_route_needs_mono_fallback` and the monochrome
+/// symbol chain takes it. Below those planes the list is exact, so text-default
+/// symbols keep the monochrome path. Tightening the blocks would change which
+/// glyph source a scalar uses on machines whose colour face covers it, so it
+/// needs its own measured change, not a table edit.
 fn is_default_emoji_presentation(ch: char) -> bool {
     matches!(
         ch as u32,

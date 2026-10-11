@@ -80,7 +80,7 @@ impl SettingsPanel {
                         edit.buffer.clear();
                         edit.replace_on_char = false;
                     } else {
-                        edit.buffer.pop();
+                        crate::core::pop_text_owner(&mut edit.buffer);
                     }
                 }
                 SettingsPanelOutcome::Consumed

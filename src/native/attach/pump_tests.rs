@@ -111,6 +111,7 @@ fn a_detach_refused_on_a_desynced_stream_keeps_reporting_the_failure() {
         stream: ours,
         detach: DetachState::Pending,
         poisoned: true,
+        write_budget: ATTACH_WRITE_TIMEOUT,
     };
     let first = client
         .detach()
@@ -128,6 +129,7 @@ fn a_detach_that_was_sent_is_not_sent_again() {
         stream: ours,
         detach: DetachState::Pending,
         poisoned: false,
+        write_budget: ATTACH_WRITE_TIMEOUT,
     };
     client.detach().expect("first detach");
     client.detach().expect("second detach");

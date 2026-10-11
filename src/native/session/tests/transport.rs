@@ -890,3 +890,21 @@ fn resize_all_panes_same_dims_preserves_cursor_and_trailing_blank() {
         "same-dims resize must not trim the trailing prompt space"
     );
 }
+
+#[test]
+fn imported_alias_upload_descriptor_keeps_config_port_resolution() {
+    let mut host = crate::connection_hosts::parse_adhoc_target("route")
+        .unwrap()
+        .to_connection_host();
+    host.source = crate::connection_hosts::ConnectionHostSource::SshConfig;
+    host.host_name = Some("endpoint.example.invalid".to_owned());
+    host.user = Some("account".to_owned());
+    host.port = Some(2222);
+    let options = crate::ssh_connect::RemoteSshOptions {
+        integration: true,
+        ..Default::default()
+    };
+    let upload = WorkspaceSet::remote_upload_for(&host, &options).unwrap();
+    assert_eq!(upload.destination(), "route");
+    assert_eq!(upload.port(), None);
+}

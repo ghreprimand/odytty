@@ -73,10 +73,7 @@ pub fn build_local_command(plan: &LocalLaunchPlan) -> CommandBuilder {
             command.apply_standard_exec_env(&plan.env);
         }
         _ => {
-            command.apply_standard_interactive_shell_env(&plan.settings);
-            for (key, value) in &plan.env {
-                command.env(key.clone(), value.clone());
-            }
+            command.apply_standard_interactive_shell_env(&plan.settings, &plan.env);
         }
     }
     if let Some(path) = plan.working_directory.as_ref() {

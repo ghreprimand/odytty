@@ -25,6 +25,14 @@
 //! accepted input frame (at most the protocol's client input limit) is always
 //! delivered whole, matching the native writer's policy. Every discarded byte
 //! is counted and reported in a rate-limited host log warning.
+//!
+//! Framing contract: the queue drops whole chunks and one input frame is one
+//! chunk, so a client keeps a bracketed paste (start marker, body, end marker)
+//! in a single input frame. A paste is then retained or discarded entire and
+//! never delivered as a tail whose start marker was dropped, which a shell
+//! would run as typed input. OdyTTY's own clients send a bracketed paste as one
+//! frame (`encode_paste_chunks` in the native clipboard module); a client that
+//! split a paste across frames would lose that guarantee under overflow.
 
 use std::collections::VecDeque;
 use std::io::Write;
@@ -376,5 +384,88 @@ mod tests {
             Some(12),
             "the deferred count carries into the next warning"
         );
+    }
+
+    /// Records every byte delivered after the first, wedged write is released.
+    struct RecordingWedge {
+        started: mpsc::Sender<()>,
+        block: Arc<(Mutex<bool>, Condvar)>,
+        written: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Write for RecordingWedge {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            let _ = self.started.send(());
+            let (lock, cvar) = &*self.block;
+            let mut released = lock.lock().unwrap();
+            while !*released {
+                released = cvar.wait(released).unwrap();
+            }
+            self.written.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
+    }
+
+    /// A bracketed paste sent as one input frame survives overflow whole or is
+    /// dropped whole: the shell never sees an end marker without its start.
+    #[test]
+    fn a_bracketed_paste_frame_is_delivered_or_dropped_whole_under_overflow() {
+        const PASTE: &[u8] = b"\x1b[200~rm -rf /tmp/x\necho done\n\x1b[201~";
+        for flood_chunks in [0usize, 8] {
+            let (started_tx, started_rx) = mpsc::channel();
+            let block = Arc::new((Mutex::new(false), Condvar::new()));
+            let written = Arc::new(Mutex::new(Vec::new()));
+            let writer = RecordingWedge {
+                started: started_tx,
+                block: Arc::clone(&block),
+                written: Arc::clone(&written),
+            };
+            let pty = HostPtyWriter::spawn_with_cap(Box::new(writer), 64).expect("spawn writer");
+            pty.write(b"prime");
+            started_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("writer thread should reach the blocking fd write");
+
+            pty.write(PASTE);
+            for _ in 0..flood_chunks {
+                pty.write(&[b'k'; 32]);
+            }
+            let expect_dropped = flood_chunks > 0;
+            let last = if expect_dropped { b'k' } else { b'~' };
+            {
+                let (lock, cvar) = &*block;
+                *lock.lock().unwrap() = true;
+                cvar.notify_all();
+            }
+            // Wait for the writer thread to drain what survived.
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                if written.lock().unwrap().last() == Some(&last) {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "writer never drained the queue");
+                std::thread::yield_now();
+            }
+            let sink = written.lock().unwrap().clone();
+            let has_start = contains(&sink, b"\x1b[200~");
+            let has_end = contains(&sink, b"\x1b[201~");
+            assert_eq!(has_start, has_end, "paste markers stay paired: {sink:?}");
+            assert_eq!(
+                contains(&sink, PASTE),
+                !expect_dropped,
+                "the paste is kept whole or dropped whole (flood={flood_chunks})"
+            );
+            assert_eq!(contains(&sink, b"rm -rf"), !expect_dropped);
+            drop(pty);
+        }
     }
 }

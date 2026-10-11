@@ -270,7 +270,7 @@ mod tests {
     }
 
     #[test]
-    fn centered_hud_is_static_and_plain_theme_safe() {
+    fn centered_hud_paints_static_indexed_cells() {
         let mut hud = TransientHud::default();
         hud.show("Font 21 px".to_owned(), Instant::now());
         let mut first = blank_snapshot(20, 5);

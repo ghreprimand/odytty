@@ -5,7 +5,7 @@
 //! here to be probed on a background thread so the UI never blocks. The probe
 //! runs the system `ssh` binary - argv-only, never through a shell - as a
 //! non-interactive `BatchMode` one-shot that only reports reachability +
-//! key/agent auth (it has no password and must never store one). The tri-state
+//! key/agent auth (it has no password and must never store one). The classified
 //! result is sent back over a channel and a redraw is woken so the form renders
 //! it. A hard timeout guarantees the worker (and the form) never hang.
 
@@ -52,7 +52,7 @@ pub(super) fn spawn_connection_probe(
     crate::spawn_util::spawn_named("odytty-connection-probe", move || {
         let result = run_probe(command);
         let _ = tx.send(result);
-        // Wake a redraw so the tri-state result renders promptly even when
+        // Wake a redraw so the probe result renders promptly even when
         // the loop was idle waiting for input.
         if let Some(proxy) = proxy {
             let _ = proxy.send_event(UserEvent::Redraw { session });
@@ -88,7 +88,7 @@ fn run_probe(command: SshCommand) -> Result<ProbeClass, String> {
     // would misclassify a reachable host as Unreachable. The reader runs on its
     // own thread into a bounded buffer; the thread creation is fallible (LOW-02),
     // and if it cannot start the probe classifies from the exit status alone
-    // (stderr is unavailable, but the tri-state is still driven, never hung).
+    // (stderr is unavailable, but the probe result is still driven, never hung).
     // The reader hands its text back over a channel so the probe can stop
     // waiting for it after a bounded grace (see `PROBE_STDERR_GRACE`).
     let reader = child.stderr.take().and_then(|pipe| {

@@ -228,22 +228,11 @@ impl PtySession {
     ) -> Result<Self> {
         let shell = default_shell_program();
         let mut command = CommandBuilder::new(shell);
-        command.apply_terminal_env();
-        // Scrub any inherited ODYTTY_SHELL_INTEGRATION so a nested odytty (one
-        // launched from an already-integrated session) does not disable
-        // integration in the shell it spawns; the snippet re-exports it itself.
-        command.apply_shell_integration_scrub();
-        command.apply_buttons_discovery_env(buttons);
-        command.apply_key_enhancement_discovery_env(key_enhancement);
-        if shell_integration {
-            crate::shell_integration::apply_spawn_integration(&mut command);
-        }
-        // Profile env overrides land last so a profile value wins over the
-        // discovery advertisements above, matching the explicit-shell arm in
-        // `build_local_command`.
-        for (key, value) in env {
-            command.env(key.clone(), value.clone());
-        }
+        // Scrubs any inherited ODYTTY_SHELL_INTEGRATION so a nested odytty
+        // does not disable integration in the shell it spawns (the snippet
+        // re-exports it), and lands profile env overrides last so a profile
+        // value wins, matching the explicit-shell arm in `build_local_command`.
+        command.apply_interactive_shell_env(shell_integration, buttons, key_enhancement, env);
         if let Some(path) = working_directory {
             command.current_dir(path);
         }

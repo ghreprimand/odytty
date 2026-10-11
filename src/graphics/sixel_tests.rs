@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Tests for the Sixel decoder (`super::sixel`).
 
+use super::sixel::decode_sixel_with_repack_work;
 use super::sixel::*;
 
 // ---------------------------------------------------------------------------
@@ -376,6 +377,55 @@ fn widening_after_a_tightened_stride_keeps_painted_pixels() {
     let red = [255, 0, 0, 255];
     assert_eq!(pixel_at(&img, 2499, 0), red);
     assert_eq!(pixel_at(&img, 2999, 4199), red);
+}
+
+/// A band that keeps widening after the stride was tightened re-lays the rows
+/// out O(log W) times, not once per added column. The work is counted in pixels
+/// allocated by re-layouts, so the assertion does not depend on timing. The
+/// payload below is a small input whose final band is 3994 columns over 4200
+/// rows (16 774 800 pixels, inside the budget); a per-column re-layout would
+/// allocate about 25 billion pixels for it.
+#[test]
+fn widening_a_tightened_stride_is_amortised() {
+    let mut payload = b"#1;2;100;0;0#1!2500~".to_vec();
+    payload.extend(std::iter::repeat_n(b'-', 699));
+    payload.extend_from_slice(b"!3994~");
+    let (result, repacked) = decode_sixel_with_repack_work(&payload, SixelBackground::default());
+    let img = result.expect("3994x4200 is inside the budget");
+    assert_eq!((img.width, img.height), (3994, 4200));
+    let red = [255, 0, 0, 255];
+    assert_eq!(pixel_at(&img, 2499, 0), red, "first band survives");
+    assert_eq!(pixel_at(&img, 3993, 4199), red, "widened band is painted");
+    assert!(
+        repacked <= 4 * 16_777_216,
+        "re-layout work should stay within a few canvases, got {repacked} pixels"
+    );
+}
+
+/// An input that keeps reshaping the buffer in both axes while its drawn image
+/// stays inside the budget cannot repeat near-64 MiB re-layouts without bound:
+/// the cumulative re-layout allocation is capped at 16 canvases and the image is
+/// refused once it is spent. Counted in pixels, not time.
+#[test]
+fn endless_stride_reshaping_is_refused_at_the_relayout_budget() {
+    let mut payload = Vec::new();
+    for k in 0..700u32 {
+        let width = if k % 2 == 0 {
+            2500 + k / 2
+        } else {
+            2501 + k / 2
+        };
+        payload.extend(format!("!{width}~-").bytes());
+    }
+    let (result, repacked) = decode_sixel_with_repack_work(&payload, SixelBackground::default());
+    assert!(
+        matches!(result, Err(SixelError::TooLarge { .. })),
+        "reshaping past the re-layout budget is refused"
+    );
+    assert!(
+        repacked <= 17 * 16_777_216,
+        "work must stop at the budget plus the repack that exceeded it, got {repacked}"
+    );
 }
 
 /// The joint extent is still enforced when slack is not the cause: 5000x4200 is

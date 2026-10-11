@@ -183,18 +183,51 @@ impl CommandBuilder {
         self
     }
 
-    /// Standard OdyTTY child environment for an interactive shell spawn.
+    /// Standard OdyTTY child environment for an interactive shell spawn, with
+    /// a profile's `env` overrides applied last so a profile value wins over
+    /// every discovery advertisement.
     #[cfg(any(unix, windows))]
     pub(crate) fn apply_standard_interactive_shell_env(
         &mut self,
         settings: &crate::settings::Settings,
+        profile_env: &std::collections::BTreeMap<String, String>,
+    ) -> &mut Self {
+        self.apply_interactive_shell_env(
+            settings.shell_integration,
+            settings.buttons,
+            settings.shell_key_enhancement,
+            profile_env,
+        )
+    }
+
+    /// [`Self::apply_standard_interactive_shell_env`] from the individual
+    /// gates, for the Unix default-shell spawn.
+    #[cfg(any(unix, windows))]
+    pub(crate) fn apply_interactive_shell_env(
+        &mut self,
+        shell_integration: bool,
+        buttons: bool,
+        key_enhancement: bool,
+        profile_env: &std::collections::BTreeMap<String, String>,
     ) -> &mut Self {
         self.apply_terminal_env();
         self.apply_shell_integration_scrub();
-        self.apply_buttons_discovery_env(settings.buttons);
-        self.apply_key_enhancement_discovery_env(settings.shell_key_enhancement);
-        if settings.shell_integration {
+        self.apply_buttons_discovery_env(buttons);
+        self.apply_key_enhancement_discovery_env(key_enhancement);
+        if shell_integration {
+            // The zsh wrapper falls back to the child's HOME for its dotfiles
+            // when no ZDOTDIR is inherited, so a profile HOME is in place
+            // before integration reads it. Windows integration reads no
+            // environment, and a repeated key would reach its ConPTY block
+            // twice, so the early copy is Unix-only.
+            #[cfg(unix)]
+            if let Some(home) = profile_env.get("HOME") {
+                self.env("HOME", home.clone());
+            }
             crate::shell_integration::apply_spawn_integration(self);
+        }
+        for (key, value) in profile_env {
+            self.env(key.clone(), value.clone());
         }
         self
     }

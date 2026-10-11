@@ -976,3 +976,59 @@ fn role_window_keeps_free_wheel_scroll_until_keyboard_navigation() {
             .any(|line| line.focused)
     );
 }
+
+#[test]
+fn inherited_name_backspace_removes_whole_owners() {
+    for owner in [
+        "e\u{301}",
+        "\u{1f469}\u{200d}\u{1f4bb}",
+        "\u{1f1fa}\u{1f1f8}",
+        "\u{915}\u{94d}\u{937}",
+        "\u{e01}\u{e33}",
+    ] {
+        let mut builder = ThemeBuilder::new(&Settings::default());
+        let mut spec = builder.draft_for_test();
+        spec.name = format!("x{owner}");
+        builder.open_captured(&Settings::default(), spec);
+        builder.handle_input(OverlayInput::Save);
+        let before = builder.render_signature();
+        builder.handle_input(OverlayInput::Backspace);
+        assert_eq!(
+            builder.render_signature().editing,
+            Some(ThemeBuilderEditSignature::Name {
+                buffer: "x".to_owned()
+            }),
+            "{owner:?}"
+        );
+        assert_ne!(builder.render_signature(), before);
+        for _ in 0..2 {
+            builder.handle_input(OverlayInput::Backspace);
+        }
+        assert_eq!(
+            builder.render_signature().editing,
+            Some(ThemeBuilderEditSignature::Name {
+                buffer: String::new()
+            })
+        );
+    }
+}
+
+#[test]
+fn theme_edit_buffers_keep_ascii_input_policies() {
+    let mut builder = ThemeBuilder::new(&Settings::default());
+    builder.handle_input(OverlayInput::Save);
+    let before = builder.render_signature().editing;
+    for ch in "e\u{301}\u{1f469}\u{200d}\u{1f4bb}".chars().skip(1) {
+        builder.handle_input(OverlayInput::Char(ch));
+    }
+    assert_eq!(builder.render_signature().editing, before);
+    builder.handle_input(OverlayInput::Close);
+    builder.handle_input(OverlayInput::Activate);
+    builder.handle_input(OverlayInput::Char('F'));
+    builder.handle_input(OverlayInput::Char('\u{301}'));
+    assert!(matches!(builder.render_signature().editing,
+        Some(ThemeBuilderEditSignature::Color { buffer, .. }) if buffer == "f"));
+    builder.handle_input(OverlayInput::Backspace);
+    assert!(matches!(builder.render_signature().editing,
+        Some(ThemeBuilderEditSignature::Color { buffer, .. }) if buffer.is_empty()));
+}

@@ -70,8 +70,16 @@ fn followed_palette_status_changes_repaint_the_settings_row() {
             Some("applied")
         );
         let after_apply = app.palette_status_redraws_for_test();
+        assert!(
+            app.should_rebuild_frame_for_test(),
+            "arming the follower changed the row, so the idle frame gate must open"
+        );
 
-        // Source removed: the status row changes to the retained state.
+        // Source removed: the status row changes to the retained state. The
+        // frame gate is closed first (as after a presented frame): a repaint
+        // request alone cannot paint the row while the gate is shut.
+        app.clear_needs_rebuild_for_test();
+        assert!(!app.should_rebuild_frame_for_test(), "idle baseline");
         std::fs::remove_file(&path).expect("remove owned palette source");
         app.poll_palette_follow_for_test(start + Duration::from_secs(2));
         let retained = app.palette_status_row_for_test().expect("status row");
@@ -81,12 +89,22 @@ fn followed_palette_status_changes_repaint_the_settings_row() {
             after_retain > after_apply,
             "a status change from the poll must request a repaint"
         );
+        assert!(
+            app.should_rebuild_frame_for_test(),
+            "a status change from the poll must open the frame gate so the row is rebuilt"
+        );
 
         // A poll with nothing new changes no row and requests nothing.
+        app.clear_needs_rebuild_for_test();
         app.poll_palette_follow_for_test(start + Duration::from_secs(3));
         assert_eq!(app.palette_status_redraws_for_test(), after_retain);
+        assert!(
+            !app.should_rebuild_frame_for_test(),
+            "an unchanged poll must leave the frame gate closed"
+        );
 
         // Source restored: the row returns to applied and repaints again.
+        app.clear_needs_rebuild_for_test();
         std::fs::write(&path, PALETTE).expect("restore owned palette source");
         app.poll_palette_follow_for_test(start + Duration::from_secs(4));
         assert_eq!(
@@ -94,5 +112,9 @@ fn followed_palette_status_changes_repaint_the_settings_row() {
             Some("applied")
         );
         assert!(app.palette_status_redraws_for_test() > after_retain);
+        assert!(
+            app.should_rebuild_frame_for_test(),
+            "recovery from the poll must open the frame gate so the row is rebuilt"
+        );
     });
 }

@@ -267,6 +267,12 @@ impl ConnectionOverlay {
     /// connection-manager (`Connect`) purpose connects to an unsaved host; a
     /// bind picker offers saved hosts only, so it shows the plain "No matches".
     fn allows_adhoc(&self) -> bool {
+        self.is_manager()
+    }
+
+    /// Whether this is the connection manager (the `Connect` purpose), which
+    /// alone offers the Add and Edit shortcuts, profile rows and ad-hoc connect.
+    fn is_manager(&self) -> bool {
         matches!(self.purpose, ConnectionPickerPurpose::Connect)
     }
 
@@ -470,18 +476,25 @@ impl ConnectionOverlay {
             // Tab opens the Add-connection form; `\u{2192}` opens the Edit form for a
             // selected OdyTTY-owned row (P4). An `ssh-config`-imported row is
             // read-only, so `\u{2192}` there is inert. The footer add-row is not
-            // an editable host, so `\u{2192}` there is inert too.
-            OverlayInput::Tab => ConnectionOverlayOutcome::AddConnection,
-            OverlayInput::Right if self.add_row_focused => ConnectionOverlayOutcome::Consumed,
+            // an editable host, so `\u{2192}` there is inert too. Both are
+            // connection-manager shortcuts: a tagged picker (bind a workspace,
+            // connect from a tab, replace a tab) is mid-action, and leaving it
+            // for the form would drop its pending purpose, so they are inert
+            // there.
+            OverlayInput::Tab if self.is_manager() => ConnectionOverlayOutcome::AddConnection,
+            OverlayInput::Right if self.add_row_focused || !self.is_manager() => {
+                ConnectionOverlayOutcome::Consumed
+            }
             OverlayInput::Right => match self.selected_entry() {
                 Some(entry) if entry.source == ConnectionHostSource::Odytty => {
                     ConnectionOverlayOutcome::EditConnection(Box::new(entry.clone()))
                 }
                 _ => ConnectionOverlayOutcome::Consumed,
             },
-            OverlayInput::Char(_) | OverlayInput::Command(_) | OverlayInput::Left => {
-                ConnectionOverlayOutcome::Consumed
-            }
+            OverlayInput::Tab
+            | OverlayInput::Char(_)
+            | OverlayInput::Command(_)
+            | OverlayInput::Left => ConnectionOverlayOutcome::Consumed,
         }
     }
 
@@ -633,7 +646,7 @@ impl ConnectionOverlay {
                         body_width,
                     )
                 } else {
-                    "No matches".to_owned()
+                    truncate_for_width("No matches", body_width)
                 };
                 lines.push(ConnectionOverlayLine {
                     text,
@@ -791,6 +804,9 @@ impl ConnectionOverlay {
         // footer row moves the highlight without changing query/selection, so
         // fold it in or the highlight would freeze on a `Retained` frame.
         self.add_row_focused.hash(&mut hasher);
+        // The picker purpose changes the footer and the available actions
+        // without touching the query or the rows.
+        std::mem::discriminant(&self.purpose).hash(&mut hasher);
         for filtered_row in self.filtered.iter().take(MAX_RESULTS) {
             match filtered_row {
                 FilteredRow::Profile(index) => {
@@ -806,6 +822,9 @@ impl ConnectionOverlay {
                         entry.host_name.hash(&mut hasher);
                         entry.user.hash(&mut hasher);
                         entry.port.hash(&mut hasher);
+                        // Drawn in the row: the theme tag and the source tag.
+                        entry.theme.hash(&mut hasher);
+                        source_tag(entry.source).hash(&mut hasher);
                     }
                 }
             }
@@ -868,10 +887,18 @@ fn row_label(entry: &ConnectionHost) -> String {
     label
 }
 
-/// `user@host:port`, omitting any absent part. Falls back to the alias-only
-/// case by returning an empty string (the alias already leads the row).
+/// `user@host:port`, omitting any absent part. With neither a user nor a port
+/// and no explicit host name it returns an empty string (the alias already leads
+/// the row). A host without `HostName` connects to its alias, so a user or port
+/// on such a host shows the alias as the host instead of a dangling `user@` or
+/// `:port`.
 fn connection_target(entry: &ConnectionHost) -> String {
-    let host = entry.host_name.as_deref().unwrap_or("");
+    let explicit = entry.host_name.as_deref().unwrap_or("");
+    let host = if explicit.is_empty() && (entry.user.is_some() || entry.port.is_some()) {
+        entry.alias.as_str()
+    } else {
+        explicit
+    };
     let mut target = String::new();
     if let Some(user) = entry.user.as_deref() {
         target.push_str(&sanitize(user));
@@ -1445,6 +1472,69 @@ mod tests {
         }
     }
 
+    /// Tab (Add) and Right (Edit) are connection-manager shortcuts: in a tagged
+    /// picker they are inert, so the pending purpose is never abandoned for the
+    /// form. The manager still opens both.
+    #[test]
+    fn tagged_pickers_ignore_the_manager_only_add_and_edit_shortcuts() {
+        for purpose in [
+            ConnectionPickerPurpose::BindWorkspace,
+            ConnectionPickerPurpose::BindWorkspaceAt(SessionToken(1)),
+            ConnectionPickerPurpose::ConnectTabAfter(SessionToken(7)),
+            ConnectionPickerPurpose::ReplaceTab(SessionToken(7)),
+        ] {
+            let mut overlay = ConnectionOverlay::new();
+            overlay.open_for_purpose(entries(), purpose, Vec::new());
+            for input in [OverlayInput::Tab, OverlayInput::Right] {
+                assert_eq!(
+                    overlay.handle_input(input),
+                    ConnectionOverlayOutcome::Consumed,
+                    "{input:?} in {purpose:?}"
+                );
+            }
+        }
+        let mut manager = open(entries());
+        assert_eq!(
+            manager.handle_input(OverlayInput::Tab),
+            ConnectionOverlayOutcome::AddConnection
+        );
+        assert!(matches!(
+            manager.handle_input(OverlayInput::Right),
+            ConnectionOverlayOutcome::EditConnection(_)
+        ));
+    }
+
+    /// Visible row data and the picker purpose are part of the render signature,
+    /// so a replacement that keeps the query, selection and row count repaints.
+    #[test]
+    fn signature_covers_drawn_theme_source_and_picker_purpose() {
+        let base = || {
+            vec![host(
+                "box",
+                Some("gw.example.invalid"),
+                None,
+                None,
+                ConnectionHostSource::Odytty,
+            )]
+        };
+        let signature = |entries: Vec<ConnectionHost>, purpose| {
+            let mut overlay = ConnectionOverlay::new();
+            overlay.open_for_purpose(entries, purpose, Vec::new());
+            overlay.render_signature()
+        };
+        let plain = signature(base(), ConnectionPickerPurpose::Connect);
+        let mut themed = base();
+        themed[0].theme = Some("dracula".to_owned());
+        assert_ne!(signature(themed, ConnectionPickerPurpose::Connect), plain);
+        let mut imported = base();
+        imported[0].source = ConnectionHostSource::SshConfig;
+        assert_ne!(signature(imported, ConnectionPickerPurpose::Connect), plain);
+        assert_ne!(
+            signature(base(), ConnectionPickerPurpose::BindWorkspace),
+            plain
+        );
+    }
+
     fn open_for_bind(entries: Vec<ConnectionHost>) -> ConnectionOverlay {
         let mut overlay = ConnectionOverlay::new();
         overlay.open_for_purpose(entries, ConnectionPickerPurpose::BindWorkspace, Vec::new());
@@ -1602,6 +1692,57 @@ mod tests {
         assert!(lines[1].text.contains("(OdyTTY)"));
         // remote shows the ssh-config source tag.
         assert!(lines[3].text.contains("(ssh-config)"));
+    }
+
+    #[test]
+    fn an_implicit_host_shows_its_alias_beside_a_user_or_port() {
+        let target = |alias, host_name, user, port| {
+            connection_target(&host(
+                alias,
+                host_name,
+                user,
+                port,
+                ConnectionHostSource::SshConfig,
+            ))
+        };
+        // No HostName: ssh connects to the alias, so it is the shown host.
+        assert_eq!(target("box", None, Some("deploy"), None), "deploy@box");
+        assert_eq!(target("box", None, None, Some(2200)), "box:2200");
+        assert_eq!(
+            target("box", None, Some("deploy"), Some(2200)),
+            "deploy@box:2200"
+        );
+        // An explicit HostName still wins; nothing set leaves the alias alone.
+        assert_eq!(
+            target("box", Some("gw.example.invalid"), Some("deploy"), None),
+            "deploy@gw.example.invalid"
+        );
+        assert_eq!(target("box", None, None, None), "");
+        assert_eq!(
+            target("box", Some("gw.example.invalid"), None, None),
+            "gw.example.invalid"
+        );
+    }
+
+    #[test]
+    fn no_matches_hint_is_cut_to_a_tiny_body() {
+        let mut overlay = open(entries());
+        // A query with a space is no saved host and no ad-hoc destination.
+        type_query(&mut overlay, "q q q q q");
+        assert!(
+            overlay
+                .visible_lines(40, 4)
+                .iter()
+                .any(|line| line.text == "No matches"),
+            "the hint is shown in full when it fits"
+        );
+        for width in [0, 1, 5, 10] {
+            let lines = overlay.visible_lines(width, 4);
+            assert!(
+                lines.iter().all(|line| line.text.chars().count() <= width),
+                "width {width}: {lines:?}"
+            );
+        }
     }
 
     #[test]

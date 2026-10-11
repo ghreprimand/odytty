@@ -11,6 +11,10 @@ use super::{FsDesktopEnv, MAX_DESKTOP_FILE_BYTES, PlatformMimeProbe};
 use crate::desktop::{DesktopEnv, MimeProbe};
 
 const CHILD_ENV: &str = "ODYTTY_OPEN_WITH_LIVENESS_CHILD";
+const FIXTURE_ENV: &str = "ODYTTY_OPEN_WITH_LIVENESS_FIXTURE";
+/// Printed by a child only after its intended assertion ran. A child that runs
+/// zero tests (a drifted filter) exits successfully but never prints it.
+const DONE_TOKEN: &str = "ODYTTY-LIVENESS-DONE";
 
 struct TestDir(PathBuf);
 
@@ -41,7 +45,7 @@ fn run_child(test_name: &str, envs: &[(&str, &std::ffi::OsStr)], budget: Duratio
         .args(["--exact", test_name, "--nocapture"])
         .env(CHILD_ENV, "1")
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .process_group(0);
     for (key, value) in envs {
@@ -51,7 +55,13 @@ fn run_child(test_name: &str, envs: &[(&str, &std::ffi::OsStr)], budget: Duratio
     let deadline = Instant::now() + budget;
     loop {
         if let Some(status) = child.try_wait().expect("poll probe child") {
-            return status.success();
+            // The child prints a few harness lines at most, far below a pipe
+            // buffer, so reading after exit cannot block or truncate.
+            let mut output = String::new();
+            if let Some(mut stdout) = child.stdout.take() {
+                let _ = std::io::Read::read_to_string(&mut stdout, &mut output);
+            }
+            return status.success() && output.contains(DONE_TOKEN);
         }
         if Instant::now() >= deadline {
             kill_group(&mut child);
@@ -73,6 +83,18 @@ fn mime_helper_child_probe() {
         return;
     }
     assert_eq!(PlatformMimeProbe::host().query("/synthetic/document"), None);
+    println!("{DONE_TOKEN}");
+}
+
+#[test]
+fn a_child_that_ran_no_test_is_not_a_pass() {
+    // A drifted test filter makes the harness exit successfully having run
+    // nothing; without the completion token that must not count.
+    assert!(!run_child(
+        "native::app::open_with_ui::liveness_tests::no_such_probe",
+        &[],
+        Duration::from_secs(5),
+    ));
 }
 
 #[test]
@@ -101,6 +123,31 @@ fn open_with_caps_output_from_a_flooding_xdg_mime_helper() {
     ));
 }
 
+/// Production file reads, with both XDG ladders pinned inside the fixture so no
+/// ambient `HOME` or `XDG_*` entry can contribute, and every read recorded.
+struct FixtureEnv {
+    root: PathBuf,
+    reads: std::cell::RefCell<Vec<(PathBuf, bool)>>,
+}
+
+impl DesktopEnv for FixtureEnv {
+    fn config_dirs(&self) -> Vec<PathBuf> {
+        vec![self.root.join("config")]
+    }
+
+    fn data_dirs(&self) -> Vec<PathBuf> {
+        vec![self.root.clone()]
+    }
+
+    fn read_file(&self, path: &Path) -> Option<String> {
+        let text = FsDesktopEnv.read_file(path);
+        self.reads
+            .borrow_mut()
+            .push((path.to_path_buf(), text.is_some()));
+        text
+    }
+}
+
 #[test]
 fn desktop_fifo_child_probe() {
     if std::env::var_os(CHILD_ENV).is_none() {
@@ -112,7 +159,20 @@ fn desktop_fifo_child_probe() {
             Some("text/plain".to_owned())
         }
     }
-    let _ = crate::desktop::enumerate_open_with(&FixedMime, &FsDesktopEnv, "/synthetic/document");
+    let root = PathBuf::from(std::env::var_os(FIXTURE_ENV).expect("fixture root"));
+    let env = FixtureEnv {
+        root: root.clone(),
+        reads: Default::default(),
+    };
+    let apps = crate::desktop::enumerate_open_with(&FixedMime, &env, "/synthetic/document");
+    assert!(apps.is_empty(), "a FIFO entry is never offered: {apps:?}");
+    let blocked = root.join("applications").join("blocked.desktop");
+    let reads = env.reads.borrow();
+    assert!(
+        reads.iter().any(|(path, read)| path == &blocked && !read),
+        "the FIFO entry must be reached and refused: {reads:?}"
+    );
+    println!("{DONE_TOKEN}");
 }
 
 #[test]
@@ -137,7 +197,7 @@ fn open_with_rejects_fifo_desktop_files_without_blocking() {
     assert_eq!(result, 0, "create FIFO desktop fixture");
     assert!(run_child(
         "native::app::open_with_ui::liveness_tests::desktop_fifo_child_probe",
-        &[("XDG_DATA_HOME", fixture.0.as_os_str())],
+        &[(FIXTURE_ENV, fixture.0.as_os_str())],
         Duration::from_millis(700),
     ));
 }
@@ -145,14 +205,22 @@ fn open_with_rejects_fifo_desktop_files_without_blocking() {
 #[test]
 fn desktop_entry_reads_are_bounded_and_mime_sniff_rejects_special_files() {
     let fixture = TestDir::new();
+    // Many complete lines past the cap: the read keeps whole lines only.
+    let lines = fixture.0.join("lines.desktop");
+    let line = "Comment=a line of ordinary text\n";
+    let count = MAX_DESKTOP_FILE_BYTES as usize / line.len() + 8;
+    fs::write(&lines, line.repeat(count)).expect("write long desktop fixture");
+    let text = FsDesktopEnv
+        .read_file(&lines)
+        .expect("bounded regular-file read");
+    assert!(text.len() <= MAX_DESKTOP_FILE_BYTES as usize);
+    assert!(text.ends_with('\n') && text.len().is_multiple_of(line.len()));
+    // A source longer than the cap with no newline holds no complete line.
     let large = fixture.0.join("large.desktop");
     let file = fs::File::create(&large).expect("create large desktop fixture");
     file.set_len(512 * 1024)
         .expect("size large desktop fixture");
-    let text = FsDesktopEnv
-        .read_file(&large)
-        .expect("bounded regular-file read");
-    assert!(text.len() <= MAX_DESKTOP_FILE_BYTES as usize);
+    assert!(FsDesktopEnv.read_file(&large).is_none());
     assert!(super::platform_opener::sniff_mime_path("/dev/null").is_none());
 
     // Use the same bounded, token-checked child as the focused sniff test.

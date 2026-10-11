@@ -262,7 +262,6 @@ impl RemoteUpload {
         &self.destination
     }
 
-    #[cfg(not(test))]
     pub(in crate::native) fn port(&self) -> Option<u16> {
         self.port
     }
@@ -1321,7 +1320,11 @@ impl WorkspaceSet {
         } else {
             None
         };
-        Some(RemoteUpload::new(destination, host.port, control_dir))
+        Some(RemoteUpload::new(
+            destination,
+            crate::ssh_connect::ssh_port_override(host),
+            control_dir,
+        ))
     }
 
     fn spawn_ssh_command_in_new_tab(

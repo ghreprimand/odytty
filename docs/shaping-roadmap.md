@@ -59,6 +59,11 @@ outside this model (see Standing scope boundaries, below).
 
 ## Current support boundary
 
+Form-value editing uses the same terminal owner boundaries: Backspace removes
+the final owner in profile and connection fields, Settings edits, and Theme
+Builder save names. This does not change shaping, terminal input encoding,
+or the ASCII typing policies for Theme Builder names and hex values.
+
 Monochrome glyph atlases admit cell geometry before bitmap allocation. Invalid
 or oversized font metrics use an 8 by 16 pixel fallback cell. Very small
 texture limits use a 1 by 1 pixel fallback cell. Physical raster

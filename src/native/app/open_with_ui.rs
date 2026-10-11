@@ -31,8 +31,9 @@ use super::*;
 
 /// Maximum bytes read from any single `.desktop` / cache / list file. These are
 /// small text files; the cap stops a pathological/hostile file from being slurped
-/// whole. A truncated read still parses (a partial entry simply fails the
-/// `is_offerable` filter or drops a field) — never an error.
+/// whole. A file longer than the cap is read as its complete lines only (see
+/// [`read_capped_lines`]), so a command-bearing line cut by the cap is never
+/// parsed as if it were whole.
 ///
 /// Linux-only: the freedesktop file reads it bounds do not run on macOS.
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -190,17 +191,35 @@ impl DesktopEnv for FsDesktopEnv {
     }
 
     fn read_file(&self, path: &Path) -> Option<String> {
-        use std::io::Read;
         // Only regular files, opened without blocking: a FIFO planted at a
         // `mimeapps.list` or `.desktop` path must not freeze the picker.
         let file = crate::bounded_io::open_regular(path).ok()?;
-        let mut buf = String::new();
-        // Bounded read: a hostile/huge file is truncated rather than slurped.
-        file.take(MAX_DESKTOP_FILE_BYTES)
-            .read_to_string(&mut buf)
-            .ok()?;
-        Some(buf)
+        read_capped_lines(file, MAX_DESKTOP_FILE_BYTES)
     }
+}
+
+/// Read at most `cap` bytes of UTF-8 text from `reader`.
+///
+/// A source that ends within the cap is returned whole. A longer source is
+/// returned as the complete lines inside the cap: the partial line the cap cut
+/// is dropped, so a command-bearing field (`Exec=`) cut mid-argument is never
+/// offered and a cut inside a multi-byte scalar never loses the whole entry
+/// (the newline that ends the kept prefix is ASCII, so the prefix is always on
+/// a scalar boundary). A longer source with no newline inside the cap, a read
+/// error, and text that is not valid UTF-8 all yield `None`.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn read_capped_lines(reader: impl std::io::Read, cap: u64) -> Option<String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    reader
+        .take(cap.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if u64::try_from(bytes.len()).ok()? > cap {
+        let kept = bytes.iter().rposition(|&byte| byte == b'\n')? + 1;
+        bytes.truncate(kept);
+    }
+    String::from_utf8(bytes).ok()
 }
 
 impl App {
@@ -271,9 +290,8 @@ mod tests {
         let probe = PlatformMimeProbe::for_os(super::super::platform_opener::OpenerOs::Macos);
         let path = temp_probe_file("magic.png", &[0x89, b'P', b'N', b'G', 0x0d, 0x0a]);
 
-        let mime = probe.query(path.to_str().expect("utf8 temp path"));
+        let mime = probe.query(path.path().to_str().expect("utf8 temp path"));
 
-        let _ = std::fs::remove_file(&path);
         assert_eq!(mime, Some("image/png".to_owned()));
     }
 
@@ -291,20 +309,42 @@ mod tests {
         let probe = PlatformMimeProbe::for_os(super::super::platform_opener::OpenerOs::Windows);
         let path = temp_probe_file("magic-win.png", &[0x89, b'P', b'N', b'G', 0x0d, 0x0a]);
 
-        let mime = probe.query(path.to_str().expect("utf8 temp path"));
+        let mime = probe.query(path.path().to_str().expect("utf8 temp path"));
 
-        let _ = std::fs::remove_file(&path);
         assert_eq!(mime, Some("image/png".to_owned()));
     }
 
-    fn temp_probe_file(name: &str, bytes: &[u8]) -> PathBuf {
-        let path =
-            std::env::temp_dir().join(format!("odytty-open-with-ui-{}-{name}", std::process::id()));
+    /// A probe file inside its own fresh directory; the directory is removed
+    /// on drop, including when the test fails.
+    struct ProbeFile {
+        dir: PathBuf,
+        path: PathBuf,
+    }
+
+    impl ProbeFile {
+        fn path(&self) -> &std::path::Path {
+            &self.path
+        }
+    }
+
+    impl Drop for ProbeFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    fn temp_probe_file(name: &str, bytes: &[u8]) -> ProbeFile {
+        let dir = crate::test_dirs::fresh_temp_dir("odytty-open-with-ui-");
+        let path = dir.join(name);
         std::fs::write(&path, bytes).expect("write synthetic probe file");
-        path
+        ProbeFile { dir, path }
     }
 }
 
 #[cfg(all(test, target_os = "linux"))]
 #[path = "open_with_ui_liveness_tests.rs"]
 mod liveness_tests;
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "open_with_ui_read_tests.rs"]
+mod read_tests;

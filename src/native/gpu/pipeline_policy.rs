@@ -609,17 +609,58 @@ mod instance_owner_tests {
         );
     }
 
-    #[test]
-    fn headless_instance_owner_is_separate_from_production_owner() {
-        let backends = wgpu::Backends::PRIMARY;
-        let headless = headless_test_instance(backends);
-        let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
-        descriptor.backends = backends;
-        let production = process_instance(backends, descriptor);
+    fn check_instance_owner_isolation() {
+        // Injectable owners keep descriptor-admission checks outside live caches.
+        let presentation_owner = InstanceOwner::default();
+        let fixture_owner = InstanceOwner::default();
+        let backends = wgpu::Backends::empty();
+        let presentation_flags = wgpu::InstanceFlags::DEBUG;
+        let admitted_flags = std::cell::Cell::new(None);
+        let presentation = presentation_owner.get_or_insert_with(backends, || {
+            let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+            descriptor.backends = backends;
+            descriptor.flags = presentation_flags;
+            admitted_flags.set(Some(descriptor.flags));
+            wgpu::Instance::new(descriptor)
+        });
+        let fixture = fixture_owner.get_or_insert_with(backends, || {
+            let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+            descriptor.backends = backends;
+            descriptor.flags = wgpu::InstanceFlags::empty();
+            wgpu::Instance::new(descriptor)
+        });
         assert_ne!(
-            headless, production,
-            "test descriptors must not seed production instances"
+            fixture, presentation,
+            "domains own independent instance roots"
         );
-        assert_eq!(headless, headless_test_instance(backends));
+        assert_eq!(admitted_flags.get(), Some(presentation_flags));
+        assert_eq!(
+            presentation,
+            presentation_owner.get_or_insert_with(backends, || {
+                panic!("a cached presentation instance must preserve its admitted descriptor")
+            })
+        );
+        assert_eq!(
+            fixture,
+            fixture_owner.get_or_insert_with(backends, || {
+                panic!("a cached fixture instance must preserve its admitted descriptor")
+            })
+        );
+    }
+
+    #[test]
+    fn headless_isolation_check_never_admits_a_descriptor_to_the_live_owner() {
+        fn live_entries() -> usize {
+            INSTANCE_OWNER.get().map_or(0, |owner| {
+                owner.instances.lock().expect("live owner lock").len()
+            })
+        }
+        let before = live_entries();
+        check_instance_owner_isolation();
+        assert_eq!(
+            live_entries(),
+            before,
+            "isolation checks must not seed the live presentation owner"
+        );
     }
 }

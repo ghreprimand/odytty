@@ -18,6 +18,10 @@ use super::socket::{
 /// ceiling leaves ample room for future compatible fields while preventing a
 /// replaced file from forcing an unbounded allocation during session listing.
 pub(super) const MAX_SESSION_METADATA_BYTES: u64 = 64 * 1024;
+/// Largest pane count a metadata file may report. The value is only shown in the
+/// session list, so a corrupted or hostile huge number is clamped on read
+/// instead of flowing into the overlay.
+pub(super) const MAX_METADATA_PANE_COUNT: usize = 4096;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionMetadata {
@@ -95,7 +99,7 @@ pub fn read_session_metadata(runtime_dir: &Path, id: &str) -> Result<Option<Sess
         id: metadata_id,
         name: name.unwrap_or_else(|| id.to_owned()),
         created_unix_ms: created_unix_ms.unwrap_or_else(now_unix_ms),
-        pane_count: pane_count.unwrap_or(1).max(1),
+        pane_count: pane_count.unwrap_or(1).clamp(1, MAX_METADATA_PANE_COUNT),
     }))
 }
 

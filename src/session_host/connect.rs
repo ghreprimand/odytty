@@ -19,6 +19,14 @@ use std::time::{Duration, Instant};
 /// Pause between retries while a Linux listen backlog reports `EAGAIN`.
 const BACKLOG_RETRY_PAUSE: Duration = Duration::from_millis(5);
 
+/// Socket type for the client socket. Linux creates it close-on-exec
+/// atomically, so a concurrent spawn can never inherit a connected attach
+/// socket; other Unix systems set the flag in a second call right after.
+#[cfg(target_os = "linux")]
+const STREAM_SOCKET_TYPE: libc::c_int = libc::SOCK_STREAM | libc::SOCK_CLOEXEC;
+#[cfg(not(target_os = "linux"))]
+const STREAM_SOCKET_TYPE: libc::c_int = libc::SOCK_STREAM;
+
 /// Connect to `path`, waiting at most `deadline` for the host to take the
 /// connection. A zero deadline makes exactly one attempt and never waits.
 ///
@@ -28,16 +36,23 @@ const BACKLOG_RETRY_PAUSE: Duration = Duration::from_millis(5);
 pub(crate) fn connect_within(path: &Path, deadline: Duration) -> io::Result<UnixStream> {
     let (address, address_len) = socket_address(path)?;
     // SAFETY: plain socket(2) call; the result is checked before use.
-    let fd = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+    let fd = unsafe { libc::socket(libc::AF_UNIX, STREAM_SOCKET_TYPE, 0) };
     if fd < 0 {
         return Err(io::Error::last_os_error());
     }
     // SAFETY: `fd` is a freshly created, owned descriptor; the stream closes it
     // on every return path from here on.
     let stream = unsafe { UnixStream::from_raw_fd(fd) };
-    // SAFETY: fcntl on the descriptor owned by `stream`.
-    if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
-        return Err(io::Error::last_os_error());
+    // Where the type flag cannot carry close-on-exec, set it right after
+    // creation. A process spawned on another thread in that short window can
+    // inherit the connected socket, and the host then does not see this client
+    // leave until that child exits (macOS has no atomic form).
+    #[cfg(not(target_os = "linux"))]
+    {
+        // SAFETY: fcntl on the descriptor owned by `stream`.
+        if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
     }
     stream.set_nonblocking(true)?;
 
@@ -203,6 +218,29 @@ mod tests {
         crate::test_dirs::wait_until_socket_refuses(&path);
         let error = connect_within(&path, Duration::ZERO).expect_err("stale");
         assert_eq!(error.raw_os_error(), Some(libc::ECONNREFUSED));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn client_sockets_are_close_on_exec() {
+        let path = temp_socket("c");
+        let listener = UnixListener::bind(&path).expect("bind");
+        let stream = connect_within(&path, Duration::from_secs(5)).expect("connect");
+        // SAFETY: fcntl(F_GETFD) on a descriptor owned by `stream`.
+        let flags = unsafe { libc::fcntl(stream.as_raw_fd(), libc::F_GETFD) };
+        assert!(flags >= 0, "F_GETFD failed");
+        assert_ne!(
+            flags & libc::FD_CLOEXEC,
+            0,
+            "client socket must not leak to children"
+        );
+        #[cfg(target_os = "linux")]
+        assert_ne!(
+            STREAM_SOCKET_TYPE & libc::SOCK_CLOEXEC,
+            0,
+            "Linux creates the socket close-on-exec atomically"
+        );
+        drop(listener);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 

@@ -314,6 +314,8 @@ Environment values pass through fork/exec on Unix and fold into the ConPTY
 environment block on Windows. Environment keys and values are validated against
 the platform's rules at the schema boundary before launch, so a profile cannot
 carry a name the target platform's process environment cannot represent.
+With shell integration on, a profile `HOME` is also where zsh reads its startup
+files when no `ZDOTDIR` is inherited.
 
 ## Import, export, and migration
 

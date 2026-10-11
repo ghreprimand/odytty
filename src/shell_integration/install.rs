@@ -80,8 +80,8 @@ pub(super) fn apply_spawn_integration_in_dir(
                 .all(|(name, body)| write_if_needed(&dir.join(name), body).is_ok())
             {
                 // The child's own HOME when the command sets one (a test
-                // build's child home, or a profile override), else the
-                // inherited one.
+                // build's child home, or a profile override, which the spawn
+                // paths set before integration), else the inherited one.
                 // Test builds read these through the lock-aware spawn reader,
                 // never another test's redirected environment.
                 let original = crate::settings::spawn_env_var("ZDOTDIR");

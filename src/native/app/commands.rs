@@ -409,9 +409,19 @@ impl App {
     /// directly - no nested confirm-close dialog, since the user explicitly chose
     /// Replace. A stale id (nothing attached) leaves the current tab untouched.
     pub(super) fn attach_session_replacing_current(&mut self, session_id: String) {
+        self.replace_current_with(|app| app.attach_session_in_new_tab(None, &session_id));
+    }
+
+    /// The Replace route around one attach: `attach` must present the new tab
+    /// and focus it. Tests pass an attach over a fake host here, so the close
+    /// and focus steps they check are the production ones.
+    pub(super) fn replace_current_with(
+        &mut self,
+        attach: impl FnOnce(&mut Self) -> std::io::Result<()>,
+    ) {
         self.finish_divider_drag();
         let replace_target = self.sessions.active_id();
-        if self.attach_session_in_new_tab(None, &session_id).is_err() {
+        if attach(self).is_err() {
             return;
         }
         if let Some(tab_idx) = self.sessions.position_of_token(replace_target) {

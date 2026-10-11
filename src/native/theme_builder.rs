@@ -723,7 +723,11 @@ impl ThemeBuilder {
                             buffer.pop();
                         }
                     }
-                    Some(EditMode::Name { buffer }) | Some(EditMode::Seed { buffer }) => {
+                    Some(EditMode::Name { buffer }) => {
+                        // A captured name can retain Unicode from the active theme.
+                        crate::core::pop_text_owner(buffer);
+                    }
+                    Some(EditMode::Seed { buffer }) => {
                         buffer.pop();
                     }
                     None => {}

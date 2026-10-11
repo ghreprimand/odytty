@@ -574,15 +574,7 @@ fn handle_attach(
     if !versions_compatible(hello) {
         write_hello_bounded(
             stream,
-            &HostHello::rejected(format!(
-                "incompatible protocol versions: host={} snapshot_format={} snapshot_protocol={}, expected host={} snapshot_format={} snapshot_protocol={}",
-                hello.host_protocol_version,
-                hello.snapshot_format_version,
-                hello.snapshot_protocol_version,
-                super::protocol::HOST_PROTOCOL_VERSION,
-                SNAPSHOT_FORMAT_VERSION,
-                SNAPSHOT_PROTOCOL_VERSION
-            )),
+            &HostHello::rejected(incompatible_versions_message(hello)),
         )?;
         return Ok(());
     }
@@ -748,6 +740,25 @@ fn drain_pty_events(
 /// Fetch one event without exceeding the per-loop fairness budget. Kept
 /// separate from event handling so the starvation boundary is unit-testable
 /// without constructing a live PTY session.
+/// The rejection sent to a client whose protocol or snapshot versions differ
+/// from this host's. A host keeps the versions of the binary that started it, so
+/// after an upgrade a session it still hosts cannot be attached by the newer
+/// client; the message says which side holds which version and what to do.
+fn incompatible_versions_message(hello: &ClientHello) -> String {
+    format!(
+        "incompatible protocol versions: this client uses host_protocol={} snapshot_format={} \
+         snapshot_protocol={}, but this session is hosted by a different OdyTTY version that \
+         expects host_protocol={} snapshot_format={} snapshot_protocol={}; keep using the version \
+         that started the session until it ends, or end the session from that version",
+        hello.host_protocol_version,
+        hello.snapshot_format_version,
+        hello.snapshot_protocol_version,
+        super::protocol::HOST_PROTOCOL_VERSION,
+        SNAPSHOT_FORMAT_VERSION,
+        SNAPSHOT_PROTOCOL_VERSION
+    )
+}
+
 fn next_pty_event(pty_rx: &Receiver<PtyEvent>, processed: usize) -> Option<PtyEvent> {
     if processed >= MAX_PTY_EVENTS_PER_TICK {
         return None;
@@ -806,8 +817,9 @@ fn drain_client_events(
         // Clamp happens in `latest_resize_in`, BEFORE the terminal-model resize
         // allocates the grid (the PTY winsize u16 clamp in `session.resize` runs
         // too late to protect it).
-        terminal.resize(dimensions.columns, dimensions.rows);
-        session.resize(dimensions)?;
+        apply_resize(terminal, dimensions, |dimensions| {
+            session.resize(dimensions)
+        });
         // C-3: broadcast the applied dimensions to EVERY client, not just the one
         // that requested the resize. A bare `Invalidate` only triggers a repaint;
         // the peers' mirrors would keep advancing at their old width against
@@ -826,6 +838,26 @@ fn drain_client_events(
         );
     }
     Ok(shutdown_requested)
+}
+
+/// Apply one coalesced resize: the terminal model first (so the grid the
+/// clients are told about is the grid the host formats for), then the PTY
+/// window size. A PTY resize failure is logged and does not end the host: it
+/// races the child's exit (the slave side is already closed) or is a transient
+/// ioctl error, and the host loop reports the real end of the session through
+/// the child-exit and PTY-EOF paths with its exit code and final output intact.
+/// Ending the host here would instead kill a session that would otherwise exit
+/// normally. The model and the clients' mirrors stay in step with each other; a
+/// later resize repeats the PTY call.
+fn apply_resize(
+    terminal: &mut Terminal,
+    dimensions: Dimensions,
+    resize_pty: impl FnOnce(Dimensions) -> Result<()>,
+) {
+    terminal.resize(dimensions.columns, dimensions.rows);
+    if let Err(error) = resize_pty(dimensions) {
+        tracing::warn!("session-host: PTY resize failed, keeping the session: {error:#}");
+    }
 }
 
 fn next_client_event(client_rx: &Receiver<ClientEvent>, processed: usize) -> Option<ClientEvent> {
@@ -990,6 +1022,9 @@ fn wait_for_socket(socket_path: &std::path::Path, timeout: Duration) -> Result<(
 
 fn parse_internal_host_args(args: &[String]) -> Result<HostConfig> {
     let mut config = HostConfig::new("default");
+    // Applied after the loop so the result does not depend on flag order: the
+    // directory belongs to whichever command the arguments finally select.
+    let mut working_directory: Option<PathBuf> = None;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -1043,19 +1078,10 @@ fn parse_internal_host_args(args: &[String]) -> Result<HostConfig> {
             }
             "--working-directory" => {
                 index += 1;
-                let path = PathBuf::from(
-                    args.get(index)
-                        .ok_or_else(|| anyhow::anyhow!("--working-directory requires a value"))?,
-                );
-                match &mut config.command {
-                    HostCommand::DefaultShell { working_directory }
-                    | HostCommand::Exec {
-                        working_directory, ..
-                    } => *working_directory = Some(path),
-                    HostCommand::ShellCommand(_) => {
-                        bail!("--working-directory is not supported with --shell-command")
-                    }
-                }
+                working_directory =
+                    Some(PathBuf::from(args.get(index).ok_or_else(|| {
+                        anyhow::anyhow!("--working-directory requires a value")
+                    })?));
                 index += 1;
             }
             "--shell-command" => {
@@ -1079,13 +1105,22 @@ fn parse_internal_host_args(args: &[String]) -> Result<HostConfig> {
                     args: rest,
                     working_directory: None,
                 };
+                // Everything after the program belongs to the child.
                 break;
             }
             value => bail!("unknown session-host argument: {value}"),
         }
     }
-    if config.dimensions.columns == 0 || config.dimensions.rows == 0 {
-        bail!("session-host dimensions must be nonzero");
+    if let Some(path) = working_directory {
+        match &mut config.command {
+            HostCommand::DefaultShell { working_directory }
+            | HostCommand::Exec {
+                working_directory, ..
+            } => *working_directory = Some(path),
+            HostCommand::ShellCommand(_) => {
+                bail!("--working-directory is not supported with --shell-command")
+            }
+        }
     }
     Ok(config)
 }
@@ -1550,5 +1585,123 @@ mod hardening_tests {
                 other => panic!("unexpected poll while completing: {other:?}"),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod launch_tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|arg| (*arg).to_owned()).collect()
+    }
+
+    fn working_directory_of(config: &HostConfig) -> Option<&PathBuf> {
+        match &config.command {
+            HostCommand::DefaultShell { working_directory }
+            | HostCommand::Exec {
+                working_directory, ..
+            } => working_directory.as_ref(),
+            HostCommand::ShellCommand(_) => None,
+        }
+    }
+
+    #[test]
+    fn working_directory_reaches_the_default_shell_in_either_order() {
+        for list in [
+            &["--working-directory", "/work", "--cols", "90"][..],
+            &["--cols", "90", "--working-directory", "/work"][..],
+        ] {
+            let config = parse_internal_host_args(&args(list)).expect("parse");
+            assert_eq!(working_directory_of(&config), Some(&PathBuf::from("/work")));
+        }
+    }
+
+    #[test]
+    fn working_directory_given_before_exec_reaches_the_program() {
+        let config = parse_internal_host_args(&args(&[
+            "--working-directory",
+            "/work",
+            "--exec",
+            "prog",
+            "--working-directory",
+            "belongs-to-the-child",
+        ]))
+        .expect("parse");
+        assert_eq!(working_directory_of(&config), Some(&PathBuf::from("/work")));
+        let HostCommand::Exec { program, args, .. } = &config.command else {
+            panic!("expected an exec command");
+        };
+        assert_eq!(program, &OsString::from("prog"));
+        assert_eq!(
+            args,
+            &[
+                OsString::from("--working-directory"),
+                OsString::from("belongs-to-the-child")
+            ],
+            "arguments after the program are the child's"
+        );
+    }
+
+    #[test]
+    fn working_directory_with_a_shell_command_is_refused_in_either_order() {
+        for list in [
+            &["--working-directory", "/work", "--shell-command", "ls"][..],
+            &["--shell-command", "ls", "--working-directory", "/work"][..],
+        ] {
+            let error = parse_internal_host_args(&args(list)).expect_err("refused");
+            assert!(
+                error
+                    .to_string()
+                    .contains("not supported with --shell-command"),
+                "unexpected error: {error:#}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_pty_resize_failure_keeps_the_session_and_the_model_in_step_with_clients() {
+        let mut terminal = Terminal::new(80, 24);
+        apply_resize(&mut terminal, Dimensions::new(100, 30), |_| {
+            Err(anyhow::anyhow!("resize pty: injected failure"))
+        });
+        let snapshot = terminal.snapshot_with_scrollback(0);
+        assert_eq!(snapshot.dimensions, Dimensions::new(100, 30));
+    }
+
+    #[test]
+    fn a_successful_pty_resize_receives_the_applied_dimensions() {
+        let mut terminal = Terminal::new(80, 24);
+        let mut seen = None;
+        apply_resize(&mut terminal, Dimensions::new(120, 40), |dimensions| {
+            seen = Some(dimensions);
+            Ok(())
+        });
+        assert_eq!(seen, Some(Dimensions::new(120, 40)));
+        assert_eq!(
+            terminal.snapshot_with_scrollback(0).dimensions,
+            Dimensions::new(120, 40)
+        );
+    }
+
+    #[test]
+    fn the_version_rejection_names_both_sides_and_the_remedy() {
+        let hello = ClientHello {
+            host_protocol_version: 9,
+            snapshot_format_version: 8,
+            snapshot_protocol_version: 7,
+            session_id: "s".to_owned(),
+        };
+        let message = incompatible_versions_message(&hello);
+        assert!(message.contains("this client uses host_protocol=9 snapshot_format=8"));
+        assert!(message.contains(&format!(
+            "expects host_protocol={}",
+            super::super::protocol::HOST_PROTOCOL_VERSION
+        )));
+        assert!(
+            message.contains("different OdyTTY version")
+                && message.contains("keep using the version that started the session"),
+            "the rejection must say why and what to do: {message}"
+        );
     }
 }

@@ -29,10 +29,10 @@ const BROWSE_CHIP: &str = "[Browse]";
 /// The chip drawn when IdentityFile is empty: doubles as the discoverability
 /// hint (keyboard Enter or a click both open the key browser).
 const BROWSE_CHIP_EMPTY: &str = "[Browse ~/.ssh keys]";
-/// Shared prefix of both chip variants; the click hit-test locates the chip by
-/// finding this marker in the rendered row, so the target always matches what
-/// is drawn (no parallel geometry).
-const BROWSE_CHIP_MARKER: &str = "[Browse";
+/// How much of either chip must be drawn for a click on it to open the browser:
+/// the shared `[Browse` opening. A chip clipped to fewer cells is not offered as
+/// a target, so the click falls through to plain focus.
+const BROWSE_CHIP_MIN_VISIBLE: usize = "[Browse".len();
 
 /// One focusable control in the form, in top-to-bottom order within each group.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -132,7 +132,7 @@ enum TestState {
     Idle,
     /// A probe is in flight (the App is running it on a background thread).
     Running,
-    /// A probe finished with this tri-state classification.
+    /// A probe finished with this classification.
     Done(ProbeClass),
     /// The probe could not be spawned / built (e.g. invalid host); the message
     /// is a short, non-credential reason.
@@ -164,7 +164,7 @@ pub(super) enum ConnectionFormOutcome {
         edit_target: Option<String>,
     },
     /// Run a background Test Connection probe against the built host (ODP-8).
-    /// The form stays open and shows the tri-state result when it lands.
+    /// The form stays open and shows the probe result when it lands.
     Test(Box<ConnectionHost>),
     /// Open the IdentityFile key browser (FORM-UX). The form stays open; the App
     /// scans `~/.ssh` for candidate private keys (filename heuristics only —
@@ -179,7 +179,7 @@ pub(super) struct ConnectionFormLine {
     pub(super) text: String,
     pub(super) focused: bool,
     pub(super) bold: bool,
-    /// A small color swatch drawn at the row start — the tri-state Test result
+    /// A small color swatch drawn at the row start, the Test result
     /// indicator (green ok / amber interactive-auth / red failure). `None` for
     /// every ordinary field row.
     pub(super) swatch: Option<Srgb>,
@@ -197,8 +197,9 @@ pub(super) struct ConnectionFormSignature {
     error: Option<String>,
     test: TestState,
     /// The IdentityFile browser state (FORM-UX): `None` when the form shows its
-    /// fields, else the browser's query + selection so a repaint tracks it.
-    browse: Option<(String, usize, usize, usize)>,
+    /// fields, else the browser's query, selection, scroll and a fingerprint of
+    /// its candidate list so a repaint tracks everything it draws.
+    browse: Option<(String, usize, usize, usize, u64)>,
 }
 
 /// The in-form IdentityFile key browser (FORM-UX). A seeded, type-to-filter
@@ -227,6 +228,16 @@ impl KeyBrowse {
         };
         browse.recompute();
         browse
+    }
+
+    /// A hash of the candidate paths: the drawn names depend on it, so a list
+    /// replaced by another of the same length, query and selection still changes
+    /// the render signature.
+    fn candidates_fingerprint(&self) -> u64 {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        self.candidates.hash(&mut hasher);
+        hasher.finish()
     }
 
     fn recompute(&mut self) {
@@ -514,7 +525,7 @@ impl ConnectionForm {
             OverlayInput::Activate | OverlayInput::ActivateAlt => self.activate_focus(),
             OverlayInput::Backspace => {
                 if let Some(buf) = self.text_buf_mut(self.focus) {
-                    buf.pop();
+                    crate::core::pop_text_owner(buf);
                     self.invalidate_test();
                 }
                 ConnectionFormOutcome::Consumed
@@ -681,11 +692,35 @@ impl ConnectionForm {
         {
             return None;
         }
-        let line = self.render_field(FormField::IdentityFile, body_width).text;
-        let byte_start = line.rfind(BROWSE_CHIP_MARKER)?;
-        let col_start = line[..byte_start].chars().count();
-        let col_end = line.chars().count();
-        Some((col_start, col_end))
+        // The chip starts where the row's own prefix ends. The prefix comes from
+        // the same helper the renderer uses, never from searching the clipped
+        // text, so a key path that itself contains `[Browse` cannot be mistaken
+        // for the chip when the real chip is cut off; a chip cut partway stays
+        // clickable over the cells that are drawn.
+        let (prefix, chip) = self.identity_row_parts(self.focus == FormField::IdentityFile);
+        let drawn = prefix
+            .chars()
+            .count()
+            .saturating_add(chip.chars().count())
+            .min(body_width);
+        let col_start = prefix.chars().count();
+        (drawn.saturating_sub(col_start) >= BROWSE_CHIP_MIN_VISIBLE).then_some((col_start, drawn))
+    }
+
+    /// The IdentityFile row as `(text before the chip, chip)`: the label, the
+    /// stored path with the edit caret and a gap when a path is set, then the
+    /// render-only chip. Shared by the renderer and the click hit-test.
+    fn identity_row_parts(&self, focused: bool) -> (String, &'static str) {
+        let label = format!("{:<13}", FormField::IdentityFile.label());
+        if self.identity_file.is_empty() {
+            (label, BROWSE_CHIP_EMPTY)
+        } else {
+            let caret = if focused { "\u{2588}" } else { "" };
+            (
+                format!("{label}{}{caret}  ", self.identity_file),
+                BROWSE_CHIP,
+            )
+        }
     }
 
     /// The field rendered on body row `row`, if any (spacer / header / error
@@ -933,11 +968,8 @@ impl ConnectionForm {
                 // host. Any typed character or a picked path replaces the value.
                 let caret = if focused { "\u{2588}" } else { "" };
                 if field == FormField::IdentityFile {
-                    if value.is_empty() {
-                        format!("{:<13}{BROWSE_CHIP_EMPTY}", field.label())
-                    } else {
-                        format!("{:<13}{value}{caret}  {BROWSE_CHIP}", field.label())
-                    }
+                    let (prefix, chip) = self.identity_row_parts(focused);
+                    format!("{prefix}{chip}")
                 } else {
                     // A trailing caret marks the edit cursor on the focused field.
                     format!("{:<13}{value}{caret}", field.label())
@@ -1067,9 +1099,9 @@ impl ConnectionForm {
         if browse.filtered.is_empty() {
             if lines.len() < body_height {
                 let hint = if browse.candidates.is_empty() {
-                    "No keys found under ~/.ssh \u{2014} Esc, then type a path manually"
+                    "No keys found under ~/.ssh - Esc, then type a path manually"
                 } else {
-                    "No matches \u{2014} Esc to go back"
+                    "No matches - Esc to go back"
                 };
                 lines.push(ConnectionFormLine {
                     text: truncate_for_width(hint, body_width),
@@ -1110,9 +1142,8 @@ impl ConnectionForm {
     }
 
     /// The Test-result status line (text + optional swatch), or `None` when no
-    /// probe has run for the current fields. The amber copy states outright that
-    /// an interactive-auth result is EXPECTED for a password host and the connect
-    /// will still work, so amber never reads as "broken".
+    /// probe has run for the current fields. Amber reports offered interactive
+    /// methods without promising that authentication will succeed.
     fn test_status(&self) -> Option<(String, Option<Srgb>)> {
         match &self.test {
             TestState::Idle => None,
@@ -1124,21 +1155,28 @@ impl ConnectionForm {
                 Some((format!("Test could not run: {message}"), Some(TEST_RED)))
             }
             TestState::Done(class) => Some(match class {
-                ProbeClass::AuthOk => (
-                    "Reachable \u{2014} key/agent auth OK".to_owned(),
-                    Some(TEST_GREEN),
-                ),
+                ProbeClass::AuthOk => {
+                    ("Reachable - key/agent auth OK".to_owned(), Some(TEST_GREEN))
+                }
                 ProbeClass::InteractiveAuth => (
-                    "Reachable \u{2014} will prompt for a password when you connect (expected)"
+                    "Reachable - interactive authentication available; credentials required"
                         .to_owned(),
                     Some(TEST_AMBER),
                 ),
+                ProbeClass::AuthRejected => (
+                    "Authentication rejected - check the key or agent".to_owned(),
+                    Some(TEST_RED),
+                ),
+                ProbeClass::HostKeyUntrusted => (
+                    "Host key untrusted - verify the host before connecting".to_owned(),
+                    Some(TEST_RED),
+                ),
                 ProbeClass::HostKeyMismatch => (
-                    "Host key mismatch \u{2014} verify the host before connecting".to_owned(),
+                    "Host key mismatch - verify the host before connecting".to_owned(),
                     Some(TEST_RED),
                 ),
                 ProbeClass::Unreachable => (
-                    "Unreachable \u{2014} check the host, port, and network".to_owned(),
+                    "Unreachable - check the host, port, and network".to_owned(),
                     Some(TEST_RED),
                 ),
             }),
@@ -1170,6 +1208,7 @@ impl ConnectionForm {
                     b.selected,
                     b.filtered.len(),
                     b.scroll_offset.get(),
+                    b.candidates_fingerprint(),
                 )
             }),
         }
@@ -1189,7 +1228,7 @@ enum FormRow {
     Help(FormField),
 }
 
-/// Fixed status colors for the tri-state Test result. These are semantic status
+/// Fixed status colors for the Test result. These are semantic status
 /// indicators (ok / caution / failure), not theme chrome, so they are fixed
 /// rather than derived from a theme role.
 const TEST_GREEN: Srgb = (0x3f, 0xc0, 0x60);
@@ -1255,720 +1294,13 @@ fn wrap_for_width(text: &str, width: usize) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn query_backspace_removes_one_terminal_owner() {
-        for owner in [
-            "e\u{301}",
-            "\u{1f469}\u{200d}\u{1f4bb}",
-            "\u{1f1fa}\u{1f1f8}",
-            "\u{915}\u{94d}\u{937}\u{93f}",
-            "\u{0e01}\u{0e49}",
-        ] {
-            let mut field = ConnectionForm::new();
-            field.open_add(Vec::new());
-            field.open_key_browse(Vec::new());
-            for ch in format!("x{owner}").chars() {
-                field.handle_input(OverlayInput::Char(ch));
-            }
-            assert_eq!(
-                field.browse.as_ref().expect("browser").query,
-                format!("x{owner}")
-            );
-            field.handle_input(OverlayInput::Backspace);
-            assert_eq!(
-                field.browse.as_ref().expect("browser").query,
-                "x",
-                "{owner:?}"
-            );
-            field.handle_input(OverlayInput::Backspace);
-            assert_eq!(field.browse.as_ref().expect("browser").query, "");
-            field.handle_input(OverlayInput::Backspace);
-            assert_eq!(field.browse.as_ref().expect("browser").query, "");
-        }
-    }
-
-    use super::*;
-
-    fn typed(form: &mut ConnectionForm, text: &str) {
-        for ch in text.chars() {
-            form.handle_input(OverlayInput::Char(ch));
-        }
-    }
-
-    fn saved(form: &mut ConnectionForm) -> Option<(ConnectionHost, Option<String>)> {
-        match form.handle_input(OverlayInput::Save) {
-            ConnectionFormOutcome::Save { host, edit_target } => Some((*host, edit_target)),
-            _ => None,
-        }
-    }
-
-    #[test]
-    fn add_form_builds_a_host_and_appends() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        // Focus starts on Alias.
-        typed(&mut form, "web1");
-        form.handle_input(OverlayInput::Down); // HostName
-        typed(&mut form, "gateway.example.invalid");
-        form.handle_input(OverlayInput::Down); // User
-        typed(&mut form, "deploy");
-        form.handle_input(OverlayInput::Down); // Port
-        typed(&mut form, "2222");
-        let (host, edit_target) = saved(&mut form).expect("save");
-        assert_eq!(edit_target, None, "Add appends");
-        assert_eq!(host.alias, "web1");
-        assert_eq!(host.host_name.as_deref(), Some("gateway.example.invalid"));
-        assert_eq!(host.user.as_deref(), Some("deploy"));
-        assert_eq!(host.port, Some(2222));
-    }
-
-    #[test]
-    fn empty_alias_blocks_save_with_an_inline_error() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        assert_eq!(
-            form.handle_input(OverlayInput::Save),
-            ConnectionFormOutcome::Consumed
-        );
-        let lines = form.visible_lines(72, 40);
-        assert!(lines.iter().any(|l| l.text.contains("Alias is required")));
-    }
-
-    #[test]
-    fn bad_port_blocks_save() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        typed(&mut form, "h");
-        form.handle_input(OverlayInput::Down); // HostName
-        form.handle_input(OverlayInput::Down); // User
-        form.handle_input(OverlayInput::Down); // Port
-        typed(&mut form, "99999");
-        assert_eq!(
-            form.handle_input(OverlayInput::Save),
-            ConnectionFormOutcome::Consumed
-        );
-        assert!(form.error.as_deref().unwrap().contains("Port"));
-    }
-
-    #[test]
-    fn alias_collision_blocks_add() {
-        let mut form = ConnectionForm::new();
-        form.open_add(vec!["taken".to_owned()]);
-        typed(&mut form, "taken");
-        assert_eq!(
-            form.handle_input(OverlayInput::Save),
-            ConnectionFormOutcome::Consumed
-        );
-        assert!(form.error.as_deref().unwrap().contains("already exists"));
-    }
-
-    #[test]
-    fn leading_dash_alias_is_rejected() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        typed(&mut form, "-bad");
-        assert_eq!(
-            form.handle_input(OverlayInput::Save),
-            ConnectionFormOutcome::Consumed
-        );
-        assert!(form.error.is_some());
-    }
-
-    #[test]
-    fn edit_prefills_and_saves_with_the_original_alias() {
-        let host = ConnectionHost {
-            alias: "alpha".to_owned(),
-            host_name: Some("alpha.example.invalid".to_owned()),
-            user: Some("alice".to_owned()),
-            port: Some(2200),
-            theme: None,
-            font: None,
-            title: None,
-            integration: Some(false),
-            reuse: None,
-            tmux: None,
-            protocol: Some("ssh".to_owned()),
-            persist: None,
-            identity_file: Some("/home/user/.ssh/alpha.example".to_owned()),
-            source: ConnectionHostSource::Odytty,
-        };
-        let mut form = ConnectionForm::new();
-        form.open_edit(&host, Vec::new());
-        // Rename alpha -> alpha2 (append a "2").
-        typed(&mut form, "2");
-        let (built, edit_target) = saved(&mut form).expect("save");
-        assert_eq!(
-            edit_target.as_deref(),
-            Some("alpha"),
-            "Edit targets the original block"
-        );
-        assert_eq!(built.alias, "alpha2");
-        // Pre-filled fields survive.
-        assert_eq!(built.user.as_deref(), Some("alice"));
-        assert_eq!(built.port, Some(2200));
-        assert_eq!(built.integration, Some(false));
-        // Reserved protocol is carried through opaquely, not dropped.
-        assert_eq!(built.protocol.as_deref(), Some("ssh"));
-        // IdentityFile is pre-filled and preserved.
-        assert_eq!(
-            built.identity_file.as_deref(),
-            Some("/home/user/.ssh/alpha.example")
-        );
-    }
-
-    #[test]
-    fn advanced_toggle_reveals_and_hides_override_fields() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        assert!(!form.advanced);
-        assert!(!form.fields().contains(&FormField::Integration));
-        form.focus = FormField::Advanced;
-        form.handle_input(OverlayInput::Activate);
-        assert!(form.advanced);
-        assert!(form.fields().contains(&FormField::Integration));
-    }
-
-    #[test]
-    fn tristate_cycles_inherit_on_off() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.advanced = true;
-        form.focus = FormField::Reuse;
-        assert_eq!(form.reuse, None);
-        form.handle_input(OverlayInput::Right);
-        assert_eq!(form.reuse, Some(true));
-        form.handle_input(OverlayInput::Right);
-        assert_eq!(form.reuse, Some(false));
-        form.handle_input(OverlayInput::Right);
-        assert_eq!(form.reuse, None);
-        // Left cycles the other way.
-        form.handle_input(OverlayInput::Left);
-        assert_eq!(form.reuse, Some(false));
-        // Space also cycles a tri-state (there is no text to type there).
-        form.reuse = None;
-        form.handle_input(OverlayInput::Char(' '));
-        assert_eq!(form.reuse, Some(true));
-    }
-
-    #[test]
-    fn identity_file_field_round_trips_into_the_saved_host() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        typed(&mut form, "k");
-        form.advanced = true;
-        form.focus = FormField::IdentityFile;
-        typed(&mut form, "/home/user/.ssh/id_ed25519.example");
-        let (host, _) = saved(&mut form).expect("save");
-        assert_eq!(
-            host.identity_file.as_deref(),
-            Some("/home/user/.ssh/id_ed25519.example")
-        );
-    }
-
-    #[test]
-    fn cancel_closes_without_saving() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.focus = FormField::Cancel;
-        assert_eq!(
-            form.handle_input(OverlayInput::Activate),
-            ConnectionFormOutcome::Close
-        );
-    }
-
-    #[test]
-    fn esc_closes() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        assert_eq!(
-            form.handle_input(OverlayInput::Close),
-            ConnectionFormOutcome::Close
-        );
-    }
-
-    #[test]
-    fn click_focuses_a_field_and_acts_on_a_button() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.visible_lines(80, 40);
-        // Row 1 is HostName (row 0 = Alias). A click focuses it.
-        assert_eq!(
-            form.handle_pointer_press(1, 0, 80),
-            ConnectionFormOutcome::Consumed
-        );
-        assert_eq!(form.focus, FormField::HostName);
-        // Find the Cancel row and click it → Close.
-        let cancel_row = form
-            .rows()
-            .iter()
-            .position(|r| matches!(r, FormRow::Field(FormField::Cancel)))
-            .expect("cancel row");
-        assert_eq!(
-            form.handle_pointer_press(cancel_row, 0, 80),
-            ConnectionFormOutcome::Close
-        );
-    }
-
-    #[test]
-    fn test_action_validates_and_emits_a_probe_request() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        typed(&mut form, "reachable-host");
-        form.focus = FormField::Test;
-        match form.handle_input(OverlayInput::Activate) {
-            ConnectionFormOutcome::Test(host) => assert_eq!(host.alias, "reachable-host"),
-            other => panic!("expected Test, got {other:?}"),
-        }
-        assert_eq!(form.test, TestState::Running);
-        // The Running status renders (no swatch while pending).
-        let lines = form.visible_lines(72, 40);
-        assert!(lines.iter().any(|l| l.text.contains("Testing")));
-    }
-
-    #[test]
-    fn test_action_on_an_invalid_host_shows_an_error_not_a_probe() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        // Empty alias: Test cannot build a host.
-        form.focus = FormField::Test;
-        assert_eq!(
-            form.handle_input(OverlayInput::Activate),
-            ConnectionFormOutcome::Consumed
-        );
-        assert!(form.error.is_some());
-        assert_eq!(form.test, TestState::Idle);
-    }
-
-    #[test]
-    fn set_test_result_renders_the_tri_state_with_a_swatch() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        // Amber = reachable but interactive auth; the copy must say it is
-        // expected and the connect still works.
-        form.set_test_result(Ok(ProbeClass::InteractiveAuth));
-        let lines = form.visible_lines(72, 40);
-        let status = lines
-            .iter()
-            .find(|l| l.swatch.is_some())
-            .expect("a swatched status row");
-        assert_eq!(status.swatch, Some(TEST_AMBER));
-        assert!(status.text.contains("expected"));
-        // A failure is red.
-        form.set_test_result(Ok(ProbeClass::Unreachable));
-        let red = form
-            .visible_lines(72, 40)
-            .into_iter()
-            .find(|l| l.swatch == Some(TEST_RED));
-        assert!(red.is_some());
-    }
-
-    #[test]
-    fn editing_a_field_invalidates_a_prior_test_result() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.set_test_result(Ok(ProbeClass::AuthOk));
-        assert!(matches!(form.test, TestState::Done(_)));
-        // Typing into the focused field clears the stale result.
-        typed(&mut form, "x");
-        assert_eq!(form.test, TestState::Idle);
-    }
-
-    #[test]
-    fn visible_lines_are_bounded_by_body_height() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        assert!(form.visible_lines(72, 5).len() <= 5);
-    }
-
-    #[test]
-    fn enter_on_empty_identity_file_requests_the_key_browser() {
-        // FORM-UX IDENTITY-BROWSE: Enter on an EMPTY IdentityFile field asks the
-        // App to scan ~/.ssh; a non-empty field advances instead (manual typing
-        // is never interrupted).
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.advanced = true;
-        form.focus = FormField::IdentityFile;
-        assert_eq!(
-            form.handle_input(OverlayInput::Activate),
-            ConnectionFormOutcome::BrowseIdentityKeys
-        );
-        // With a typed path, Enter advances focus rather than browsing.
-        typed(&mut form, "/keys/mine");
-        assert_eq!(
-            form.handle_input(OverlayInput::Activate),
-            ConnectionFormOutcome::Consumed
-        );
-        assert_ne!(form.focus, FormField::IdentityFile);
-    }
-
-    /// The rendered IdentityFile row at the given body width (Advanced expanded).
-    #[cfg(test)]
-    fn identity_row_text(form: &ConnectionForm, width: usize) -> String {
-        form.visible_lines(width, 40)
-            .into_iter()
-            .find(|l| l.text.contains("IdentityFile"))
-            .map(|l| l.text)
-            .expect("IdentityFile row")
-    }
-
-    #[test]
-    fn empty_identity_file_shows_the_browse_chip() {
-        // BROWSE-UX: an empty IdentityFile value slot shows the persistent browse
-        // chip (which doubles as the discoverability hint), rendered even when the
-        // row is not focused.
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.advanced = true;
-        let row = identity_row_text(&form, 72);
-        assert!(
-            row.contains(BROWSE_CHIP_EMPTY),
-            "empty IdentityFile row should show the empty browse chip: {row:?}"
-        );
-    }
-
-    #[test]
-    fn filled_identity_file_keeps_a_trailing_browse_chip() {
-        // BROWSE-UX BROWSE-PERSIST: a non-empty field still shows a [Browse] chip
-        // so the browser stays reachable without deleting the path first.
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.advanced = true;
-        form.focus = FormField::IdentityFile;
-        typed(&mut form, "/keys/mine");
-        let row = identity_row_text(&form, 72);
-        assert!(row.contains("/keys/mine"), "path shown: {row:?}");
-        assert!(
-            row.contains(BROWSE_CHIP),
-            "filled row keeps a chip: {row:?}"
-        );
-        // The empty-state hint chip must not linger once a path is present.
-        assert!(!row.contains(BROWSE_CHIP_EMPTY));
-    }
-
-    #[test]
-    fn browse_chip_never_saves_into_the_host() {
-        // BROWSE-UX invariant: the chip is display-only and must never leak into a
-        // saved connection's identity_file, whether the field is empty or filled.
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        typed(&mut form, "hostk");
-        form.advanced = true;
-        // Render the form (which paints the chip) but leave the field untouched.
-        let _ = form.visible_lines(72, 40);
-        let (host, _) = saved(&mut form).expect("save");
-        assert_eq!(host.identity_file, None);
-    }
-
-    #[test]
-    fn browse_chip_truncates_cleanly_on_a_narrow_body() {
-        // A narrow body clips the chip through truncate_for_width without panic.
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.advanced = true;
-        let row = identity_row_text(&form, 20);
-        assert!(row.chars().count() <= 20);
-        // A body so narrow that even the chip marker is clipped away yields no
-        // clickable span (rather than a bogus one) — the click falls through to
-        // plain focus. The label occupies 13 columns; width 16 clips the marker.
-        assert_eq!(form.identity_browse_chip_span(16), None);
-        // A width that still shows the marker keeps a (possibly partial) span.
-        assert!(form.identity_browse_chip_span(20).is_some());
-    }
-
-    #[test]
-    fn clicking_the_browse_chip_opens_the_browser_when_empty() {
-        // BROWSE-MOUSE: a click on the empty-state chip opens the key browser
-        // (the App round-trip that gathers ~/.ssh candidates).
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.advanced = true;
-        let width = 72;
-        form.visible_lines(width, 40);
-        let (start, end) = form
-            .identity_browse_chip_span(width)
-            .expect("empty chip span");
-        let row = form
-            .rows()
-            .iter()
-            .position(|r| matches!(r, FormRow::Field(FormField::IdentityFile)))
-            .expect("IdentityFile row");
-        assert_eq!(
-            form.handle_pointer_press(row, start, width),
-            ConnectionFormOutcome::BrowseIdentityKeys
-        );
-        // A click just before the chip only focuses the field (no browse).
-        assert_eq!(
-            form.handle_pointer_press(row, start.saturating_sub(1), width),
-            ConnectionFormOutcome::Consumed
-        );
-        // Sanity: end is one past the last chip column.
-        assert!(end > start);
-    }
-
-    #[test]
-    fn clicking_the_browse_chip_opens_the_browser_when_filled() {
-        // BROWSE-PERSIST + BROWSE-MOUSE: the chip stays clickable with a path set.
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.advanced = true;
-        form.focus = FormField::IdentityFile;
-        typed(&mut form, "/keys/mine");
-        let width = 72;
-        form.visible_lines(width, 40);
-        let (start, _) = form
-            .identity_browse_chip_span(width)
-            .expect("filled chip span");
-        let row = form
-            .rows()
-            .iter()
-            .position(|r| matches!(r, FormRow::Field(FormField::IdentityFile)))
-            .expect("IdentityFile row");
-        assert_eq!(
-            form.handle_pointer_press(row, start, width),
-            ConnectionFormOutcome::BrowseIdentityKeys
-        );
-    }
-
-    #[test]
-    fn picking_a_key_replaces_an_existing_identity_path() {
-        // BROWSE-UX: browsing over a set path REPLACES it with the picked key.
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.advanced = true;
-        form.focus = FormField::IdentityFile;
-        typed(&mut form, "/old/key");
-        form.open_key_browse(vec!["/home/u/.ssh/id_ed25519".to_owned()]);
-        assert_eq!(
-            form.handle_input(OverlayInput::Activate),
-            ConnectionFormOutcome::Consumed
-        );
-        assert_eq!(form.identity_file, "/home/u/.ssh/id_ed25519");
-    }
-
-    #[test]
-    fn browse_chip_span_is_none_when_advanced_collapsed() {
-        // The IdentityFile row lives under Advanced; collapsed, there is no chip
-        // and therefore no clickable span.
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.advanced = false;
-        assert_eq!(form.identity_browse_chip_span(72), None);
-    }
-
-    fn short_key_browser() -> ConnectionForm {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.open_key_browse((0..10).map(|i| format!("/fixtures/keys/key{i}")).collect());
-        form
-    }
-
-    #[test]
-    fn key_browser_footer_cannot_accept_an_invisible_candidate() {
-        let mut form = short_key_browser();
-        let lines = form.visible_lines(72, 5);
-        assert_eq!(lines[3].text, "key2");
-        assert!(lines[4].text.contains("[Enter]"));
-        form.handle_pointer_press(4, 0, 72);
-        assert!(form.browsing(), "footer is inert");
-        assert!(form.identity_file.is_empty());
-    }
-
-    #[test]
-    fn key_browser_click_before_redraw_uses_the_last_visible_window() {
-        let mut form = short_key_browser();
-        form.visible_lines(72, 5);
-        form.handle_input(OverlayInput::End);
-        form.handle_pointer_press(1, 0, 72);
-        assert_eq!(form.identity_file, "/fixtures/keys/key0");
-    }
-
-    #[test]
-    fn key_browser_query_change_invalidates_old_pointer_rows() {
-        let mut form = short_key_browser();
-        form.visible_lines(72, 5);
-        typed(&mut form, "key9");
-        form.handle_pointer_press(1, 0, 72);
-        assert!(form.browsing());
-        assert!(form.identity_file.is_empty());
-        let lines = form.visible_lines(72, 5);
-        assert_eq!(lines[1].text, "key9");
-        form.handle_pointer_press(1, 0, 72);
-        assert_eq!(form.identity_file, "/fixtures/keys/key9");
-    }
-
-    #[test]
-    fn key_browser_end_keeps_the_accepted_candidate_visible() {
-        let mut form = short_key_browser();
-        form.visible_lines(72, 5);
-        form.handle_input(OverlayInput::End);
-        let lines = form.visible_lines(72, 5);
-        let focused: Vec<_> = lines.iter().filter(|line| line.focused).collect();
-        assert_eq!(focused.len(), 1);
-        assert_eq!(focused[0].text, "key9");
-        form.handle_input(OverlayInput::Activate);
-        assert_eq!(form.identity_file, "/fixtures/keys/key9");
-    }
-
-    #[test]
-    fn key_browser_click_uses_the_rendered_scrolled_candidate() {
-        let mut form = short_key_browser();
-        form.visible_lines(72, 5);
-        form.handle_input(OverlayInput::End);
-        let lines = form.visible_lines(72, 5);
-        assert_eq!(lines[1].text, "key7");
-        form.handle_pointer_press(1, 0, 72);
-        assert!(!form.browsing());
-        assert_eq!(form.identity_file, "/fixtures/keys/key7");
-    }
-
-    #[test]
-    fn key_browser_pick_fills_the_field_and_closes() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.advanced = true;
-        form.focus = FormField::IdentityFile;
-        form.open_key_browse(vec![
-            "/home/u/.ssh/id_ed25519".to_owned(),
-            "/home/u/.ssh/work.pem".to_owned(),
-        ]);
-        assert!(form.browsing());
-        // Browser rows render by file NAME, never the path's directory.
-        let lines = form.visible_lines(72, 10);
-        assert!(lines.iter().any(|l| l.text == "id_ed25519"));
-        assert!(lines.iter().any(|l| l.text == "work.pem"));
-        // Down then Enter fills the field with the second candidate's full path.
-        form.handle_input(OverlayInput::Down);
-        assert_eq!(
-            form.handle_input(OverlayInput::Activate),
-            ConnectionFormOutcome::Consumed
-        );
-        assert!(!form.browsing());
-        assert_eq!(form.identity_file, "/home/u/.ssh/work.pem");
-    }
-
-    #[test]
-    fn key_browser_filters_by_name_and_esc_returns_without_change() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.open_key_browse(vec![
-            "/k/id_ed25519".to_owned(),
-            "/k/id_rsa".to_owned(),
-            "/k/work.pem".to_owned(),
-        ]);
-        typed(&mut form, "rsa");
-        let lines = form.visible_lines(72, 10);
-        assert!(lines.iter().any(|l| l.text == "id_rsa"));
-        assert!(!lines.iter().any(|l| l.text == "work.pem"));
-        // Esc backs out of the browser without touching the field.
-        assert_eq!(
-            form.handle_input(OverlayInput::Close),
-            ConnectionFormOutcome::Consumed
-        );
-        assert!(!form.browsing());
-        assert!(form.identity_file.is_empty());
-    }
-
-    #[test]
-    fn empty_key_scan_shows_a_type_a_path_hint() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.open_key_browse(Vec::new());
-        let lines = form.visible_lines(72, 10);
-        assert!(
-            lines
-                .iter()
-                .any(|l| l.text.contains("type a path manually")),
-            "empty scan surfaces the manual-entry hint"
-        );
-        // Enter on the empty browser is inert (no path to fill) and closes it.
-        assert_eq!(
-            form.handle_input(OverlayInput::Activate),
-            ConnectionFormOutcome::Consumed
-        );
-        assert!(!form.browsing());
-        assert!(form.identity_file.is_empty());
-    }
-
-    #[test]
-    fn key_browser_click_selects_and_fills() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.open_key_browse(vec!["/k/id_ed25519".to_owned(), "/k/id_rsa".to_owned()]);
-        form.visible_lines(80, 10);
-        // Row 0 is the prompt; row 2 is the second candidate.
-        assert_eq!(
-            form.handle_pointer_press(2, 0, 80),
-            ConnectionFormOutcome::Consumed
-        );
-        assert!(!form.browsing());
-        assert_eq!(form.identity_file, "/k/id_rsa");
-    }
-
-    #[test]
-    fn focused_field_help_footer_follows_focus() {
-        // FORM-UX FIELD-HELP: the footer shows the FOCUSED field's help.
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.focus = FormField::Alias;
-        let alias_help = form.visible_lines(72, 40);
-        assert!(
-            alias_help
-                .iter()
-                .any(|l| l.text.contains("Quick-connect name")),
-            "Alias help shows when Alias is focused"
-        );
-        // Focus IdentityFile: the footer switches to its help (mentions ssh -i).
-        form.advanced = true;
-        form.focus = FormField::IdentityFile;
-        let id_help = form.visible_lines(72, 40);
-        assert!(
-            id_help.iter().any(|l| l.text.contains("ssh -i")),
-            "IdentityFile help mentions ssh -i"
-        );
-        assert!(
-            !id_help
-                .iter()
-                .any(|l| l.text.contains("Quick-connect name")),
-            "only the focused field's help renders"
-        );
-    }
-
-    #[test]
-    fn help_footer_wraps_within_the_body_width() {
-        let mut form = ConnectionForm::new();
-        form.open_add(Vec::new());
-        form.advanced = true;
-        form.focus = FormField::IdentityFile;
-        // Narrow body: every emitted line stays within the width (footer wraps
-        // rather than truncating the long help).
-        let width = 30;
-        for line in form.visible_lines(width, 40) {
-            assert!(
-                line.text.chars().count() <= width,
-                "line within width: {:?}",
-                line.text
-            );
-        }
-    }
-
-    #[test]
-    fn wrap_for_width_hard_splits_overlong_words() {
-        let out = wrap_for_width("short verylongwordthatexceeds", 8);
-        assert!(out.iter().all(|l| l.chars().count() <= 8));
-        assert_eq!(out[0], "short");
-        assert!(wrap_for_width("anything", 0).is_empty());
-    }
-
-    #[test]
-    fn basename_handles_both_separators() {
-        assert_eq!(basename("/home/u/.ssh/id_ed25519"), "id_ed25519");
-        assert_eq!(basename(r"C:\Users\u\.ssh\id_rsa"), "id_rsa");
-        assert_eq!(basename("bare"), "bare");
-    }
-}
+#[path = "connection_form_tests.rs"]
+mod tests;
 
 #[cfg(test)]
 #[path = "connection_form_focus_tests.rs"]
 mod focus_tests;
+
+#[cfg(test)]
+#[path = "connection_form_chip_tests.rs"]
+mod chip_tests;

@@ -147,14 +147,14 @@ pub(super) fn reject_nonblocking(stream: &UnixStream, message: &str) {
 }
 
 /// A [`Write`] adapter bounding one whole frame by an absolute deadline.
-pub(super) struct DeadlineWriter<'a> {
+pub(crate) struct DeadlineWriter<'a> {
     stream: &'a UnixStream,
     deadline: Instant,
     per_write: Duration,
 }
 
 impl<'a> DeadlineWriter<'a> {
-    pub(super) fn new(stream: &'a UnixStream, budget: Duration, per_write: Duration) -> Self {
+    pub(crate) fn new(stream: &'a UnixStream, budget: Duration, per_write: Duration) -> Self {
         Self {
             stream,
             deadline: Instant::now() + budget,

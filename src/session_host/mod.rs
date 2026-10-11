@@ -38,6 +38,8 @@ pub use protocol::ListedSession;
 #[cfg(unix)]
 pub use client::SessionHostClient;
 #[cfg(unix)]
+pub(crate) use handshake::DeadlineWriter;
+#[cfg(unix)]
 pub use host::{
     HostCommand, HostConfig, HostExit, HostExitReason, MAX_HOST_SESSIONS, run_host,
     run_internal_host_from_args, spawn_host_on_demand,

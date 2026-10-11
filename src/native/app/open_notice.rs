@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 
 use crate::core::{Attrs, Cell, Color, Snapshot};
 
+use super::super::render_helpers::NoticeSurface;
 use super::interactive_paths::spawn_detached;
 use super::{App, OverlayFragment};
 
@@ -137,8 +138,9 @@ impl App {
             .map(|notice| notice.raised_at + NOTICE_DURATION)
     }
 
-    /// Render-cache fragment: the live message while a notice is visible (so the
-    /// banner repaints when the text changes or it clears), `Inert` otherwise.
+    /// Render-cache fragment: the live message and its painted surface while a
+    /// notice is visible (so the banner repaints when the text or the tone
+    /// changes or it clears), `Inert` otherwise.
     /// `Inert` on the default path keeps the geometry-update decision unchanged.
     pub(in crate::native) fn open_notice_overlay_signature(&self) -> OverlayFragment {
         if let Some(prompt) = self.osc52_prompt_overlay_signature() {
@@ -147,6 +149,10 @@ impl App {
         match self.open_notice.as_ref() {
             Some(notice) => OverlayFragment::OpenNotice {
                 text: notice.message.clone(),
+                surface: match notice.tone {
+                    NoticeTone::Failure => NoticeSurface::Failure,
+                    NoticeTone::Neutral => NoticeSurface::Neutral,
+                },
             },
             None => OverlayFragment::Inert,
         }

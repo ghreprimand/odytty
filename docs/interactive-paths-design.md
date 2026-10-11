@@ -436,7 +436,8 @@ The production seam implementations live in `native/app/open_with_ui.rs` (they
 touch the real process/filesystem): `PlatformMimeProbe` (Linux runs the single
 audited captured-output `xdg-mime query filetype <abs>` spawn; macOS and Windows
 fall through to magic-byte sniffing) and `FsDesktopEnv` (the real `XDG_*`
-ladders + bounded `std::fs` reads, 256 KiB per file).
+ladders + bounded `std::fs` reads, 256 KiB per file; a longer file is read as
+its complete lines inside the cap, never as a partial command line).
 
 **Enumeration.** On Linux, `xdg-mime` → MIME type; then candidate desktop ids are gathered
 in priority order - `mimeapps.list` `[Default Applications]` then
