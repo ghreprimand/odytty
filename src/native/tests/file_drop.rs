@@ -200,7 +200,9 @@ fn windows_unpaired_utf16_and_non_powershell_fail_closed() {
 
 #[cfg(unix)]
 fn shell_available(bin: &str) -> bool {
+    let child_env = crate::test_dirs::ChildEnv::new();
     std::process::Command::new(bin)
+        .envs(child_env.vars())
         .arg("-c")
         .arg("true")
         .status()
@@ -214,7 +216,9 @@ fn shell_expand_argv(bin: &str, quoted_words: &str) -> Vec<u8> {
     // `printf %s\\0 WORD...` keeps each quoted token as a separate argv element.
     // Four backslashes: Rust -> `\\0` in the -c string -> printf receives `\0`.
     let script = format!("printf %s\\\\0 {quoted_words}");
+    let child_env = crate::test_dirs::ChildEnv::new();
     let output = std::process::Command::new(bin)
+        .envs(child_env.vars())
         .arg("-c")
         .arg(&script)
         .output()
@@ -739,7 +743,9 @@ fn installed_shells_roundtrip_via_positional_parameter() {
             } else {
                 format!("set -- {quoted}; printf '%s\\0' \"$1\"")
             };
+            let child_env = crate::test_dirs::ChildEnv::new();
             let output = std::process::Command::new(bin)
+                .envs(child_env.vars())
                 .arg("-c")
                 .arg(&script)
                 .output()

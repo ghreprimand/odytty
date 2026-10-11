@@ -13,6 +13,10 @@ use crate::selection::{self, AbsoluteSelectionRange};
 use super::overlay_registry::OverlayCtx;
 use super::*;
 
+/// The off-screen lookup's one-row memo: the absolute row and, per column, the
+/// resolved character plus whether the cell is a wide glyph's trailing spacer.
+type RowMemo = std::cell::RefCell<Option<(usize, Vec<(char, bool)>)>>;
+
 impl App {
     /// Enter keyboard scrollback selection mode. Returns `true` when the key was
     /// consumed; `false` lets the chord fall through to the PTY.
@@ -73,14 +77,16 @@ impl App {
             let snapshot = terminal.snapshot_with_scrollback(offset);
             let scrollback_len = terminal.screen().scrollback_len();
             // One-row memo: word walks visit off-screen cells sequentially, so
-            // each distinct row is windowed once, not once per cell.
-            let row_memo: std::cell::RefCell<Option<(usize, Vec<char>)>> =
-                std::cell::RefCell::new(None);
-            let offscreen = |p: selection::AbsoluteCellPoint| -> Option<char> {
-                if let Some((row, chars)) = row_memo.borrow().as_ref()
+            // each distinct row is windowed once, not once per cell. Each entry
+            // is the resolved character plus whether the cell is the trailing
+            // spacer of a wide glyph (the character alone resolves a spacer to
+            // its lead, so owner information has to travel with it).
+            let row_memo: RowMemo = std::cell::RefCell::new(None);
+            let fetch = |p: selection::AbsoluteCellPoint| -> Option<(char, bool)> {
+                if let Some((row, cells)) = row_memo.borrow().as_ref()
                     && *row == p.row
                 {
-                    return chars.get(p.column).copied();
+                    return cells.get(p.column).copied();
                 }
                 // Window placing the row at (or below) the viewport top -
                 // same mapping as `absolute_selection_text`.
@@ -95,18 +101,27 @@ impl App {
                 // Wide-continuation spacers resolve to their lead, as in the
                 // visible rows, so a CJK run is one word off screen too.
                 let row = &snap.cells[vrow * cols..(vrow + 1) * cols];
-                let chars: Vec<char> = (0..cols)
-                    .map(|column| crate::selection::row_word_char(row, column).unwrap_or(' '))
+                let cells: Vec<(char, bool)> = (0..cols)
+                    .map(|column| {
+                        (
+                            crate::selection::row_word_char(row, column).unwrap_or(' '),
+                            column > 0 && row[column].wide_continuation,
+                        )
+                    })
                     .collect();
-                let ch = chars.get(p.column).copied();
-                *row_memo.borrow_mut() = Some((p.row, chars));
-                ch
+                let cell = cells.get(p.column).copied();
+                *row_memo.borrow_mut() = Some((p.row, cells));
+                cell
             };
+            let offscreen = |p: selection::AbsoluteCellPoint| fetch(p).map(|cell| cell.0);
+            let offscreen_continuation =
+                |p: selection::AbsoluteCellPoint| fetch(p).is_some_and(|cell| cell.1);
             let ctx = CopyModeContext {
                 snapshot: &snapshot,
                 viewport_offset: offset,
                 scrollback_len,
                 offscreen_cell: Some(&offscreen),
+                offscreen_continuation: Some(&offscreen_continuation),
             };
             let cm = self.copy_mode.as_mut().expect("copy_mode is Some");
             cm.apply(cm_key, &ctx)
@@ -349,7 +364,9 @@ impl App {
         }
         let vrow = caret.row - top;
         let col = caret.column.min(cols - 1);
-        if let Some(cell) = snapshot.cells.get_mut(vrow * cols + col) {
+        let index = vrow * cols + col;
+        crate::core::begin_recolor(&mut snapshot.cells, index, index);
+        if let Some(cell) = snapshot.cells.get_mut(index) {
             let inverted = cell.attrs.inverse();
             cell.attrs.set_inverse(!inverted);
             cell.attrs.set_recolored(true);
@@ -671,6 +688,97 @@ mod tests {
                 .attrs
                 .same_stored_rendition(&snapshot.cells[index].attrs)
         );
+    }
+
+    #[test]
+    fn the_caret_keeps_a_stored_colour_boundary_inside_a_legacy_flag() {
+        use crate::core::Color;
+        use crate::emoji::{
+            color_runs_for_test, colored_attrs_for_test, legacy_flag_pair_for_test,
+        };
+
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        let red = colored_attrs_for_test(Color::Indexed(1), Color::Default, false);
+        let green = colored_attrs_for_test(Color::Indexed(2), Color::Default, false);
+        let top = app.scrollback_len();
+        for (first, second, joined) in [(red, green, false), (red, red, true)] {
+            for column in [0, 1] {
+                app.copy_mode = Some(CopyModeState::new(AbsoluteCellPoint { row: top, column }));
+                let pair = legacy_flag_pair_for_test(first, second);
+                let mut painted = app.terminal.lock().unwrap().snapshot();
+                painted.cells[..2].clone_from_slice(&pair.cells);
+                painted.dimensions = crate::core::Dimensions::new(2, 1);
+                painted.cells.truncate(2);
+                let ctx = ctx_for(&app);
+                let ctx = OverlayCtx {
+                    grid: Dimensions::new(2, 1),
+                    ..ctx
+                };
+                app.paint_copy_mode_cells(&mut painted, &ctx);
+                assert!(painted.cells[column].attrs.recolored());
+                assert_eq!(
+                    color_runs_for_test(&painted) == [(0, 2)],
+                    joined,
+                    "caret on column {column}, stored colours {}",
+                    if joined { "equal" } else { "differ" }
+                );
+            }
+        }
+    }
+
+    /// The pointer-driven selection reaches the same guarantee through the
+    /// App's own painter: dragging over one owner of a legacy flag (and its
+    /// neighbour) highlights it without merging it across the stored boundary
+    /// next to it, or splitting it where the stored colours are equal.
+    #[test]
+    fn a_pointer_selection_keeps_a_stored_colour_boundary_inside_a_legacy_flag() {
+        use crate::core::{Cell, Color};
+        use crate::emoji::{color_runs_for_test, colored_attrs_for_test};
+        use crate::selection::CellPoint;
+
+        let red = colored_attrs_for_test(Color::Indexed(1), Color::Default, false);
+        let green = colored_attrs_for_test(Color::Indexed(2), Color::Default, false);
+        let plain = crate::core::Attrs::default();
+        for (first, second, joined) in [(red, green, false), (red, red, true)] {
+            // pad, flag owner, flag owner, pad: drags over the pad and one
+            // owner, over both owners, and over the other owner and the pad.
+            for (from, to) in [(0, 1), (1, 2), (2, 3)] {
+                let Some(mut app) = build_app() else {
+                    return;
+                };
+                app.begin_drag_selection(CellPoint {
+                    row: 0,
+                    column: from,
+                });
+                let end = selection::visible_to_absolute(
+                    CellPoint { row: 0, column: to },
+                    app.viewport.offset(),
+                    app.scrollback_len(),
+                );
+                app.selection.update(end);
+                let mut painted = crate::core::Terminal::new(4, 1).snapshot();
+                painted.cells = vec![
+                    Cell::new('x', plain),
+                    Cell::new('\u{1f1e6}', first),
+                    Cell::new('\u{1f1e7}', second),
+                    Cell::new('y', plain),
+                ];
+                let ctx = OverlayCtx {
+                    grid: Dimensions::new(4, 1),
+                    ..ctx_for(&app)
+                };
+                app.paint_selection_cells(&mut painted, &ctx);
+                assert!(painted.cells[from].attrs.recolored(), "drag {from}..{to}");
+                assert_eq!(
+                    color_runs_for_test(&painted).contains(&(1, 2)),
+                    joined,
+                    "drag {from}..{to}, stored colours {}",
+                    if joined { "equal" } else { "differ" }
+                );
+            }
+        }
     }
 
     // --- trap #3 / truthful active flag drives the gate ---

@@ -740,6 +740,7 @@ fn new_workspace_with_effective_binds_launch_profile_atomically() {
         shell: None,
         command: None,
         working_directory: None,
+        working_directory_source: crate::cwd::DirectorySource::Derived,
         env: Default::default(),
         connection: None,
         layout: None,

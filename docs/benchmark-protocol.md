@@ -788,8 +788,14 @@ Its first hour supplies stabilization rather than a discarded warmup run.
 
 Implementation order follows a balanced Latin square derived from the
 preregistered seed. When needed, the square and its reverse alternate so each
-implementation occupies every order position equally. Configuration order is
-balanced independently.
+implementation occupies every order position equally over every complete cycle
+of blocks. Configuration order is balanced independently. Balance is exact
+only over whole cycles: when the measured block count is not a multiple of the
+cycle length, as with five W6 replicates or 30 SE blocks across four
+implementations, some implementations hold a position one more time than
+others. The preregistered order records every block, and
+`scripts/bench-protocol/ordering.py --balance` reports the position counts of
+the measured blocks.
 
 There is no precision-based early stopping. W6 and SE each carry their own
 fixed preregistered time budget because their runners execute independently.

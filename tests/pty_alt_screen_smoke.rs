@@ -23,6 +23,9 @@ use odytty::core::{
 use odytty::input::{self, Key, KeyModes, Modifiers};
 use odytty::pty::{CommandBuilder, PtySession};
 
+#[path = "../src/test_dirs/allocation.rs"]
+pub mod child_dirs;
+
 const COLUMNS: usize = 80;
 const ROWS: usize = 12;
 const SHORT_WAIT: Duration = Duration::from_secs(3);
@@ -69,10 +72,15 @@ struct PtyHarness {
     rx: Receiver<std::io::Result<Vec<u8>>>,
     terminal: Terminal,
     captured: Vec<u8>,
+    _child_env: child_dirs::ChildEnv,
 }
 
 impl PtyHarness {
-    fn spawn(command: CommandBuilder, primary_seed: &str) -> Result<Self> {
+    fn spawn(mut command: CommandBuilder, primary_seed: &str) -> Result<Self> {
+        let child_env = child_dirs::ChildEnv::new();
+        for (key, value) in child_env.vars() {
+            command.env(key, value);
+        }
         let dimensions = Dimensions::new(COLUMNS, ROWS);
         let session = PtySession::spawn_command(dimensions, command)?;
         let reader = session.try_clone_reader()?;
@@ -107,6 +115,7 @@ impl PtyHarness {
             rx,
             terminal,
             captured: Vec::new(),
+            _child_env: child_env,
         })
     }
 
@@ -291,25 +300,61 @@ fn skip_missing(binary: &str) -> Option<PathBuf> {
 
 /// Neutralize the settings of the developer's `less` that change what the pager
 /// does: `LESS` (for example `-X`, which disables the alternate screen, or
-/// `-F`), `LESSOPEN` and `LESSCLOSE` (input preprocessors), `LESSCHARSET`,
-/// `LESSKEY` and `PAGER`. `less` treats an empty value as unset, so each is set
-/// empty. The smoke tests assert the behavior of `less` as installed.
-fn clean_less_env(command: &mut CommandBuilder) {
+/// `-F`), `LESSOPEN` and `LESSCLOSE` (input preprocessors), `LESSCHARSET`, the
+/// lesskey inputs (`LESSKEY`, `LESSKEYIN`, `LESSKEYIN_SYSTEM`,
+/// `LESSKEY_CONTENT`, `LESSKEY_SYSTEM`) and `PAGER`. `less` treats an empty
+/// value as unset, so each is set empty. The default lesskey files are looked
+/// up under `HOME` and `XDG_CONFIG_HOME`, so both point at `home`, an empty
+/// directory the test owns. The smoke tests assert the behavior of `less` as
+/// installed.
+fn clean_less_env(command: &mut CommandBuilder, home: &Path) {
     for key in [
         "LESS",
         "LESSOPEN",
         "LESSCLOSE",
         "LESSCHARSET",
         "LESSKEY",
+        "LESSKEYIN",
+        "LESSKEYIN_SYSTEM",
+        "LESSKEY_CONTENT",
         "LESSKEY_SYSTEM",
         "PAGER",
     ] {
         command.env(key, "");
     }
+    command.env("HOME", home.to_string_lossy().into_owned());
+    command.env("XDG_CONFIG_HOME", home.to_string_lossy().into_owned());
+}
+
+/// A `git` command that reads nothing from the machine it runs on: the
+/// environment is cleared (no inherited `GIT_*` variable such as `GIT_DIR`,
+/// `GIT_WORK_TREE` or `GIT_INDEX_FILE`, which a git hook exports), the home and
+/// XDG directories are `dir`, the system and global configuration are disabled,
+/// and the author and committer are fixed. This is the fixture's twin of the
+/// helper in `tests/provenance.rs`; each integration test is its own crate.
+fn hermetic_git(dir: &Path) -> ProcessCommand {
+    let mut command = ProcessCommand::new("git");
+    command
+        .current_dir(dir)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("HOME", dir)
+        .env("XDG_CONFIG_HOME", dir)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_AUTHOR_NAME", "OdyTTY Test")
+        .env("GIT_AUTHOR_EMAIL", "test@odytty.invalid")
+        .env("GIT_COMMITTER_NAME", "OdyTTY Test")
+        .env("GIT_COMMITTER_EMAIL", "test@odytty.invalid");
+    command
 }
 
 fn less_supports_mouse(path: &Path) -> bool {
-    let output = ProcessCommand::new(path).arg("--help").output();
+    let child_env = child_dirs::ChildEnv::new();
+    let output = ProcessCommand::new(path)
+        .envs(child_env.vars())
+        .arg("--help")
+        .output();
     match output {
         Ok(output) => {
             let mut help = output.stdout;
@@ -375,7 +420,7 @@ fn less_enters_scrolls_and_restores_primary_screen() -> Result<()> {
     let primary_marker = "PRIMARY-BEFORE-LESS";
     let mut command = CommandBuilder::new(less.to_string_lossy().into_owned());
     fixed_env(&mut command);
-    clean_less_env(&mut command);
+    clean_less_env(&mut command, temp.path());
     command.env("LESSHISTFILE", "/dev/null");
     command.arg("-S");
     command.arg(file.to_string_lossy().into_owned());
@@ -435,7 +480,7 @@ fn less_mouse_wheel_scrolls_when_mouse_mode_is_enabled() -> Result<()> {
     let primary_marker = "PRIMARY-BEFORE-LESS-MOUSE";
     let mut command = CommandBuilder::new(less.to_string_lossy().into_owned());
     fixed_env(&mut command);
-    clean_less_env(&mut command);
+    clean_less_env(&mut command, temp.path());
     command.env("LESSHISTFILE", "/dev/null");
     command.arg("--mouse");
     command.arg("--wheel-lines=5");
@@ -773,7 +818,7 @@ fn htop_enters_and_exits_alt_screen() -> Result<()> {
     let primary_marker = "PRIMARY-BEFORE-HTOP";
     let mut command = CommandBuilder::new(htop.to_string_lossy().into_owned());
     fixed_env(&mut command);
-    // Disable htoprc by pointing HOME to a temp dir.
+    // The harness redirects HOME and every platform state base to its fixture.
     let temp = TempDir::new("htop-smoke")?;
     command.env("HOME", temp.path().to_string_lossy().into_owned());
 
@@ -819,55 +864,52 @@ fn git_log_pager_restores_primary_screen() -> Result<()> {
 
     let temp = TempDir::new("git-pager-smoke")?;
 
-    // Initialize a repo and create some commits.
-    let git_init = ProcessCommand::new("git")
-        .arg("init")
-        .current_dir(temp.path())
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("HOME", temp.path().to_string_lossy().as_ref())
+    // Initialize a repo and create some commits. Every fixture command is
+    // hermetic: nothing inherited from the machine or from a git hook that runs
+    // the suite can reach the outer repository's index or branch.
+    let git_init = hermetic_git(temp.path())
+        .args(["init", "-q", "--template="])
         .output()?;
-    if !git_init.status.success() {
-        eprintln!(
-            "skipping git pager smoke: git init failed: {}",
-            String::from_utf8_lossy(&git_init.stderr)
-        );
-        return Ok(());
-    }
-
-    // Configure git user for commits.
-    for (key, val) in [("user.name", "OdyTTY Test"), ("user.email", "test@odytty")] {
-        ProcessCommand::new("git")
-            .args(["config", key, val])
-            .current_dir(temp.path())
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("HOME", temp.path().to_string_lossy().as_ref())
-            .output()?;
-    }
+    // `git` exists (checked above), so a failed init is a failure, not a skip.
+    assert!(
+        git_init.status.success(),
+        "git init failed: {}",
+        String::from_utf8_lossy(&git_init.stderr)
+    );
 
     // Create enough commits to overflow the terminal and trigger the pager.
     for i in 1..=30 {
         let file = temp.path().join(format!("file-{i}.txt"));
         fs::write(&file, format!("odytty-git-pager-commit-{i:03}\n"))?;
-        ProcessCommand::new("git")
-            .args(["add", "."])
-            .current_dir(temp.path())
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("HOME", temp.path().to_string_lossy().as_ref())
+        let add = hermetic_git(temp.path()).args(["add", "."]).output()?;
+        assert!(add.status.success(), "git add failed for commit {i}");
+        let commit = hermetic_git(temp.path())
+            .args([
+                "commit",
+                "-q",
+                "--no-gpg-sign",
+                "-m",
+                &format!("odytty-git-pager-commit-{i:03}"),
+            ])
             .output()?;
-        ProcessCommand::new("git")
-            .args(["commit", "-m", &format!("odytty-git-pager-commit-{i:03}")])
-            .current_dir(temp.path())
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("HOME", temp.path().to_string_lossy().as_ref())
-            .output()?;
+        assert!(commit.status.success(), "git commit {i} failed");
     }
 
     let primary_marker = "PRIMARY-BEFORE-GIT-LOG";
     let mut command = CommandBuilder::new("git".to_string());
     fixed_env(&mut command);
+    // The builder inherits the parent's environment and cannot clear it, so the
+    // variables that select a repository or configuration are pinned to the
+    // fixture instead of left to whatever the suite was started with.
+    let fixture = temp.path().to_string_lossy().into_owned();
     command.env("GIT_CONFIG_NOSYSTEM", "1");
-    command.env("HOME", temp.path().to_string_lossy().into_owned());
-    clean_less_env(&mut command);
+    command.env("GIT_CONFIG_GLOBAL", "/dev/null");
+    command.env("GIT_CONFIG_COUNT", "0");
+    command.env("GIT_CONFIG_PARAMETERS", "");
+    command.env("GIT_DIR", format!("{fixture}/.git"));
+    command.env("GIT_WORK_TREE", fixture.clone());
+    command.env("GIT_INDEX_FILE", format!("{fixture}/.git/index"));
+    clean_less_env(&mut command, temp.path());
     command.env("GIT_PAGER", "less -R");
     // Git defaults LESS=FRX; -X disables smcup/rmcup (alt screen). Override
     // to FR so less uses the alternate screen as it would in a modern terminal.
@@ -904,5 +946,38 @@ fn git_log_pager_restores_primary_screen() -> Result<()> {
         "odytty-git-pager-commit-",
     );
 
+    Ok(())
+}
+
+#[test]
+fn pty_children_ignore_inherited_config_and_history_targets() -> Result<()> {
+    let Some(bash) = skip_missing("bash") else {
+        return Ok(());
+    };
+    let inherited = child_dirs::ChildEnv::new();
+    let mut command = CommandBuilder::new(bash.as_os_str());
+    fixed_env(&mut command);
+    for (key, value) in inherited.vars() {
+        command.env(key, value);
+    }
+    command.arg("--noprofile");
+    command.arg("--norc");
+    command.arg("-c");
+    command.arg("printf fixture > \"$XDG_CONFIG_HOME/writer-probe\"; printf history > \"$HISTFILE\"; printf WRITER-DONE");
+    let mut harness = PtyHarness::spawn(command, "")?;
+    harness.poll_until("writer child exits", SHORT_WAIT, |terminal| {
+        terminal.screen().plain_text().contains("WRITER-DONE")
+    })?;
+    harness.wait_for_exit(EXIT_WAIT)?;
+    for (key, path) in inherited.vars() {
+        if key == "HISTFILE" {
+            assert!(!path.exists(), "child wrote inherited history");
+        } else {
+            assert!(
+                fs::read_dir(path)?.next().is_none(),
+                "child wrote inherited {key}"
+            );
+        }
+    }
     Ok(())
 }

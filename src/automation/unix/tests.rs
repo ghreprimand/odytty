@@ -390,22 +390,33 @@ fn existing_endpoint_is_not_removed_to_force_bind_and_replacement_is_preserved()
 }
 
 #[test]
-fn a_bound_socket_that_cannot_be_identified_is_removed_not_left_behind() {
+fn a_bound_socket_that_cannot_be_identified_leaves_whatever_occupies_the_path() {
     let fixture = fixture();
     let parent = fs::symlink_metadata(&fixture.dir).expect("parent metadata");
-    let failed = bind_guarded(fixture.socket.clone(), parent.clone(), |_| {
+    let socket = fixture.socket.clone();
+    let failed = bind_guarded(socket.clone(), parent.clone(), |bound| {
+        // The path is swapped for a project-owned ordinary file before the
+        // identification fails, so the object there was never bound by us.
+        fs::remove_file(bound).expect("unlink the bound name");
+        fs::write(bound, b"replacement").expect("plant a replacement");
         Err(io::Error::other("injected identification failure"))
     });
     assert!(failed.is_err());
-    assert!(
-        fs::symlink_metadata(&fixture.socket).is_err(),
-        "the socket file created by the failed bind is removed"
+    assert_eq!(
+        fs::read(&socket).expect("the replacement survives"),
+        b"replacement"
     );
-    // The path is free again, so a later bind there succeeds.
+    fs::remove_file(&socket).expect("clean up the replacement");
+}
+
+#[test]
+fn an_identified_socket_is_still_removed_by_its_guard() {
+    let fixture = fixture();
+    let parent = fs::symlink_metadata(&fixture.dir).expect("parent metadata");
     let (listener, guard) = bind_guarded(fixture.socket.clone(), parent, |bound| {
         fs::symlink_metadata(bound)
     })
-    .expect("a later bind at the same path");
+    .expect("bind");
     assert!(
         fs::symlink_metadata(&fixture.socket).is_ok_and(|m| m.file_type().is_socket()),
         "the healthy bind keeps its socket file until the guard drops"

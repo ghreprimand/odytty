@@ -267,8 +267,31 @@ fn hermetic_git(dir: &Path) -> Command {
     command
 }
 
+/// Environment the parent of the hostile-parent check injects: a process-level
+/// configuration injection and the repository-selecting variables a git hook
+/// exports. Set on a child process only; this test process is never modified.
+#[cfg(unix)]
+const HOSTILE_PARENT_ENV: [(&str, &str); 7] = [
+    ("GIT_CONFIG_COUNT", "1"),
+    ("GIT_CONFIG_KEY_0", "commit.gpgsign"),
+    ("GIT_CONFIG_VALUE_0", "true"),
+    ("GIT_CONFIG_PARAMETERS", "'core.hooksPath=/hostile'"),
+    ("GIT_DIR", "/nonexistent-outer-repository"),
+    ("GIT_WORK_TREE", "/nonexistent-outer-worktree"),
+    ("GIT_INDEX_FILE", "/nonexistent-outer-index"),
+];
+
+/// Variable that turns [`the_hostile_parent_listing`] from a no-op into the
+/// child half of the check below.
+#[cfg(unix)]
+const HOSTILE_CHILD_MARKER: &str = "ODYTTY_PROVENANCE_HOSTILE_CHILD";
+
 /// The fixture repository sees only its own configuration: no system, global or
-/// inherited setting reaches `git`, whatever the machine has configured.
+/// inherited setting reaches `git`, whatever the machine has configured. The
+/// check re-runs this test binary as a child whose environment carries
+/// [`HOSTILE_PARENT_ENV`], so the cleared environment of [`hermetic_git`] is
+/// what keeps the injection out, and a plain `git` in the same child shows that
+/// the injection is effective.
 #[test]
 #[cfg(unix)]
 fn the_fixture_git_reads_no_configuration_from_the_machine() {
@@ -278,18 +301,43 @@ fn the_fixture_git_reads_no_configuration_from_the_machine() {
         );
         return;
     }
-    let tmp = TempDir::new("odytty-prov-config");
-    let repo = tmp.path();
-    git(repo, &["init", "-q", "--template="]);
-    let listing = hermetic_git(repo)
-        // Even a hostile setting injected through the process-level `GIT_CONFIG_*`
-        // variables is dropped by the cleared environment.
-        .args(["config", "--list", "--show-origin"])
-        .output()
-        .expect("run git config");
-    assert!(listing.status.success());
-    let listing = String::from_utf8_lossy(&listing.stdout);
-    // `--show-origin` prints the repository's own file as a path relative to it.
+    let mut child = Command::new(std::env::current_exe().expect("this test binary"));
+    child
+        .args([
+            "--exact",
+            "the_hostile_parent_listing",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(HOSTILE_CHILD_MARKER, "1");
+    for (key, value) in HOSTILE_PARENT_ENV {
+        child.env(key, value);
+    }
+    let output = child.output().expect("run the hostile-parent child");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "child failed:\n{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let section = |name: &str| -> String {
+        let begin = format!("<<{name}\n");
+        let start = stdout
+            .find(&begin)
+            .unwrap_or_else(|| panic!("no {name} section in:\n{stdout}"))
+            + begin.len();
+        let end = stdout[start..]
+            .find(&format!(">>{name}"))
+            .unwrap_or_else(|| panic!("unterminated {name} section"));
+        stdout[start..start + end].to_owned()
+    };
+    // Control: the injected configuration reaches a plain `git`.
+    assert!(
+        section("plain").contains("commit.gpgsign"),
+        "the injection must be visible to an unprotected git"
+    );
+    // The fixture's git sees only the repository's own file.
+    let listing = section("hermetic");
     for line in listing.lines() {
         assert!(
             line.starts_with("file:.git/config\t"),
@@ -297,6 +345,37 @@ fn the_fixture_git_reads_no_configuration_from_the_machine() {
         );
     }
     assert!(!listing.contains("commit.gpgsign"));
+    assert!(!listing.contains("hooksPath"));
+}
+
+/// Child half of [`the_fixture_git_reads_no_configuration_from_the_machine`]:
+/// prints the configuration a plain `git` and the fixture's `git` see. It does
+/// nothing unless the parent set [`HOSTILE_CHILD_MARKER`].
+#[test]
+#[cfg(unix)]
+fn the_hostile_parent_listing() {
+    if std::env::var_os(HOSTILE_CHILD_MARKER).is_none() {
+        return;
+    }
+    let tmp = TempDir::new("odytty-prov-config");
+    let repo = tmp.path();
+    git(repo, &["init", "-q", "--template="]);
+    let list = |mut command: Command| {
+        let output = command
+            .args(["config", "--list", "--show-origin"])
+            .output()
+            .expect("run git config");
+        assert!(output.status.success());
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+    let mut plain = Command::new("git");
+    plain
+        .current_dir(repo)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE");
+    println!("<<plain\n{}>>plain", list(plain));
+    println!("<<hermetic\n{}>>hermetic", list(hermetic_git(repo)));
 }
 
 /// Self-cleaning directory using the allocator shared with other test crates.

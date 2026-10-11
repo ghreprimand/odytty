@@ -173,7 +173,11 @@ fn passthrough_composite_matches_direct_render_bytes() {
 
 #[test]
 fn bloom_preserves_body_text_and_adds_bounded_halo() {
-    assert_bloom_scene(BLOOM_SCENE_SHADER, true);
+    assert_bloom_scene(
+        "bloom_preserves_body_text_and_adds_bounded_halo",
+        BLOOM_SCENE_SHADER,
+        true,
+    );
 }
 
 #[test]
@@ -182,11 +186,11 @@ fn below_threshold_scene_emits_no_bloom() {
         "vec4<f32>(2.0, 2.0, 2.0, 1.0)",
         "vec4<f32>(0.55, 0.55, 0.55, 1.0)",
     );
-    assert_bloom_scene(&scene, false);
+    assert_bloom_scene("below_threshold_scene_emits_no_bloom", &scene, false);
 }
 
-fn assert_bloom_scene(scene: &str, has_bright_patch: bool) {
-    let Some(gpu) = hdr_gpu("assert_bloom_scene") else {
+fn assert_bloom_scene(test: &str, scene: &str, has_bright_patch: bool) {
+    let Some(gpu) = hdr_gpu(test) else {
         return;
     };
     let (device, queue) = (&gpu.device, &gpu.queue);
@@ -957,11 +961,27 @@ fn cleared_viewer_frame_is_byte_identical() {
     );
 }
 
+/// CI's required GPU validation sets this variable. It makes a missing adapter
+/// or HDR render format fail the test instead of reporting
+/// unavailable-hardware, and selects the software Vulkan adapter, as the
+/// library's headless GPU helper does.
+const REQUIRE_GPU_TESTS_ENV: &str = "ODYTTY_REQUIRE_GPU_TESTS";
+
+fn gpu_required() -> bool {
+    std::env::var_os(REQUIRE_GPU_TESTS_ENV).is_some()
+}
+
 fn gpu_instance() -> wgpu::Instance {
     // Keep the EGL backend root alive across successive Vulkan fixtures.
     static INSTANCE: OnceLock<wgpu::Instance> = OnceLock::new();
     INSTANCE
-        .get_or_init(|| wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle()))
+        .get_or_init(|| {
+            let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+            if gpu_required() {
+                descriptor.backends = wgpu::Backends::VULKAN;
+            }
+            wgpu::Instance::new(descriptor)
+        })
         .clone()
 }
 
@@ -996,6 +1016,7 @@ fn gpu_fixture_keeps_driver_lifetime_serialized() {
             "gpu-adapter",
         );
     };
+    eprintln!("VALIDATION_EXECUTED test=gpu_fixture_keeps_driver_lifetime_serialized");
     assert!(
         matches!(
             GPU_FIXTURE_LOCK.try_lock(),
@@ -1011,7 +1032,14 @@ static GPU_UNAVAILABLE: std::sync::atomic::AtomicUsize = std::sync::atomic::Atom
 /// Report a test that did not run for want of the hardware it needs. The test
 /// returns success, which is not a pass of its assertions, so the outcome is a
 /// fixed, countable token in the captured output.
+///
+/// With [`REQUIRE_GPU_TESTS_ENV`] set the unavailability is a failure: the
+/// required CI step must not turn a lost adapter or HDR format into a pass.
 fn report_unavailable(test: &str, reason: &str) {
+    assert!(
+        !gpu_required(),
+        "VALIDATION_REQUIRED test={test} resource={reason} unavailable"
+    );
     let count = GPU_UNAVAILABLE.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
     eprintln!("odytty-test-outcome: unavailable-hardware {reason} test={test} unavailable={count}");
 }
@@ -1029,6 +1057,7 @@ fn hdr_gpu(test: &str) -> Option<GpuFixture> {
         report_unavailable(test, "hdr-render-format");
         return None;
     }
+    eprintln!("VALIDATION_EXECUTED test={test}");
     Some(gpu)
 }
 
@@ -1042,7 +1071,7 @@ fn gpu_device() -> Option<GpuFixture> {
     let instance = gpu_instance();
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::default(),
-        force_fallback_adapter: false,
+        force_fallback_adapter: gpu_required(),
         compatible_surface: None,
     }))
     .ok()?;

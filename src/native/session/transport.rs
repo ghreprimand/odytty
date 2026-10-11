@@ -1039,7 +1039,12 @@ impl WorkspaceSet {
                 shell_integration,
                 ..crate::settings::Settings::default()
             };
-            PtySession::spawn_default_shell_in_with_settings(grid, spawn_cwd, &settings)
+            PtySession::spawn_default_shell_in_with_settings(
+                grid,
+                spawn_cwd,
+                crate::cwd::DirectorySource::Derived,
+                &settings,
+            )
         })
     }
 
@@ -1090,7 +1095,12 @@ impl WorkspaceSet {
                 shell_integration,
                 ..crate::settings::Settings::default()
             };
-            PtySession::spawn_default_shell_in_with_settings(grid, spawn_cwd, &settings)
+            PtySession::spawn_default_shell_in_with_settings(
+                grid,
+                spawn_cwd,
+                crate::cwd::DirectorySource::Derived,
+                &settings,
+            )
         })
     }
 

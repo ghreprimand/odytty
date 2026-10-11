@@ -38,34 +38,88 @@ fn existing_dir_with(path: &Path, windows: bool, probe: impl FnOnce(&Path) -> bo
     permitted_for_platform(path, windows) && probe(path)
 }
 
-/// The message for a working directory that failed [`existing_dir`]: a network
-/// or device path is refused by policy even when it exists, so it says so
-/// instead of claiming the directory is missing.
-pub(crate) fn unusable_message(path: &Path, shown: &str) -> String {
-    unusable_message_for_platform(path, shown, cfg!(windows))
+/// Where a launch working directory came from. A directory the user typed is
+/// honoured even when it is a Windows network or device path (a UNC share or
+/// `\\wsl.localhost` distribution); a directory reported by a program or
+/// recovered from earlier state is never trusted that far, because a terminal
+/// program, a pasted escape sequence or a tampered state file could otherwise
+/// aim a child, or the probe that precedes it, at an attacker-chosen share.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DirectorySource {
+    /// A profile's starting directory or the command-line working directory.
+    Explicit,
+    /// OSC 7, restored layouts and inherited (new tab, duplicate) directories.
+    #[default]
+    Derived,
 }
 
-fn unusable_message_for_platform(path: &Path, shown: &str, windows: bool) -> String {
-    if permitted_for_platform(path, windows) {
-        format!("working directory {shown:?} does not exist")
-    } else {
-        format!("working directory {shown:?} is a network or device path, which is not allowed")
+impl DirectorySource {
+    /// Whether `path` from this source may reach a spawn on `windows`.
+    #[cfg(any(windows, test))]
+    fn admits(self, path: &Path, windows: bool) -> bool {
+        self == Self::Explicit || permitted_for_platform(path, windows)
     }
 }
 
-/// An invalid explicit directory falls back to a permitted home directory.
-/// No directory means the child inherits the default directory unchanged.
+/// Whether a launch directory is usable for a spawn: an explicit network or
+/// device directory is taken as typed and never probed (a probe is itself a
+/// network access, and the spawn reports a missing share); every other
+/// directory must be permitted and exist.
+pub(crate) fn launch_dir_usable(path: &Path, source: DirectorySource) -> bool {
+    launch_dir_usable_with(path, source, cfg!(windows), |path| {
+        std::fs::metadata(path).is_ok_and(|meta| meta.is_dir())
+    })
+}
+
+/// [`launch_dir_usable`] for an explicit platform and probe, for callers that
+/// inject them so the Windows rule is testable everywhere.
+#[cfg(test)]
+pub(crate) fn launch_dir_usable_for(
+    path: &Path,
+    source: DirectorySource,
+    windows: bool,
+    probe: impl FnOnce(&Path) -> bool,
+) -> bool {
+    launch_dir_usable_with(path, source, windows, probe)
+}
+
+fn launch_dir_usable_with(
+    path: &Path,
+    source: DirectorySource,
+    windows: bool,
+    probe: impl FnOnce(&Path) -> bool,
+) -> bool {
+    if source == DirectorySource::Explicit && !permitted_for_platform(path, windows) {
+        return true;
+    }
+    existing_dir_with(path, windows, probe)
+}
+
+/// The directory a Windows spawn uses. An explicit directory is kept as typed;
+/// a derived one that is refused falls back to a permitted home directory. No
+/// directory means the child inherits the default directory unchanged.
 #[cfg(windows)]
 pub(crate) fn spawn_directory(
     directory: Option<&Path>,
+    source: DirectorySource,
     home: Option<&Path>,
+) -> Option<std::path::PathBuf> {
+    spawn_directory_for(directory, source, home, cfg!(windows))
+}
+
+#[cfg(any(windows, test))]
+fn spawn_directory_for(
+    directory: Option<&Path>,
+    source: DirectorySource,
+    home: Option<&Path>,
+    windows: bool,
 ) -> Option<std::path::PathBuf> {
     directory
         .and_then(|path| {
-            if permitted(path) {
+            if source.admits(path, windows) {
                 Some(path)
             } else {
-                home.filter(|path| permitted(path))
+                home.filter(|path| permitted_for_platform(path, windows))
             }
         })
         .map(Path::to_path_buf)
@@ -93,29 +147,6 @@ mod tests {
     }
 
     #[test]
-    fn a_refused_directory_is_not_reported_as_missing() {
-        for path in [
-            r"\\wsl.localhost\Ubuntu\home",
-            r"//wsl$/Ubuntu",
-            r"\\?\C:\fixture",
-        ] {
-            let message = unusable_message_for_platform(Path::new(path), path, true);
-            assert!(message.contains("network or device path"), "{message}");
-            assert!(!message.contains("does not exist"), "{message}");
-        }
-        // A permitted path that failed the probe really is missing, and a
-        // double slash is an ordinary path off Windows.
-        assert!(
-            unusable_message_for_platform(Path::new(r"C:\fixture"), "C:", true)
-                .contains("does not exist")
-        );
-        assert!(
-            unusable_message_for_platform(Path::new("//fixture"), "//fixture", false)
-                .contains("does not exist")
-        );
-    }
-
-    #[test]
     fn local_paths_and_unix_double_slashes_reach_the_probe() {
         for path in [r"C:\fixture", "C:/fixture", "relative", "/fixture"] {
             assert!(existing_dir_with(Path::new(path), true, |_| true));
@@ -123,18 +154,102 @@ mod tests {
         assert!(existing_dir_with(Path::new("//fixture"), false, |_| true));
     }
 
-    #[cfg(windows)]
+    const NETWORK_PATHS: [&str; 4] = [
+        r"\\fixture.invalid\share",
+        r"//fixture.invalid/share",
+        r"\\wsl.localhost\Distro\home",
+        r"\\?\C:\fixture",
+    ];
+
     #[test]
-    fn windows_spawn_directory_refuses_network_and_device_fallbacks() {
-        let bad = Path::new(r"\\fixture.invalid\share");
+    fn an_explicit_network_directory_is_usable_without_a_probe() {
+        for path in NETWORK_PATHS {
+            assert!(launch_dir_usable_with(
+                Path::new(path),
+                DirectorySource::Explicit,
+                true,
+                |_| panic!("an explicit network directory reached a probe")
+            ));
+        }
+    }
+
+    #[test]
+    fn a_derived_network_directory_is_refused_without_a_probe() {
+        for path in NETWORK_PATHS {
+            assert!(!launch_dir_usable_with(
+                Path::new(path),
+                DirectorySource::Derived,
+                true,
+                |_| panic!("a derived network directory reached a probe")
+            ));
+        }
+    }
+
+    #[test]
+    fn explicit_local_directories_still_need_to_exist() {
+        let local = Path::new(r"C:\fixture");
+        assert!(launch_dir_usable_with(
+            local,
+            DirectorySource::Explicit,
+            true,
+            |_| true
+        ));
+        assert!(!launch_dir_usable_with(
+            local,
+            DirectorySource::Explicit,
+            true,
+            |_| false
+        ));
+        // Off Windows a double slash is an ordinary path in either case.
+        assert!(!launch_dir_usable_with(
+            Path::new("//fixture"),
+            DirectorySource::Explicit,
+            false,
+            |_| false
+        ));
+    }
+
+    #[test]
+    fn the_spawn_sink_keeps_an_explicit_network_directory_only() {
         let home = Path::new(r"C:\fixture");
+        for path in NETWORK_PATHS {
+            let bad = Path::new(path);
+            assert_eq!(
+                spawn_directory_for(Some(bad), DirectorySource::Explicit, Some(home), true)
+                    .as_deref(),
+                Some(bad),
+                "{path}"
+            );
+            assert_eq!(
+                spawn_directory_for(Some(bad), DirectorySource::Derived, Some(home), true)
+                    .as_deref(),
+                Some(home),
+                "{path}"
+            );
+            assert_eq!(
+                spawn_directory_for(Some(bad), DirectorySource::Derived, Some(bad), true),
+                None,
+                "{path}"
+            );
+            assert_eq!(
+                spawn_directory_for(Some(bad), DirectorySource::Derived, None, true),
+                None,
+                "{path}"
+            );
+        }
         assert_eq!(
-            spawn_directory(Some(bad), Some(home)).as_deref(),
+            spawn_directory_for(None, DirectorySource::Derived, Some(home), true),
+            None
+        );
+        assert_eq!(
+            spawn_directory_for(Some(home), DirectorySource::Derived, None, true).as_deref(),
             Some(home)
         );
-        assert_eq!(spawn_directory(Some(bad), Some(bad)), None);
-        assert_eq!(spawn_directory(Some(bad), None), None);
-        assert_eq!(spawn_directory(None, Some(home)), None);
-        assert_eq!(spawn_directory(Some(home), None).as_deref(), Some(home));
+        // Unix keeps its double-slash semantics for every source.
+        let unix = Path::new("//fixture");
+        assert_eq!(
+            spawn_directory_for(Some(unix), DirectorySource::Derived, None, false).as_deref(),
+            Some(unix)
+        );
     }
 }

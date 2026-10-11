@@ -40,6 +40,7 @@ pub(super) use contracts::{
 pub(super) use input::overlay_input_from_winit;
 pub(super) use layout::{OverlayRect, overlay_composite_rect, overlay_rect};
 pub(super) use render::{
-    apply_overlay, fit_chars, fit_hint_to_width, text_display_width, wrap_segments, write_text,
+    apply_overlay, fit_chars, fit_chars_tail, fit_hint_to_width, text_display_width, wrap_segments,
+    write_text,
 };
 pub(super) use state::OverlayUi;

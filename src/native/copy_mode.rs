@@ -118,6 +118,11 @@ pub struct CopyModeContext<'a> {
     /// off-screen cells opaque - word scans then treat them as non-word
     /// content and stop, which is the safe degradation.
     pub offscreen_cell: Option<&'a dyn Fn(AbsoluteCellPoint) -> Option<char>>,
+    /// Whether an off-screen cell is the trailing spacer of a wide glyph. The
+    /// character provider resolves a spacer to its lead's character, so owner
+    /// information must come separately; without it an off-screen spacer reads
+    /// as a plain cell and a motion can rest on it.
+    pub offscreen_continuation: Option<&'a dyn Fn(AbsoluteCellPoint) -> bool>,
 }
 
 impl CopyModeContext<'_> {
@@ -174,12 +179,16 @@ impl CopyModeContext<'_> {
         self.offscreen_cell.and_then(|fetch| fetch(p))
     }
 
-    /// Whether a visible cell is the trailing spacer of a wide glyph. Off-screen
-    /// cells carry only their resolved character, so they never report one.
+    /// Whether a cell is the trailing spacer of a wide glyph. On-screen cells
+    /// read the viewport snapshot; off-screen cells ask the continuation
+    /// provider and read as plain cells without one.
     fn is_wide_spacer(&self, p: AbsoluteCellPoint) -> bool {
         let cols = self.columns();
         let Some(vrow) = self.visible_row(p.row) else {
-            return false;
+            return p.column > 0
+                && p.column < cols
+                && p.row <= self.max_row()
+                && self.offscreen_continuation.is_some_and(|fetch| fetch(p));
         };
         p.column > 0
             && p.column < cols
@@ -656,6 +665,7 @@ mod tests {
             viewport_offset: 0,
             scrollback_len: 0,
             offscreen_cell: None,
+            offscreen_continuation: None,
         }
     }
 
@@ -845,6 +855,7 @@ mod tests {
             viewport_offset: 1,
             scrollback_len: 1,
             offscreen_cell: Some(&below),
+            offscreen_continuation: None,
         };
         let mut s = CopyModeState::new(at(1, 0)); // 'b' of bar (last visible row)
         s.apply(CopyModeKey::WordForward, &c);
@@ -867,6 +878,7 @@ mod tests {
             viewport_offset: 0,
             scrollback_len: 1,
             offscreen_cell: Some(&above),
+            offscreen_continuation: None,
         };
         let mut s = CopyModeState::new(at(1, 0)); // 'b' of bar (first visible row)
         s.apply(CopyModeKey::WordBackward, &c);
@@ -874,6 +886,67 @@ mod tests {
             s.cursor(),
             at(0, 0),
             "b reaches the word start in scrollback"
+        );
+    }
+
+    /// Off-screen rows serve a wide word `界字` (columns 0-3) after the visible
+    /// rows. The character provider resolves each spacer to its lead; the
+    /// continuation provider reports which cells are spacers.
+    fn wide_row_chars(p: AbsoluteCellPoint) -> Option<char> {
+        match p.column {
+            0 | 1 => Some('\u{754C}'),
+            2 | 3 => Some('\u{5B57}'),
+            _ => Some(' '),
+        }
+    }
+
+    fn wide_row_spacer(p: AbsoluteCellPoint) -> bool {
+        matches!(p.column, 1 | 3)
+    }
+
+    /// `e` that walks off the viewport bottom onto a wide word rests on the
+    /// last glyph's lead, as on screen, when the off-screen lookup knows owners.
+    #[test]
+    fn word_end_into_an_offscreen_wide_word_rests_on_the_lead() {
+        let snap = snapshot(&["foo", "bar"], 6);
+        let below = |p: AbsoluteCellPoint| -> Option<char> {
+            if p.row == 2 { wide_row_chars(p) } else { None }
+        };
+        let spacer = |p: AbsoluteCellPoint| p.row == 2 && wide_row_spacer(p);
+        let c = CopyModeContext {
+            snapshot: &snap,
+            viewport_offset: 1,
+            scrollback_len: 1,
+            offscreen_cell: Some(&below),
+            offscreen_continuation: Some(&spacer),
+        };
+        let mut s = CopyModeState::new(at(1, 5));
+        s.apply(CopyModeKey::WordEnd, &c);
+        assert_eq!(s.cursor(), at(2, 2), "the caret rests on the lead of 字");
+    }
+
+    /// `e` from the lead of a wide glyph above the viewport steps over the
+    /// glyph's spacer and advances to the next word instead of staying put.
+    #[test]
+    fn word_end_from_an_offscreen_wide_lead_advances() {
+        let snap = snapshot(&["bar", "baz"], 6);
+        let above = |p: AbsoluteCellPoint| -> Option<char> {
+            if p.row == 0 { wide_row_chars(p) } else { None }
+        };
+        let spacer = |p: AbsoluteCellPoint| p.row == 0 && wide_row_spacer(p);
+        let c = CopyModeContext {
+            snapshot: &snap,
+            viewport_offset: 0,
+            scrollback_len: 1,
+            offscreen_cell: Some(&above),
+            offscreen_continuation: Some(&spacer),
+        };
+        let mut s = CopyModeState::new(at(0, 2));
+        s.apply(CopyModeKey::WordEnd, &c);
+        assert_eq!(
+            s.cursor(),
+            at(1, 2),
+            "the next word's end, not the wide word again"
         );
     }
 
@@ -887,6 +960,7 @@ mod tests {
             viewport_offset: 0,
             scrollback_len: 1,
             offscreen_cell: None,
+            offscreen_continuation: None,
         };
         let mut s = CopyModeState::new(at(1, 0));
         s.apply(CopyModeKey::WordBackward, &c);
@@ -1122,6 +1196,7 @@ mod tests {
             viewport_offset: 3,
             scrollback_len: 5,
             offscreen_cell: None,
+            offscreen_continuation: None,
         };
         // top_row = 5 - 3 = 2; absolute cursor seeded on the visible top row.
         let mut s = CopyModeState::new(at(2, 0));
@@ -1145,6 +1220,7 @@ mod tests {
             viewport_offset: 7,
             scrollback_len: 9,
             offscreen_cell: None,
+            offscreen_continuation: None,
         };
         assert_eq!(s.range(), before);
         // The same key under both contexts must land identically: the caret and

@@ -505,10 +505,14 @@ the reference implementation.
   or local host - a remote host in the field is not resolved or contacted.
   Drive-letter working directories are handled on Windows. Decoded paths with
   two leading slash/backslash separators are refused on Windows, including UNC
-  and device forms. The same guard precedes metadata probes for interactive,
-  restored and profile cwds, the interactive path hover probe, the canonicalizing
-  call that admits a Kitty named-transport path, and ConPTY child creation for
-  direct callers.
+  and device forms. The same guard precedes metadata probes for interactive and
+  restored cwds, the interactive path hover probe, the canonicalizing call that
+  admits a Kitty named-transport path, and ConPTY child creation for direct
+  callers. A directory the user typed (a profile `working_directory` or the
+  command-line one) is the only exception: it is kept as typed, is not probed by
+  the profile form or the missing-directory fallback, and reaches ConPTY child
+  creation, so a hostile terminal program, saved layout or inherited directory
+  can never aim a probe or child at a share while the user's own choice works.
   Fallback home directories also pass the guard. Unix double-slash paths keep
   their local semantics. Prompt marks are
   bounded by the same string caps as other operating-system commands (B1).

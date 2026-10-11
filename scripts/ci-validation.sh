@@ -32,14 +32,29 @@ shell_names=(
   installed_shells_roundtrip_multi_path_batch_order
   installed_shells_roundtrip_via_positional_parameter
 )
-names=("${gpu_names[@]}" "${shell_names[@]}")
+# Integration tests in tests/gpu_composite_smoke.rs carry their own setup and
+# honor the same environment variable; their proof lines use the same shape.
+composite_names=(
+  passthrough_composite_matches_direct_render_bytes
+  bloom_preserves_body_text_and_adds_bounded_halo
+  below_threshold_scene_emits_no_bloom
+  crt_off_is_exact_and_crt_on_bounded_dims_lit_cells
+  viewer_image_survives_post_effects
+  viewer_scrim_dims_whole_viewport
+  cleared_viewer_frame_is_byte_identical
+  gpu_fixture_keeps_driver_lifetime_serialized
+)
+names=("${gpu_names[@]}" "${shell_names[@]}" "${composite_names[@]}")
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
-cargo test --locked --lib -- --test-threads=1 --show-output "${names[@]}" |& tee "$log"
+cargo test --locked --lib -- --test-threads=1 --show-output \
+  "${gpu_names[@]}" "${shell_names[@]}" |& tee "$log"
+cargo test --locked --test gpu_composite_smoke -- --test-threads=1 --show-output \
+  "${composite_names[@]}" |& tee -a "$log"
 for index in "${!names[@]}"; do
   name=${names[index]}
   proofs=("VALIDATION_EXECUTED test=$name")
-  if (( index >= ${#gpu_names[@]} )); then
+  if (( index >= ${#gpu_names[@]} && index < ${#gpu_names[@]} + ${#shell_names[@]} )); then
     proofs=()
     for shell in bash zsh fish; do
       proofs+=("VALIDATION_EXECUTED test=$name shell=$shell")

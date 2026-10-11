@@ -59,6 +59,7 @@ fn resolve_startup_with_catalog(
         resolve_effective_launch(catalog, &cli, &RestoredLaunchOverrides::default());
     if let Some(dir) = options.working_directory.as_ref() {
         effective.working_directory = Some(dir.clone());
+        effective.working_directory_source = crate::cwd::DirectorySource::Explicit;
     }
     effective
 }
@@ -284,18 +285,34 @@ pub(crate) fn profile_picker_entries(
 /// existing notice path can surface it. That warning names the profile only.
 /// The missing directory and the fallback directory are not included, because
 /// every `profile launch notice` site logs this string. An unset or
-/// already-valid cwd is untouched. Windows network/device prefixes are refused
-/// before any probe. At most one `metadata` probe; never aborts.
+/// already-valid cwd is untouched. Windows network/device prefixes from a
+/// derived source are refused before any probe; an explicit profile or
+/// command-line one is kept unprobed. At most one `metadata` probe; never aborts.
 /// Cross-platform: the same
 /// home fallback (`$HOME` / `%USERPROFILE%`) a restored pane uses.
 pub(crate) fn apply_missing_cwd_fallback(effective: &mut EffectiveLaunch) {
+    apply_missing_cwd_fallback_with(
+        effective,
+        crate::native::persistence::dir_exists_for_spawn,
+        crate::native::persistence::restore_home_dir,
+    );
+}
+
+/// [`apply_missing_cwd_fallback`] with the directory check and the home
+/// lookup supplied, so the Windows network-path rule is testable everywhere.
+/// A fallback directory is derived, never explicit.
+fn apply_missing_cwd_fallback_with(
+    effective: &mut EffectiveLaunch,
+    usable: impl FnOnce(&std::path::Path, crate::cwd::DirectorySource) -> bool,
+    home: impl FnOnce() -> Option<PathBuf>,
+) {
     let Some(dir) = effective.working_directory.clone() else {
         return;
     };
-    if crate::native::persistence::dir_exists_for_spawn(&dir) {
+    if usable(&dir, effective.working_directory_source) {
         return;
     }
-    let home = crate::native::persistence::restore_home_dir();
+    let home = home();
     let profile = effective
         .profile_name
         .clone()
@@ -309,6 +326,7 @@ pub(crate) fn apply_missing_cwd_fallback(effective: &mut EffectiveLaunch) {
         "profile {profile}: working directory does not exist; started in {destination}"
     ));
     effective.working_directory = home;
+    effective.working_directory_source = crate::cwd::DirectorySource::Derived;
 }
 
 pub(crate) fn spawn_restored_local_leaf(
@@ -644,6 +662,97 @@ mod tests {
             effective.warnings.len(),
             before,
             "an existing cwd warns nothing"
+        );
+    }
+
+    #[test]
+    fn a_command_line_directory_is_explicit_and_an_inherited_one_is_derived() {
+        let options = crate::native::options::NativeOptions {
+            working_directory: Some(PathBuf::from("/from/cli")),
+            ..crate::native::options::NativeOptions::default()
+        };
+        let mut catalog = ProfileCatalog::default();
+        let mut profile = LaunchProfile::new("dev").expect("profile");
+        profile.launch.working_directory = Some("/from/profile".to_owned());
+        catalog.profiles.insert("dev".to_owned(), profile);
+        let startup = super::resolve_startup_with_catalog(&options, "dev", &catalog);
+        assert_eq!(
+            startup.working_directory_source,
+            crate::cwd::DirectorySource::Explicit
+        );
+        let inherited = resolve_local_tab_launch(
+            &Settings::default(),
+            &ProfileCatalog::default(),
+            None,
+            Some(PathBuf::from("/from/osc7")),
+            None,
+            &RestoredLaunchOverrides::default(),
+        );
+        assert_eq!(
+            inherited.working_directory,
+            Some(PathBuf::from("/from/osc7"))
+        );
+        assert_eq!(
+            inherited.working_directory_source,
+            crate::cwd::DirectorySource::Derived
+        );
+    }
+
+    #[test]
+    fn a_network_directory_survives_the_missing_directory_fallback_only_when_explicit() {
+        use crate::cwd::DirectorySource;
+        let share = PathBuf::from(r"\\wsl.localhost\Distro\home");
+        let home = PathBuf::from(r"C:\fixture");
+        // The Windows rule, injected: a missing local directory is unusable,
+        // and a network directory is unusable only when it was not typed.
+        let windows_usable = |path: &std::path::Path, source: DirectorySource| {
+            crate::cwd::launch_dir_usable_for(path, source, true, |_| false)
+        };
+        for (source, kept) in [
+            (DirectorySource::Explicit, true),
+            (DirectorySource::Derived, false),
+        ] {
+            let mut effective = resolve_local_tab_launch(
+                &Settings::default(),
+                &ProfileCatalog::default(),
+                None,
+                None,
+                None,
+                &RestoredLaunchOverrides::default(),
+            );
+            effective.working_directory = Some(share.clone());
+            effective.working_directory_source = source;
+            super::apply_missing_cwd_fallback_with(&mut effective, windows_usable, || {
+                Some(home.clone())
+            });
+            if kept {
+                assert_eq!(effective.working_directory, Some(share.clone()));
+                assert!(effective.warnings.is_empty(), "{:?}", effective.warnings);
+            } else {
+                assert_eq!(effective.working_directory, Some(home.clone()));
+                assert_eq!(effective.working_directory_source, DirectorySource::Derived);
+                assert_eq!(effective.warnings.len(), 1);
+            }
+        }
+        // A missing explicit local directory still falls back.
+        let mut effective = resolve_local_tab_launch(
+            &Settings::default(),
+            &ProfileCatalog::default(),
+            None,
+            None,
+            None,
+            &RestoredLaunchOverrides::default(),
+        );
+        effective.working_directory = Some(PathBuf::from(r"C:\gone"));
+        effective.working_directory_source = DirectorySource::Explicit;
+        super::apply_missing_cwd_fallback_with(&mut effective, windows_usable, || {
+            Some(home.clone())
+        });
+        assert_eq!(effective.working_directory, Some(home));
+        assert_eq!(
+            effective.working_directory_source,
+            DirectorySource::Derived,
+            "the home fallback is never explicit"
         );
     }
 }

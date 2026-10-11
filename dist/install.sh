@@ -6,9 +6,13 @@
 #   bash odytty-X.Y.Z-install.sh
 #
 # Detects the package manager and installs the matching prebuilt artifact from
-# the latest GitHub release: a native .deb (apt-get), a native .rpm (dnf/rpm),
-# or the portable binary tarball otherwise. The downloaded artifact is always
-# signature-verified SHA256SUMS before anything is installed.
+# a GitHub release: a native .deb (apt-get), a native .rpm (dnf, zypper or rpm),
+# or the portable binary tarball otherwise. The copy in the repository installs
+# the latest release. The version-pinned release asset is stamped at release
+# time to install the release it was published with, and checks that release's
+# signed manifest. The artifact is checked against SHA256SUMS, which is
+# authenticated with the pinned Minisign key unless --insecure-skip-signature
+# is given.
 #
 # This is Linux x86_64 only. On macOS it prints the Homebrew command; on Windows
 # it prints the Scoop command. Other architectures are pointed at the AppImage
@@ -28,8 +32,28 @@ DRY_RUN=0
 INSECURE_SKIP_SIGNATURE=0
 MINISIGN_PUBLIC_KEY='RWQcOPw3PisdAGt2Q2IF7W6P1sgyPs2b9rQvFJohmLC8/w+qJt+aXEev'
 
+# The usage text is embedded, not read back from the script file: in the
+# documented `curl ... | bash` form $0 is the shell, not this script.
 usage() {
-    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+    cat <<'USAGE'
+OdyTTY one-line installer for Linux x86_64.
+
+Installs the prebuilt OdyTTY package for this system from a GitHub release:
+a native .deb (apt-get), a native .rpm (dnf, zypper or rpm), or the portable
+binary tarball. The artifact is checked against SHA256SUMS, which is
+authenticated with the pinned Minisign key unless --insecure-skip-signature is
+given.
+
+This is Linux x86_64 only. On macOS it prints the Homebrew command; on Windows
+it prints the Scoop command. No telemetry, no tokens, nothing is sent anywhere.
+
+  --dry-run   print the planned actions and exit without downloading or
+              installing (used by CI to smoke-test the script offline)
+  --insecure-skip-signature
+              skip Minisign manifest authentication (not recommended; trusts
+              the delivery channel for SHA256SUMS)
+  --help      show this help
+USAGE
 }
 
 while [ "$#" -gt 0 ]; do
@@ -81,18 +105,21 @@ case "$arch" in
 esac
 
 # --- choose artifact + install command --------------------------------------
-# Aliases are the always-latest names published alongside every release; using
-# releases/latest/download keeps this script version-agnostic.
+# Aliases are the un-versioned names published alongside every release. The
+# repository copy points BASE_URL at releases/latest/download, which keeps it
+# version-agnostic; the version-pinned release asset has BASE_URL stamped to
+# that release's own download directory (dist/pin-installer.sh).
 # apt-get is required for the deb: `apt-get install` of a local package pulls
 # dependencies. dpkg alone cannot finish that install, and calling apt-get
 # again from that branch would invoke a tool this selector already knows is
 # absent. Those hosts get the
-# portable tarball instead. rpm without dnf still uses `rpm -i` (that command
-# exists on the same branch and does not call dnf).
+# portable tarball instead. The rpm goes to dnf, then zypper, then plain rpm.
+# The rpm declares Fedora-named dependencies and plain rpm resolves none, so
+# only dnf and zypper hosts are expected to complete that install unaided.
 if have apt-get; then
     kind="deb"
     artifact="odytty-amd64.deb"
-elif have dnf || have rpm; then
+elif have dnf || have zypper || have rpm; then
     kind="rpm"
     artifact="odytty-x86_64.rpm"
 else
@@ -113,13 +140,24 @@ if [ "$(id -u)" -ne 0 ] && have sudo; then
     SUDO=(sudo)
 fi
 
+# Run a command with the sudo prefix when there is one. Expanding an empty
+# "${SUDO[@]}" aborts under `set -u` in bash before 4.4, so the array is never
+# expanded while empty.
+run_priv() {
+    if [ "${#SUDO[@]}" -gt 0 ]; then
+        "${SUDO[@]}" "$@"
+    else
+        "$@"
+    fi
+}
+
 sudo_note=""
 if [ "${#SUDO[@]}" -gt 0 ]; then sudo_note=" via sudo"; fi
 
 describe_install() {
     case "$kind" in
         deb)     say "  install with apt-get (needs root$sudo_note)" ;;
-        rpm)     say "  install with dnf/rpm (needs root$sudo_note)" ;;
+        rpm)     say "  install with dnf, zypper or rpm (needs root$sudo_note)" ;;
         tarball)
             if [ "${#SUDO[@]}" -gt 0 ] || [ "$(id -u)" -eq 0 ]; then
                 say "  install the binary + desktop files under /usr/local$sudo_note"
@@ -143,9 +181,9 @@ fi
 # --- download ---------------------------------------------------------------
 dl() { # url dest
     if have curl; then
-        curl -fSL --retry 3 -o "$2" "$1"
+        curl -fSL --proto '=https' --proto-redir '=https' --retry 3 -o "$2" "$1"
     elif have wget; then
-        wget -O "$2" "$1"
+        wget --https-only -O "$2" "$1"
     else
         err "need curl or wget to download"; exit 1
     fi
@@ -157,13 +195,13 @@ dl() { # url dest
 install_minisign() {
     say "minisign is needed to verify the release; installing it ..."
     if have pacman; then
-        "${SUDO[@]}" pacman -S --needed --noconfirm minisign
+        run_priv pacman -S --needed --noconfirm minisign
     elif have apt-get; then
-        "${SUDO[@]}" apt-get update -qq && "${SUDO[@]}" apt-get install -y minisign
+        run_priv apt-get update -qq && run_priv apt-get install -y minisign
     elif have dnf; then
-        "${SUDO[@]}" dnf install -y minisign
+        run_priv dnf install -y minisign
     elif have zypper; then
-        "${SUDO[@]}" zypper --non-interactive install minisign
+        run_priv zypper --non-interactive install minisign
     else
         return 1
     fi
@@ -220,13 +258,17 @@ say "Checksum verified."
 case "$kind" in
     deb)
         # Reached only when apt-get exists (see the selector above).
-        "${SUDO[@]}" apt-get install -y "./$artifact"
+        run_priv apt-get install -y "./$artifact"
         ;;
     rpm)
         if have dnf; then
-            "${SUDO[@]}" dnf install -y "./$artifact"
+            run_priv dnf install -y "./$artifact"
+        elif have zypper; then
+            run_priv zypper --non-interactive --allow-unsigned-rpm install "./$artifact"
         else
-            "${SUDO[@]}" rpm -i --replacepkgs "$artifact"
+            # -U upgrades an installed version; -i beside an older version
+            # conflicts on the shared files.
+            run_priv rpm -Uvh --replacepkgs "$artifact"
         fi
         ;;
     tarball)
@@ -244,7 +286,7 @@ case "$kind" in
         if [ "$(id -u)" -eq 0 ]; then
             PREFIX=/usr/local "$dir/install.sh"
         elif [ "${#SUDO[@]}" -gt 0 ]; then
-            "${SUDO[@]}" env PREFIX=/usr/local "$dir/install.sh"
+            run_priv env PREFIX=/usr/local "$dir/install.sh"
         else
             PREFIX="$HOME/.local" "$dir/install.sh"
         fi

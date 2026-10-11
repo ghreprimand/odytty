@@ -368,9 +368,14 @@ fn resolve_format(path: &Path, format: ShellHistoryFormat) -> ShellHistoryFormat
     }
 }
 
-/// Parse zsh history lines. zsh writes a multi-line command as physical lines
-/// that each end in an unescaped backslash; the backslash stands for the
-/// newline, so those lines join into one entry.
+/// Parse zsh history lines with the rules of zsh 5.9's history file. The
+/// writer puts a backslash before every newline inside a command without
+/// escaping the backslashes already there, and the reader joins a physical
+/// line to the next whenever its final byte is a backslash, whatever precedes
+/// it. So exactly one final backslash is removed as the newline marker and any
+/// backslash before it is literal command text. A command that itself ends in
+/// a backslash (possibly followed by spaces) is written with one padding space
+/// so it does not read as a continuation; the reader removes that one space.
 fn parse_zsh_history_entries(lines: &[&str], max_entry_chars: usize) -> Vec<String> {
     let mut entries = Vec::new();
     let mut pending: Option<String> = None;
@@ -390,24 +395,34 @@ fn parse_zsh_history_entries(lines: &[&str], max_entry_chars: usize) -> Vec<Stri
                 None => line.to_owned(),
             },
         };
-        let trailing = command.bytes().rev().take_while(|&b| b == b'\\').count();
-        if trailing % 2 == 1 {
+        if command.ends_with('\\') {
             command.pop();
             pending = Some(command);
             continue;
         }
+        strip_zsh_padding(&mut command);
         if let Some(entry) = normalize_entry(&command, max_entry_chars) {
             entries.push(entry);
         }
     }
     // A continuation cut off by the end of the file is still the start of a
     // command.
-    if let Some(command) = pending
-        && let Some(entry) = normalize_entry(&command, max_entry_chars)
-    {
-        entries.push(entry);
+    if let Some(mut command) = pending {
+        strip_zsh_padding(&mut command);
+        if let Some(entry) = normalize_entry(&command, max_entry_chars) {
+            entries.push(entry);
+        }
     }
     entries
+}
+
+/// Remove the one padding space zsh writes after a command whose text ends in
+/// a backslash, optionally followed by spaces. Other trailing spaces are kept.
+fn strip_zsh_padding(command: &mut String) {
+    let without_spaces = command.trim_end_matches(' ');
+    if without_spaces.len() < command.len() && without_spaces.ends_with('\\') {
+        command.pop();
+    }
 }
 
 /// Parse fish history: each `- cmd: ` line holds one command, written by fish
@@ -615,7 +630,7 @@ mod tests {
         // 0xB8. U+00E9 (C3 A9) is outside the metafied range and stays raw.
         let path = write_fixture(
             "zsh-multi",
-            b": 1700000000:0;echo one\\\n echo two\n: 1700000001:0;echo caf\xc3\xa9 \xc4\x83\xb8\n: 1700000002:0;echo kept\\\\\n: 1700000003:0;ls\n",
+            b": 1700000000:0;echo one\\\n echo two\n: 1700000001:0;echo caf\xc3\xa9 \xc4\x83\xb8\n: 1700000002:0;echo kept\\\\ \n: 1700000003:0;ls\n",
         );
 
         let entries =
@@ -628,6 +643,40 @@ mod tests {
                 "echo kept\\\\",
                 "echo caf\u{e9} \u{118}",
                 "echo one\n echo two"
+            ]
+        );
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn zsh_history_removes_only_the_final_backslash_marker() {
+        // Project-authored sample in the layout zsh 5.9 writes: a backslash
+        // before each embedded newline with literal backslashes left as they
+        // are, and one padding space after a command ending in a backslash.
+        // One, two and three physical trailing backslashes all continue the
+        // entry; only the last one is the newline marker. U+0118 is metafied.
+        let path = write_fixture(
+            "zsh-continuation",
+            b": 1700000000:0;echo a\\\nb\n\
+: 1700000001:0;printf x\\\\\nok\n\
+: 1700000002:0;echo y\\\\\\\nz\n\
+: 1700000003:0;echo end\\ \n\
+: 1700000004:0;echo \xc4\x83\xb8\\\nnext\n\
+: 1700000005:0;ls\n",
+        );
+
+        let entries =
+            read_shell_history_with_limits(&path, ShellHistoryFormat::ZshExtended, small_limits());
+
+        assert_eq!(
+            entries,
+            vec![
+                "ls",
+                "echo \u{118}\nnext",
+                "echo end\\",
+                "echo y\\\\\nz",
+                "printf x\\\nok",
+                "echo a\nb",
             ]
         );
         let _ = fs::remove_file(path);

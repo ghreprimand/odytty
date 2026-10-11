@@ -491,6 +491,32 @@ fn attach_reports_unknown_session_without_creating_daemons() {
 #[cfg(unix)]
 #[test]
 fn list_and_attach_use_live_session_host_without_scrollback_dump() {
+    // This host launches the real default shell. Re-exec keeps its entire
+    // writable environment private without changing other test threads.
+    const CHILD: &str = "ODYTTY_TEST_CLI_HOST_ENV";
+    if std::env::var_os(CHILD).is_none() {
+        let child_env = scratch_dirs::ChildEnv::new();
+        let output = Command::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--exact",
+                "list_and_attach_use_live_session_host_without_scrollback_dump",
+                "--nocapture",
+            ])
+            .envs(child_env.vars())
+            .env(CHILD, "1")
+            .output()
+            .expect("private host test child");
+        assert!(
+            output.status.success(),
+            "private host child failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("test result: ok. 1 passed; 0 failed"),
+            "private host child must execute its assertions"
+        );
+        return;
+    }
     // Short prefix: this test binds a real session-host socket, so the runtime
     // base must stay well under the macOS 104-byte AF_UNIX `sun_path` limit.
     let temp = TempDir::new("cli-ls");

@@ -27,6 +27,12 @@
 #     module therefore returns `n` blocks for even `n` and `2n` blocks for odd
 #     `n`, and the caller repeats the returned cycle until the planned block
 #     count is reached.
+#   * Position balance is exact over whole cycles only. A measured block
+#     count that is not a multiple of the cycle length (five W6 replicates or
+#     30 SE blocks across four implementations) leaves some implementation in
+#     a position once more than another. `schedule_position_balance` reports
+#     that residual for any schedule, and `--balance` prints it, so a reader
+#     of a preregistered order can see it rather than assume exact balance.
 #   * The seed permutes the implementation labels before the square is built.
 #     The square's structure is fixed; the seed decides which implementation
 #     takes which role in it. That keeps the balance property independent of
@@ -132,6 +138,27 @@ def position_counts(blocks: list[list[str]]) -> dict[str, list[int]]:
     return counts
 
 
+def schedule_position_balance(schedule: list[dict], first_block: int = 1) -> dict:
+    """Position counts over the blocks of `schedule` numbered `first_block` on.
+
+    `balanced` is true only when every implementation occupies every order
+    position equally often in those blocks. Pass the first measured block to
+    exclude rehearsal or warmup blocks.
+    """
+    rows = [
+        entry["implementation_order"]
+        for entry in schedule
+        if entry["block"] >= first_block
+    ]
+    counts = position_counts(rows)
+    return {
+        "first_block": first_block,
+        "blocks": len(rows),
+        "position_counts": counts,
+        "balanced": all(len(set(positions)) == 1 for positions in counts.values()),
+    }
+
+
 def self_test() -> list[str]:
     failures: list[str] = []
 
@@ -228,6 +255,18 @@ def self_test() -> list[str]:
             "ordering: implementation and configuration order appear locked together"
         )
 
+    # Whole cycles of measured blocks are position balanced; a partial cycle
+    # is not, and the report says so instead of the module claiming balance.
+    four = ["odytty", "kitty", "ghostty", "alacritty"]
+    partial = schedule_position_balance(block_schedule(four, ["plain"], "seed-x", 6), 2)
+    if partial["balanced"] or partial["blocks"] != 5:
+        failures.append(f"ordering: five measured blocks of four reported balanced: {partial}")
+    if sorted(sum(partial["position_counts"].values(), [])) != [1] * 12 + [2] * 4:
+        failures.append(f"ordering: five-block residual counts are wrong: {partial}")
+    whole = schedule_position_balance(block_schedule(four, ["plain"], "seed-x", 9), 2)
+    if not whole["balanced"] or whole["blocks"] != 8:
+        failures.append(f"ordering: two whole measured cycles were not balanced: {whole}")
+
     # A single implementation degrades gracefully rather than erroring.
     if balanced_cycle(["solo"], "s") != [["solo"]]:
         failures.append("ordering: single-implementation cycle is wrong")
@@ -265,6 +304,12 @@ def main(argv: list[str] | None = None) -> int:
         help="comma-separated configuration names (default: plain)",
     )
     parser.add_argument("--blocks", type=int, default=30, help="measured block count")
+    parser.add_argument(
+        "--balance",
+        type=int,
+        metavar="FIRST_BLOCK",
+        help="print the order-position counts from this block on instead of the schedule",
+    )
     args = parser.parse_args(argv)
 
     if args.self_test:
@@ -287,6 +332,15 @@ def main(argv: list[str] | None = None) -> int:
         args.seed,
         args.blocks,
     )
+    if args.balance is not None:
+        json.dump(
+            schedule_position_balance(schedule, args.balance),
+            sys.stdout,
+            indent=2,
+            sort_keys=True,
+        )
+        sys.stdout.write("\n")
+        return 0
     json.dump(schedule, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
     return 0

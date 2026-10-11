@@ -309,11 +309,21 @@ adapter and verifies execution markers for the library's headless GPU tests
 and four quoting tests in each of bash, zsh, and fish. Missing prerequisites,
 missing execution markers, and failed assertions fail the check. Those GPU
 tests acquire their device through `src/native/test_support/gpu_device.rs`,
-so a new one shares this policy and belongs in the script's list. Three keep
+so a new one shares this policy and belongs in the script's list. Two keep
 their own setup: the GL sibling-device test (ignored by default; it needs a
-headless GL host), the dual-source subpixel shader test (it needs an optional
-adapter feature and skips without it), and the integration tests in
-`tests/gpu_composite_smoke.rs`, which cannot reach the library's test helpers.
+headless GL host) and the dual-source subpixel shader test (it needs an optional
+adapter feature and skips without it).
+
+The integration tests in `tests/gpu_composite_smoke.rs` cannot reach the
+library's test helpers, so they read `ODYTTY_REQUIRE_GPU_TESTS` themselves: with
+it set they select the software Vulkan adapter, and a missing adapter or HDR
+render format fails the test instead of reporting unavailable-hardware. The
+script runs them in a second `cargo test` invocation and checks their execution
+markers in the same way (`composite_names`).
+
+macOS and Windows run a three-test availability smoke of the library GPU tests
+instead of the full list; the policy test requires each of its names to be in
+the script's list. Their full suites run the rest.
 
 Outside this check, these GPU and quoting tests emit named `VALIDATION_SKIP`
 lines for unavailable GPU prerequisites or Unix shells. Use
@@ -322,6 +332,15 @@ those lines; the Rust harness still reports an early-returning test as `ok`,
 so that count alone does not establish execution. Dedicated CI validation steps
 retain successful test output on Linux, macOS, and Windows. Unix shell round trips
 are not compiled on Windows; GPU validation there uses available adapters.
+
+Shell-integration helpers, file-drop shell probes and Unix PTY smoke-test
+children use the shared child-directory fixture. The CLI live-session-host test
+re-executes in a child with the same private directories. It supplies private HOME, XDG config/data/state/cache,
+APPDATA, LOCALAPPDATA, USERPROFILE and history paths without mutating the parent
+environment. Explicit shell startup fixtures override their HOME or ZDOTDIR
+after those defaults. The fixture stays alive until the child exits and removes
+its state on normal return or unwind. Native Windows spawning retains its
+existing console-window policy.
 
 Linux CI also installs Xvfb, xauth and the X11 keyboard runtime
 `libxkbcommon-x11-0` and runs `bash scripts/ci-display.sh`.

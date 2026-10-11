@@ -882,23 +882,55 @@ def read_memory_bytes(cgroup: Path | None, name: str) -> int | None:
         return None
 
 
-def read_context_switches(pids: set[int], proc_root: Path = Path("/proc")) -> int | None:
-    """Sum voluntary and involuntary context switches over a process tree."""
-    total = 0
-    seen = False
+def read_context_switches(
+    pids: set[int], proc_root: Path = Path("/proc")
+) -> dict[tuple[int, int], int] | None:
+    """Voluntary plus involuntary context switches for every task (thread).
+
+    `/proc/<pid>/status` counts only the thread-group leader, so a
+    multithreaded terminal's switches are read per task from
+    `/proc/<pid>/task/<tid>/status`, keyed by `(pid, tid)`. Returns None when
+    no task was readable.
+    """
+    counts: dict[tuple[int, int], int] = {}
     for pid in pids:
         try:
-            text = (proc_root / str(pid) / "status").read_text(encoding="utf-8")
+            tasks = list((proc_root / str(pid) / "task").iterdir())
         except OSError:
             continue
-        for line in text.splitlines():
-            if line.startswith(("voluntary_ctxt_switches", "nonvoluntary_ctxt_switches")):
-                try:
-                    total += int(line.split(":")[1].strip())
-                    seen = True
-                except (IndexError, ValueError):
-                    continue
-    return total if seen else None
+        for task in tasks:
+            if not task.name.isascii() or not task.name.isdigit():
+                continue
+            try:
+                text = (task / "status").read_text(encoding="utf-8")
+            except OSError:
+                continue
+            total = 0
+            seen = False
+            for line in text.splitlines():
+                if line.startswith(("voluntary_ctxt_switches", "nonvoluntary_ctxt_switches")):
+                    try:
+                        total += int(line.split(":")[1].strip())
+                        seen = True
+                    except (IndexError, ValueError):
+                        continue
+            if seen:
+                counts[(pid, int(task.name))] = total
+    return counts or None
+
+
+def context_switch_delta(
+    start: dict[tuple[int, int], int], end: dict[tuple[int, int], int]
+) -> int | None:
+    """Switches made during measurement by tasks alive throughout it.
+
+    A task that started or exited in between would add or drop its whole
+    lifetime count, so a changed task set gives None (the replicate reports
+    the metric unsupported) instead of a sum over mismatched sets.
+    """
+    if start.keys() != end.keys():
+        return None
+    return sum(max(0, end[key] - start[key]) for key in start)
 
 
 def read_drm_memory_bytes(pids: set[int], proc_root: Path = Path("/proc")) -> dict[str, int] | None:
@@ -2439,17 +2471,10 @@ def _calibrated_probe_set_failures(probes: list[dict]) -> set[str]:
 
     if failures or len(attempts_by_name) != len(mapped):
         return failures | (set(names) - set(attempts_by_name))
-    geometry_sets = [
-        {
-            json.dumps(attempt.get("cell_geometry"), sort_keys=True)
-            for attempt in attempts_by_name[name]
-            if attempt.get("window_mapped")
-            and isinstance(attempt.get("cell_geometry"), dict)
-        }
-        for name in names
-    ]
-    common = set.intersection(*geometry_sets) if geometry_sets else set()
-    if not common:
+    selection = _intersection_selection(
+        attempts_by_name, names, lambda attempt: bool(attempt.get("window_mapped"))
+    )
+    if selection is None:
         for probe in mapped:
             if (
                 probe.get("configuration_status") != "unmet-protocol"
@@ -2458,43 +2483,10 @@ def _calibrated_probe_set_failures(probes: list[dict]) -> set[str]:
                 failures.add(probe["implementation"])
         return failures
 
-    def intersection_rank(serialized_geometry: str) -> tuple:
-        choices = []
-        for name in names:
-            candidates = [
-                attempt
-                for attempt in attempts_by_name[name]
-                if json.dumps(attempt.get("cell_geometry"), sort_keys=True)
-                == serialized_geometry
-            ]
-            choices.append(
-                min(
-                    profiles.calibration_rank(name, attempt["requested_config"])
-                    for attempt in candidates
-                )
-            )
-        geometry = json.loads(serialized_geometry)
-        return (
-            sum(rank[0] for rank in choices),
-            geometry["cell_width_device_px"],
-            geometry["cell_height_device_px"],
-            serialized_geometry,
-        )
-
-    chosen_geometry = min(common, key=intersection_rank)
+    _chosen_geometry, selected = selection
     for probe in mapped:
         name = probe["implementation"]
-        expected = min(
-            (
-                attempt
-                for attempt in attempts_by_name[name]
-                if json.dumps(attempt.get("cell_geometry"), sort_keys=True)
-                == chosen_geometry
-            ),
-            key=lambda attempt: profiles.calibration_rank(
-                name, attempt["requested_config"]
-            ),
-        )
+        expected = selected[name]
         if (
             probe.get("configuration_status") == "unmet-protocol"
             or probe.get("selected_attempt_sha256") != expected.get("attempt_sha256")
@@ -2746,60 +2738,16 @@ def calibrate_probe_set(
     for name in mapped_names:
         attempts_by_name.setdefault(name, [initial_by_name[name]])
 
-    geometry_sets = []
-    for name in mapped_names:
-        geometry_sets.append(
-            {
-                json.dumps(attempt.get("cell_geometry"), sort_keys=True)
-                for attempt in attempts_by_name[name]
-                if _valid_probe_attempt(attempt)
-                and attempt.get("window_mapped")
-                and isinstance(attempt.get("cell_geometry"), dict)
-            }
-        )
-    common = (
-        set.intersection(*geometry_sets)
-        if geometry_sets and not budget_exhausted
-        else set()
-    )
     selected: dict[str, dict] = {}
-    if common:
-        def intersection_rank(serialized_geometry: str) -> tuple:
-            choices = []
-            for name in mapped_names:
-                candidates = [
-                    attempt
-                    for attempt in attempts_by_name[name]
-                    if json.dumps(attempt.get("cell_geometry"), sort_keys=True)
-                    == serialized_geometry
-                ]
-                choices.append(
-                    min(
-                        profiles.calibration_rank(name, attempt["requested_config"])
-                        for attempt in candidates
-                    )
-                )
-            geometry = json.loads(serialized_geometry)
-            return (
-                sum(rank[0] for rank in choices),
-                geometry["cell_width_device_px"],
-                geometry["cell_height_device_px"],
-                serialized_geometry,
-            )
-
-        chosen_geometry = min(common, key=intersection_rank)
-        for name in mapped_names:
-            selected[name] = min(
-                (
-                    attempt
-                    for attempt in attempts_by_name[name]
-                    if json.dumps(attempt.get("cell_geometry"), sort_keys=True)
-                    == chosen_geometry
-                ),
-                key=lambda attempt: profiles.calibration_rank(
-                    name, attempt["requested_config"]
-                ),
-            )
+    if not budget_exhausted:
+        selection = _intersection_selection(
+            attempts_by_name,
+            mapped_names,
+            lambda attempt: _valid_probe_attempt(attempt)
+            and bool(attempt.get("window_mapped")),
+        )
+        if selection is not None:
+            _chosen_geometry, selected = selection
 
     calibrated = []
     budget_record = {
@@ -3101,21 +3049,40 @@ def _diagnostic_state_record() -> dict[str, bool]:
     }
 
 
-def _calibration_intersection_selection(
+def _intersection_selection(
     attempts_by_name: dict[str, list[dict]],
-) -> tuple[dict, dict[str, dict]] | None:
-    """Choose the preregistered lowest-rank exact common device-pixel grid."""
-    names = list(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS)
-    geometry_sets = [
-        {
-            json.dumps(attempt.get("cell_geometry"), sort_keys=True)
+    names: list[str],
+    admit,
+) -> tuple[str, dict[str, dict]] | None:
+    """Choose the lowest-rank exact device-pixel grid every name reached.
+
+    Only attempts for which `admit(attempt)` holds and that carry a geometry
+    take part. The common grid with the lowest summed preregistered
+    calibration rank wins (ties broken by cell width, cell height, then the
+    serialized grid), and each name's lowest-rank admitted attempt at that
+    grid is selected. Returns the serialized grid and the selection, or None
+    when the names share no grid. This is the one selection rule: the
+    retired common-grid search, its validator and the calibration diagnostic
+    differ only in the `admit` predicate they pass.
+    """
+
+    def admitted(name: str) -> list[dict]:
+        return [
+            attempt
             for attempt in attempts_by_name.get(name, [])
-            if _valid_probe_attempt(attempt)
-            and attempt.get("window_mapped") is True
-            and attempt.get("display_path") == DISPLAY_PATH_WAYLAND
-            and attempt.get("configuration_status") != "unmet-protocol"
-            and isinstance(attempt.get("cell_geometry"), dict)
-        }
+            if admit(attempt) and isinstance(attempt.get("cell_geometry"), dict)
+        ]
+
+    def at_grid(name: str, serialized_geometry: str) -> list[dict]:
+        return [
+            attempt
+            for attempt in admitted(name)
+            if json.dumps(attempt.get("cell_geometry"), sort_keys=True)
+            == serialized_geometry
+        ]
+
+    geometry_sets = [
+        {json.dumps(attempt["cell_geometry"], sort_keys=True) for attempt in admitted(name)}
         for name in names
     ]
     common = set.intersection(*geometry_sets) if geometry_sets else set()
@@ -3123,24 +3090,13 @@ def _calibration_intersection_selection(
         return None
 
     def intersection_rank(serialized_geometry: str) -> tuple:
-        choices = []
-        for name in names:
-            candidates = [
-                attempt
-                for attempt in attempts_by_name[name]
-                if json.dumps(attempt.get("cell_geometry"), sort_keys=True)
-                == serialized_geometry
-                and _valid_probe_attempt(attempt)
-                and attempt.get("window_mapped") is True
-                and attempt.get("display_path") == DISPLAY_PATH_WAYLAND
-                and attempt.get("configuration_status") != "unmet-protocol"
-            ]
-            choices.append(
-                min(
-                    profiles.calibration_rank(name, attempt["requested_config"])
-                    for attempt in candidates
-                )
+        choices = [
+            min(
+                profiles.calibration_rank(name, attempt["requested_config"])
+                for attempt in at_grid(name, serialized_geometry)
             )
+            for name in names
+        ]
         geometry = json.loads(serialized_geometry)
         return (
             sum(rank[0] for rank in choices),
@@ -3150,24 +3106,36 @@ def _calibration_intersection_selection(
         )
 
     chosen_geometry = min(common, key=intersection_rank)
-    selected = {
-        name: min(
-            (
-                attempt
-                for attempt in attempts_by_name[name]
-                if json.dumps(attempt.get("cell_geometry"), sort_keys=True)
-                == chosen_geometry
-                and _valid_probe_attempt(attempt)
-                and attempt.get("window_mapped") is True
-                and attempt.get("display_path") == DISPLAY_PATH_WAYLAND
-                and attempt.get("configuration_status") != "unmet-protocol"
-            ),
-            key=lambda attempt: profiles.calibration_rank(
+    selected = {}
+    for name in names:
+        selected[name] = min(
+            at_grid(name, chosen_geometry),
+            key=lambda attempt, name=name: profiles.calibration_rank(
                 name, attempt["requested_config"]
             ),
         )
-        for name in names
-    }
+    return chosen_geometry, selected
+
+
+def _calibration_intersection_selection(
+    attempts_by_name: dict[str, list[dict]],
+) -> tuple[dict, dict[str, dict]] | None:
+    """Choose the preregistered lowest-rank exact common device-pixel grid.
+
+    The calibration diagnostic admits only valid, mapped, native-Wayland
+    attempts that are not marked `unmet-protocol`.
+    """
+    selection = _intersection_selection(
+        attempts_by_name,
+        list(GEOMETRY_DIAGNOSTIC_IMPLEMENTATIONS),
+        lambda attempt: _valid_probe_attempt(attempt)
+        and attempt.get("window_mapped") is True
+        and attempt.get("display_path") == DISPLAY_PATH_WAYLAND
+        and attempt.get("configuration_status") != "unmet-protocol",
+    )
+    if selection is None:
+        return None
+    chosen_geometry, selected = selection
     return json.loads(chosen_geometry), selected
 
 
@@ -4520,8 +4488,13 @@ def run_replicate(
         reading["process_tree_cpu_seconds"] = cpu_seconds
         if measure_seconds > 0:
             reading["normalized_cpu_percent"] = 100.0 * cpu_seconds / measure_seconds
+    switch_task_churn = False
     if start_switches is not None and end_switches is not None:
-        reading["context_switches"] = max(0, end_switches - start_switches)
+        switches = context_switch_delta(start_switches, end_switches)
+        if switches is None:
+            switch_task_churn = True
+        else:
+            reading["context_switches"] = switches
     if current_memory is not None:
         reading["current_memory"] = current_memory
     if peak_memory is not None and peak_reset:
@@ -4606,6 +4579,7 @@ def run_replicate(
         "gpu_regions": gpu or {},
         "pty_pixel_envelope_model": geometry_model_evidence,
         "peak_reset": peak_reset,
+        "context_switch_task_churn": switch_task_churn,
         "process_membership": "private-cgroup" if membership_proven else "unavailable",
         "invalid_reason": invalid_reason,
         "environment_checks": environment_checks,
@@ -4898,6 +4872,11 @@ def assemble_replicate_samples(
             "gpu_memory",
         ):
             per_replicate_unsupported[metric] = reason
+    if replicate.get("context_switch_task_churn", False):
+        per_replicate_unsupported["context_switches"] = (
+            "terminal threads started or exited during measurement, so per-task "
+            "context-switch counts do not cover one fixed task set"
+        )
     if not replicate.get("peak_reset", False):
         per_replicate_unsupported["peak_memory"] = (
             "memory.peak could not be reset after the settling interval"
@@ -5087,7 +5066,8 @@ def run_session(
 
     if results_dir.exists():
         raise ValueError("measured result target already exists; refusing to resume or overwrite")
-    results_dir.mkdir(parents=True, exist_ok=False)
+    # Every pre-flight check below runs before `results_dir` is created, so a
+    # refused session leaves no target behind and can be rerun as is.
     started = _utc_now()
     qualified_names, _unavailable = qualified_from_prereg(prereg_record)
     if "odytty" not in qualified_names:
@@ -5096,6 +5076,33 @@ def run_session(
     if configurations != ["plain"]:
         raise ValueError("the W6 primary runner requires the preregistered plain configuration")
     configuration = "plain"
+    # Record values are checked before the first probe launch.
+    try:
+        budget_seconds = float(prereg_record["run_set_time_budget_hours"]) * 3600
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("run_set_time_budget_hours must be a positive number") from error
+    if not math.isfinite(budget_seconds) or budget_seconds <= 0:
+        raise ValueError("run_set_time_budget_hours must be a positive number")
+    try:
+        background_cpu_ceiling = float(
+            prereg_record["background_cpu_ceiling_percent"]
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("background_cpu_ceiling_percent must be numeric") from error
+    if not 0 <= background_cpu_ceiling <= 100:
+        raise ValueError("background_cpu_ceiling_percent must be between 0 and 100")
+    try:
+        overhead_ceiling = float(
+            prereg_record["instrumentation_overhead_ceiling_percent"]
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(
+            "instrumentation_overhead_ceiling_percent must be numeric"
+        ) from error
+    if not 0 <= overhead_ceiling <= 100:
+        raise ValueError(
+            "instrumentation_overhead_ceiling_percent must be between 0 and 100"
+        )
 
     probes = probe_availability(
         qualified_names, launcher, sleep=sleep, calibrate=False
@@ -5136,20 +5143,6 @@ def run_session(
         }
         for name in qualified
     }
-    with (results_dir / "availability.json").open("x", encoding="utf-8") as handle:
-        handle.write(
-            json.dumps(
-                {
-                    "calibration_mode": "frozen-qualified-revalidation",
-                    "probes": probes,
-                    "revalidated_qualified": qualified,
-                },
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n"
-        )
-
     unsupported_reasons = unsupported_reasons_from_probe(collector_probe)
     frozen_collectors = {
         entry.get("collector"): entry for entry in prereg_record.get("collectors", [])
@@ -5176,24 +5169,25 @@ def run_session(
     if schedule != expected_schedule:
         raise ValueError("preregistered W6 execution order does not match its frozen inputs")
 
-    try:
-        budget_seconds = float(prereg_record["run_set_time_budget_hours"]) * 3600
-    except (KeyError, TypeError, ValueError) as error:
-        raise ValueError("run_set_time_budget_hours must be a positive number") from error
-    if budget_seconds <= 0:
-        raise ValueError("run_set_time_budget_hours must be a positive number")
-    try:
-        background_cpu_ceiling = float(
-            prereg_record["background_cpu_ceiling_percent"]
-        )
-    except (KeyError, TypeError, ValueError) as error:
-        raise ValueError("background_cpu_ceiling_percent must be numeric") from error
-    if not 0 <= background_cpu_ceiling <= 100:
-        raise ValueError("background_cpu_ceiling_percent must be between 0 and 100")
     minimum_seconds = estimate_duration_seconds(len(qualified), per_replicate_overhead=0)
     if budget_seconds < minimum_seconds:
         raise ValueError(
             "W6 time budget is shorter than the frozen W6 schedule"
+        )
+
+    results_dir.mkdir(parents=True, exist_ok=False)
+    with (results_dir / "availability.json").open("x", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "calibration_mode": "frozen-qualified-revalidation",
+                    "probes": probes,
+                    "revalidated_qualified": qualified,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
         )
 
     samples: list[dict] = []
@@ -5261,9 +5255,7 @@ def run_session(
                     instrumented_seconds = float(
                         replicate.get("elapsed_wall_seconds", 0.0)
                     )
-                    ceiling = float(
-                        prereg_record["instrumentation_overhead_ceiling_percent"]
-                    )
+                    ceiling = overhead_ceiling
                     overhead_entry = {
                         "implementation": implementation,
                         "duration_seconds_each": REHEARSAL_SECONDS,
@@ -7846,6 +7838,116 @@ def self_test() -> list[str]:
             failures.append(
                 "calibration diagnostic: interruption did not discard public reservation and retain private evidence"
             )
+
+        # The reference-readiness branch handles an interruption like its
+        # siblings: the empty public reservation is removed (so a rerun is not
+        # refused) and the private evidence is kept.
+        readiness_interrupt_output = public / "interrupted-readiness.json"
+        readiness_interrupt_private = root / "interrupted-readiness-private"
+
+        def interrupt_readiness(_record, launcher):
+            launcher.log_dir.mkdir(parents=True, exist_ok=True)
+            (launcher.log_dir / "retained.raw").write_text(
+                "private readiness log\n", encoding="utf-8"
+            )
+            raise KeyboardInterrupt
+
+        original_readiness_run = globals()["run_reference_readiness"]
+        globals()["preflight_window_backend"] = lambda: (
+            {"status": "available", "backend": "hyprctl", "display": "wayland"},
+            {},
+        )
+        globals()["verify_probe_inputs"] = lambda _record, _root: None
+        globals()["RealLauncher"] = _CalibrationInterruptLauncher
+        globals()["run_reference_readiness"] = interrupt_readiness
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                readiness_interrupt_status = main(
+                    [
+                        "--reference-readiness-output",
+                        str(readiness_interrupt_output),
+                        "--reference-readiness-private-dir",
+                        str(readiness_interrupt_private),
+                        "--preregistration",
+                        str(cli_prereg),
+                    ]
+                )
+        except KeyboardInterrupt:
+            readiness_interrupt_status = None
+        finally:
+            globals()["preflight_window_backend"] = original_preflight
+            globals()["verify_probe_inputs"] = original_verify
+            globals()["RealLauncher"] = original_launcher
+            globals()["run_reference_readiness"] = original_readiness_run
+        if (
+            readiness_interrupt_status != 130
+            or readiness_interrupt_output.exists()
+            or not (readiness_interrupt_private / "logs" / "retained.raw").is_file()
+        ):
+            failures.append(
+                "reference readiness: interruption did not discard public reservation "
+                f"and retain private evidence (status {readiness_interrupt_status!r})"
+            )
+
+        # A geometry smoke collision names the smoke target, not the
+        # geometry diagnostic it once shared a helper with.
+        smoke_collision_output = public / "smoke-collision.json"
+        smoke_collision_output.write_text("{}\n", encoding="utf-8")
+        try:
+            reserve_geometry_smoke_storage(
+                smoke_collision_output, root / "smoke-collision-private", repository
+            )
+        except ValueError as error:
+            if "geometry smoke target" not in str(error):
+                failures.append(f"geometry smoke: collision message is {error}")
+        else:
+            failures.append("geometry smoke: output collision was accepted")
+        try:
+            reserve_geometry_smoke_storage(
+                public / "smoke-unpaired.json", None, repository
+            )
+        except ValueError as error:
+            if "--geometry-smoke-private-dir" not in str(error):
+                failures.append(f"geometry smoke: missing private message is {error}")
+        else:
+            failures.append("geometry smoke: missing private directory was accepted")
+
+        # Private directories created for a reservation are all 0700, and a
+        # failed reservation removes every directory it created.
+        nested_private = root / "nested-a" / "nested-b" / "private"
+        nested_output, nested_root, nested_sink = reserve_private_storage(
+            public / "nested.json", nested_private, repository,
+            "nested", "--nested-output", "--nested-private-dir",
+        )
+        nested_sink.close()
+        if any(
+            directory.stat().st_mode & 0o777 != 0o700
+            for directory in (nested_root, nested_root.parent, nested_root.parent.parent)
+        ):
+            failures.append("reservation: created parent directories are not 0700")
+        failing_root = root / "failing-a" / "failing-b" / "private"
+        original_chmod = Path.chmod
+
+        def refuse_leaf(path_self, *args, **kwargs):
+            if path_self == failing_root.resolve():
+                raise PermissionError("refused leaf")
+            return original_chmod(path_self, *args, **kwargs)
+
+        Path.chmod = refuse_leaf  # type: ignore[method-assign]
+        try:
+            reserve_private_storage(
+                public / "failing.json", failing_root, repository,
+                "failing", "--failing-output", "--failing-private-dir",
+            )
+        except OSError:
+            if (root / "failing-a").exists() or (public / "failing.json").exists():
+                failures.append(
+                    "reservation: a failed reservation left created parents or its sink"
+                )
+        else:
+            failures.append("reservation: a refused private directory was accepted")
+        finally:
+            Path.chmod = original_chmod  # type: ignore[method-assign]
 
     fake_which = lambda name: f"/usr/bin/{name}"  # noqa: E731 - injected lookup
     missing_backend, missing_environment = preflight_window_backend(
@@ -10458,6 +10560,48 @@ def self_test() -> list[str]:
         }:
             failures.append(f"DRM resident parsing: unexpected reading {gpu_reading!r}")
 
+    # Context switches are counted per thread, not from the leader's status,
+    # and a delta is taken only over one fixed task set.
+    with tempfile.TemporaryDirectory() as tmp:
+        proc_root = Path(tmp)
+
+        def write_task(pid: int, tid: int, voluntary: int, involuntary: int) -> None:
+            task = proc_root / str(pid) / "task" / str(tid)
+            task.mkdir(parents=True, exist_ok=True)
+            (task / "status").write_text(
+                f"Name:\tfake\nvoluntary_ctxt_switches:\t{voluntary}\n"
+                f"nonvoluntary_ctxt_switches:\t{involuntary}\n",
+                encoding="utf-8",
+            )
+
+        (proc_root / "42").mkdir()
+        (proc_root / "42" / "status").write_text(
+            "voluntary_ctxt_switches:\t1\nnonvoluntary_ctxt_switches:\t1\n",
+            encoding="utf-8",
+        )
+        write_task(42, 42, 1, 1)
+        write_task(42, 43, 100, 20)
+        start_switches = read_context_switches({42}, proc_root)
+        if start_switches != {(42, 42): 2, (42, 43): 120}:
+            failures.append(f"context switches: per-task start reading {start_switches!r}")
+        write_task(42, 42, 3, 1)
+        write_task(42, 43, 150, 30)
+        end_switches = read_context_switches({42}, proc_root)
+        if (
+            start_switches is None
+            or end_switches is None
+            or context_switch_delta(start_switches, end_switches) != 62
+        ):
+            failures.append(
+                f"context switches: delta over two threads is not 62: {end_switches!r}"
+            )
+        write_task(42, 44, 5, 0)
+        churned = read_context_switches({42}, proc_root)
+        if start_switches is None or churned is None or context_switch_delta(
+            start_switches, churned
+        ) is not None:
+            failures.append("context switches: a changed task set produced a delta")
+
     # Duration estimate is honest about a five-implementation session.
     estimate = estimate_duration_seconds(2)
     if estimate != 2 * (2 * (120 + 15) + 5 * (60 + 600 + 15)):
@@ -10943,6 +11087,70 @@ def self_test() -> list[str]:
         if result_schema.validate(document, prereg):
             failures.append("session: sparse timing failure evidence did not validate")
 
+    # Record values are refused before any probe launch and before the
+    # results target exists, so the same target can be used after a fix.
+    for field, bad_value in (
+        ("instrumentation_overhead_ceiling_percent", None),
+        ("instrumentation_overhead_ceiling_percent", "five"),
+        ("instrumentation_overhead_ceiling_percent", -1),
+        ("instrumentation_overhead_ceiling_percent", float("nan")),
+        ("run_set_time_budget_hours", float("nan")),
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prereg = _fake_prereg(["odytty"])
+            if bad_value is None:
+                del prereg[field]
+            else:
+                prereg[field] = bad_value
+            refused_launcher = _FakeLauncher({"odytty": "wayland"}, root / "logs")
+            launched_before = refused_launcher._next_pid
+            try:
+                run_session(
+                    prereg,
+                    "d" * 64,
+                    refused_launcher,
+                    root / "results",
+                    {"collectors": []},
+                    sleep=lambda _seconds: None,
+                    runner_sha256="9" * 64,
+                    prereg_anchor_commit="1" * 40,
+                )
+            except ValueError:
+                if (root / "results").exists() or refused_launcher._next_pid != launched_before:
+                    failures.append(
+                        f"session: invalid {field}={bad_value!r} launched or left a target"
+                    )
+            except Exception as error:  # noqa: BLE001 - reported as a failure
+                failures.append(
+                    f"session: invalid {field}={bad_value!r} raised {error!r}"
+                )
+            else:
+                failures.append(f"session: invalid {field}={bad_value!r} was accepted")
+
+    # A pre-flight refusal after the probes (a budget shorter than the
+    # schedule) also leaves no results target behind.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        prereg = _fake_prereg(["odytty"])
+        prereg["run_set_time_budget_hours"] = 0.01
+        try:
+            run_session(
+                prereg,
+                "d" * 64,
+                _FakeLauncher({"odytty": "wayland"}, root / "logs"),
+                root / "results",
+                {"collectors": []},
+                sleep=lambda _seconds: None,
+                runner_sha256="9" * 64,
+                prereg_anchor_commit="1" * 40,
+            )
+        except ValueError:
+            if (root / "results").exists():
+                failures.append("session: a refused short budget left the results target")
+        else:
+            failures.append("session: a budget shorter than the schedule was accepted")
+
     # Each environmental invalid reason must be recoverable from the raw
     # per-side observations and remain an explicit incomplete result.
     for environmental_reason in sorted(result_schema.ENVIRONMENT_INVALID_REASONS):
@@ -11244,7 +11452,12 @@ def self_test() -> list[str]:
                     retired_package, retired_result, retired_private
                 )
             except ValueError:
-                pass
+                # A refused package writes neither manifest, so a retry
+                # after the fix is not blocked by an exclusive-create target.
+                if (retired_private / "private-evidence-manifest.json").exists() or (
+                    retired_package / "evidence-manifest.json"
+                ).exists():
+                    failures.append(f"public package: refused {label} left a manifest")
             else:
                 failures.append(f"public package: {label} was accepted")
 
@@ -11553,9 +11766,7 @@ def validate_private_evidence_location(
     return private_root
 
 
-def discard_reference_readiness_reservation(
-    output_path: Path, reservation: TextIO
-) -> None:
+def discard_reservation(output_path: Path, reservation: TextIO) -> None:
     """Remove only the empty/public sink represented by this open handle."""
     same_file = False
     try:
@@ -11575,94 +11786,88 @@ def discard_reference_readiness_reservation(
         output_path.unlink(missing_ok=True)
 
 
-def reserve_reference_readiness_storage(
-    output_path: Path, private_path: Path | None, repo_root: Path
+def reserve_private_storage(
+    output_path: Path,
+    private_path: Path | None,
+    repo_root: Path,
+    label: str,
+    output_flag: str,
+    private_flag: str,
 ) -> tuple[Path, Path, TextIO]:
-    """Reserve the public sink, then create private storage before any launch."""
+    """Reserve a public sink, then create its private 0700 store before any launch.
+
+    `label` names the target in errors and the flags name the arguments, so
+    each caller reports its own option. If the private store cannot be
+    created, the reservation and every directory this call created are
+    removed again, so a retry is not refused by leftovers.
+    """
     if private_path is None:
-        raise ValueError(
-            "--reference-readiness-output requires "
-            "--reference-readiness-private-dir"
-        )
+        raise ValueError(f"{output_flag} requires {private_flag}")
     resolved_output = output_path.resolve()
     private_root = validate_private_evidence_location(
         private_path, resolved_output.parent, repo_root
     )
     if resolved_output.exists() or private_root.exists():
-        raise ValueError("reference readiness target already exists")
+        raise ValueError(f"{label} target already exists")
+    created: list[Path] = []
+    for directory in (private_root, *private_root.parents):
+        if directory.exists():
+            break
+        created.append(directory)
     reservation = resolved_output.open("x", encoding="utf-8")
     try:
-        private_root.mkdir(parents=True, mode=0o700, exist_ok=False)
-        private_root.chmod(0o700)
+        for directory in reversed(created):
+            directory.mkdir(mode=0o700)
+            directory.chmod(0o700)
     except OSError:
-        discard_reference_readiness_reservation(resolved_output, reservation)
-        if private_root.is_dir():
+        discard_reservation(resolved_output, reservation)
+        for directory in created:
             try:
-                private_root.rmdir()
+                directory.rmdir()
             except OSError:
                 pass
         raise
     return resolved_output, private_root, reservation
+
+
+def reserve_reference_readiness_storage(
+    output_path: Path, private_path: Path | None, repo_root: Path
+) -> tuple[Path, Path, TextIO]:
+    """Reserve the reference-readiness sink and its private store."""
+    return reserve_private_storage(
+        output_path, private_path, repo_root, "reference readiness",
+        "--reference-readiness-output", "--reference-readiness-private-dir",
+    )
 
 
 def reserve_geometry_diagnostic_storage(
     output_path: Path, private_path: Path | None, repo_root: Path
 ) -> tuple[Path, Path, TextIO]:
-    """Reserve a public diagnostic sink before creating its private raw store."""
-    if private_path is None:
-        raise ValueError(
-            "--geometry-diagnostic-output requires "
-            "--geometry-diagnostic-private-dir"
-        )
-    resolved_output = output_path.resolve()
-    private_root = validate_private_evidence_location(
-        private_path, resolved_output.parent, repo_root
+    """Reserve the geometry-diagnostic sink and its private raw store."""
+    return reserve_private_storage(
+        output_path, private_path, repo_root, "geometry diagnostic",
+        "--geometry-diagnostic-output", "--geometry-diagnostic-private-dir",
     )
-    if resolved_output.exists() or private_root.exists():
-        raise ValueError("geometry diagnostic target already exists")
-    reservation = resolved_output.open("x", encoding="utf-8")
-    try:
-        private_root.mkdir(parents=True, mode=0o700, exist_ok=False)
-        private_root.chmod(0o700)
-    except OSError:
-        discard_reference_readiness_reservation(resolved_output, reservation)
-        if private_root.is_dir():
-            try:
-                private_root.rmdir()
-            except OSError:
-                pass
-        raise
-    return resolved_output, private_root, reservation
+
+
+def reserve_geometry_smoke_storage(
+    output_path: Path, private_path: Path | None, repo_root: Path
+) -> tuple[Path, Path, TextIO]:
+    """Reserve the geometry-smoke sink and its private raw store."""
+    return reserve_private_storage(
+        output_path, private_path, repo_root, "geometry smoke",
+        "--geometry-smoke-output", "--geometry-smoke-private-dir",
+    )
 
 
 def reserve_calibration_diagnostic_storage(
     output_path: Path, private_path: Path | None, repo_root: Path
 ) -> tuple[Path, Path, TextIO]:
     """Reserve public calibration evidence and its private raw-log directory."""
-    if private_path is None:
-        raise ValueError(
-            "--calibration-diagnostic-output requires "
-            "--calibration-diagnostic-private-dir"
-        )
-    resolved_output = output_path.resolve()
-    private_root = validate_private_evidence_location(
-        private_path, resolved_output.parent, repo_root
+    return reserve_private_storage(
+        output_path, private_path, repo_root, "calibration diagnostic",
+        "--calibration-diagnostic-output", "--calibration-diagnostic-private-dir",
     )
-    if resolved_output.exists() or private_root.exists():
-        raise ValueError("calibration diagnostic target already exists")
-    reservation = resolved_output.open("x", encoding="utf-8")
-    try:
-        private_root.mkdir(parents=True, mode=0o700, exist_ok=False)
-        private_root.chmod(0o700)
-    except OSError:
-        discard_reference_readiness_reservation(resolved_output, reservation)
-        if private_root.is_dir():
-            try:
-                private_root.rmdir()
-            except OSError:
-                pass
-        raise
-    return resolved_output, private_root, reservation
 
 
 def finalize_public_evidence(
@@ -11691,9 +11896,11 @@ def finalize_public_evidence(
         ],
     }
     private_manifest_path = private_root / "private-evidence-manifest.json"
-    with private_manifest_path.open("x", encoding="utf-8") as handle:
-        handle.write(json.dumps(private_manifest, indent=2, sort_keys=True) + "\n")
-    private_manifest_path.chmod(0o600)
+    private_manifest_text = json.dumps(private_manifest, indent=2, sort_keys=True) + "\n"
+    if private_manifest_path.exists():
+        raise ValueError("private evidence manifest already exists")
+    # Both manifests are written only after every check below passes, so a
+    # refused package leaves nothing behind that would block a retry.
     availability_path = results_dir / "availability.json"
     try:
         availability_record = json.loads(availability_path.read_text(encoding="utf-8"))
@@ -11770,10 +11977,18 @@ def finalize_public_evidence(
             "published": False,
             "disposition": "retained byte-identical outside the public package",
             "omission_reason": "raw terminal output may contain private shell content",
-            "manifest_sha256": hashlib.sha256(private_manifest_path.read_bytes()).hexdigest(),
+            "manifest_sha256": hashlib.sha256(
+                private_manifest_text.encode("utf-8")
+            ).hexdigest(),
         },
     }
-    with (results_dir / "evidence-manifest.json").open("x", encoding="utf-8") as handle:
+    public_manifest_path = results_dir / "evidence-manifest.json"
+    if public_manifest_path.exists():
+        raise ValueError("public evidence manifest already exists")
+    with private_manifest_path.open("x", encoding="utf-8") as handle:
+        handle.write(private_manifest_text)
+    private_manifest_path.chmod(0o600)
+    with public_manifest_path.open("x", encoding="utf-8") as handle:
         handle.write(json.dumps(public_manifest, indent=2, sort_keys=True) + "\n")
 
 
@@ -12219,11 +12434,11 @@ def main(argv: list[str] | None = None) -> int:
             )
             calibration_output.close()
         except KeyboardInterrupt:
-            discard_reference_readiness_reservation(output_path, calibration_output)
+            discard_reservation(output_path, calibration_output)
             print("calibration diagnostic interrupted", file=sys.stderr)
             return 130
         except (OSError, ValueError) as error:
-            discard_reference_readiness_reservation(output_path, calibration_output)
+            discard_reservation(output_path, calibration_output)
             print(f"calibration diagnostic failed: {error}", file=sys.stderr)
             return 1
         json.dump(calibration_diagnostic, sys.stdout, indent=2, sort_keys=True)
@@ -12250,7 +12465,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         try:
             output_path, private_dir, smoke_output = (
-                reserve_geometry_diagnostic_storage(
+                reserve_geometry_smoke_storage(
                     Path(args.geometry_smoke_output),
                     (
                         Path(args.geometry_smoke_private_dir)
@@ -12287,11 +12502,11 @@ def main(argv: list[str] | None = None) -> int:
             smoke_output.write(json.dumps(smoke, indent=2, sort_keys=True) + "\n")
             smoke_output.close()
         except KeyboardInterrupt:
-            discard_reference_readiness_reservation(output_path, smoke_output)
+            discard_reservation(output_path, smoke_output)
             print("geometry smoke interrupted", file=sys.stderr)
             return 130
         except (OSError, ValueError) as error:
-            discard_reference_readiness_reservation(output_path, smoke_output)
+            discard_reservation(output_path, smoke_output)
             print(f"geometry smoke failed: {error}", file=sys.stderr)
             return 1
         json.dump(smoke, sys.stdout, indent=2, sort_keys=True)
@@ -12356,11 +12571,11 @@ def main(argv: list[str] | None = None) -> int:
             )
             diagnostic_output.close()
         except KeyboardInterrupt:
-            discard_reference_readiness_reservation(output_path, diagnostic_output)
+            discard_reservation(output_path, diagnostic_output)
             print("geometry diagnostic interrupted", file=sys.stderr)
             return 130
         except (OSError, ValueError) as error:
-            discard_reference_readiness_reservation(output_path, diagnostic_output)
+            discard_reservation(output_path, diagnostic_output)
             print(f"geometry diagnostic failed: {error}", file=sys.stderr)
             return 1
         json.dump(diagnostic, sys.stdout, indent=2, sort_keys=True)
@@ -12409,8 +12624,12 @@ def main(argv: list[str] | None = None) -> int:
                 json.dumps(readiness, indent=2, sort_keys=True) + "\n"
             )
             readiness_output.close()
+        except KeyboardInterrupt:
+            discard_reservation(output_path, readiness_output)
+            print("reference readiness interrupted", file=sys.stderr)
+            return 130
         except (OSError, ValueError) as error:
-            discard_reference_readiness_reservation(
+            discard_reservation(
                 output_path, readiness_output
             )
             print(f"reference readiness failed: {error}", file=sys.stderr)
@@ -12476,9 +12695,7 @@ def main(argv: list[str] | None = None) -> int:
             font_identity=prereg_record.get("shared_font"),
         )
         probes = probe_availability(names, launcher, calibrate=False)
-        decision = qualify_implementations(
-            probes, allow_mixed_display_paths=args.allow_mixed_display_paths
-        )
+        decision = qualify_implementations(probes)
         json.dump(
             {
                 "calibration_mode": "preregistered-per-implementation",
@@ -12512,22 +12729,15 @@ def main(argv: list[str] | None = None) -> int:
         validate_private_evidence_location(
             private_evidence_dir, results_dir, HERE.parents[1]
         )
-        private_evidence_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
-        private_evidence_dir.chmod(0o700)
+        if private_evidence_dir.exists():
+            raise ValueError("private evidence directory already exists")
     except (OSError, ValueError) as error:
         print(f"cannot create private evidence directory: {error}", file=sys.stderr)
         return 1
 
-    launcher = RealLauncher(
-        backend,
-        use_scope=not args.no_scope,
-        log_dir=private_evidence_dir / "terminal-logs",
-        config_paths=config_paths,
-        calibrations=calibrations,
-        launch_environment=launch_environment,
-        font_identity=prereg_record.get("shared_font"),
-    )
-
+    # The anchor and identity checks run before the private evidence
+    # directory is created, so a transient failure (an unreachable public
+    # anchor) leaves nothing that refuses the same directory on retry.
     try:
         prereg_anchor_commit = resolve_public_preregistration_commit(
             prereg_record, preregistration_bytes, HERE.parents[1]
@@ -12542,6 +12752,23 @@ def main(argv: list[str] | None = None) -> int:
         print(f"runtime identity verification failed: {error}", file=sys.stderr)
         return 1
 
+    try:
+        private_evidence_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
+        private_evidence_dir.chmod(0o700)
+    except OSError as error:
+        print(f"cannot create private evidence directory: {error}", file=sys.stderr)
+        return 1
+
+    launcher = RealLauncher(
+        backend,
+        use_scope=not args.no_scope,
+        log_dir=private_evidence_dir / "terminal-logs",
+        config_paths=config_paths,
+        calibrations=calibrations,
+        launch_environment=launch_environment,
+        font_identity=prereg_record.get("shared_font"),
+    )
+
     document = run_session(
         prereg_record,
         _sha256(prereg_path),
@@ -12551,7 +12778,6 @@ def main(argv: list[str] | None = None) -> int:
         settle_seconds=args.settle_seconds,
         measure_seconds=args.measure_seconds,
         measured_blocks=args.measured_blocks,
-        allow_mixed_display_paths=args.allow_mixed_display_paths,
         runner_sha256=_sha256(Path(__file__)),
         prereg_anchor_commit=prereg_anchor_commit,
     )

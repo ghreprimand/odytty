@@ -371,6 +371,11 @@ fn apply_match_highlight(
             snapshot.dimensions.columns - 1
         };
         let offset = row * snapshot.dimensions.columns;
+        crate::core::begin_recolor(
+            &mut snapshot.cells,
+            offset + start_column,
+            offset + end_column,
+        );
         for cell in &mut snapshot.cells[offset + start_column..=offset + end_column] {
             cell.attrs.set_recolored(true);
             match (themed, current) {
@@ -568,6 +573,49 @@ mod tests {
                 "themed={} current={current}",
                 style.is_some()
             );
+        }
+    }
+
+    /// A search match never merges legacy flag owners whose stored colours
+    /// differ, whichever owner it covers and in every highlight style.
+    #[test]
+    fn a_search_match_keeps_a_stored_colour_boundary_inside_a_legacy_flag() {
+        use crate::core::Color;
+        use crate::emoji::{
+            color_runs_for_test, colored_attrs_for_test, legacy_flag_pair_for_test,
+        };
+
+        let themed = SearchStyle {
+            fill: [1, 2, 3],
+            fg: [250, 250, 250],
+            active_fill: [4, 5, 6],
+            active_fg: [240, 240, 240],
+        };
+        let red = colored_attrs_for_test(Color::Indexed(1), Color::Default, false);
+        let green = colored_attrs_for_test(Color::Indexed(2), Color::Default, false);
+        let split = color_runs_for_test(&legacy_flag_pair_for_test(red, green));
+        assert_ne!(split, [(0, 2)], "control: the unpainted pair is two runs");
+        for (style, current) in [
+            (None, false),
+            (None, true),
+            (Some(themed), false),
+            (Some(themed), true),
+        ] {
+            for column in [0, 1] {
+                let mut snapshot = legacy_flag_pair_for_test(red, green);
+                let point = crate::selection::CellPoint { row: 0, column };
+                let range = SelectionRange {
+                    start: point,
+                    end: point,
+                };
+                apply_match_highlight(&mut snapshot, range, current, style);
+                assert_eq!(
+                    color_runs_for_test(&snapshot),
+                    split,
+                    "column={column} themed={} current={current}",
+                    style.is_some()
+                );
+            }
         }
     }
 

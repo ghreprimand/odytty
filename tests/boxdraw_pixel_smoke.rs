@@ -112,14 +112,30 @@ fn off_path_takes_the_font_glyph_and_geometric_block_is_solid() {
         .all(|(x, y)| cell_coverage(&mut on, &font_on, ch, x, y).unwrap() == 255);
     assert!(on_solid, "geometric full block must be solid");
 
-    // Rasterize the same set into both atlases in the same order.
+    // Rasterize the same set into both atlases, and into a third atlas that
+    // never had the setter called, in the same order.
+    let mut untouched = GlyphAtlas::build(&font_off, PX);
     for ch in ['\u{2500}', '\u{250C}', '\u{253C}', '\u{2588}'] {
         on.ensure(&font_on, ch);
         off.ensure(&font_off, ch);
+        untouched.ensure(&font_off, ch);
     }
     assert_eq!(on.width, off.width, "atlases pack the same set alike");
-    assert_ne!(
-        on.data, off.data,
-        "the off path must rasterize box drawing from the font, not geometry"
+    assert_eq!(
+        untouched.width, off.width,
+        "atlases pack the same set alike"
+    );
+    // Compared as booleans so a failure does not print the atlases. The off path
+    // is the untouched pre-feature renderer, whatever face it draws; the
+    // geometric path is not.
+    let off_is_untouched = off.data == untouched.data;
+    assert!(
+        off_is_untouched,
+        "turning the feature off must leave the font-glyph path byte-identical"
+    );
+    let on_differs = on.data != off.data;
+    assert!(
+        on_differs,
+        "the geometric path must rasterize box drawing differently from the font"
     );
 }

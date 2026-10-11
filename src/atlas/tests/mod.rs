@@ -7,6 +7,7 @@ use super::*;
 use crate::text::load_font;
 
 mod allocation_bounds;
+mod cluster_identity;
 mod fallback;
 mod fit;
 mod geometry;

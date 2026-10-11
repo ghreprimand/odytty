@@ -43,9 +43,17 @@ cat > Cargo.toml <<'EOF'
 name = "odytty"
 edition = "2021"
 EOF
-git init -q
+# The fixture repository must come out the same whatever the user's git
+# configuration says: the branch is named explicitly, signing and hooks are off,
+# and any failing step stops the script before a wrong screenshot is taken.
+set -e
+git init -q -b master
 git config user.name "odytty"; git config user.email "dev@example.com"
-commit() { export GIT_AUTHOR_DATE="$1" GIT_COMMITTER_DATE="$1"; git add -A && git commit -qm "$2"; }
+commit() {
+  export GIT_AUTHOR_DATE="$1" GIT_COMMITTER_DATE="$1"
+  git add -A
+  git -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -qm "$2"
+}
 
 printf 'pub fn parse(_b: &[u8]) {}\n' > src/parser.rs
 commit "2024-02-01T10:00:00" "Owned DEC/xterm escape parser"
@@ -59,11 +67,12 @@ printf '// kitty + sixel transports\n' > src/graphics.rs
 commit "2024-02-06T15:00:00" "Sixel + Kitty inline graphics transports"
 git checkout -q master
 export GIT_AUTHOR_DATE="2024-02-07T16:00:00" GIT_COMMITTER_DATE="2024-02-07T16:00:00"
-git merge -q --no-ff inline-graphics -m "Merge inline-graphics: Sixel + Kitty"
+git -c commit.gpgsign=false -c core.hooksPath=/dev/null merge -q --no-ff inline-graphics -m "Merge inline-graphics: Sixel + Kitty"
 printf 'pub const DEFAULT_SCROLLBACK: usize = 10_000;\n' > src/scrollback.rs
 commit "2024-02-09T12:00:00" "Bounded scrollback + deterministic test harness"
 printf '// bloom + CRT scanline post-processing\n@fragment fn fs() {}\n' > shaders/post.wgsl
 commit "2024-02-09T12:05:00" "shaders: bloom + CRT post-processing pass"
+set +e
 
 # --- showcase frame (tagline: no version, no "for Linux") ---
 cat > /tmp/odytty-showcase.sh <<'SHEOF'

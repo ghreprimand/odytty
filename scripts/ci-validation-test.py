@@ -19,7 +19,8 @@ def script_names(array):
 
 GPU = script_names("gpu_names")
 SHELL = script_names("shell_names")
-PROOFS = [f"VALIDATION_EXECUTED test={name}" for name in GPU] + [
+COMPOSITE = script_names("composite_names")
+PROOFS = [f"VALIDATION_EXECUTED test={name}" for name in GPU + COMPOSITE] + [
     f"VALIDATION_EXECUTED test={name} shell={shell}"
     for name in SHELL for shell in ("bash", "zsh", "fish")
 ]
@@ -48,7 +49,9 @@ class RequiredValidation(unittest.TestCase):
     def test_fixture_reads_every_required_name(self):
         self.assertEqual(len(GPU), 20)
         self.assertEqual(len(SHELL), 4)
-        self.assertEqual(len(set(GPU + SHELL)), len(GPU + SHELL))
+        self.assertEqual(len(COMPOSITE), 8)
+        everything = GPU + SHELL + COMPOSITE
+        self.assertEqual(len(set(everything)), len(everything))
 
     def test_complete_proof_set_passes(self):
         self.assertEqual(self.run_fixture(PROOFS).returncode, 0)

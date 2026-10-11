@@ -208,6 +208,15 @@ jobs:
           New-Item -ItemType Directory -Force dist/build | Out-Null
           Copy-Item target/release/odytty.exe dist/windows/package/
           Copy-Item README.md, LICENSE, NOTICE dist/windows/package/
+          # The bundled fonts' licence texts: the paths listed in
+          # dist/font-licenses.txt, laid out under licenses/fonts/<set>/.
+          foreach ($path in Get-Content dist/font-licenses.txt) {
+            if ($path.Trim() -eq '') { continue }
+            $relative = $path.Substring('assets/fonts/'.Length)
+            $target = Join-Path dist/windows/package/licenses/fonts $relative
+            New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
+            Copy-Item $path $target
+          }
           Compress-Archive `
             -Path dist/windows/package/* `
             -DestinationPath "dist/build/odytty-$version-windows-x86_64.zip" `
@@ -353,6 +362,7 @@ jobs:
           cp dist/linux/tarball-install.sh "dist/build/${stage}/install.sh"
           chmod +x "dist/build/${stage}/install.sh"
           cp README.md LICENSE NOTICE "dist/build/${stage}/"
+          bash dist/install-font-licenses.sh "dist/build/${stage}/licenses/fonts"
           cp dist/linux/io.unfinished_works.odytty.desktop \
              "dist/build/${stage}/share/applications/"
           cp dist/linux/io.unfinished_works.odytty.metainfo.xml \
@@ -662,8 +672,11 @@ jobs:
           cp "odytty-${version}-amd64.deb" "odytty-amd64.deb"
           cp "odytty-${version}-x86_64.rpm" "odytty-x86_64.rpm"
           # The installer is a version-pinned release asset covered by the same
-          # signed checksum manifest as the packages it selects.
-          cp ../dist/install.sh "odytty-${version}-install.sh"
+          # signed checksum manifest as the packages it selects. Its download
+          # directory is stamped to this release, so it installs the release it
+          # was published with and checks that release's signed manifest.
+          bash ../dist/pin-installer.sh "${version}" ../dist/install.sh \
+            "odytty-${version}-install.sh"
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
 

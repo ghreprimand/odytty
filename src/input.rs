@@ -98,6 +98,23 @@ pub enum KeyEventType {
     Release,
 }
 
+/// The layout identity of the key behind a printable character, for a front
+/// end that knows it. Kitty reports a character key by the character it
+/// produces with no modifiers on the active layout, plus the key a standard US
+/// PC layout has in the same position; neither follows from the produced
+/// character alone, so a caller that cannot name them says so here instead of
+/// having the encoder assume a US layout.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CharIdentity {
+    /// What the key produces with no modifiers on the active layout. `None`
+    /// when the front end cannot say; the produced character then stands for
+    /// the key as it is.
+    pub unshifted: Option<char>,
+    /// What the same physical key produces on a standard US PC layout. `None`
+    /// when unknown or when the key has no US counterpart.
+    pub base_layout: Option<char>,
+}
+
 /// Terminal modes that affect keyboard encoding.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct KeyModes {
@@ -200,6 +217,22 @@ pub fn encode_key_event_with_text(
     event_type: KeyEventType,
     generated_text: Option<&str>,
 ) -> Vec<u8> {
+    encode_key_event_with_identity(key, mods, modes, event_type, generated_text, None)
+}
+
+/// [`encode_key_event_with_text`] for a printable character whose layout
+/// identity the front end knows. With `identity` set, Kitty's key code, shifted
+/// and base-layout fields come from it and are omitted where it does not
+/// provide them; with `None` (synthesized keys and callers without layout
+/// data) the encoder derives them as a US layout would.
+pub fn encode_key_event_with_identity(
+    key: Key,
+    mods: Modifiers,
+    modes: KeyModes,
+    event_type: KeyEventType,
+    generated_text: Option<&str>,
+    identity: Option<CharIdentity>,
+) -> Vec<u8> {
     // Some Wayland stacks report editing keys as their translated control-text
     // value instead of a named key. Normalize before every protocol decision so
     // Kitty, W32IM's neutral/synthetic path, and legacy VT all see the same key
@@ -225,6 +258,7 @@ pub fn encode_key_event_with_text(
             modes.kitty_keyboard_flags,
             event_type,
             generated_text,
+            identity,
         );
     }
 
@@ -481,6 +515,7 @@ fn encode_kitty_key(
     flags: u16,
     event_type: KeyEventType,
     generated_text: Option<&str>,
+    identity: Option<CharIdentity>,
 ) -> Vec<u8> {
     let modifier = kitty_modifier(mods);
     let associated_text = kitty_text::associated_text(generated_text, flags, event_type);
@@ -595,7 +630,7 @@ fn encode_kitty_key(
             associated_text,
         ),
         Key::Char(ch) => {
-            let key_code = KittyKeyCode::from_char(ch, mods, flags);
+            let key_code = KittyKeyCode::from_char(ch, mods, flags, identity);
             encode_kitty_codepoint_key(key_code, modifier, flags, event_type, associated_text)
         }
         Key::KeypadDigit(_) => Vec::new(),
@@ -618,7 +653,33 @@ impl KittyKeyCode {
         }
     }
 
-    fn from_char(ch: char, mods: Modifiers, flags: u16) -> Self {
+    fn from_char(ch: char, mods: Modifiers, flags: u16, identity: Option<CharIdentity>) -> Self {
+        let Some(identity) = identity else {
+            return Self::from_char_assuming_us_layout(ch, mods, flags);
+        };
+        // The key is what it produces unshifted on the active layout; with no
+        // such answer the produced character stands for it.
+        let primary = kitty_char_code(identity.unshifted.unwrap_or(ch), false);
+        if flags & KITTY_REPORT_ALTERNATE_KEYS == 0 {
+            return Self::new(primary);
+        }
+        Self {
+            primary,
+            shifted: mods
+                .shift
+                .then_some(ch as u32)
+                .filter(|shifted| *shifted != primary),
+            base_layout: identity
+                .base_layout
+                .filter(|base| *base != ch)
+                .map(|base| kitty_char_code(base, false)),
+        }
+    }
+
+    /// The derivation for a key whose layout is not known: shifted US
+    /// punctuation is folded to its unshifted US key. Used only when the
+    /// caller supplies no [`CharIdentity`].
+    fn from_char_assuming_us_layout(ch: char, mods: Modifiers, flags: u16) -> Self {
         let primary = kitty_char_code(ch, mods.shift);
         if flags & KITTY_REPORT_ALTERNATE_KEYS == 0 {
             return Self::new(primary);

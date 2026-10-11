@@ -42,6 +42,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -241,31 +242,24 @@ def cursor_position_request(stream) -> None:
     stream.flush()
 
 
+_CURSOR_REPORT = re.compile(rb"\x1b\[([0-9]{1,9});([0-9]{1,9})R")
+
+
 def parse_cursor_report(data: bytes) -> tuple[int, int] | None:
     """Parse a CPR reply of the form `ESC [ row ; col R`.
 
-    Returns None on anything that is not a well-formed report. A malformed or
-    absent reply is an oracle failure, so it must be distinguishable from a
-    valid `(1, 1)`.
+    The buffer may hold other input before the reply, including other CSI
+    sequences such as a focus report or an arrow key, so the first complete
+    `ESC [ digits ; digits R` with a row and column of at least 1 is taken.
+    Returns None when there is none: a malformed or absent reply is an oracle
+    failure, so it must be distinguishable from a valid `(1, 1)`.
     """
-    start = data.find(b"\x1b[")
-    if start < 0:
-        return None
-    end = data.find(b"R", start)
-    if end < 0:
-        return None
-    body = data[start + 2 : end]
-    parts = body.split(b";")
-    if len(parts) != 2:
-        return None
-    try:
-        row = int(parts[0])
-        column = int(parts[1])
-    except ValueError:
-        return None
-    if row < 1 or column < 1:
-        return None
-    return row, column
+    for match in _CURSOR_REPORT.finditer(data):
+        row = int(match.group(1))
+        column = int(match.group(2))
+        if row >= 1 and column >= 1:
+            return row, column
+    return None
 
 
 def expected_final_record(fixture: str) -> bytes:
@@ -379,6 +373,19 @@ def prepare_cpr_input(descriptor: int) -> tuple[int, list]:
         termios.tcsetattr(descriptor, termios.TCSANOW, saved)
         raise
     return descriptor, saved
+
+
+def restore_cpr_input(terminal_restore: tuple[int, list]) -> None:
+    """Restore the terminal state saved by `prepare_cpr_input` or by an
+    injected preparer. `termios` is imported here, so the restore does not
+    depend on which branch prepared the input."""
+    import termios
+
+    descriptor, saved = terminal_restore
+    try:
+        termios.tcsetattr(descriptor, termios.TCSADRAIN, saved)
+    except (OSError, ValueError, termios.error):
+        pass
 
 
 def evaluate_software_endpoint_oracle(
@@ -519,11 +526,7 @@ def run_software_stream(
         elapsed = time.monotonic() - started
     finally:
         if terminal_restore is not None:
-            descriptor, saved = terminal_restore
-            try:
-                termios.tcsetattr(descriptor, termios.TCSADRAIN, saved)
-            except (OSError, ValueError, termios.error):
-                pass
+            restore_cpr_input(terminal_restore)
     final_columns, final_rows = terminal_size_reader()
     verdict = evaluate_software_endpoint_oracle(
         fixture,
@@ -862,6 +865,17 @@ def self_test() -> list[str]:
         failures.append("driver: valid cursor report failed to parse")
     if parse_cursor_report(b"junk\x1b[1;1Rmore") != (1, 1):
         failures.append("driver: cursor report embedded in noise failed to parse")
+    # Other CSI input before the reply (a focus report, an arrow key, a
+    # malformed CSI) must not hide the valid reply that follows it.
+    for noisy, expected_report in (
+        (b"\x1b[I\x1b[24;80R", (24, 80)),
+        (b"\x1b[A\x1b[0;0R\x1b[3;7R", (3, 7)),
+        (b"\x1b[1;2;3R\x1b[5;6R", (5, 6)),
+    ):
+        if parse_cursor_report(noisy) != expected_report:
+            failures.append(f"driver: CPR after other CSI input {noisy!r} was not parsed")
+    if wait_for_cursor_report(io.BytesIO(b"\x1b[O\x1b[9;2R"), 1.0) != (9, 2):
+        failures.append("driver: CPR wait was poisoned by an earlier CSI sequence")
     for malformed in (
         b"",
         b"\x1b[24;80",
@@ -1130,6 +1144,39 @@ def self_test() -> list[str]:
                         "driver: cbreak PTY did not deliver a newline-free CPR reply"
                     )
                 termios.tcsetattr(descriptor, termios.TCSANOW, saved)
+        finally:
+            os.close(master)
+            os.close(slave)
+
+        # An injected preparer that returns a real restore pair: the restore
+        # must not depend on the branch that imports `termios` for stdin.
+        master, slave = pty.openpty()
+        try:
+            before = termios.tcgetattr(slave)
+            with tempfile.TemporaryDirectory() as restore_tmp:
+                restore_sink = OracleSink(path=os.path.join(restore_tmp, "oracle.jsonl"))
+                try:
+                    run_software_stream(
+                        restore_sink,
+                        "w3",
+                        os.path.join(restore_tmp, "start"),
+                        os.path.join(restore_tmp, "release"),
+                        stdin_stream=io.BytesIO(b"\x1b[24;1R"),
+                        cpr_timeout_seconds=1.0,
+                        wait_for_edge=lambda _path: None,
+                        output_stream=io.BytesIO(),
+                        payload_writer=lambda _stream, _fixture: ("0" * 64, 0),
+                        terminal_size_reader=lambda: (80, 24),
+                        cpr_input_preparer=lambda: prepare_cpr_input(slave),
+                    )
+                except Exception as error:  # noqa: BLE001 - reported as a failure
+                    failures.append(
+                        f"driver: injected CPR preparer restore raised {error!r}"
+                    )
+                finally:
+                    restore_sink.close()
+            if termios.tcgetattr(slave) != before:
+                failures.append("driver: injected CPR preparer state was not restored")
         finally:
             os.close(master)
             os.close(slave)

@@ -854,3 +854,12 @@ fn repeated_graphics_new_lines_past_the_height_cap_are_refused_without_overflow(
         Err(SixelError::TooLarge { .. })
     ));
 }
+
+#[test]
+fn pixel_cap_matches_the_image_store_decoded_bound() {
+    // The decoder refuses any canvas the store would refuse, and nothing the
+    // store accepts: its pixel cap is the store's decoded-byte bound in RGBA.
+    let store = super::store::ImageStoreLimits::default().max_decoded_bytes;
+    assert_eq!(MAX_PIXELS * 4, u64::try_from(store).unwrap());
+    assert_eq!((MAX_WIDTH, MAX_HEIGHT), (10_000, 10_000));
+}

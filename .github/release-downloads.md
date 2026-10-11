@@ -4,8 +4,9 @@
 a prebuilt binary tarball `odytty-linux-x86_64.tar.gz`, a native
 `odytty-amd64.deb` (apt/dpkg), and a best-effort `odytty-x86_64.rpm`
 (dnf/rpm). The version-pinned `odytty-@VERSION@-install.sh`
-installer is checksum-covered by the signed manifest; download,
-inspect, and run that asset after verifying the manifest signature.
+installer is checksum-covered by the signed manifest and installs
+this release; download, inspect, and run that asset after verifying the
+manifest signature.
 **Windows** is `odytty-windows-x86_64.zip` (Scoop); **macOS** is
 `odytty-macos-arm64.zip` (Homebrew cask).
 

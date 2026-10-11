@@ -132,6 +132,7 @@ impl GlyphAtlas {
             max_texture_dimension: max_dimension,
             dynamic: HashMap::new(),
             shaped: HashMap::new(),
+            cluster_runs: HashMap::new(),
             px,
             revision: 0,
             dirty: false,

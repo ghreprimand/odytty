@@ -261,24 +261,27 @@ fn create_edit_duplicate_rename_and_delete_flows() {
 /// cannot be missed.
 #[test]
 fn every_form_field_edit_changes_the_render_signature() {
-    let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default(), None);
-    manager.open_add();
-    // Materialize one row of every dynamic list so their text fields exist.
-    for add in [
-        FormField::AddCommandArg,
-        FormField::AddEnv,
-        FormField::AddMatchHost,
-        FormField::AddMatchDirectory,
-    ] {
-        focus_field(&mut manager, add);
-        let _ = manager.activate_form_field(add);
-    }
-    let fields = manager.visible_form_fields();
-    for field in fields {
+    let prepare = || {
+        let mut manager = ProfileManager::new();
+        manager.open(ProfileCatalog::default(), None);
+        manager.open_add();
+        // Materialize each dynamic list separately for every field edit.
+        for add in [
+            FormField::AddCommandArg,
+            FormField::AddEnv,
+            FormField::AddMatchHost,
+            FormField::AddMatchDirectory,
+        ] {
+            focus_field(&mut manager, add);
+            let _ = manager.activate_form_field(add);
+        }
+        manager
+    };
+    for field in prepare().visible_form_fields() {
         if matches!(field, FormField::Save | FormField::Cancel) {
             continue;
         }
+        let mut manager = prepare();
         focus_field(&mut manager, field);
         let before = manager.render_signature();
         if field.is_toggle_or_cycle() {
@@ -759,4 +762,65 @@ fn load_edit_save_reload_keeps_every_nested_preserved_map() {
     assert!(reloaded.effects.preserved.contains_key("future_effect"));
     assert!(reloaded.layout.preserved.contains_key("future_layout"));
     let _ = std::fs::remove_dir_all(dir);
+}
+
+fn edit_command_profile() -> ProfileManager {
+    let mut profile = LaunchProfile::new("command").unwrap();
+    profile.launch.command = Some(ProfileCommand {
+        program: "runner".to_owned(),
+        args: vec!["old".to_owned()],
+        preserved: Default::default(),
+    });
+    let mut catalog = ProfileCatalog::default();
+    catalog.profiles.insert(profile.name.clone(), profile);
+    let mut manager = ProfileManager::new();
+    manager.open(catalog, None);
+    manager.open_edit_selected();
+    manager
+}
+
+#[test]
+fn clearing_command_program_saves_default_shell_without_old_arguments() {
+    let mut manager = edit_command_profile();
+    focus_field(&mut manager, FormField::CommandProgram);
+    for _ in 0.."runner".len() {
+        manager.handle_input(OverlayInput::Backspace);
+    }
+    let ProfileManagerOutcome::Persist { profile, .. } = manager.try_save() else {
+        panic!("persist");
+    };
+    assert!(profile.launch.command.is_none());
+    assert!(profile.launch.shell.is_none());
+}
+
+#[test]
+fn typing_shell_replaces_existing_command() {
+    let mut manager = edit_command_profile();
+    focus_field(&mut manager, FormField::Shell);
+    manager.handle_input(OverlayInput::Char('s'));
+    let ProfileManagerOutcome::Persist { profile, .. } = manager.try_save() else {
+        panic!("persist");
+    };
+    assert_eq!(profile.launch.shell.as_deref(), Some("s"));
+    assert!(profile.launch.command.is_none());
+}
+
+#[test]
+fn shell_suggestion_with_arguments_replaces_existing_command() {
+    let mut manager = edit_command_profile();
+    manager.discovered_shells = vec![DiscoveredShell {
+        label: "shell".to_owned(),
+        program: "shell".to_owned(),
+        args: vec!["--interactive".to_owned()],
+        kind: ShellKind::Posix,
+    }];
+    focus_field(&mut manager, FormField::Shell);
+    manager.handle_input(OverlayInput::Right);
+    let ProfileManagerOutcome::Persist { profile, .. } = manager.try_save() else {
+        panic!("persist");
+    };
+    let command = profile.launch.command.unwrap();
+    assert_eq!(command.program, "shell");
+    assert_eq!(command.args, vec!["--interactive"]);
+    assert!(profile.launch.shell.is_none());
 }

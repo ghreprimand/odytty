@@ -357,30 +357,52 @@ fn describe_immediate_exit_decodes_known_codes_and_falls_back() {
 }
 
 #[test]
-fn env_entry_key_splits_on_first_equals_after_index_zero() {
+fn env_name_cmp_folds_ascii_and_non_ascii_case() {
     let wide = |s: &str| -> Vec<u16> { s.encode_utf16().collect() };
-    // Normal `KEY=VALUE`.
-    assert_eq!(
-        env_entry_key(&wide("PATH=C:\\bin")),
-        wide("PATH").as_slice()
-    );
-    // Hidden per-drive var: the key is `=C:`, found at the SECOND `=`.
-    assert_eq!(env_entry_key(&wide("=C:=C:\\dir")), wide("=C:").as_slice());
-    // No `=` at all: the whole entry is the key.
-    assert_eq!(env_entry_key(&wide("BARE")), wide("BARE").as_slice());
+    let eq = |a: &str, b: &str| env_name_cmp(&wide(a), &wide(b)) == std::cmp::Ordering::Equal;
+    assert!(eq("Path", "PATH"));
+    assert!(eq("term", "TERM"));
+    assert!(eq("\u{e4}_FIXTURE", "\u{c4}_FIXTURE"));
+    assert!(eq("\u{436}_FIXTURE", "\u{416}_FIXTURE"));
+    // Different lengths and different names must not match.
+    assert!(!eq("TERM", "TERMINAL"));
+    assert!(!eq("FOO", "BAR"));
+    // The portable model agrees with the system call on these names.
+    for (a, b) in [
+        ("Path", "PATH"),
+        ("\u{e4}_FIXTURE", "\u{c4}_FIXTURE"),
+        ("\u{436}", "\u{416}"),
+        ("ALPHA", "beta"),
+        ("\u{e4}X", "zeta"),
+    ] {
+        assert_eq!(
+            env_name_cmp(&wide(a), &wide(b)),
+            env_block::ordinal_ignore_case_model(&wide(a), &wide(b)),
+            "{a} vs {b}"
+        );
+    }
 }
 
 #[test]
-fn utf16_eq_ignore_ascii_case_matches_env_names() {
-    let wide = |s: &str| -> Vec<u16> { s.encode_utf16().collect() };
-    assert!(utf16_eq_ignore_ascii_case(&wide("Path"), &wide("PATH")));
-    assert!(utf16_eq_ignore_ascii_case(&wide("term"), &wide("TERM")));
-    // Different lengths and different names must not match.
-    assert!(!utf16_eq_ignore_ascii_case(
-        &wide("TERM"),
-        &wide("TERMINAL")
-    ));
-    assert!(!utf16_eq_ignore_ascii_case(&wide("FOO"), &wide("BAR")));
+fn build_env_block_keeps_last_non_ascii_override_per_name() {
+    // Two spellings of one non-ASCII name differing only in case are one
+    // Windows variable: the block carries the later one only.
+    let first = OsString::from("\u{c4}_ODYTTY_DUP_PROBE");
+    let second = OsString::from("\u{e4}_ODYTTY_DUP_PROBE");
+    let block = build_env_block(
+        &[
+            (first, OsString::from("first")),
+            (second, OsString::from("second")),
+        ],
+        &[],
+    );
+    let entries: Vec<String> = block
+        .split(|&unit| unit == 0)
+        .filter(|entry| !entry.is_empty())
+        .map(String::from_utf16_lossy)
+        .filter(|entry| entry.contains("_ODYTTY_DUP_PROBE="))
+        .collect();
+    assert_eq!(entries, vec!["\u{e4}_ODYTTY_DUP_PROBE=second"]);
 }
 
 #[test]
@@ -479,7 +501,7 @@ fn build_env_block_is_case_insensitively_sorted() {
             if current.is_empty() {
                 break;
             }
-            keys.push(env_entry_key(&current).to_vec());
+            keys.push(env_block::env_entry_key(&current).to_vec());
             current.clear();
         } else {
             current.push(unit);
@@ -489,7 +511,7 @@ fn build_env_block_is_case_insensitively_sorted() {
     // Every adjacent pair is in non-decreasing case-insensitive order.
     for pair in keys.windows(2) {
         assert_ne!(
-            utf16_cmp_ignore_ascii_case(&pair[0], &pair[1]),
+            env_name_cmp(&pair[0], &pair[1]),
             std::cmp::Ordering::Greater,
             "env block is not case-insensitively sorted"
         );
@@ -531,7 +553,10 @@ fn build_env_block_scrubs_removed_inherited_variable() {
                 if current.is_empty() {
                     break;
                 }
-                keys.push(String::from_utf16_lossy(env_entry_key(&current)).to_ascii_uppercase());
+                keys.push(
+                    String::from_utf16_lossy(env_block::env_entry_key(&current))
+                        .to_ascii_uppercase(),
+                );
                 current.clear();
             } else {
                 current.push(unit);

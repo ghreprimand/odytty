@@ -34,6 +34,8 @@ progress glyph sits in its top-strip padding, and a workspace's sits at the
 workspace rail's activity edge, where progress takes the place of the unseen
 activity dot. Viewing an
 active tab clears unread/completion flags while leaving live progress intact.
+A later activity, silence, BEL or process-finish notice preserves an unseen
+command-failure badge until that pane is viewed or its attention is cleared.
 In-app notices expire after 15 seconds; progress expires after 10 minutes if a
 program never clears it. Per-pane duplicate requests are suppressed for five
 seconds and at most four requests are accepted in 30 seconds. A second

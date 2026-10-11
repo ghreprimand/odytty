@@ -623,13 +623,15 @@ impl App {
                         key_modes.kitty_keyboard_flags,
                         event_type,
                     );
+                    let identity = char_identity(&binding_key, physical, text.chars().count());
                     for (index, ch) in text.chars().enumerate() {
-                        bytes.extend_from_slice(&input::encode_key_event_with_text(
+                        bytes.extend_from_slice(&input::encode_key_event_with_identity(
                             Key::Char(ch),
                             mods,
                             key_modes,
                             event_type,
                             if index == 0 { generated_text } else { None },
+                            Some(identity),
                         ));
                         if combined_text {
                             break;
@@ -1400,6 +1402,94 @@ impl App {
             generated_text.as_deref(),
         );
     }
+}
+
+/// The layout identity of the key behind a character event. `key_without_modifiers`
+/// names what the key produces unshifted on the active layout and the physical
+/// key names what a standard US layout has in the same position; both are only
+/// meaningful for a single scalar, since composed text has no one key behind it.
+fn char_identity(
+    binding_key: &WinitKey,
+    physical: PhysicalKey,
+    scalars: usize,
+) -> input::CharIdentity {
+    if scalars != 1 {
+        return input::CharIdentity::default();
+    }
+    let unshifted = match binding_key {
+        WinitKey::Character(text) => {
+            let mut chars = text.chars();
+            match (chars.next(), chars.next()) {
+                (Some(ch), None) => Some(ch),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    input::CharIdentity {
+        unshifted,
+        base_layout: standard_layout_char(physical),
+    }
+}
+
+/// What the physical key produces unshifted on a standard US PC layout, for the
+/// printable keys that layout has.
+fn standard_layout_char(physical: PhysicalKey) -> Option<char> {
+    use winit::keyboard::KeyCode as K;
+    let PhysicalKey::Code(code) = physical else {
+        return None;
+    };
+    Some(match code {
+        K::Backquote => '`',
+        K::Backslash => '\\',
+        K::BracketLeft => '[',
+        K::BracketRight => ']',
+        K::Comma => ',',
+        K::Digit0 => '0',
+        K::Digit1 => '1',
+        K::Digit2 => '2',
+        K::Digit3 => '3',
+        K::Digit4 => '4',
+        K::Digit5 => '5',
+        K::Digit6 => '6',
+        K::Digit7 => '7',
+        K::Digit8 => '8',
+        K::Digit9 => '9',
+        K::Equal => '=',
+        K::KeyA => 'a',
+        K::KeyB => 'b',
+        K::KeyC => 'c',
+        K::KeyD => 'd',
+        K::KeyE => 'e',
+        K::KeyF => 'f',
+        K::KeyG => 'g',
+        K::KeyH => 'h',
+        K::KeyI => 'i',
+        K::KeyJ => 'j',
+        K::KeyK => 'k',
+        K::KeyL => 'l',
+        K::KeyM => 'm',
+        K::KeyN => 'n',
+        K::KeyO => 'o',
+        K::KeyP => 'p',
+        K::KeyQ => 'q',
+        K::KeyR => 'r',
+        K::KeyS => 's',
+        K::KeyT => 't',
+        K::KeyU => 'u',
+        K::KeyV => 'v',
+        K::KeyW => 'w',
+        K::KeyX => 'x',
+        K::KeyY => 'y',
+        K::KeyZ => 'z',
+        K::Minus => '-',
+        K::Period => '.',
+        K::Quote => '\'',
+        K::Semicolon => ';',
+        K::Slash => '/',
+        K::Space => ' ',
+        _ => return None,
+    })
 }
 
 /// Convert a core [`RgbColor`](crate::core::RgbColor) to the theme layer's

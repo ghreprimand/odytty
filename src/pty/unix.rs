@@ -28,6 +28,7 @@ use rustix::termios::{Winsize, tcgetpgrp, tcsetwinsize};
 
 use super::{CommandBuilder, ForegroundJob};
 use crate::core::{CellMetrics, Dimensions};
+use crate::cwd::DirectorySource;
 use crate::settings::Settings;
 
 /// Classify the terminal foreground group of `fd` against `shell_pgid`.
@@ -187,6 +188,7 @@ impl PtySession {
         Self::spawn_default_shell_in_with_shell_integration(
             dimensions,
             working_directory,
+            DirectorySource::Derived,
             false,
             false,
             false,
@@ -197,11 +199,13 @@ impl PtySession {
     pub fn spawn_default_shell_in_with_settings(
         dimensions: Dimensions,
         working_directory: Option<PathBuf>,
+        source: DirectorySource,
         settings: &Settings,
     ) -> Result<Self> {
         Self::spawn_default_shell_in_with_settings_env(
             dimensions,
             working_directory,
+            source,
             settings,
             &std::collections::BTreeMap::new(),
         )
@@ -215,12 +219,14 @@ impl PtySession {
     pub fn spawn_default_shell_in_with_settings_env(
         dimensions: Dimensions,
         working_directory: Option<PathBuf>,
+        source: DirectorySource,
         settings: &Settings,
         env: &std::collections::BTreeMap<String, String>,
     ) -> Result<Self> {
         Self::spawn_default_shell_in_with_shell_integration(
             dimensions,
             working_directory,
+            source,
             settings.shell_integration,
             settings.buttons,
             settings.shell_key_enhancement,
@@ -231,6 +237,7 @@ impl PtySession {
     fn spawn_default_shell_in_with_shell_integration(
         dimensions: Dimensions,
         working_directory: Option<PathBuf>,
+        source: DirectorySource,
         shell_integration: bool,
         buttons: bool,
         key_enhancement: bool,
@@ -244,7 +251,7 @@ impl PtySession {
         // value wins, matching the explicit-shell arm in `build_local_command`.
         command.apply_interactive_shell_env(shell_integration, buttons, key_enhancement, env);
         if let Some(path) = working_directory {
-            command.current_dir(path);
+            command.current_dir_from(path, source);
         }
         Self::spawn_command(dimensions, command)
     }
@@ -259,9 +266,27 @@ impl PtySession {
         args: Vec<OsString>,
         working_directory: Option<PathBuf>,
     ) -> Result<Self> {
+        Self::spawn_exec_from(
+            dimensions,
+            program,
+            args,
+            working_directory,
+            DirectorySource::Derived,
+        )
+    }
+
+    /// [`Self::spawn_exec`] for a working directory with a known origin. Unix
+    /// treats every source alike; only the Windows spawn reads it.
+    pub fn spawn_exec_from(
+        dimensions: Dimensions,
+        program: OsString,
+        args: Vec<OsString>,
+        working_directory: Option<PathBuf>,
+        source: DirectorySource,
+    ) -> Result<Self> {
         Self::spawn_command(
             dimensions,
-            super::exec_command_builder(program, args, working_directory),
+            super::exec_command_builder(program, args, working_directory, source),
         )
     }
 

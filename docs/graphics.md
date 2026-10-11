@@ -474,8 +474,8 @@ extended by xterm and foot, covering the full set of features listed below.
 | VT340 16-color default palette | ✅ |
 | Transparent background mode (`P2=1`) | ✅ |
 
-Hard caps: maximum image size is 10,000 × 10,000 pixels or 40 million total
-pixels (~152 MiB RGBA). Malformed or truncated input never panics - unknown
+Hard caps: maximum image size is 10,000 × 10,000 pixels and 16,777,216 total
+pixels (64 MiB of RGBA, the image store's decoded bound). Malformed or truncated input never panics - unknown
 bytes are skipped and partial images are returned for whatever was decoded
 before a truncation.
 

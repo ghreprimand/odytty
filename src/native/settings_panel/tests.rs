@@ -2226,3 +2226,60 @@ fn form_values_backspace_removes_whole_owners() {
         assert_eq!(panel.render_signature().editing_buffer.as_deref(), Some(""));
     }
 }
+
+/// The dirty-close prompt adds every row, its fixed lines included, only while
+/// the body has room: a one-row body shows one row.
+#[test]
+fn the_close_prompt_never_exceeds_a_short_body() {
+    let mut panel = SettingsPanel::new(&Settings::default());
+    select_key(&mut panel, "synthetic_styles");
+    panel.handle_input(OverlayInput::Activate);
+    panel.handle_input(OverlayInput::Close);
+    panel.handle_input(OverlayInput::Close);
+    assert!(panel.pending_close_prompt);
+    for height in 0..=8usize {
+        let rows = panel.visible_lines(80, height);
+        let hits = panel.visible_hit_map(80, height);
+        assert!(rows.len() <= height, "height {height}: {} rows", rows.len());
+        assert_eq!(rows.len(), hits.len(), "height {height}");
+        assert_eq!(rows.len(), height.min(5), "height {height}");
+    }
+}
+
+/// The wheel in the About view scrolls the About rows, not the length of an
+/// unrelated entry list, so a short panel can reach the Copy diagnostics row.
+#[test]
+fn the_about_wheel_is_bounded_by_the_about_rows() {
+    let mut panel = SettingsPanel::new(&Settings::default());
+    panel.update_body_height(3);
+    panel.update_body_width(80);
+    panel.set_about(test_about());
+    let _ = panel.handle_input(OverlayInput::End);
+    let _ = panel.handle_input(OverlayInput::Activate);
+    assert!(matches!(panel.level, SettingsLevel::About));
+
+    let rows = panel.about_rows(80).len();
+    // An entry list shorter than the About view must not cap the scroll, and
+    // an empty one must not pin it at the top.
+    for entries in [0usize, 2] {
+        panel.entries.truncate(entries);
+        panel.scroll = 0;
+        panel.scroll_lines(1);
+        assert_eq!(panel.scroll, 1, "{entries} entries: one step scrolls");
+        let mut reached_copy = false;
+        for _ in 0..rows {
+            if panel
+                .visible_lines(80, 3)
+                .iter()
+                .any(|line| line.text.contains("Copy diagnostics"))
+            {
+                reached_copy = true;
+                break;
+            }
+            panel.scroll_lines(1);
+        }
+        assert!(reached_copy, "{entries} entries: the Copy row is reachable");
+    }
+    panel.scroll_lines(10_000);
+    assert_eq!(panel.scroll, rows - 1, "the scroll stops at the last row");
+}

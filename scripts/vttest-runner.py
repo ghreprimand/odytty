@@ -56,6 +56,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import tomllib
 import unittest
 import urllib.request
@@ -73,9 +74,13 @@ UPSTREAM_MANIFEST = COMPAT_DIR / "upstream.toml"
 CASES_MANIFEST = COMPAT_DIR / "cases.toml"
 RESULT_SCHEMA = COMPAT_DIR / "schema" / "result.schema.json"
 
-# Captured output is bounded so a runaway case cannot fill the disk. A capture
-# that hits the cap is truncated and the case is failed, never silently trimmed
-# and passed: a truncated capture is not evidence.
+# Captured output is bounded so a runaway case cannot fill the disk or the
+# runner's memory: the child's streams are read in chunks and anything past the
+# cap is discarded as it arrives. A capture that is evidence and hits the cap
+# fails its case, never silently trimmed and passed: a truncated capture is not
+# evidence. The subject's own output in an upstream run is a diagnostic only
+# (the suite's log file is the evidence), so its truncation is marked in the
+# diagnostic file and the log's cap is what fails the case.
 MAX_CAPTURE_BYTES = 1 << 20
 MAX_ARTIFACT_BYTES = 8 << 20
 
@@ -537,13 +542,37 @@ def verify_signature(archive: Path, signature: Path, fingerprint: str, keyring: 
 # ---------------------------------------------------------------------------
 
 
+def _validate_archive_member(member: tarfile.TarInfo, resolved_target: Path) -> Path:
+    """Refuse a member that is not a plain file or directory inside the target.
+
+    Returns the member's destination. Link and special-file members, absolute
+    paths, parent traversal and destinations outside the target are errors.
+    """
+    name = member.name
+    if name.startswith("/") or Path(name).is_absolute():
+        raise RunnerError("extract", "archive member has an absolute path")
+    if ".." in Path(name).parts:
+        raise RunnerError("extract", "archive member escapes via parent traversal")
+    if member.issym() or member.islnk():
+        raise RunnerError("extract", "archive contains a link member; refused")
+    if member.ischr() or member.isblk() or member.isfifo() or member.isdev():
+        raise RunnerError("extract", "archive contains a special file; refused")
+    if not (member.isfile() or member.isdir()):
+        raise RunnerError("extract", "archive contains an unsupported member type")
+    destination = (resolved_target / name).resolve()
+    if resolved_target not in destination.parents and destination != resolved_target:
+        raise RunnerError("extract", "archive member resolves outside the target")
+    return destination
+
+
 def safe_extract(archive: Path, target: Path, limits: dict[str, Any]) -> None:
     """Extract a tar archive, refusing everything that is not a plain file.
 
     An archive is attacker-controlled input for the purposes of this function
     even though it is pinned, because the pin is checked by a digest that this
-    function does not itself re-check. Each member is validated before its
-    content is written:
+    function does not itself re-check. Every member is validated before any
+    byte is written, in a first pass over the whole archive; a second pass
+    extracts, so a later bad member leaves no earlier member on disk:
 
       * no absolute paths and no parent traversal
       * no symbolic links, hard links, devices, or FIFOs
@@ -567,27 +596,16 @@ def safe_extract(archive: Path, target: Path, limits: dict[str, Any]) -> None:
             count += 1
             if count > max_members:
                 raise RunnerError("extract", f"archive exceeds {max_members} members")
-            name = member.name
-            if name.startswith("/") or Path(name).is_absolute():
-                raise RunnerError("extract", "archive member has an absolute path")
-            if ".." in Path(name).parts:
-                raise RunnerError("extract", "archive member escapes via parent traversal")
-            if member.issym() or member.islnk():
-                raise RunnerError("extract", "archive contains a link member; refused")
-            if member.ischr() or member.isblk() or member.isfifo() or member.isdev():
-                raise RunnerError("extract", "archive contains a special file; refused")
-            if not (member.isfile() or member.isdir()):
-                raise RunnerError("extract", "archive contains an unsupported member type")
+            _validate_archive_member(member, resolved_target)
             if member.size > max_member:
                 raise RunnerError("extract", "archive member exceeds the per-member cap")
             total += member.size
             if total > max_total:
                 raise RunnerError("extract", "archive exceeds the total extraction cap")
 
-            destination = (resolved_target / name).resolve()
-            if resolved_target not in destination.parents and destination != resolved_target:
-                raise RunnerError("extract", "archive member resolves outside the target")
-
+    with tarfile.open(archive, "r:*") as tar:
+        for member in tar:
+            destination = _validate_archive_member(member, resolved_target)
             if member.isdir():
                 destination.mkdir(parents=True, exist_ok=True)
                 continue
@@ -846,7 +864,7 @@ def classify_upstream_outcome(
 # ---------------------------------------------------------------------------
 
 
-AT_SIGN_TOKEN = re.compile(r"\S*@\S*")
+AT_SIGN_TOKEN = re.compile(r"\S+")
 HOME_PATH = re.compile(r"/(?:home|Users)/[^/\s]+")
 WIN_USER_PATH = re.compile(r"[A-Za-z]:\\\\?Users\\\\?[^\\\s]+", re.IGNORECASE)
 
@@ -860,7 +878,12 @@ def sanitize(text: str) -> str:
     shape, and an over-broad redaction costs a little readability while a
     narrow one eventually leaks something real.
     """
-    text = AT_SIGN_TOKEN.sub("[redacted-identity]", text)
+    # One pass over whitespace-delimited tokens. A pattern that scans for the
+    # at-sign from every start position is quadratic on a long token, and a
+    # capture at the cap is exactly that.
+    text = AT_SIGN_TOKEN.sub(
+        lambda token: "[redacted-identity]" if "@" in token.group() else token.group(), text
+    )
     text = HOME_PATH.sub("/[redacted-home]", text)
     text = WIN_USER_PATH.sub("[redacted-home]", text)
     return text
@@ -868,6 +891,78 @@ def sanitize(text: str) -> str:
 
 def sanitize_bytes(raw: bytes) -> str:
     return sanitize(raw.decode("utf-8", "replace"))
+
+
+class BoundedRun:
+    """The outcome of `run_bounded`: status and capped output of a child."""
+
+    def __init__(self, returncode: int, stdout: bytes, stderr: bytes, truncated: bool):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+        self.truncated = truncated
+
+
+def run_bounded(
+    argv: list[str],
+    *,
+    env: dict[str, str],
+    cwd: str,
+    timeout: float,
+    limit: int = MAX_CAPTURE_BYTES,
+) -> BoundedRun:
+    """Run a child with each output stream capped at `limit` bytes.
+
+    The streams are drained in chunks while the child runs, so a child that
+    prints without end holds at most `limit` bytes per stream in memory, and a
+    full pipe never blocks it. Bytes past the cap are discarded and `truncated`
+    is set. Raises `subprocess.TimeoutExpired` after killing the child.
+    """
+    process = subprocess.Popen(  # noqa: S603 - argv form, no shell
+        argv,
+        env=env,
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    chunks: dict[str, bytearray] = {"stdout": bytearray(), "stderr": bytearray()}
+    overflow = {"stdout": False, "stderr": False}
+
+    def drain(name: str, stream) -> None:
+        sink = chunks[name]
+        while True:
+            block = stream.read(65536)
+            if not block:
+                return
+            room = limit - len(sink)
+            if room > 0:
+                sink.extend(block[:room])
+            if len(block) > max(room, 0):
+                overflow[name] = True
+
+    threads = [
+        threading.Thread(target=drain, args=("stdout", process.stdout), daemon=True),
+        threading.Thread(target=drain, args=("stderr", process.stderr), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        for thread in threads:
+            thread.join(timeout=5)
+        raise
+    for thread in threads:
+        thread.join(timeout=5)
+    return BoundedRun(
+        process.returncode,
+        bytes(chunks["stdout"]),
+        bytes(chunks["stderr"]),
+        overflow["stdout"] or overflow["stderr"],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -992,14 +1087,7 @@ def run_case(
     timeout = int(case.get("timeout_seconds", 30))
 
     try:
-        completed = subprocess.run(  # noqa: S603 - argv form, no shell
-            argv,
-            env=env,
-            cwd=str(artifact_dir),
-            capture_output=True,
-            timeout=timeout,
-            check=False,
-        )
+        completed = run_bounded(argv, env=env, cwd=str(artifact_dir), timeout=timeout)
     except subprocess.TimeoutExpired:
         return case_entry(
             case,
@@ -1016,9 +1104,20 @@ def run_case(
         )
 
     duration = _now_ms() - started
-    captured = completed.stdout[:MAX_CAPTURE_BYTES] + completed.stderr[:MAX_CAPTURE_BYTES]
+    captured = completed.stdout + completed.stderr
     log_path = artifact_dir / str(case.get("capture_file", "case.log"))
     log_path.write_text(sanitize_bytes(captured), encoding="utf-8")
+
+    if completed.truncated:
+        return case_entry(
+            case,
+            "fail",
+            f"case output exceeded the {MAX_CAPTURE_BYTES}-byte capture cap per "
+            "stream; a truncated capture is not evidence",
+            duration,
+            evidence_kind="capture_file",
+            reference=log_path.name,
+        )
 
     if completed.returncode != 0:
         return case_entry(
@@ -1100,14 +1199,7 @@ def run_upstream_case(
     timeout = int(case.get("timeout_seconds", 180))
 
     try:
-        completed = subprocess.run(  # noqa: S603 - argv form, no shell
-            argv,
-            env=env,
-            cwd=str(artifact_dir),
-            capture_output=True,
-            timeout=timeout,
-            check=False,
-        )
+        completed = run_bounded(argv, env=env, cwd=str(artifact_dir), timeout=timeout)
     except subprocess.TimeoutExpired:
         return case_entry(
             case,
@@ -1129,8 +1221,11 @@ def run_upstream_case(
 
     duration = _now_ms() - started
     diagnostic = artifact_dir / str(case.get("capture_file", "case.log"))
-    captured = completed.stdout[:MAX_CAPTURE_BYTES] + completed.stderr[:MAX_CAPTURE_BYTES]
-    diagnostic.write_text(sanitize_bytes(captured), encoding="utf-8")
+    captured = completed.stdout + completed.stderr
+    diagnostic_text = sanitize_bytes(captured)
+    if completed.truncated:
+        diagnostic_text += f"\n[output truncated at {MAX_CAPTURE_BYTES} bytes per stream]\n"
+    diagnostic.write_text(diagnostic_text, encoding="utf-8")
 
     if not log_path.is_file():
         return case_entry(
@@ -1142,7 +1237,17 @@ def run_upstream_case(
             evidence_kind="exit_status",
         )
 
-    raw_log = log_path.read_bytes()[:MAX_ARTIFACT_BYTES]
+    if log_path.stat().st_size > MAX_ARTIFACT_BYTES:
+        return case_entry(
+            case,
+            "fail",
+            f"the suite's log exceeds the {MAX_ARTIFACT_BYTES}-byte artifact cap; "
+            "a verdict read from a prefix is not evidence",
+            duration,
+            evidence_kind="exit_status",
+        )
+    with log_path.open("rb") as handle:
+        raw_log = handle.read(MAX_ARTIFACT_BYTES)
     log_text = raw_log.decode("utf-8", "replace")
     log_path.write_text(sanitize(log_text), encoding="utf-8")
 
@@ -1967,6 +2072,14 @@ class SelfTest(unittest.TestCase):
         self.assertIn("[redacted-identity]", cleaned)
         self.assertIn("/[redacted-home]", cleaned)
 
+    def test_sanitizer_handles_a_capture_sized_token_in_one_pass(self) -> None:
+        marker = chr(64)
+        long_token = "x" * (1 << 20)
+        self.assertEqual(sanitize(long_token), long_token)
+        self.assertEqual(sanitize(long_token + marker + "y"), "[redacted-identity]")
+        self.assertEqual(sanitize("a b" + marker + "c d"), "a [redacted-identity] d")
+        self.assertEqual(sanitize("keep\nthis" + marker + "\nline"), "keep\n[redacted-identity]\nline")
+
     def test_sanitizer_redacts_windows_profile_paths(self) -> None:
         cleaned = sanitize(r"C:\Users\someone\AppData")
         self.assertNotIn("someone", cleaned)
@@ -2169,6 +2282,111 @@ class SelfTest(unittest.TestCase):
             target = root / "out"
             safe_extract(archive, target, {})
             self.assertEqual((target / "pkg" / "file.txt").read_bytes(), b"hello")
+
+    def test_safe_extract_validates_every_member_before_writing_any(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "late-bad.tar"
+            with tarfile.open(archive, "w") as tar:
+                data = b"fine"
+                good = tarfile.TarInfo("pkg/good.txt")
+                good.size = len(data)
+                tar.addfile(good, io.BytesIO(data))
+                link = tarfile.TarInfo("pkg/link")
+                link.type = tarfile.SYMTYPE
+                link.linkname = "/etc/hostname"
+                tar.addfile(link)
+            target = root / "out"
+            with self.assertRaises(RunnerError):
+                safe_extract(archive, target, {})
+            self.assertFalse((target / "pkg" / "good.txt").exists())
+
+    def test_bounded_run_caps_each_stream_and_reports_truncation(self) -> None:
+        code = "import sys; sys.stdout.write('o' * 100000); sys.stderr.write('e' * 10)"
+        done = run_bounded(
+            [sys.executable, "-c", code], env=dict(os.environ), cwd=os.getcwd(), timeout=60, limit=1024
+        )
+        self.assertEqual(done.returncode, 0)
+        self.assertTrue(done.truncated)
+        self.assertEqual(len(done.stdout), 1024)
+        self.assertEqual(done.stderr, b"e" * 10)
+
+    def test_bounded_run_keeps_a_capture_that_fits_whole(self) -> None:
+        code = "import sys; sys.stdout.write('o' * 1024)"
+        done = run_bounded(
+            [sys.executable, "-c", code], env=dict(os.environ), cwd=os.getcwd(), timeout=60, limit=1024
+        )
+        self.assertFalse(done.truncated)
+        self.assertEqual(len(done.stdout), 1024)
+
+    def test_bounded_run_kills_a_child_that_outlives_its_bound(self) -> None:
+        with self.assertRaises(subprocess.TimeoutExpired):
+            run_bounded(
+                [sys.executable, "-c", "import time; time.sleep(60)"],
+                env=dict(os.environ),
+                cwd=os.getcwd(),
+                timeout=0.5,
+            )
+
+    def test_a_replay_case_whose_output_hits_the_cap_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "replay").mkdir()
+            (root / "replay" / "noise.vtseq").write_text("\\e[2J\n", encoding="utf-8")
+            # Stands in for the subject: it ignores its arguments and prints
+            # more than the cap allows.
+            subject = root / "subject"
+            subject.write_text(
+                "#!/bin/sh\nhead -c %d /dev/zero | tr '\\\\0' 'x'\n" % (MAX_CAPTURE_BYTES + 4096)
+            )
+            subject.chmod(0o755)
+            case = {
+                "id": "noise",
+                "classification": "replay",
+                "fixture": "replay/noise.vtseq",
+                "timeout_seconds": 60,
+            }
+            with (
+                mock.patch(__name__ + ".check_platform_supported"),
+                mock.patch(__name__ + ".COMPAT_DIR", root),
+            ):
+                entry = run_case(
+                    case, binary=subject, baseline={}, work_dir=root / "work", reader="cat"
+                )
+            self.assertEqual(entry["outcome"], "fail", entry["reason"])
+            self.assertIn("capture cap", entry["reason"])
+
+    def test_an_upstream_log_over_the_artifact_cap_fails_instead_of_reading_a_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # Stands in for the subject: finds the `-l` log path in its
+            # arguments and writes a log larger than the cap into it.
+            subject = root / "subject"
+            subject.write_text(
+                "#!/bin/sh\n"
+                'while [ "$#" -gt 0 ]; do [ "$1" = -l ] && log="$2"; shift; done\n'
+                'head -c %d /dev/zero > "$log"\n' % (MAX_ARTIFACT_BYTES + 1)
+            )
+            subject.chmod(0o755)
+            case = {
+                "id": "big-log",
+                "classification": "upstream",
+                "menu_path": [1],
+                "timeout_seconds": 120,
+            }
+            with mock.patch(__name__ + ".check_platform_supported"):
+                entry = run_upstream_case(
+                    case,
+                    binary=subject,
+                    upstream_binary=root / "upstream",
+                    baseline={},
+                    script_shape={},
+                    verdicts=[],
+                    divergences={},
+                    work_dir=root / "work",
+                )
+            self.assertEqual(entry["outcome"], "fail", entry["reason"])
+            self.assertIn("artifact cap", entry["reason"])
 
     def test_digest_mismatch_is_fatal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

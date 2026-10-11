@@ -41,3 +41,50 @@ pub fn fresh_temp_dir(prefix: &str) -> PathBuf {
 pub fn fresh_socket_dir(prefix: &str) -> PathBuf {
     fresh_dir(Path::new("/tmp"), prefix)
 }
+
+/// Private writable directories passed to a child without changing process env.
+/// Keep this owner alive until the child has exited, including on a test panic.
+pub struct ChildEnv {
+    root: PathBuf,
+}
+
+impl ChildEnv {
+    pub fn new() -> Self {
+        let fixture = Self {
+            root: fresh_temp_dir("otce"),
+        };
+        for (key, path) in fixture.vars() {
+            if key != "HISTFILE" {
+                std::fs::create_dir_all(path).expect("create child state directory");
+            }
+        }
+        fixture
+    }
+
+    /// Explicit startup fixtures may override a key after these defaults.
+    pub fn vars(&self) -> [(&'static str, PathBuf); 9] {
+        [
+            ("HOME", self.root.join("home")),
+            ("USERPROFILE", self.root.join("home")),
+            ("XDG_CONFIG_HOME", self.root.join("config")),
+            ("XDG_DATA_HOME", self.root.join("data")),
+            ("XDG_STATE_HOME", self.root.join("state")),
+            ("XDG_CACHE_HOME", self.root.join("cache")),
+            ("APPDATA", self.root.join("appdata")),
+            ("LOCALAPPDATA", self.root.join("localappdata")),
+            ("HISTFILE", self.root.join("state/history")),
+        ]
+    }
+}
+
+impl Default for ChildEnv {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for ChildEnv {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}

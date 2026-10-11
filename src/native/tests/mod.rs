@@ -215,6 +215,7 @@ mod command_palette;
 mod consumed_chord_release;
 mod context_menu;
 mod context_menu_presentation;
+mod copy_mode_wide_offscreen;
 mod ctrl_click_open;
 mod cursor_icon;
 mod cvd_wiring;

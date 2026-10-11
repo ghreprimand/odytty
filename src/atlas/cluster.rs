@@ -39,6 +39,24 @@ pub struct ClusterGlyph {
     pub y: i32,
 }
 
+/// The identity of a rasterized owner run: everything its cache key digests.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ClusterRun {
+    face_fingerprint: u64,
+    own_face: bool,
+    glyphs: Box<[ClusterGlyph]>,
+}
+
+impl ClusterRun {
+    fn new(face_fingerprint: u64, own_face: bool, glyphs: &[ClusterGlyph]) -> Self {
+        Self {
+            face_fingerprint,
+            own_face,
+            glyphs: glyphs.into(),
+        }
+    }
+}
+
 /// Uniform scale and pen origin, in pixels from the span's left edge, that
 /// fit a run's ink box into its span and slot.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -127,9 +145,38 @@ impl GlyphAtlas {
     /// fallback faces draw without synthesis, as on the scalar path.
     ///
     /// Returns `None` (the owner keeps the per-cell path) for an empty or
-    /// over-long span, a run with no ink, or a full atlas.
+    /// over-long span, a run with no ink, a full atlas, or a run whose digest
+    /// is already held by a different run: the digest is not collision
+    /// resistant, and the text is untrusted, so a hit is compared against the
+    /// stored run and never drawn as another run's pixels.
     pub fn ensure_cluster(
         &mut self,
+        face: &FontHandle,
+        face_fingerprint: u64,
+        style: FontStyle,
+        own_face: bool,
+        span_cells: u8,
+        glyphs: &[ClusterGlyph],
+    ) -> Option<ShapedGlyphKey> {
+        let mut hasher = DefaultHasher::new();
+        (face_fingerprint, own_face, glyphs).hash(&mut hasher);
+        self.ensure_cluster_digest(
+            hasher.finish(),
+            face,
+            face_fingerprint,
+            style,
+            own_face,
+            span_cells,
+            glyphs,
+        )
+    }
+
+    /// [`Self::ensure_cluster`] with the run's digest supplied, so a test can
+    /// make two different runs share one.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn ensure_cluster_digest(
+        &mut self,
+        digest: u64,
         face: &FontHandle,
         face_fingerprint: u64,
         style: FontStyle,
@@ -140,10 +187,8 @@ impl GlyphAtlas {
         if span_cells == 0 || u32::from(span_cells) > self.cols || glyphs.is_empty() {
             return None;
         }
-        let mut hasher = DefaultHasher::new();
-        (face_fingerprint, own_face, glyphs).hash(&mut hasher);
         let key = ShapedGlyphKey {
-            face_fingerprint: hasher.finish(),
+            face_fingerprint: digest,
             style,
             glyph_id: 0,
             span_cells,
@@ -151,8 +196,9 @@ impl GlyphAtlas {
             mark_offset: [0, 0],
             cluster: true,
         };
+        let identity = ClusterRun::new(face_fingerprint, own_face, glyphs);
         if self.shaped.contains_key(&key) {
-            return Some(key);
+            return (self.cluster_runs.get(&key) == Some(&identity)).then_some(key);
         }
         let units = face.px_per_unit(self.px);
         if units <= 0.0 {
@@ -226,6 +272,7 @@ impl GlyphAtlas {
         });
         self.slot_ink[slot as usize] = ink;
         self.shaped.insert(key, slot);
+        self.cluster_runs.insert(key, identity);
         self.revision += 1;
         self.dirty = true;
         Some(key)

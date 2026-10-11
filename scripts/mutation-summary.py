@@ -114,8 +114,89 @@ def load_batch(path: Path) -> dict:
     return {"mutants": per_mutant, "totals": counted, "version": data.get("cargo_mutants_version")}
 
 
-def load_exclusions(path: Path | None) -> list[dict]:
-    """Parse the platform-exclusion table."""
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Where the classifier reads source text from. The exclusion table and the
+# risk rules name code by what it says, not by where it sits, and the text is
+# read from this tree. Run the classifier against the revision that was mutated.
+SOURCE_ROOT = REPO_ROOT
+
+
+def source_lines(relative: str, root: Path | None = None) -> list[str]:
+    """The lines of a tracked source file, or a ResultError naming the file."""
+    path = (root or SOURCE_ROOT) / relative
+    try:
+        return path.read_text(encoding="utf-8").split("\n")
+    except OSError as exc:
+        raise ResultError(f"cannot read source file {relative}: {exc}") from exc
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+def item_extent(lines: list[str], attr_index: int) -> tuple[int, int]:
+    """First and last 0-based line of the item an attribute at `attr_index` governs.
+
+    The item starts at the attribute and ends at the first closing line at the
+    item's own indentation (rustfmt output), or at its terminating `;`.
+    """
+    head = attr_index
+    while head < len(lines) and re.match(r"\s*(#\[|//)", lines[head]):
+        head += 1
+    if head >= len(lines):
+        raise ResultError(f"attribute at line {attr_index + 1} governs no item")
+    indent = _indent(lines[head])
+    first = lines[head].rstrip()
+    if first.endswith(";") or (first.endswith("}") and first.count("{") == first.count("}") > 0):
+        return attr_index, head
+    for j in range(head + 1, len(lines)):
+        text = lines[j].strip()
+        if not text or _indent(lines[j]) != indent:
+            continue
+        if text.startswith("}") and not text.startswith("} else"):
+            return attr_index, j
+        if text[0] in ")]" and text.endswith(";"):
+            return attr_index, j
+    raise ResultError(f"the item at line {head + 1} has no closing line")
+
+
+def resolve_exclusion(file: str, cfg: str, anchor: str, lines: list[str]) -> tuple[int, int]:
+    """1-based first and last line of the one `#[cfg(..)]` item matching `anchor`.
+
+    `anchor` is searched in the item's first line joined with the next one, so
+    a bare `{` block is identified by what follows it. Zero or several matches
+    are errors: a table that cannot say which item it means must not exclude a
+    region.
+    """
+    attribute = f"#[{cfg}]"
+    found = []
+    for index, line in enumerate(lines):
+        if line.strip() != attribute:
+            continue
+        head = index + 1
+        while head < len(lines) and re.match(r"\s*(#\[|//)", lines[head]):
+            head += 1
+        if head >= len(lines):
+            continue
+        window = lines[head] + "\n" + (lines[head + 1] if head + 1 < len(lines) else "")
+        if re.search(anchor, window):
+            found.append(index)
+    if not found:
+        raise ResultError(f"{file}: no {attribute} item matches the anchor {anchor!r}")
+    if len(found) > 1:
+        raise ResultError(f"{file}: {len(found)} {attribute} items match the anchor {anchor!r}")
+    first, last = item_extent(lines, found[0])
+    return first + 1, last + 1
+
+
+def load_exclusions(path: Path | None, root: Path | None = None) -> list[dict]:
+    """Parse the platform-exclusion table and resolve each row in the source.
+
+    Rows are `file`, `cfg`, `anchor`, `reason`. The line range of a row is read
+    from the source, so edits above a region move it instead of invalidating
+    the table, and a region that no longer exists is an error.
+    """
     if path is None:
         return []
     out = []
@@ -123,15 +204,15 @@ def load_exclusions(path: Path | None) -> list[dict]:
         if line.startswith("#") or not line.strip():
             continue
         cols = line.split("\t")
-        if len(cols) < 5:
-            raise ResultError(f"exclusion row has {len(cols)} columns, expected 5: {line!r}")
+        if len(cols) != 4:
+            raise ResultError(f"exclusion row has {len(cols)} columns, expected 4: {line!r}")
+        file, cfg, anchor, reason = cols
         try:
-            start, end = int(cols[1]), int(cols[2])
-        except ValueError as exc:
-            raise ResultError(f"exclusion row has non-numeric line bounds: {line!r}") from exc
-        if start > end:
-            raise ResultError(f"exclusion row has an inverted range: {line!r}")
-        out.append({"file": cols[0], "start": start, "end": end, "cfg": cols[3], "reason": cols[4]})
+            re.compile(anchor)
+        except re.error as exc:
+            raise ResultError(f"exclusion row has an invalid anchor: {line!r}") from exc
+        start, end = resolve_exclusion(file, cfg, anchor, source_lines(file, root))
+        out.append({"file": file, "start": start, "end": end, "cfg": cfg, "reason": reason})
     return out
 
 
@@ -403,21 +484,51 @@ def combine(stage1: dict, stage2: dict | None, batch: str) -> dict:
 # Triage rules, most specific first. Each rule names the class and the
 # consequence of the mutant surviving. `equivalent` marks a mutant proven not to
 # change observable behaviour: no test should ever be written to kill it.
+class Anchor:
+    """A rule condition on the mutated source line instead of its number.
+
+    `text` must match the source line the mutant names; `name`, when given,
+    must also match the mutant description. Without readable source the
+    condition is false, so a rule can only ever narrow a classification.
+    """
+
+    def __init__(self, text: str, name: str | None = None):
+        self.text = re.compile(text)
+        self.name = re.compile(name) if name else None
+
+    def matches(self, mutant: str) -> bool:
+        path = mutant.split(":", 1)[0]
+        line = mutant_line(mutant)
+        try:
+            lines = source_lines(path)
+        except ResultError:
+            return False
+        if not 1 <= line <= len(lines) or not self.text.search(lines[line - 1]):
+            return False
+        return self.name is None or bool(self.name.search(mutant))
+
+
 RISK_RULES = [
     # Proven equivalent: the CSI fast path is a documented performance peel and
     # `Machine::step_cold` handles the same bytes identically, so deleting a
-    # fast-path arm changes speed, not behaviour.
-    (r"^src/parser/machine\.rs$", {262, 266, 270, 274}, r"^Machine::step$", "equivalent",
+    # fast-path arm changes speed, not behaviour. The arms are found by their
+    # text, not their line number.
+    (r"^src/parser/machine\.rs$",
+     Anchor(r"^\s*(0x30\.\.=0x39|0x3B|0x3A|0x40\.\.=0x7E) => \{"),
+     r"^Machine::step$", "equivalent",
      "fast-path arm falls through to the cold table, which handles the byte identically"),
     # Proven equivalent: O_NOFOLLOW and O_NONBLOCK occupy disjoint bits, so
-    # exclusive-or produces the same flag word as inclusive-or.
-    (r"^src/core/kitty_transport\.rs$", {310}, r"^read_regular_file$", "equivalent",
+    # exclusive-or produces the same flag word as inclusive-or. Only that
+    # replacement qualifies; any other mutant on the line stays high risk.
+    (r"^src/core/kitty_transport\.rs$",
+     Anchor(r"libc::O_RDONLY \| libc::O_NOFOLLOW \| libc::O_NONBLOCK", name=r"replace \| with \^"),
+     r"^(open_admitted|delete_admitted)$", "equivalent",
      "combining disjoint open flags with exclusive-or yields the same value"),
 
     (r"^src/core/kitty_transport\.rs$", None,
-     r"^(checked_shm_size|read_shm_fd_at_size|read_regular_file|read_shm_transport)$", "high",
+     r"^(shm_read_len|shm_object_size|ensure_size_unchanged|read_shm_fd|read_shm_fd_at_size|read_shm_isolated|reap_child|shm_identity|shm_identity_proves_object|shm_name_binds_fd|open_admitted|delete_admitted|read_opened_file|verify_opened_location|read_file_transport|read_temp_transport|read_shm_transport)$", "high",
      "size cap or error boundary on an externally supplied graphics payload"),
-    (r"^src/core/kitty_transport\.rs$", None, r"^(path_from_bytes|allowed_temp_dirs)$", "high",
+    (r"^src/core/kitty_transport\.rs$", None, r"^(path_from_bytes|allowed_temp_dirs|admit_path|inside_allowed_root|open_directory_without_links)$", "high",
      "path admission for a file transport named by remote output"),
     (r"^src/core/kitty_transport\.rs$", None, r"^$", "high",
      "transport read cap constant"),
@@ -446,7 +557,10 @@ def classify_risk(name: str, function: str) -> tuple[str, str]:
     for file_re, lines, fn_re, risk, why in RISK_RULES:
         if not re.search(file_re, path):
             continue
-        if lines is not None and line not in lines:
+        if isinstance(lines, Anchor):
+            if not lines.matches(name):
+                continue
+        elif lines is not None and line not in lines:
             continue
         if not re.search(fn_re, function or ""):
             continue
@@ -640,6 +754,32 @@ def check_survivor_markers(doc: str) -> None:
             raise ResultError(f"survivor figure without a claim marker: {fig.group()}")
 
 
+def verify_sources() -> list[str]:
+    """Check the exclusion table and the anchored rules against the source tree.
+
+    Returns one message per problem. An exclusion row must resolve to exactly
+    one item, and every anchored equivalence rule must still match some line
+    of its file: a rule that matches nothing has silently stopped classifying.
+    """
+    problems = []
+    try:
+        load_exclusions(REPO_ROOT / "scripts" / "mutation-platform-exclusions.tsv")
+    except ResultError as exc:
+        problems.append(f"exclusions: {exc}")
+    for file_re, condition, _fn, risk, why in RISK_RULES:
+        if not isinstance(condition, Anchor):
+            continue
+        file = re.sub(r"\\(.)", r"\1", file_re.strip("^$"))
+        try:
+            lines = source_lines(file)
+        except ResultError as exc:
+            problems.append(f"risk rule {why!r}: {exc}")
+            continue
+        if not any(condition.text.search(line) for line in lines):
+            problems.append(f"risk rule {why!r} matches no line of {file}")
+    return problems
+
+
 def self_test() -> int:
     """Prove the classifier rejects malformed and missing input."""
     failures = []
@@ -762,14 +902,42 @@ def self_test() -> int:
             ("src/core/kitty_transport.rs:1:1: x", "read_shm_fd_at_size", "high"),
             ("src/core/kitty_transport.rs:1:1: x", "TransportError::kitty_message", "low"),
             ("src/parser/machine.rs:1:1: x", "Machine::step", "high"),
-            ("src/parser/machine.rs:262:17: x", "Machine::step", "equivalent"),
-            ("src/parser/machine.rs:262:17: x", "classify", "high"),
-            ("src/core/kitty_transport.rs:310:40: x", "read_regular_file", "equivalent"),
-            ("src/core/kitty_transport.rs:311:40: x", "read_regular_file", "high"),
         ]:
             got, _ = classify_risk(name, fn)
             if got != expect:
                 failures.append(f"risk rule: {fn} classified {got}, expected {expect}")
+
+        # Equivalence rules read the mutated source line; they hold wherever the
+        # text moves and fail closed where it is not the proven expression.
+        global SOURCE_ROOT
+        saved_root, SOURCE_ROOT = SOURCE_ROOT, tmp / "riskroot"
+        try:
+            (SOURCE_ROOT / "src" / "parser").mkdir(parents=True)
+            (SOURCE_ROOT / "src" / "core").mkdir(parents=True)
+            (SOURCE_ROOT / "src" / "parser" / "machine.rs").write_text(
+                "fn step() {\n    match byte {\n        0x3B => {\n        }\n        0x41 => {\n        }\n    }\n}\n")
+            (SOURCE_ROOT / "src" / "core" / "kitty_transport.rs").write_text(
+                "fn open_admitted() {\n"
+                "    libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,\n"
+                "    other_flag | 1,\n}\n")
+            for name, fn, expect in [
+                ("src/parser/machine.rs:3:9: delete match arm 0x3B", "Machine::step", "equivalent"),
+                ("src/parser/machine.rs:5:9: delete match arm 0x41", "Machine::step", "high"),
+                ("src/parser/machine.rs:3:9: delete match arm 0x3B", "classify", "high"),
+                ("src/core/kitty_transport.rs:2:44: replace | with ^ in open_admitted", "open_admitted", "equivalent"),
+                ("src/core/kitty_transport.rs:2:44: replace | with & in open_admitted", "open_admitted", "high"),
+                ("src/core/kitty_transport.rs:3:15: replace | with ^ in open_admitted", "open_admitted", "high"),
+                ("src/core/kitty_transport.rs:99:1: replace | with ^ in open_admitted", "open_admitted", "high"),
+            ]:
+                got, _ = classify_risk(name, fn)
+                if got != expect:
+                    failures.append(f"anchored risk rule: {name} classified {got}, expected {expect}")
+            SOURCE_ROOT = tmp / "no-such-tree"
+            got, _ = classify_risk("src/parser/machine.rs:3:9: delete match arm 0x3B", "Machine::step")
+            if got != "high":
+                failures.append("anchored risk rule: unreadable source did not fail closed to high")
+        finally:
+            SOURCE_ROOT = saved_root
 
         # --- batch partition rules ---
         defs = [
@@ -829,8 +997,58 @@ def self_test() -> int:
         # --- platform exclusions ---
         exdir = tmp / "ex"; exdir.mkdir()
         extab = exdir / "ex.tsv"
-        extab.write_text("# comment\nsrc/x.rs\t10\t20\tcfg(windows)\tnot compiled here\n")
-        exs = load_exclusions(extab)
+        (exdir / "src").mkdir()
+        fixture_source = ["// filler"] * 9 + [
+            "#[cfg(windows)]",  # line 10
+            "pub(super) fn foo(",
+            "    a: u8,",
+            ") -> Result<(), E> {",
+            "    body();",
+            "    body();",
+            "    body();",
+            "    body();",
+            "    body();",
+            "    body();",
+            "}",  # 20
+            "",
+            "fn after() {}",
+            "",
+            "#[cfg(windows)]",  # 24: a bare block, named by what follows it
+            "{",
+            "    let _ = windows_only;",
+            "}",
+            "#[cfg(windows)]",  # 28: a statement ending in a semicolon
+            "const WIN_ONLY: u32 = 1;",
+        ]
+        (exdir / "src" / "x.rs").write_text("\n".join(fixture_source) + "\n")
+        extab.write_text(
+            "# comment\n"
+            "src/x.rs\tcfg(windows)\t^pub\\(super\\) fn foo\tnot compiled here\n"
+        )
+        exs = load_exclusions(extab, exdir)
+        if (exs[0]["start"], exs[0]["end"]) != (10, 20):
+            failures.append(f"exclusions: fn foo resolved to {(exs[0]['start'], exs[0]['end'])}")
+        for anchor, want in [
+            (r"^pub\(super\) fn foo", (10, 20)),
+            (r"^\{\n\s*let _ = windows_only", (24, 27)),
+            (r"^const WIN_ONLY", (28, 29)),
+        ]:
+            got = resolve_exclusion("src/x.rs", "cfg(windows)", anchor, fixture_source)
+            if got != want:
+                failures.append(f"exclusions: anchor {anchor!r} resolved to {got}, expected {want}")
+        # Lines added above an item move its range; the row still finds it.
+        shifted = ["// new", "// new"] + fixture_source
+        if resolve_exclusion("src/x.rs", "cfg(windows)", r"fn foo", shifted) != (12, 22):
+            failures.append("exclusions: a shifted item was not found at its new lines")
+        check("exclusion item missing",
+              lambda: resolve_exclusion("src/x.rs", "cfg(windows)", r"^fn gone", fixture_source),
+              "no #[cfg(windows)] item matches")
+        check("exclusion wrong condition",
+              lambda: resolve_exclusion("src/x.rs", "cfg(unix)", r"fn foo", fixture_source),
+              "no #[cfg(unix)] item matches")
+        check("exclusion ambiguous",
+              lambda: resolve_exclusion("src/x.rs", "cfg(windows)", r"fn|const", fixture_source),
+              "items match the anchor")
         if len(exs) != 1 or exs[0]["start"] != 10:
             failures.append("exclusions: valid table not parsed")
         if excluded_by("src/x.rs:15:1: x", exs) is None:
@@ -840,11 +1058,14 @@ def self_test() -> int:
         if excluded_by("src/y.rs:15:1: x", exs) is not None:
             failures.append("exclusions: other file excluded")
         bad = exdir / "bad.tsv"
-        bad.write_text("src/x.rs\t20\t10\tcfg\treason\n")
-        check("inverted exclusion range", lambda: load_exclusions(bad), "inverted range")
-        badnum = exdir / "badnum.tsv"
-        badnum.write_text("src/x.rs\tten\t20\tcfg\treason\n")
-        check("non-numeric exclusion bounds", lambda: load_exclusions(badnum), "non-numeric")
+        bad.write_text("src/x.rs\t10\t20\tcfg(windows)\treason\n")
+        check("legacy exclusion row", lambda: load_exclusions(bad, exdir), "expected 4")
+        badanchor = exdir / "badanchor.tsv"
+        badanchor.write_text("src/x.rs\tcfg(windows)\t(unclosed\treason\n")
+        check("invalid exclusion anchor", lambda: load_exclusions(badanchor, exdir), "invalid anchor")
+        nofile = exdir / "nofile.tsv"
+        nofile.write_text("src/none.rs\tcfg(windows)\tfn foo\treason\n")
+        check("exclusion source missing", lambda: load_exclusions(nofile, exdir), "cannot read source file")
 
         # An excluded region that a run demonstrably compiled must fail the
         # report rather than be silently reclassified.
@@ -970,6 +1191,9 @@ def self_test() -> int:
         if "15:1" not in survivor_regex(missed):
             failures.append("stage 2: selection changed with no exclusion table")
 
+    # The tables as shipped must still describe the source tree they sit in.
+    failures.extend(f"live tree: {problem}" for problem in verify_sources())
+
     for f in failures:
         print(f"FAIL {f}")
     if failures:
@@ -989,6 +1213,10 @@ def main() -> int:
     ap.add_argument("--verify-partition", metavar="LISTING_DIR")
     ap.add_argument("--listings", metavar="LISTING_DIR")
     ap.add_argument("--exclusions", metavar="FILE")
+    ap.add_argument("--source-root", metavar="DIR",
+                    help="the tree the mutated revision is checked out in (default: this repository)")
+    ap.add_argument("--verify-sources", action="store_true",
+                    help="check the exclusion table and anchored rules against the source tree")
     ap.add_argument("--check-doc", metavar="FILE",
                     help="verify that the tables published in a document match the current results")
     ap.add_argument("--also-scan", metavar="DIR", action="append", default=[],
@@ -996,8 +1224,18 @@ def main() -> int:
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
 
+    global SOURCE_ROOT
+    if args.source_root:
+        SOURCE_ROOT = Path(args.source_root)
     if args.self_test:
         return self_test()
+    if args.verify_sources:
+        problems = verify_sources()
+        for problem in problems:
+            print(f"mutation-summary: {problem}", file=sys.stderr)
+        if not problems:
+            print("mutation-summary: exclusion table and rule anchors match the source tree")
+        return 1 if problems else 0
     if args.survivor_regex:
         exclusions = load_exclusions(Path(args.exclusions) if args.exclusions else None)
         print(survivor_regex(Path(args.survivor_regex), exclusions))

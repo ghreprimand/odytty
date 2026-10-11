@@ -416,6 +416,7 @@ impl ProfileManager {
                 profile.launch.command = Some(command);
                 profile.launch.shell = None;
             } else {
+                profile.launch.command = None;
                 profile.launch.shell = nonempty_opt(&self.draft_shell);
             }
             profile.launch.working_directory = nonempty_opt(&self.draft_working_directory);
@@ -433,9 +434,12 @@ impl ProfileManager {
                 .and_then(|base| base.launch.working_directory.as_deref());
             if let Some(dir) = profile.launch.working_directory.as_deref()
                 && Some(dir) != loaded_wd
-                && !crate::native::persistence::dir_exists_for_spawn(std::path::Path::new(dir))
+                && !crate::native::persistence::dir_exists_for_spawn(
+                    std::path::Path::new(dir),
+                    crate::cwd::DirectorySource::Explicit,
+                )
             {
-                self.error = Some(crate::cwd::unusable_message(std::path::Path::new(dir), dir));
+                self.error = Some(format!("working directory {dir:?} does not exist"));
                 return ProfileManagerOutcome::Consumed;
             }
             profile.appearance.theme = nonempty_opt(&self.draft_theme);
@@ -668,21 +672,7 @@ impl ProfileManager {
         self.draft_saved_layout = profile.layout.saved_layout.clone().unwrap_or_default();
         self.draft_match_hosts = profile.switch.match_hosts.clone();
         self.draft_match_directories = profile.switch.match_directories.clone();
-        self.pending_shell_command = profile.launch.command.clone();
-        if self.pending_shell_command.is_some() {
-            self.draft_shell = profile
-                .launch
-                .command
-                .as_ref()
-                .map(|command| {
-                    if command.args.is_empty() {
-                        command.program.clone()
-                    } else {
-                        format!("{} {}", command.program, command.args.join(" "))
-                    }
-                })
-                .unwrap_or_default();
-        }
+        self.pending_shell_command = None;
     }
 
     pub(super) fn clear_draft(&mut self) {
@@ -743,6 +733,8 @@ impl ProfileManager {
     }
 
     fn apply_shell_suggestion(&mut self, entry: &DiscoveredShell) {
+        self.draft_command_program.clear();
+        self.draft_command_args.clear();
         if entry.args.is_empty() {
             self.draft_shell = entry.program.clone();
             self.pending_shell_command = None;
@@ -821,6 +813,8 @@ impl ProfileManager {
             FormField::Name => &mut self.draft_name,
             FormField::DisplayName => &mut self.draft_display_name,
             FormField::Shell => {
+                self.draft_command_program.clear();
+                self.draft_command_args.clear();
                 self.pending_shell_command = None;
                 if let Some(base) = &mut self.draft_base {
                     base.launch.command = None;
@@ -834,7 +828,11 @@ impl ProfileManager {
             FormField::FontFamily => &mut self.draft_font_family,
             FormField::Title => &mut self.draft_title,
             FormField::Connection => &mut self.draft_connection,
-            FormField::CommandProgram => &mut self.draft_command_program,
+            FormField::CommandProgram => {
+                self.pending_shell_command = None;
+                self.draft_shell.clear();
+                &mut self.draft_command_program
+            }
             FormField::CommandArg(index) => match self.draft_command_args.get_mut(index) {
                 Some(value) => value,
                 None => return,
@@ -881,6 +879,9 @@ impl ProfileManager {
             | FormField::RemoveMatchDirectory(_) => return,
         };
         edit(buffer);
+        if field == FormField::CommandProgram && self.draft_command_program.trim().is_empty() {
+            self.draft_command_args.clear();
+        }
         self.error = None;
     }
 

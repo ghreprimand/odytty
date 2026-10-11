@@ -562,7 +562,14 @@ one-shot actions, rate limits, expiry, and platform behavior.
   add more readability overlay.
 - Path settings, including `background_image`, open an inline file picker in
   Settings. Directories are enumerated off the UI path so keyboard and mouse
-  navigation remain responsive while large folders load. The `background_image`
+  navigation remain responsive while large folders load: a folder that cannot be
+  read, or a read the picker had to refuse because too many are already
+  waiting on a stalled mount, shows as unreadable instead of loading forever,
+  and no directory read ever runs on the window thread. Files whose names are
+  not valid UTF-8 cannot be written to a setting without becoming a different
+  path, so they are not listed and are counted in a notice. The picker keeps
+  its selection inside the rows the window shows, and cuts names by display
+  columns. The `background_image`
   picker also lists two entries at the top - **Default (bundled)** restores the
   shipped OdyTTY background and **None (no image)** clears it - so the bundled
   default is reachable from the GUI without editing the config.
@@ -1482,7 +1489,12 @@ over the same connection, stopped after 15 seconds). An upload that completes
 after its tab closed removes its own file the same way. If the link has
 already dropped, cleanup cannot run and the file persists in the remote `/tmp`
 until the remote's own temp-file reaper removes it; OdyTTY never promises
-guaranteed remote deletion. **Windows:**
+guaranteed remote deletion. Cleanup is bounded: at most eight cleanups run at
+once and a cleanup requested past that is skipped, a tab remembers at most 256
+uploaded paths and forgets the oldest beyond that (an earlier file is never
+deleted early, because its path may already be in use), and a helper that
+cannot be killed is reported as stuck instead of waited on. A skipped or
+forgotten file is left to the remote's own temp-file reaper. **Windows:**
 the upload uses the bundled `ssh.exe` the same way (no `ControlMaster` reuse, as
 OpenSSH for Windows has none), so each upload does its own connect; the clipboard
 image is read through the platform clipboard backend. A Windows *remote* is out

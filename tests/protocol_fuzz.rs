@@ -67,7 +67,6 @@
 //! budget instead of leaving it to be inferred.
 
 use odytty::core::{Attrs, Cell, KeyboardModes, MouseProtocol, Terminal};
-use unicode_width::UnicodeWidthChar;
 
 /// The bound on extension scalars a cell retains (`MAX_COMBINING`).
 const MAX_COMBINING_SCALARS: usize = 16;
@@ -293,12 +292,13 @@ fn host_output_cap(input_len: usize) -> usize {
 ///   (a pending-wrap cursor may rest at `column == columns`),
 /// - every `wide_continuation` spacer sits at column > 0, immediately follows a
 ///   head that is not itself a spacer or layout padding, and that head owns two
-///   columns by the model's rule: its first scalar is display width 2, or it
-///   carries extension scalars (a Brahmic conjunct, a Thai or Lao SARA AM, a
-///   VS16 or keycap emoji sequence, a ZWJ or flag cluster),
+///   columns by the model's rule (`odytty::core::owner_display_width`): a wide
+///   first scalar, a Brahmic conjunct, a Thai or Lao SARA AM, a VS16 or keycap
+///   emoji sequence, a ZWJ or flag cluster. A one-column cluster, such as a
+///   base with a combining mark, never has a spacer,
 /// - a spacer carries no extension scalars and is not layout padding,
-/// - every head whose first scalar is display width 2 has its spacer and never
-///   sits in the final column,
+/// - every head the model gives two columns, single-scalar or multi-scalar, has
+///   its spacer and never sits in the final column,
 /// - no cell retains more extension scalars than the bound (16), and
 /// - layout padding (a blank generated to wrap a wide owner) is a plain blank
 ///   with no extension scalars.
@@ -306,8 +306,18 @@ fn host_output_cap(input_len: usize) -> usize {
 /// Rectangle ops sanitize sliced wide pairs to blanks, so this must hold after
 /// arbitrary DECCRA/DECFRA/DECERA/DECSERA churn over rows carrying CJK glyphs
 /// and over the cluster owners the grapheme work ships.
+/// Columns the head cell's owner spans by the production rule.
+fn owner_columns(cell: &Cell, ambiguous_wide: bool) -> usize {
+    odytty::core::owner_display_width(cell.ch, cell.combining(), ambiguous_wide)
+}
+
 fn assert_grid_consistent(seed: u64, t: &Terminal) {
-    let snap = t.snapshot();
+    assert_snapshot_consistent(seed, t.ambiguous_wide(), &t.snapshot());
+}
+
+/// [`assert_grid_consistent`] over a snapshot, so the scan itself can be
+/// checked against deliberately broken grids.
+fn assert_snapshot_consistent(seed: u64, ambiguous_wide: bool, snap: &odytty::core::Snapshot) {
     let cols = snap.dimensions.columns;
     let rows = snap.dimensions.rows;
     assert_eq!(
@@ -357,24 +367,74 @@ fn assert_grid_consistent(seed: u64, t: &Terminal) {
                     "seed={seed}: wide_continuation at row {r} col {c} follows a spacer or padding"
                 );
                 assert!(
-                    UnicodeWidthChar::width(left.ch) == Some(2) || !left.combining().is_empty(),
+                    owner_columns(left, ambiguous_wide) == 2,
                     "seed={seed}: wide_continuation at row {r} col {c} not preceded by an owner \
                      of two columns (left={left:?})"
                 );
-            } else if UnicodeWidthChar::width(cell.ch) == Some(2) {
+            } else if !cell.layout_padding && owner_columns(cell, ambiguous_wide) == 2 {
                 assert!(
                     c + 1 < cols,
-                    "seed={seed}: wide head {:?} in final column {c}, row {r}",
-                    cell.ch
+                    "seed={seed}: two-column owner {cell:?} in final column {c}, row {r}"
                 );
                 assert!(
                     row[c + 1].wide_continuation,
-                    "seed={seed}: wide head {:?} at row {r} col {c} lacks a continuation spacer",
-                    cell.ch
+                    "seed={seed}: two-column owner {cell:?} at row {r} col {c} lacks a \
+                     continuation spacer"
                 );
             }
         }
     }
+}
+
+/// A real terminal's snapshot after `text`, in a `columns` x 2 grid.
+fn snapshot_after(columns: usize, text: &str) -> odytty::core::Snapshot {
+    let mut t = Terminal::new(columns, 2);
+    t.advance(text.as_bytes());
+    t.snapshot()
+}
+
+#[test]
+fn the_ownership_scan_accepts_well_formed_owners() {
+    for text in [
+        "e\u{301}x",
+        "\u{2764}\u{fe0f}x",
+        "\u{754c}x",
+        "1\u{fe0f}\u{20e3}x",
+    ] {
+        let snap = snapshot_after(6, text);
+        assert_snapshot_consistent(0, false, &snap);
+    }
+}
+
+/// A spacer after a one-column cluster (a base with a combining mark) is a
+/// stray: the cluster owns one column by the model's rule.
+#[test]
+#[should_panic(expected = "not preceded by an owner of two columns")]
+fn the_ownership_scan_rejects_a_spacer_after_a_one_column_cluster() {
+    let mut snap = snapshot_after(6, "e\u{301}x");
+    assert_eq!(snap.cells[0].combining().len(), 1, "fixture is a cluster");
+    snap.cells[1] = Cell::wide_spacer(Attrs::default());
+    assert_snapshot_consistent(0, false, &snap);
+}
+
+/// A two-column multi-scalar owner whose spacer was erased.
+#[test]
+#[should_panic(expected = "lacks a continuation spacer")]
+fn the_ownership_scan_rejects_a_multi_scalar_owner_without_its_spacer() {
+    let mut snap = snapshot_after(6, "\u{2764}\u{fe0f}x");
+    assert!(snap.cells[1].wide_continuation, "fixture has a spacer");
+    snap.cells[1] = Cell::blank();
+    assert_snapshot_consistent(0, false, &snap);
+}
+
+/// A two-column multi-scalar owner sitting in the final column.
+#[test]
+#[should_panic(expected = "in final column")]
+fn the_ownership_scan_rejects_a_multi_scalar_owner_in_the_final_column() {
+    let mut snap = snapshot_after(4, "ab\u{2764}\u{fe0f}");
+    snap.cells[3] = snap.cells[2];
+    snap.cells[2] = Cell::blank();
+    assert_snapshot_consistent(0, false, &snap);
 }
 
 // ---------------------------------------------------------------------------

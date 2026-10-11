@@ -158,7 +158,10 @@ python3 scripts/memory-capture.py --self-test
 It emits JSON: process resident and proportional totals, resident bytes per
 mapping grouped by backing file and classified (`driver_library`,
 `mapped_binary`, `heap`, `anonymous`, `library`, `stack`, `device`, `other`),
-the heap total as its own line, and the loaded GPU/driver library set.
+the main heap as its own line, and the loaded GPU/driver library set. The main
+heap is the `[heap]` mapping only: thread arenas and large allocations are
+anonymous mappings, so `heap_bytes` is a lower bound on all heap memory, and a
+process with no `[heap]` mapping records it `unmeasured`, not zero.
 
 - **Linux** reads `/proc/<pid>/smaps_rollup` and `/proc/<pid>/smaps`.
 - **Windows** reads `GetProcessMemoryInfo` through `ctypes`. There is no
@@ -167,7 +170,8 @@ the heap total as its own line, and the loaded GPU/driver library set.
 - **macOS** reads resident size from `ps`; everything else is `unmeasured`.
 
 A field the platform does not expose is `unmeasured` and the whole record is
-marked `partial`. It is never approximated, and a Linux figure is never
+marked `partial`. `swap_bytes` is read on Linux and `unmeasured` with a reason
+elsewhere; `commit_bytes` exists only in Windows records. It is never approximated, and a Linux figure is never
 substituted for another platform's.
 
 **Mapping names are recorded as basenames, never full paths.** The basename

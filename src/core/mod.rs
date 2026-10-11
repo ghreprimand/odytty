@@ -94,6 +94,15 @@ mod tests;
 #[cfg(test)]
 pub(crate) use tests::v013_fixtures;
 
+/// Columns a retained owner (first scalar plus its extension scalars) spans
+/// under the model's rule, for the given ambiguous-width policy. Hidden from the
+/// documentation: it exists so the integration suites check grid ownership
+/// against the production rule instead of a copy of it.
+#[doc(hidden)]
+pub fn owner_display_width(base: char, extensions: &[char], ambiguous_wide: bool) -> usize {
+    char_width::owner_display_width(base, extensions, ambiguous_wide)
+}
+
 pub use bidi::{
     BidiIdentityReason, BidiLayout, BidiOwner, BidiPlan, BidiVisualCell, MAX_BIDI_OWNER_WIDTH,
     MAX_BIDI_PARAGRAPH_BYTES, MAX_BIDI_PARAGRAPH_OWNERS, MAX_BIDI_PARAGRAPH_ROWS,
@@ -141,5 +150,5 @@ pub use types::{
     Attrs, Cell, CellMetrics, CharsetModes, ClipboardRequest, ClipboardSelection, Color,
     CursorStyle, Dimensions, DirtyRegion, DynamicColors, KeyboardModes, LinkId, MouseButton,
     MouseEncoding, MouseEventKind, MouseModifiers, MouseProtocol, MouseTracking, Position,
-    RgbColor, Snapshot, TerminalModel, UnderlineStyle,
+    RgbColor, Snapshot, TerminalModel, UnderlineStyle, begin_recolor, stored_colors_continue,
 };

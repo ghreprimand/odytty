@@ -713,8 +713,10 @@ hidden and has the same rendition (colours, attributes, hyperlink) as the
 first; otherwise each cell keeps its own run, so a hidden or restyled part of
 a sequence is not painted away. A selection, search match or copy-mode caret
 that covers only part of such a sequence recolours cells at draw time and does
-not split it: while a cell is highlighted, only its stored attributes and
-hyperlink are compared. Source-owned clusters are unaffected.
+not split it, and does not hide a colour change the application stored there:
+each pass records, before it recolours a cell, whether the stored foreground,
+background or inverse changes at that cell's edges, and the join reads those
+records. Source-owned clusters are unaffected.
 
 VS16 keycaps resolve the font's base-plus-enclosing-keycap color ligature
 when present. The selector remains in logical text and cluster identity;
@@ -1752,6 +1754,10 @@ points, and uses private atomic replacement. Linux uses the XDG portal on both
 Wayland and X11; macOS and Windows use their native dialog implementations.
 
 ### Notifications And Pane Monitors
+
+Later monitor notices preserve unseen command-failure badges until the pane is
+viewed or its attention is cleared.
+
 
 OSC 9 and OSC 777 requests produce bounded, pane-owned attention state. OSC
 9;4 produces typed progress with a bounded lifetime. Terminal-authored text is

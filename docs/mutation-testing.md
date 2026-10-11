@@ -273,7 +273,17 @@ three such regions in `src/core/kitty_transport.rs` - the non-Unix
 the macOS child-process shared-memory copy - covering **51** of that batch's 131
 mutants. Every one of the 51 was reported as surviving, while 48 of the 80
 mutants in compiled code were killed; a region in which nothing at all can be
-killed is the signature of code that was never built.
+killed is the signature of code that was never built. Those counts belong to the
+campaign's revision; the table has since grown to every region of the file that
+a Linux build removes.
+
+The table names a region by its attribute and by text the item starts with, not
+by line numbers, and the classifier resolves each row in the source tree it is
+run against (`--source-root`, default this repository). The risk rules that
+mark a mutant equivalent find it the same way, by the text of the mutated line.
+A row whose item has gone or matches twice, or a rule that matches no line,
+stops the run. `python3 scripts/mutation-summary.py --verify-sources` checks
+both against the working tree and is part of the classifier self-test in CI.
 
 The exclusion is enforced, not trusted. If a mutant inside an excluded region is
 killed or times out, the region demonstrably was compiled, and the classifier

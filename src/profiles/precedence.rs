@@ -15,6 +15,7 @@ use crate::text;
 
 use super::schema::{LaunchProfile, ProfileCommand, ProfileError};
 use super::store::ProfileCatalog;
+use crate::cwd::DirectorySource;
 
 /// Explicit CLI launch overrides for one startup.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -53,6 +54,10 @@ pub struct EffectiveLaunch {
     pub shell: Option<String>,
     pub command: Option<ProfileCommand>,
     pub working_directory: Option<PathBuf>,
+    /// Which layer supplied `working_directory`: a profile or the command line
+    /// is explicit; a restored layout, the live UI and an inherited directory
+    /// are derived (see [`DirectorySource`]).
+    pub working_directory_source: DirectorySource,
     pub env: BTreeMap<String, String>,
     pub connection: Option<String>,
     pub layout: Option<String>,
@@ -139,6 +144,12 @@ pub(crate) fn resolve_effective_launch(
             .clone()
             .or_else(|| profile.and_then(|p| p.launch.command.clone())),
         working_directory: pick_launch_path(
+            live.working_directory.as_deref(),
+            cli.working_directory.as_deref(),
+            restored.working_directory.as_deref(),
+            profile.and_then(|p| p.launch.working_directory.as_deref()),
+        ),
+        working_directory_source: launch_path_source(
             live.working_directory.as_deref(),
             cli.working_directory.as_deref(),
             restored.working_directory.as_deref(),
@@ -282,6 +293,29 @@ fn pick_launch_path(
     profile: Option<&str>,
 ) -> Option<PathBuf> {
     pick_launch_string(live, cli, restored, profile).map(PathBuf::from)
+}
+
+/// The source of the path [`pick_launch_path`] returns: the command line and a
+/// profile are explicit user input, the live UI and a restored layout are not.
+/// No path at all is derived, the safe default.
+fn launch_path_source(
+    live: Option<&str>,
+    cli: Option<&str>,
+    restored: Option<&str>,
+    profile: Option<&str>,
+) -> DirectorySource {
+    let set = |value: Option<&str>| value.is_some_and(|value| !value.is_empty());
+    if set(live) {
+        DirectorySource::Derived
+    } else if set(cli) {
+        DirectorySource::Explicit
+    } else if set(restored) {
+        DirectorySource::Derived
+    } else if set(profile) {
+        DirectorySource::Explicit
+    } else {
+        DirectorySource::Derived
+    }
 }
 
 fn merge_env(
@@ -526,5 +560,72 @@ mod tests {
             None,
         );
         assert_eq!(effective.title.as_deref(), Some("live title"));
+    }
+
+    #[test]
+    fn the_working_directory_source_follows_the_winning_layer() {
+        let mut profile = LaunchProfile::new("dev").expect("profile");
+        profile.launch.working_directory = Some(r"\\wsl.localhost\Distro\home".to_owned());
+        let mut catalog = ProfileCatalog::default();
+        catalog.profiles.insert("dev".to_owned(), profile);
+        let resolve =
+            |cli_dir: Option<&str>, restored_dir: Option<&str>, live_dir: Option<&str>| {
+                let cli = LaunchCliOverrides {
+                    profile_name: Some("dev".to_owned()),
+                    working_directory: cli_dir.map(str::to_owned),
+                    ..LaunchCliOverrides::default()
+                };
+                let restored = RestoredLaunchOverrides {
+                    working_directory: restored_dir.map(str::to_owned),
+                    ..RestoredLaunchOverrides::default()
+                };
+                let live = LiveLaunchOverrides {
+                    working_directory: live_dir.map(str::to_owned),
+                    ..LiveLaunchOverrides::default()
+                };
+                let effective = resolve_effective_launch(
+                    None,
+                    &HashMap::new(),
+                    &catalog,
+                    &cli,
+                    &restored,
+                    &live,
+                    None,
+                );
+                (
+                    effective.working_directory,
+                    effective.working_directory_source,
+                )
+            };
+        let (dir, source) = resolve(None, None, None);
+        assert_eq!(dir, Some(PathBuf::from(r"\\wsl.localhost\Distro\home")));
+        assert_eq!(source, DirectorySource::Explicit, "profile");
+        let (_, source) = resolve(Some("/from/cli"), None, None);
+        assert_eq!(source, DirectorySource::Explicit, "command line");
+        let (dir, source) = resolve(None, Some("/from/restored"), None);
+        assert_eq!(dir, Some(PathBuf::from("/from/restored")));
+        assert_eq!(source, DirectorySource::Derived, "restored over profile");
+        let (_, source) = resolve(Some("/from/cli"), Some("/from/restored"), None);
+        assert_eq!(
+            source,
+            DirectorySource::Explicit,
+            "command line over restored"
+        );
+        let (_, source) = resolve(Some("/from/cli"), None, Some("/from/live"));
+        assert_eq!(source, DirectorySource::Derived, "live");
+        // An empty value does not win, so it cannot change the source.
+        let (_, source) = resolve(None, Some(""), None);
+        assert_eq!(source, DirectorySource::Explicit, "empty restored");
+        let none = resolve_effective_launch(
+            None,
+            &HashMap::new(),
+            &ProfileCatalog::default(),
+            &LaunchCliOverrides::default(),
+            &RestoredLaunchOverrides::default(),
+            &LiveLaunchOverrides::default(),
+            None,
+        );
+        assert_eq!(none.working_directory, None);
+        assert_eq!(none.working_directory_source, DirectorySource::Derived);
     }
 }

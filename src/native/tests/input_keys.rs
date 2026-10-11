@@ -1186,3 +1186,58 @@ fn win32_records_carry_every_utf16_unit_of_the_produced_text() {
         "a Ctrl chord keeps one control-code record"
     );
 }
+
+/// The native path hands the encoder what the layout and the physical key say,
+/// so Kitty reports the key a non-US layout pressed instead of a US fold.
+#[test]
+fn kitty_alternate_keys_follow_the_layout_and_physical_key() {
+    let recorder = KeyRecordingWriter::default();
+    let recorded = recorder.bytes.clone();
+    let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
+    let (mut app, terminal) = headless_app_with_writer(
+        NativeOptions::default(),
+        Dimensions::new(80, 24),
+        Settings::default(),
+        writer,
+    );
+    // Report all keys plus alternate keys.
+    terminal.lock().expect("terminal").advance(b"\x1b[=12u");
+    let shift = Modifiers {
+        ctrl: false,
+        shift: true,
+        alt: false,
+    };
+    // (logical character, character the key makes unshifted, physical key,
+    // modifiers, expected bytes). The first two rows are a US keyboard.
+    let cases = [
+        (";", ";", KeyCode::Semicolon, Modifiers::NONE, "\x1b[59u"),
+        (":", ";", KeyCode::Semicolon, shift, "\x1b[59:58:59;2u"),
+        // German layout: the key at the US right-bracket position.
+        (
+            "+",
+            "+",
+            KeyCode::BracketRight,
+            Modifiers::NONE,
+            "\x1b[43::93u",
+        ),
+        ("*", "+", KeyCode::BracketRight, shift, "\x1b[43:42:93;2u"),
+        // German layout: the key at the US Y position.
+        ("z", "z", KeyCode::KeyY, Modifiers::NONE, "\x1b[122::121u"),
+        ("Z", "z", KeyCode::KeyY, shift, "\x1b[122:90:121;2u"),
+    ];
+    for (logical, unshifted, code, modifiers, expected) in cases {
+        recorded.lock().expect("clear bytes").clear();
+        app.drive_raw_key_event_for_test(
+            WinitKey::Character(logical.into()),
+            WinitKey::Character(unshifted.into()),
+            PhysicalKey::Code(code),
+            modifiers,
+            KeyEventType::Press,
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&recorded.lock().expect("kitty bytes")),
+            expected,
+            "{logical:?} from {unshifted:?} on {code:?}"
+        );
+    }
+}

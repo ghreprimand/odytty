@@ -2,15 +2,19 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use odytty::graphics::sixel::{SixelBackground, decode_sixel};
+use odytty::graphics::placement::MAX_RAW_GRAPHICS_BYTES;
+use odytty::graphics::sixel::{MAX_HEIGHT, MAX_PIXELS, MAX_WIDTH, SixelBackground, decode_sixel};
+use odytty::graphics::store::ImageStoreLimits;
 
-const MAX_INPUT_BYTES: usize = 1024 * 1024;
-const MAX_WIDTH: u32 = 10_000;
-const MAX_HEIGHT: u32 = 10_000;
-const MAX_PIXELS: usize = 40_000_000;
-
+// The limits are the decoder's own constants, checked against the image
+// store's decoded bound, so a decoder cap that drifts from the store fails
+// this target instead of passing under a looser local copy.
 fuzz_target!(|input: &[u8]| {
-    let input = &input[..input.len().min(MAX_INPUT_BYTES)];
+    assert_eq!(
+        Some(MAX_PIXELS * 4),
+        u64::try_from(ImageStoreLimits::default().max_decoded_bytes).ok()
+    );
+    let input = &input[..input.len().min(MAX_RAW_GRAPHICS_BYTES)];
     let background = if input.first().is_some_and(|byte| byte & 1 == 1) {
         SixelBackground::Transparent
     } else {
@@ -21,15 +25,9 @@ fuzz_target!(|input: &[u8]| {
         assert!(image.width <= MAX_WIDTH);
         assert!(image.height <= MAX_HEIGHT);
 
-        let pixels = usize::try_from(image.width)
-            .ok()
-            .and_then(|width| {
-                usize::try_from(image.height)
-                    .ok()
-                    .and_then(|height| width.checked_mul(height))
-            })
-            .expect("decoded dimensions fit usize");
+        let pixels = u64::from(image.width) * u64::from(image.height);
         assert!(pixels <= MAX_PIXELS);
-        assert_eq!(image.rgba.len(), pixels.checked_mul(4).unwrap());
+        let bytes = usize::try_from(pixels * 4).expect("decoded size fits usize");
+        assert_eq!(image.rgba.len(), bytes);
     }
 });

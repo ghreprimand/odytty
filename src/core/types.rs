@@ -377,6 +377,13 @@ impl Attrs {
     /// colour, inverse and selection state on a marked cell. Never emitted by
     /// the parser and never serialized.
     const F_RECOLORED: u16 = 1 << 9;
+    /// Render-only marker on a [`Self::F_RECOLORED`] cell: before the
+    /// presentation pass replaced its colours, they differed from those of the
+    /// cell just before it (foreground, background or inverse). Never emitted
+    /// by the parser and never serialized.
+    const F_BREAK_BEFORE: u16 = 1 << 10;
+    /// As [`Self::F_BREAK_BEFORE`], for the cell just after.
+    const F_BREAK_AFTER: u16 = 1 << 11;
 
     #[inline]
     fn flag(&self, mask: u16) -> bool {
@@ -489,22 +496,28 @@ impl Attrs {
         self.set_flag(Self::F_RECOLORED, value);
     }
 
+    /// Whether the colours (foreground, background, inverse) the application
+    /// stored differ between two cells. Only meaningful when neither cell is
+    /// [`Self::recolored`].
+    fn stored_colors_differ(&self, other: &Attrs) -> bool {
+        self.foreground != other.foreground
+            || self.background != other.background
+            || self.inverse() != other.inverse()
+    }
+
     /// Whether two cells carry the same rendition as the application stored
-    /// it. Colours, inverse and selection state that a presentation pass may
-    /// have replaced are ignored when either cell is marked
-    /// [`Self::recolored`]; two unmarked cells still compare their colours, so a
-    /// genuine colour difference between them stays a difference.
+    /// it, apart from colour. Colours, inverse, selection and the boundary
+    /// notes of a presentation pass never count; see
+    /// [`stored_colors_continue`] for the colour comparison.
     pub fn same_stored_rendition(&self, other: &Attrs) -> bool {
-        let colors_known = !self.recolored() && !other.recolored();
         let strip = |attrs: &Attrs| {
             let mut stored = *attrs;
-            if !colors_known {
-                stored.foreground = Color::Default;
-                stored.background = Color::Default;
-                stored.set_inverse(false);
-            }
+            stored.foreground = Color::Default;
+            stored.background = Color::Default;
+            stored.set_inverse(false);
             stored.set_selected(false);
             stored.set_recolored(false);
+            stored.set_flag(Self::F_BREAK_BEFORE | Self::F_BREAK_AFTER, false);
             stored
         };
         strip(self) == strip(other)
@@ -525,6 +538,55 @@ impl Attrs {
         self.underline_style = style;
     }
 }
+/// Marks `cells[first..=last]` as recoloured by a presentation pass and
+/// records, before the pass overwrites them, whether the colours the
+/// application stored change at each edge a marked cell touches. Call it
+/// before the pass writes any colour into the range. Edges between two cells
+/// that were both already marked were recorded by the earlier call. A range
+/// outside the cells marks only the part inside.
+pub fn begin_recolor(cells: &mut [Cell], first: usize, last: usize) {
+    let end = last.saturating_add(1).min(cells.len());
+    for index in first..end {
+        if cells[index].attrs.recolored() {
+            continue;
+        }
+        if index > 0 && !cells[index - 1].attrs.recolored() {
+            let differs = cells[index - 1]
+                .attrs
+                .stored_colors_differ(&cells[index].attrs);
+            cells[index].attrs.set_flag(Attrs::F_BREAK_BEFORE, differs);
+        }
+        if let Some(next) = cells.get(index + 1)
+            && !next.attrs.recolored()
+        {
+            let differs = cells[index].attrs.stored_colors_differ(&next.attrs);
+            cells[index].attrs.set_flag(Attrs::F_BREAK_AFTER, differs);
+        }
+        cells[index].attrs.set_recolored(true);
+    }
+}
+
+/// Whether the colours the application stored stay the same from `cells[head]`
+/// through `cells[next]` (`head < next`), seen through any presentation pass
+/// that recoloured cells in between: a genuine stored boundary still splits,
+/// and a highlight never does.
+pub fn stored_colors_continue(cells: &[Cell], head: usize, next: usize) -> bool {
+    let Some(span) = cells.get(head..=next) else {
+        return false;
+    };
+    if span.iter().all(|cell| !cell.attrs.recolored()) {
+        return !cells[head].attrs.stored_colors_differ(&cells[next].attrs);
+    }
+    span.windows(2).all(|pair| {
+        let (a, b) = (&pair[0].attrs, &pair[1].attrs);
+        if a.recolored() || b.recolored() {
+            !a.flag(Attrs::F_BREAK_AFTER) && !b.flag(Attrs::F_BREAK_BEFORE)
+        } else {
+            !a.stored_colors_differ(b)
+        }
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LinkId(NonZeroU32);
 

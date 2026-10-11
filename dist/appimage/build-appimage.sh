@@ -61,6 +61,10 @@ mkdir -p "$APPDIR/usr/share/metainfo" "$APPDIR/usr/share/icons/hicolor"
 cp dist/linux/io.unfinished_works.odytty.metainfo.xml \
   "$APPDIR/usr/share/metainfo/"
 cp -a dist/icons/hicolor/. "$APPDIR/usr/share/icons/hicolor/"
+# Licence and notice texts, including the bundled fonts' licences.
+mkdir -p "$APPDIR/usr/share/licenses/odytty"
+cp LICENSE NOTICE "$APPDIR/usr/share/licenses/odytty/"
+bash dist/install-font-licenses.sh "$APPDIR/usr/share/licenses/odytty/fonts"
 
 # Verified immutable upstream release inputs. Do not substitute the mutable
 # `continuous` channel: these checksums are the verification boundary before either

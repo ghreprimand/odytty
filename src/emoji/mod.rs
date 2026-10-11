@@ -30,6 +30,8 @@ pub use color_atlas::{
 #[cfg(test)]
 pub(crate) use render::color_route_needs_mono_fallback;
 pub use render::{EmojiPresentation, EmojiRasterizer, build_color_glyph_runs, emoji_presentation};
+#[cfg(test)]
+pub(crate) use render::{color_runs_for_test, colored_attrs_for_test, legacy_flag_pair_for_test};
 
 // Only the fontconfig query names the family; the inventory paths match on
 // file stems, so the constant is gated with its sole caller.

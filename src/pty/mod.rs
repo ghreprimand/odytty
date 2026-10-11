@@ -14,10 +14,13 @@
 //! `openpt`/`grantpt`/`unlockpt`, termios, `setsid`/`TIOCSCTTY`,
 //! process-group signalling). Other platforms supply their own backend.
 
+use crate::cwd::DirectorySource;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(any(windows, test))]
+mod env_block;
 #[cfg(any(windows, test))]
 mod held_gate;
 #[cfg(any(windows, test))]
@@ -131,6 +134,11 @@ pub struct CommandBuilder {
     /// matching entry from the ConPTY environment block.
     env_remove: Vec<OsString>,
     current_dir: Option<PathBuf>,
+    /// Who supplied `current_dir`. Only the Windows spawn reads it: a derived
+    /// network or device directory is replaced before ConPTY child creation,
+    /// an explicit one is kept as typed.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    current_dir_source: DirectorySource,
 }
 
 impl CommandBuilder {
@@ -141,6 +149,7 @@ impl CommandBuilder {
             env: Vec::new(),
             env_remove: Vec::new(),
             current_dir: None,
+            current_dir_source: DirectorySource::Derived,
         }
     }
 
@@ -396,8 +405,25 @@ impl CommandBuilder {
         self
     }
 
+    /// Who supplied the working directory (test inspection).
+    #[cfg(test)]
+    pub(crate) fn current_dir_source(&self) -> DirectorySource {
+        self.current_dir_source
+    }
+
+    /// A working directory of unknown origin, treated as derived.
     pub fn current_dir(&mut self, path: impl Into<PathBuf>) -> &mut Self {
+        self.current_dir_from(path, DirectorySource::Derived)
+    }
+
+    /// A working directory with a known origin (see [`DirectorySource`]).
+    pub fn current_dir_from(
+        &mut self,
+        path: impl Into<PathBuf>,
+        source: DirectorySource,
+    ) -> &mut Self {
         self.current_dir = Some(path.into());
+        self.current_dir_source = source;
         self
     }
 
@@ -425,6 +451,7 @@ pub(crate) fn exec_command_builder(
     program: OsString,
     args: Vec<OsString>,
     working_directory: Option<PathBuf>,
+    source: DirectorySource,
 ) -> CommandBuilder {
     let mut command = CommandBuilder::new(program);
     for arg in args {
@@ -432,7 +459,7 @@ pub(crate) fn exec_command_builder(
     }
     command.apply_standard_exec_env(&std::collections::BTreeMap::new());
     if let Some(path) = working_directory {
-        command.current_dir(path);
+        command.current_dir_from(path, source);
     }
     command
 }
@@ -447,7 +474,12 @@ mod tests {
     #[cfg(any(unix, windows))]
     #[test]
     fn exec_spawn_scrubs_inherited_shell_integration_marker() {
-        let command = exec_command_builder("prog".into(), vec!["arg".into()], None);
+        let command = exec_command_builder(
+            "prog".into(),
+            vec!["arg".into()],
+            None,
+            DirectorySource::Derived,
+        );
         assert!(
             command
                 .env_remove_for_test()

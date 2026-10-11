@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+use crate::cwd::DirectorySource;
 use crate::pty::{CommandBuilder, PtySession};
 use crate::settings::Settings;
 
@@ -16,6 +17,8 @@ use super::schema::{self, ProfileCommand};
 pub struct LocalLaunchPlan {
     pub settings: Settings,
     pub working_directory: Option<PathBuf>,
+    /// Whether the user typed `working_directory` (see [`DirectorySource`]).
+    pub working_directory_source: DirectorySource,
     pub env: BTreeMap<String, String>,
     pub spawn: LocalSpawnKind,
 }
@@ -43,6 +46,7 @@ impl LocalLaunchPlan {
         Self {
             settings: effective.settings.clone(),
             working_directory: effective.working_directory.clone(),
+            working_directory_source: effective.working_directory_source,
             env: effective.env.clone(),
             spawn,
         }
@@ -79,7 +83,7 @@ pub fn build_local_command(plan: &LocalLaunchPlan) -> Option<CommandBuilder> {
         }
     }
     if let Some(path) = plan.working_directory.as_ref() {
-        command.current_dir(path.clone());
+        command.current_dir_from(path.clone(), plan.working_directory_source);
     }
     Some(command)
 }
@@ -137,6 +141,7 @@ pub fn spawn_local_plan(
         return PtySession::spawn_default_shell_in_with_settings_env(
             grid,
             plan.working_directory.clone(),
+            plan.working_directory_source,
             &plan.settings,
             &plan.env,
         );
@@ -297,6 +302,7 @@ mod tests {
         let plan = LocalLaunchPlan {
             settings: Settings::default(),
             working_directory: None,
+            working_directory_source: DirectorySource::Derived,
             env,
             spawn: LocalSpawnKind::DefaultShell,
         };
@@ -346,6 +352,7 @@ mod tests {
         let plan = LocalLaunchPlan {
             settings: Settings::default(),
             working_directory: None,
+            working_directory_source: DirectorySource::Derived,
             env: BTreeMap::new(),
             spawn: LocalSpawnKind::DefaultShell,
         };
@@ -358,6 +365,7 @@ mod tests {
         let plan = LocalLaunchPlan {
             settings: Settings::default(),
             working_directory: None,
+            working_directory_source: DirectorySource::Derived,
             env: BTreeMap::new(),
             spawn: LocalSpawnKind::Shell {
                 program: "wsl.exe".to_owned(),
@@ -386,6 +394,7 @@ mod tests {
         let plan = LocalLaunchPlan {
             settings: Settings::default(),
             working_directory: None,
+            working_directory_source: DirectorySource::Derived,
             env,
             spawn: LocalSpawnKind::Exec(ProfileCommand {
                 program: "true".to_owned(),
@@ -419,6 +428,7 @@ mod tests {
         let plan = LocalLaunchPlan {
             settings: Settings::default(),
             working_directory: None,
+            working_directory_source: DirectorySource::Derived,
             env,
             spawn: LocalSpawnKind::Exec(ProfileCommand {
                 program: "true".to_owned(),
@@ -433,5 +443,32 @@ mod tests {
             Ok(Ok(_)) => panic!("spawn must refuse OS-invalid env keys"),
             Err(_) => panic!("spawn must fail closed with Err, not panic inside Command::env"),
         }
+    }
+
+    #[test]
+    fn the_plan_hands_its_directory_source_to_the_command() {
+        for source in [DirectorySource::Explicit, DirectorySource::Derived] {
+            let plan = LocalLaunchPlan {
+                settings: Settings::default(),
+                working_directory: Some(PathBuf::from("/fixture")),
+                working_directory_source: source,
+                env: BTreeMap::new(),
+                spawn: LocalSpawnKind::Shell {
+                    program: "sh".to_owned(),
+                    args: Vec::new(),
+                },
+            };
+            assert_eq!(
+                build_local_command(&plan).map(|c| c.current_dir_source()),
+                Some(source)
+            );
+        }
+        let exec = crate::pty::exec_command_builder(
+            "prog".into(),
+            Vec::new(),
+            Some(PathBuf::from("/fixture")),
+            DirectorySource::Explicit,
+        );
+        assert_eq!(exec.current_dir_source(), DirectorySource::Explicit);
     }
 }

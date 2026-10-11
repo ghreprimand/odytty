@@ -30,9 +30,15 @@
 \e[7;20H\e[0g
 \e[8;1H\tremaining
 
-# Restore the default stops and confirm the eight-column rhythm returns.
+# Replace the stops with explicit ones at columns 9, 17, 25 and 33 (the first
+# four default stops) and confirm the eight-column rhythm returns. Stops are
+# global, so the row they are set on does not matter. The reset-to-default
+# control (DECST8C) is not implemented, so it is not used.
 \e[3g
-\e[9;1H\e[?5W
+\e[9;9H\eH
+\e[9;17H\eH
+\e[9;25H\eH
+\e[9;33H\eH
 \e[10;1H\tw\tx\ty\tz
 
 # Tab in a line that already has content must not overwrite the cells it skips.

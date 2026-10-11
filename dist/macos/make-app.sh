@@ -42,6 +42,12 @@ done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/odytty.icns"
 rm -rf "$ICONSET"
 
+# Licences: the project licence and notices, and the bundled fonts' licence
+# texts, which the font licences require to accompany every copy.
+mkdir -p "$APP/Contents/Resources/licenses"
+cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$APP/Contents/Resources/licenses/"
+bash "$ROOT/dist/install-font-licenses.sh" "$APP/Contents/Resources/licenses/fonts"
+
 # Manifest: substitute the version into the committed template.
 sed "s/__VERSION__/${VERSION}/g" "$PLIST_SRC" > "$APP/Contents/Info.plist"
 

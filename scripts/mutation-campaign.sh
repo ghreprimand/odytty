@@ -133,6 +133,7 @@ cmd_verify() {
   python3 scripts/mutation-summary.py --verify-partition "$tmp" --batches scripts/mutation-batches.tsv || rc=$?
   rm -rf "$tmp"
   [ "$rc" -eq 0 ] || exit "$rc"
+  python3 scripts/mutation-summary.py --verify-sources || exit $?
   printf 'partition verified at revision %s\n' "$(git rev-parse HEAD)"
 }
 

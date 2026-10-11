@@ -58,6 +58,14 @@ jobs:
           New-Item -ItemType Directory -Force dist/build | Out-Null
           Copy-Item target/release/odytty.exe dist/windows/package/
           Copy-Item README.md, LICENSE, NOTICE dist/windows/package/
+          # The bundled fonts' licence texts, as in the release package.
+          foreach ($path in Get-Content dist/font-licenses.txt) {
+            if ($path.Trim() -eq '') { continue }
+            $relative = $path.Substring('assets/fonts/'.Length)
+            $target = Join-Path dist/windows/package/licenses/fonts $relative
+            New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
+            Copy-Item $path $target
+          }
           Set-Content -Path dist/windows/package/DEV-BUILD.txt -Value @"
           Unreleased development build of OdyTTY.
           Commit: $env:COMMIT_SHA

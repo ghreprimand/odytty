@@ -774,7 +774,9 @@ pub(super) fn run_bash_rc(bash: &Path, rc: &Path, input: &str) -> String {
     use std::io::Write as _;
     use std::process::{Command, Stdio};
 
+    let child_env = crate::test_dirs::ChildEnv::new();
     let mut child = Command::new(bash)
+        .envs(child_env.vars())
         .arg("--rcfile")
         .arg(rc)
         .arg("-i")
@@ -813,7 +815,9 @@ fn run_bash_rc_env(bash: &Path, rc: &Path, input: &str, env: &[(&str, &str)]) ->
     use std::io::Write as _;
     use std::process::{Command, Stdio};
 
+    let child_env = crate::test_dirs::ChildEnv::new();
     let mut command = Command::new(bash);
+    command.envs(child_env.vars());
     command
         .arg("--rcfile")
         .arg(rc)
@@ -873,7 +877,9 @@ fn run_zsh_zdotdir(zsh: &Path, dir: &Path, input: &str) -> (String, String) {
     use std::io::Write as _;
     use std::process::{Command, Stdio};
 
+    let child_env = crate::test_dirs::ChildEnv::new();
     let mut child = Command::new(zsh)
+        .envs(child_env.vars())
         .arg("-i")
         .env("ZDOTDIR", dir)
         // Same nested-launch scrub as run_bash_rc: strip an inherited
@@ -996,7 +1002,9 @@ fn bash_ps0_capability_helper_classifies_legacy_and_modern_versions() {
          if ! __odytty_bash_supports_ps0 5 0; then exit 34; fi\n\
          exit 0\n"
     );
+    let child_env = crate::test_dirs::ChildEnv::new();
     let status = Command::new(bash)
+        .envs(child_env.vars())
         .arg("--noprofile")
         .arg("--norc")
         .arg("-c")
@@ -1527,5 +1535,56 @@ fn the_powershell_enter_handler_runs_the_users_bound_function() {
             snippet.matches(close).count(),
             "unbalanced {open}{close}"
         );
+    }
+}
+
+/// Re-exec isolates the sentinel environment from parallel tests in this binary.
+#[cfg(unix)]
+#[test]
+fn direct_shell_children_keep_writes_out_of_inherited_state_dirs() {
+    const CHILD: &str = "ODYTTY_TEST_SHELL_WRITER_PROOF";
+    if std::env::var_os(CHILD).is_some() {
+        let Some(bash) = find_bash() else {
+            panic!("writer proof requires bash");
+        };
+        let scratch = crate::test_dirs::ScratchDir::new("otswp");
+        let rc = scratch.path().join("rc.bash");
+        fs::write(&rc, format!("PS1='P> '\n{BASH_SNIPPET}\n")).expect("rc");
+        let input = "for key in HOME USERPROFILE XDG_CONFIG_HOME XDG_DATA_HOME XDG_STATE_HOME XDG_CACHE_HOME APPDATA LOCALAPPDATA; do eval 'directory=$'\"$key\"; printf fixture > \"$directory/writer-probe\"; done\nhistory -w\nexit\n";
+        run_bash_rc(&bash, &rc, input);
+        run_bash_rc_env(&bash, &rc, input, &[]);
+        return;
+    }
+    if find_bash().is_none() {
+        return;
+    }
+    let inherited = crate::test_dirs::ChildEnv::new();
+    let out = std::process::Command::new(std::env::current_exe().expect("test executable"))
+        .args([
+            "--exact",
+            "shell_integration::tests::direct_shell_children_keep_writes_out_of_inherited_state_dirs",
+            "--nocapture",
+        ])
+        .envs(inherited.vars())
+        .env(CHILD, "1")
+        .output()
+        .expect("writer proof child");
+    assert!(
+        out.status.success(),
+        "writer proof child failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for (key, path) in inherited.vars() {
+        if key == "HISTFILE" {
+            assert!(!path.exists(), "child wrote inherited history");
+        } else {
+            assert!(
+                fs::read_dir(path)
+                    .expect("state directory")
+                    .next()
+                    .is_none(),
+                "child wrote inherited {key}"
+            );
+        }
     }
 }

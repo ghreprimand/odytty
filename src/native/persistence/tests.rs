@@ -1433,7 +1433,10 @@ fn windows_network_cwd_validation_and_restore_refuse_before_metadata() {
         let restored = resolve_cwd(Some(path), Some(&home));
         assert_eq!(restored.path, Some(home.clone()));
         assert!(restored.stale);
-        assert!(!dir_exists_for_spawn(Path::new(path)));
+        assert!(!dir_exists_for_spawn(
+            Path::new(path),
+            crate::cwd::DirectorySource::Derived
+        ));
         assert_eq!(validate_interactive_cwd(Some(path), None), None);
         assert_eq!(resolve_cwd(Some(path), None).path, None);
     }
@@ -1506,4 +1509,32 @@ fn layout_listing_skips_stems_that_address_a_different_file() {
     assert_eq!(list_layout_names_in(&dir).names, vec!["a_b".to_owned()]);
     assert_eq!(layout_stamp_in(&dir, "a.b"), None);
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn snapshot_version_rejects_fractional_negative_and_overflow_numbers() {
+    for version in ["1.9", "1.0000001", "-1", "4294967296", "1e100"] {
+        let text = format!(r#"{{"version":{version},"workspaces":[]}}"#);
+        assert!(
+            matches!(
+                ShapeSnapshot::from_json_str(&text),
+                Err(LoadError::Malformed(_))
+            ),
+            "{version}"
+        );
+    }
+}
+
+#[test]
+fn snapshot_version_accepts_integral_notation_and_reports_integer_skew() {
+    for version in ["1", "1.0", "1e0"] {
+        let text = format!(r#"{{"version":{version},"workspaces":[]}}"#);
+        assert!(ShapeSnapshot::from_json_str(&text).is_ok(), "{version}");
+    }
+    for version in [0, 2, u32::MAX] {
+        let text = format!(r#"{{"version":{version},"workspaces":[]}}"#);
+        assert!(
+            matches!(ShapeSnapshot::from_json_str(&text), Err(LoadError::VersionSkew { found }) if found == version)
+        );
+    }
 }

@@ -17,7 +17,7 @@ use std::path::Path;
 mod allocation;
 #[cfg(unix)]
 pub(crate) use allocation::fresh_socket_dir;
-pub(crate) use allocation::{fresh_dir, fresh_temp_dir};
+pub(crate) use allocation::{ChildEnv, fresh_dir, fresh_temp_dir};
 
 /// A fresh scratch directory removed when dropped, including when an assertion
 /// panics, so fixtures never outlive the test that owns them.
@@ -85,6 +85,31 @@ mod tests {
         release.join().expect("release inherited descriptor");
         assert!(path.exists(), "stale socket pathname remains");
         std::fs::remove_dir_all(dir).expect("clean up");
+    }
+
+    #[test]
+    fn child_state_dirs_are_distinct_and_removed_after_unwind() {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let record = seen.clone();
+        let result = std::panic::catch_unwind(move || {
+            let first = ChildEnv::new();
+            let second = ChildEnv::new();
+            for ((key, path), (other_key, other_path)) in
+                first.vars().into_iter().zip(second.vars())
+            {
+                assert_eq!(key, other_key);
+                assert_ne!(path, other_path);
+                if key != "HISTFILE" {
+                    assert!(path.is_dir());
+                }
+            }
+            let home = first.vars()[0].1.clone();
+            std::fs::write(home.join("fixture"), b"data").expect("write");
+            *record.lock().expect("lock") = Some(home);
+            panic!("fixture unwinds after child exit");
+        });
+        assert!(result.is_err());
+        assert!(!seen.lock().expect("lock").as_ref().expect("home").exists());
     }
 
     #[test]

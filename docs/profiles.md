@@ -193,6 +193,9 @@ import, export, and delete.
 - Every schema option is editable: shell, command and arguments, bounded
   environment overrides, appearance, cursor, effects, saved layout, connection
   reference, platform applicability, and switching rules.
+- Editing or choosing a shell replaces the command and its arguments. Clearing
+  the command program selects the default shell; typing a command program
+  replaces a shell suggestion. Unedited commands retain their arguments.
 - Command arguments, environment entries, host rules, and directory rules have
   explicit add, edit, and remove rows. The documented limits are enforced with
   an inline message rather than a silent truncation.
@@ -204,7 +207,9 @@ import, export, and delete.
   not silently ignored at launch.
 - A starting directory you set or change is checked for existence at save. A
   value loaded unchanged from an existing profile round-trips even if it is
-  momentarily missing.
+  momentarily missing. On Windows a network or device directory you type
+  (`\\server\share`, `\\wsl.localhost\Distro\home`) is kept as typed and is
+  not probed at save, so a missing share is reported when the tab starts.
 - An environment row with an empty key or an empty value blocks save with an
   inline error rather than being dropped.
 - Press `/` to filter the catalog. While filtering, every printable character
@@ -286,6 +291,12 @@ Effective launch resolution follows this order, later layers winning:
 7. explicit CLI overrides
 8. live UI edits
 
+A profile or command-line `working_directory` is explicit input. On Windows it
+may name a network or device directory; a directory reported by a program
+(OSC 7), restored from a saved layout or inherited from the focused pane is
+never trusted that far and falls back to the home directory (see
+[the threat model](threat-model.md)).
+
 For `working_directory` and `title`, a live UI edit wins over CLI, restored, and
 profile values. The other launch fields (`shell`, `command`, `connection`,
 `layout`, `env`) currently merge only the CLI and profile layers, with CLI
@@ -330,7 +341,9 @@ asks for suggestions, never on the default launch path:
 Environment values pass through fork/exec on Unix and fold into the ConPTY
 environment block on Windows. A profile value replaces any variable of the same
 name that the terminal sets itself, such as `TERM`, so the shell receives one
-entry holding the profile value; on Windows the name match ignores case. Environment keys and values are validated against
+entry holding the profile value. On Windows the name match ignores case by
+Windows' own ordinal rule, which also folds non-ASCII letters, so `Ä_X` and
+`ä_X` are one variable. Environment keys and values are validated against
 the platform's rules at the schema boundary before launch, so a profile cannot
 carry a name the target platform's process environment cannot represent.
 With shell integration on, a profile `HOME` is also where zsh reads its startup

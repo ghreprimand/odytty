@@ -1476,6 +1476,7 @@ def canonical_w6_summaries(samples: list[dict], seed: str) -> list[dict]:
                     if sample.get("implementation") == "odytty"
                     and sample.get("configuration") == configuration
                     and sample.get("metric") == metric and sample.get("status") == "pass"
+                    and _pairable(sample)
                 }
                 for reference in implementations:
                     if reference == "odytty":
@@ -1485,6 +1486,7 @@ def canonical_w6_summaries(samples: list[dict], seed: str) -> list[dict]:
                         if sample.get("implementation") == reference
                         and sample.get("configuration") == configuration
                         and sample.get("metric") == metric and sample.get("status") == "pass"
+                        and _pairable(sample)
                     }
                     result.append(
                         {
@@ -1499,6 +1501,21 @@ def canonical_w6_summaries(samples: list[dict], seed: str) -> list[dict]:
                         }
                     )
     return result
+
+
+def _pairable(sample: dict) -> bool:
+    """A pass sample that can enter a paired comparison: an integer block and
+    a numeric value. `validate()` recomputes summaries from samples that may be
+    malformed; a sample without them is reported by the per-sample checks and
+    must not abort the recomputation, so every failure is still listed."""
+    block = sample.get("block")
+    value = sample.get("value")
+    return (
+        isinstance(block, int)
+        and not isinstance(block, bool)
+        and isinstance(value, (int, float))
+        and not isinstance(value, bool)
+    )
 
 
 def _validate_object_fields(value: object, path: str, fields: tuple) -> list[ValidationError]:
@@ -2088,6 +2105,18 @@ def self_test() -> list[str]:
         failures.append(
             f"schema: canonical W6 summary was rejected: {messages(w6_errors)}"
         )
+    # A malformed W6 pass sample (no value, no block) is reported in the
+    # error list; recomputing the summaries must not abort validation.
+    malformed_w6 = json.loads(json.dumps(w6_document))
+    del malformed_w6["samples"][0]["value"]
+    del malformed_w6["samples"][1]["block"]
+    try:
+        malformed_errors = validate(malformed_w6, w6_prereg)
+    except (KeyError, TypeError) as error:
+        failures.append(f"schema: malformed W6 sample aborted validation: {error!r}")
+    else:
+        if not malformed_errors:
+            failures.append("schema: malformed W6 pass sample was accepted")
     # Protocol 1.4.0: two qualified terminals with DIFFERENT stable device-pixel
     # grids are a valid, publishable comparison as long as each binds its own
     # preregistered stable model. The old schema rejected exactly this.

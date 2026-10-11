@@ -173,5 +173,6 @@ fn stream_upload(
         )),
         BoundedExit::Cancelled => Err("the tab closed during the upload".to_owned()),
         BoundedExit::WaitFailed(error) => Err(format!("ssh wait failed: {error}")),
+        BoundedExit::Stuck(error) => Err(format!("ssh could not be stopped: {error}")),
     }
 }

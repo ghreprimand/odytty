@@ -37,6 +37,8 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
 use std::os::windows::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
+
+use crate::cwd::DirectorySource;
 // `AtomicBool`/`Ordering` back the D-5 `teardown_requested` latch on
 // `PconShared`, which is live in every Windows build. `AtomicUsize` backs only
 // the test-only `resize_calls` / `kernel_resizes` counters, so it stays gated
@@ -55,6 +57,9 @@ use anyhow::{Context, Result};
 use windows::Win32::Foundation::{
     CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE, WAIT_FAILED, WAIT_OBJECT_0,
     WAIT_TIMEOUT,
+};
+use windows::Win32::Globalization::{
+    CSTR_EQUAL, CSTR_GREATER_THAN, CSTR_LESS_THAN, CompareStringOrdinal,
 };
 use windows::Win32::System::Console::{
     COORD, ClosePseudoConsole, CreatePseudoConsole, HPCON, ResizePseudoConsole,
@@ -81,6 +86,7 @@ use windows::Win32::System::Threading::{
 };
 use windows::core::{PCWSTR, PWSTR};
 
+use super::env_block;
 use super::held_gate::StartOutcome;
 use super::{CommandBuilder, ForegroundJob};
 use crate::core::Dimensions;
@@ -167,6 +173,7 @@ impl PtySession {
         Self::spawn_default_shell_in_with_settings(
             dimensions,
             working_directory,
+            DirectorySource::Derived,
             &crate::settings::Settings::default(),
         )
     }
@@ -174,11 +181,13 @@ impl PtySession {
     pub fn spawn_default_shell_in_with_settings(
         dimensions: Dimensions,
         working_directory: Option<PathBuf>,
+        source: DirectorySource,
         settings: &crate::settings::Settings,
     ) -> Result<Self> {
         Self::spawn_default_shell_in_with_settings_env(
             dimensions,
             working_directory,
+            source,
             settings,
             &std::collections::BTreeMap::new(),
         )
@@ -193,6 +202,7 @@ impl PtySession {
     pub fn spawn_default_shell_in_with_settings_env(
         dimensions: Dimensions,
         working_directory: Option<PathBuf>,
+        source: DirectorySource,
         settings: &crate::settings::Settings,
         env: &std::collections::BTreeMap<String, String>,
     ) -> Result<Self> {
@@ -227,7 +237,7 @@ impl PtySession {
             command.env(key.clone(), value.clone());
         }
         if let Some(path) = working_directory {
-            command.current_dir(path);
+            command.current_dir_from(path, source);
         }
         Self::spawn_command(dimensions, command)
     }
@@ -242,9 +252,26 @@ impl PtySession {
         args: Vec<OsString>,
         working_directory: Option<PathBuf>,
     ) -> Result<Self> {
+        Self::spawn_exec_from(
+            dimensions,
+            program,
+            args,
+            working_directory,
+            DirectorySource::Derived,
+        )
+    }
+
+    /// [`Self::spawn_exec`] for a working directory with a known origin.
+    pub fn spawn_exec_from(
+        dimensions: Dimensions,
+        program: OsString,
+        args: Vec<OsString>,
+        working_directory: Option<PathBuf>,
+        source: DirectorySource,
+    ) -> Result<Self> {
         Self::spawn_command(
             dimensions,
-            super::exec_command_builder(program, args, working_directory),
+            super::exec_command_builder(program, args, working_directory, source),
         )
     }
 
@@ -262,8 +289,11 @@ impl PtySession {
         // This also covers direct CommandBuilder callers and restored state.
         pin_bare_program(&mut command);
         let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
-        command.current_dir =
-            crate::cwd::spawn_directory(command.current_dir.as_deref(), home.as_deref());
+        command.current_dir = crate::cwd::spawn_directory(
+            command.current_dir.as_deref(),
+            command.current_dir_source,
+            home.as_deref(),
+        );
         let launch_shell = crate::shell_integration::ShellKind::from_program(command.program());
         // SAFETY: the whole spawn sequence is a chain of Win32 calls whose
         // ordering and handle ownership rules are documented inline. Every raw
@@ -1563,66 +1593,21 @@ fn append_arg(line: &mut Vec<u16>, arg: &OsStr) {
 /// in a different case. Only the last entry for each case-insensitive name is
 /// emitted, so the block carries one entry per variable and the later value
 /// wins, as it does on Unix.
+///
+/// Every name match and the sort use [`env_name_cmp`], Windows' ordinal
+/// case-insensitive rule, so names differing only in non-ASCII case (`\u{e4}`
+/// and `\u{c4}`) are one variable too. The merge itself lives in
+/// `env_block`, where it is tested on every platform.
 fn build_env_block(overrides: &[(OsString, OsString)], removals: &[OsString]) -> Vec<u16> {
-    // Last occurrence wins: walk the overrides backwards and keep each
-    // case-insensitive name the first time it is seen.
-    let mut unique: Vec<(Vec<u16>, &OsString)> = Vec::with_capacity(overrides.len());
-    for (key, value) in overrides.iter().rev() {
-        let key: Vec<u16> = key.encode_wide().collect();
-        if !unique
-            .iter()
-            .any(|(seen, _)| utf16_eq_ignore_ascii_case(seen, &key))
-        {
-            unique.push((key, value));
-        }
-    }
-    let override_keys: Vec<&[u16]> = unique.iter().map(|(key, _)| key.as_slice()).collect();
-    let removal_keys: Vec<Vec<u16>> = removals
+    let overrides: Vec<(Vec<u16>, Vec<u16>)> = overrides
+        .iter()
+        .map(|(key, value)| (key.encode_wide().collect(), value.encode_wide().collect()))
+        .collect();
+    let removals: Vec<Vec<u16>> = removals
         .iter()
         .map(|key| key.encode_wide().collect())
         .collect();
-
-    // Collect the final `KEY=VALUE` entries: base entries whose key is neither
-    // shadowed by an override nor scrubbed by a removal, plus one entry per
-    // distinct override name.
-    let mut entries: Vec<Vec<u16>> = Vec::new();
-    for entry in current_process_env() {
-        let key = env_entry_key(&entry);
-        if override_keys
-            .iter()
-            .copied()
-            .chain(removal_keys.iter().map(Vec::as_slice))
-            .any(|candidate| utf16_eq_ignore_ascii_case(candidate, key))
-        {
-            continue;
-        }
-        entries.push(entry);
-    }
-    for (key, value) in unique {
-        let mut entry = key;
-        entry.push(b'=' as u16);
-        entry.extend(value.encode_wide());
-        entries.push(entry);
-    }
-
-    // `CreateProcessW` with `CREATE_UNICODE_ENVIRONMENT` requires the block
-    // to be sorted case-insensitively by variable name (Unicode order,
-    // locale-independent). `GetEnvironmentStringsW` returns the base already
-    // sorted, but appending the TERM* overrides at the end broke that order -
-    // re-sort by key so each override lands in its correct position. The hidden
-    // `=`-prefixed per-drive variables sort ahead of ordinary names (their keys
-    // begin with `=`), matching how Windows itself orders them.
-    entries.sort_by(|a, b| utf16_cmp_ignore_ascii_case(env_entry_key(a), env_entry_key(b)));
-
-    let mut block: Vec<u16> = Vec::new();
-    for entry in entries {
-        block.extend_from_slice(&entry);
-        block.push(0);
-    }
-    // Terminating NUL for the block. OdyTTY always sets the four terminal vars,
-    // so `block` is never empty and this yields the required `…\0\0` tail.
-    block.push(0);
-    block
+    env_block::merge_env_block(current_process_env(), &overrides, &removals, env_name_cmp)
 }
 
 /// Snapshot this process's environment as raw `KEY=VALUE` UTF-16 entries via
@@ -1657,48 +1642,29 @@ fn current_process_env() -> Vec<Vec<u16>> {
     entries
 }
 
-/// The key portion of a raw `KEY=VALUE` environment entry. Windows exposes
-/// hidden per-drive working-directory variables whose names START with `=`
-/// (e.g. `=C:=C:\dir`), so the split is the first `=` at index ≥ 1, not 0.
-fn env_entry_key(entry: &[u16]) -> &[u16] {
-    const EQ: u16 = b'=' as u16;
-    let start = usize::from(entry.first() == Some(&EQ));
-    match entry[start..].iter().position(|&unit| unit == EQ) {
-        Some(pos) => &entry[..start + pos],
-        None => entry,
-    }
-}
-
-/// ASCII-case-insensitive equality of two UTF-16 slices, for matching Windows
-/// environment-variable names (which are case-insensitive).
-fn utf16_eq_ignore_ascii_case(a: &[u16], b: &[u16]) -> bool {
-    a.len() == b.len()
-        && a.iter()
-            .zip(b)
-            .all(|(&x, &y)| ascii_lower_u16(x) == ascii_lower_u16(y))
-}
-
-/// ASCII-case-insensitive ordering of two UTF-16 slices, for the case-
-/// insensitive sort `lpEnvironment` requires (see [`build_env_block`]). Folds
-/// only ASCII `A`–`Z`; other units compare by their raw value.
-fn utf16_cmp_ignore_ascii_case(a: &[u16], b: &[u16]) -> std::cmp::Ordering {
-    for (&x, &y) in a.iter().zip(b) {
-        let ord = ascii_lower_u16(x).cmp(&ascii_lower_u16(y));
-        if ord != std::cmp::Ordering::Equal {
-            return ord;
+/// Windows' own environment-name comparison: `CompareStringOrdinal` with
+/// case folding through the system uppercase table, the ordinal rule
+/// Microsoft documents for environment variables. It decides override
+/// shadowing, removal and the sort order `CREATE_UNICODE_ENVIRONMENT`
+/// requires, so `\u{e4}_X` and `\u{c4}_X` name one variable just as `Path`
+/// and `PATH` do. If the call reports an error the portable model of the same
+/// rule decides.
+fn env_name_cmp(a: &[u16], b: &[u16]) -> std::cmp::Ordering {
+    if i32::try_from(a.len()).is_ok() && i32::try_from(b.len()).is_ok() {
+        // SAFETY: both slices are valid for their lengths, which fit the
+        // `i32` counts the call takes; it only reads them.
+        let result = unsafe { CompareStringOrdinal(a, b, true) };
+        if result == CSTR_LESS_THAN {
+            return std::cmp::Ordering::Less;
+        }
+        if result == CSTR_EQUAL {
+            return std::cmp::Ordering::Equal;
+        }
+        if result == CSTR_GREATER_THAN {
+            return std::cmp::Ordering::Greater;
         }
     }
-    a.len().cmp(&b.len())
-}
-
-/// Lowercase a UTF-16 code unit if it is an ASCII `A`–`Z`, else return it
-/// unchanged (non-ASCII units never need folding for env-name matching).
-fn ascii_lower_u16(unit: u16) -> u16 {
-    if (b'A' as u16..=b'Z' as u16).contains(&unit) {
-        unit + 32
-    } else {
-        unit
-    }
+    env_block::ordinal_ignore_case_model(a, b)
 }
 
 mod held;

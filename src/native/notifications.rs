@@ -228,7 +228,7 @@ impl PaneAttention {
 
     pub(in crate::native) fn note_monitor(&mut self, kind: PaneMonitorKind, now: Instant) {
         self.unread = true;
-        self.failed = kind == PaneMonitorKind::CommandFailure;
+        self.failed |= kind == PaneMonitorKind::CommandFailure;
         self.notice = Some(InAppNotice {
             text: kind.notice().to_owned(),
             expires_at: now + IN_APP_NOTICE_TTL,
@@ -379,6 +379,29 @@ fn platform_notification_spec(
 mod tests {
     use super::*;
     use crate::core::{NotificationSource, ProgressKind};
+
+    #[test]
+    fn monitor_notices_preserve_unseen_completion_failure() {
+        for kind in [
+            PaneMonitorKind::Activity,
+            PaneMonitorKind::Silence,
+            PaneMonitorKind::Bell,
+            PaneMonitorKind::ProcessFinish,
+            PaneMonitorKind::CommandFailure,
+        ] {
+            let now = Instant::now();
+            let mut state = PaneAttention::default();
+            state.note_completion(Some(1), now);
+            state.note_monitor(kind, now);
+            assert!(state.failed, "{kind:?}");
+            assert!(state.completed && state.unread);
+            assert_eq!(state.notice.as_ref().unwrap().text, kind.notice());
+            assert!(state.clear_seen());
+            assert!(!state.failed);
+            state.note_monitor(PaneMonitorKind::Bell, now);
+            assert!(!state.failed);
+        }
+    }
 
     #[test]
     fn pane_limit_deduplicates_and_expires_transient_state() {

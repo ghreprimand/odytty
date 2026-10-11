@@ -108,6 +108,7 @@ fn the_local_spawn_repeats_the_launch_text_gate_for_plans_built_without_the_pars
         let plan = LocalLaunchPlan {
             settings: settings.clone(),
             working_directory: None,
+            working_directory_source: crate::cwd::DirectorySource::Derived,
             env: Default::default(),
             spawn,
         };

@@ -15,7 +15,7 @@
 \e[1;1HTL
 \e[1;79HTR
 \e[24;1HBL
-\e[24;79HBR
+\e[24;79HB
 
 # Relative movement: from a known origin, walk right, down, left, and up by a
 # fixed amount and land back on the origin. A terminal that miscounts any one
@@ -24,8 +24,11 @@
 \e[5C\e[3B\e[5D\e[3Aorigin
 
 # Clamping: ask for positions past both edges. The cursor must stop at the last
-# row and column rather than wrapping or scrolling.
-\e[999;999Hclamp-max
+# row and column rather than wrapping or scrolling. One character is printed at
+# the clamped cell: it completes the bottom-right marker (B above, R here), so
+# the grid stays on the documented baseline. A longer string would wrap and
+# scroll the screen by itself and hide whether the clamp held.
+\e[999;999HR
 \e[0;0Hclamp-min
 
 # Save and restore. The restored position must be the saved one exactly, and an

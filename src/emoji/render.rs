@@ -432,7 +432,9 @@ fn cluster_candidate(snapshot: &Snapshot, row: usize, column: usize) -> Option<C
     if is_regional_indicator(cell.ch) {
         let next = next_display_cell(snapshot, row, column)?;
         let next_cell = &snapshot.cells[row * cols + next];
-        if is_regional_indicator(next_cell.ch) && joins_cluster(cell, next_cell) {
+        if is_regional_indicator(next_cell.ch)
+            && joins_cluster(snapshot, row * cols + column, row * cols + next)
+        {
             let mut cluster = text;
             cluster.push_str(&next_cell.grapheme());
             return Some(ClusterCandidate {
@@ -446,7 +448,9 @@ fn cluster_candidate(snapshot: &Snapshot, row: usize, column: usize) -> Option<C
         && let Some(next) = next_display_cell(snapshot, row, column)
     {
         let next_cell = &snapshot.cells[row * cols + next];
-        if is_emoji_modifier(next_cell.ch) && joins_cluster(cell, next_cell) {
+        if is_emoji_modifier(next_cell.ch)
+            && joins_cluster(snapshot, row * cols + column, row * cols + next)
+        {
             let mut cluster = text;
             cluster.push_str(&next_cell.grapheme());
             return Some(ClusterCandidate {
@@ -463,15 +467,20 @@ fn cluster_candidate(snapshot: &Snapshot, row: usize, column: usize) -> Option<C
     None
 }
 
-/// Whether `next` may be drawn as part of the cluster that starts at `head`
-/// when the two arrive as separate cells (a snapshot that did not form the
-/// cluster as one owner). A hidden owner is never consumed, and cells whose
-/// renditions differ stay separate color runs, so a colour, hidden or
-/// hyperlink change inside the sequence is not painted away. Only the stored
-/// rendition counts: a selection, search match or copy-mode caret that covers
-/// part of a sequence recolours cells at render time and must not split it.
-fn joins_cluster(head: &crate::core::Cell, next: &crate::core::Cell) -> bool {
-    !next.attrs.hidden() && head.attrs.same_stored_rendition(&next.attrs)
+/// Whether the cell at index `next` may be drawn as part of the cluster that
+/// starts at index `head` when the two arrive as separate cells (a snapshot
+/// that did not form the cluster as one owner). A hidden owner is never
+/// consumed, and cells whose renditions differ stay separate color runs, so a
+/// colour, hidden or hyperlink change inside the sequence is not painted away.
+/// Only the stored rendition counts: a selection, search match or copy-mode
+/// caret that covers part of a sequence recolours cells at render time and
+/// must not split it, and must not hide a colour change the application
+/// stored there either (see [`crate::core::begin_recolor`]).
+fn joins_cluster(snapshot: &Snapshot, head: usize, next: usize) -> bool {
+    let (head_cell, next_cell) = (&snapshot.cells[head], &snapshot.cells[next]);
+    !next_cell.attrs.hidden()
+        && head_cell.attrs.same_stored_rendition(&next_cell.attrs)
+        && crate::core::stored_colors_continue(&snapshot.cells, head, next)
 }
 
 fn zwj_cluster_candidate(
@@ -487,7 +496,7 @@ fn zwj_cluster_candidate(
     while text.ends_with('\u{200D}') {
         let next = next_display_cell_at_or_after(snapshot, row, covered_end)?;
         let next_cell = &snapshot.cells[row * cols + next];
-        if !joins_cluster(&snapshot.cells[row * cols + column], next_cell) {
+        if !joins_cluster(snapshot, row * cols + column, row * cols + next) {
             return None;
         }
         text.push_str(&next_cell.grapheme());
@@ -638,10 +647,59 @@ fn is_default_emoji_presentation(ch: char) -> bool {
     )
 }
 
+/// Two adjacent legacy regional-indicator owners (a flag the snapshot did not
+/// form as one owner) with the given stored attributes, for tests of how
+/// presentation passes affect the colour cluster they form.
+#[cfg(test)]
+pub(crate) fn legacy_flag_pair_for_test(
+    first: crate::core::Attrs,
+    second: crate::core::Attrs,
+) -> Snapshot {
+    let mut snapshot = crate::core::Terminal::new(2, 1).snapshot();
+    snapshot.cells = vec![
+        crate::core::Cell::new('\u{1f1e6}', first),
+        crate::core::Cell::new('\u{1f1e7}', second),
+    ];
+    snapshot
+}
+
+/// Attributes carrying only the given stored colours.
+#[cfg(test)]
+pub(crate) fn colored_attrs_for_test(
+    foreground: crate::core::Color,
+    background: crate::core::Color,
+    inverse: bool,
+) -> crate::core::Attrs {
+    let mut attrs = crate::core::Attrs::default();
+    attrs.foreground = foreground;
+    attrs.background = background;
+    attrs.set_inverse(inverse);
+    attrs
+}
+
+/// `(column, covered columns)` of every colour run the fixture face draws for
+/// `snapshot`.
+#[cfg(test)]
+pub(crate) fn color_runs_for_test(snapshot: &Snapshot) -> Vec<(usize, usize)> {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/fonts/legacy-color-clusters.ttf");
+    let mut rasterizer = EmojiRasterizer::from_font(EmojiFont::load(path).expect("fixture font"));
+    let mut atlas = ColorGlyphAtlas::new(CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    });
+    rasterizer
+        .build_color_glyph_runs(snapshot, &mut atlas)
+        .iter()
+        .map(|run| (run.column, usize::from(run.covered_columns)))
+        .collect()
+}
+
 #[cfg(test)]
 mod hot_path_tests {
     use super::*;
-    use crate::core::{Attrs, Cell};
+    use crate::core::{Attrs, Cell, Color};
 
     #[test]
     fn adjacent_source_owned_flags_keep_separate_color_candidates() {
@@ -655,6 +713,133 @@ mod hot_path_tests {
             assert_eq!(candidate.text, expected);
             assert_eq!(candidate.covered_columns, 2);
         }
+    }
+
+    fn attrs_with(foreground: Color, background: Color, inverse: bool) -> Attrs {
+        colored_attrs_for_test(foreground, background, inverse)
+    }
+
+    /// A selection over one or both owners of a legacy flag never merges owners
+    /// whose stored colours differ, and never splits owners whose stored
+    /// colours are equal.
+    #[test]
+    fn a_selection_keeps_a_stored_colour_boundary_and_never_adds_one() {
+        use crate::selection::{CellPoint, SelectionRange, SelectionStyle, apply_highlight};
+
+        let red = Color::Indexed(1);
+        let green = Color::Indexed(2);
+        let themed = SelectionStyle {
+            fill: [1, 2, 3],
+            fg: [250, 250, 250],
+        };
+        let plain = Attrs::default();
+        let differing = [
+            (
+                "foreground",
+                attrs_with(red, Color::Default, false),
+                attrs_with(green, Color::Default, false),
+            ),
+            (
+                "background",
+                attrs_with(Color::Default, red, false),
+                attrs_with(Color::Default, green, false),
+            ),
+            (
+                "inverse",
+                attrs_with(Color::Default, Color::Default, false),
+                attrs_with(Color::Default, Color::Default, true),
+            ),
+        ];
+        let spans = [(0, 0), (1, 1), (0, 1)];
+        for style in [None, Some(themed)] {
+            for (label, first, second) in differing {
+                let unpainted = legacy_flag_pair_for_test(first, second);
+                let split = color_runs_for_test(&unpainted);
+                assert_ne!(split, [(0, 2)], "{label}: stored colours differ");
+                for (from, to) in spans {
+                    let mut snapshot = legacy_flag_pair_for_test(first, second);
+                    let range = SelectionRange {
+                        start: CellPoint {
+                            row: 0,
+                            column: from,
+                        },
+                        end: CellPoint { row: 0, column: to },
+                    };
+                    apply_highlight(&mut snapshot, range, style);
+                    assert_eq!(
+                        color_runs_for_test(&snapshot),
+                        split,
+                        "{label}: selecting columns {from}..={to} (themed={}) must not change the clusters",
+                        style.is_some()
+                    );
+                }
+            }
+            for (from, to) in spans {
+                let mut snapshot = legacy_flag_pair_for_test(plain, plain);
+                let range = SelectionRange {
+                    start: CellPoint {
+                        row: 0,
+                        column: from,
+                    },
+                    end: CellPoint { row: 0, column: to },
+                };
+                apply_highlight(&mut snapshot, range, style);
+                assert_eq!(
+                    color_runs_for_test(&snapshot),
+                    [(0, 2)],
+                    "equal stored colours stay one flag under columns {from}..={to}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn begin_recolor_records_each_edge_once_whatever_the_painting_order() {
+        let red = attrs_with(Color::Indexed(1), Color::Default, false);
+        let green = attrs_with(Color::Indexed(2), Color::Default, false);
+        let build = || {
+            vec![
+                Cell::new('a', red),
+                Cell::new('b', red),
+                Cell::new('c', green),
+                Cell::new('d', green),
+            ]
+        };
+        // Edges: a|b equal, b|c differ, c|d equal.
+        for order in [[(0, 1), (2, 3)], [(2, 3), (0, 1)], [(1, 2), (0, 3)]] {
+            let mut cells = build();
+            for (first, last) in order {
+                crate::core::begin_recolor(&mut cells, first, last);
+                for cell in &mut cells[first..=last] {
+                    cell.attrs.foreground = Color::Indexed(9);
+                }
+            }
+            assert!(cells.iter().all(|cell| cell.attrs.recolored()));
+            assert!(
+                crate::core::stored_colors_continue(&cells, 0, 1),
+                "{order:?}"
+            );
+            assert!(
+                !crate::core::stored_colors_continue(&cells, 1, 2),
+                "{order:?}"
+            );
+            assert!(
+                !crate::core::stored_colors_continue(&cells, 0, 3),
+                "{order:?}"
+            );
+            assert!(
+                crate::core::stored_colors_continue(&cells, 2, 3),
+                "{order:?}"
+            );
+        }
+        let mut cells = build();
+        crate::core::begin_recolor(&mut cells, 3, 40);
+        assert!(
+            !cells[2].attrs.recolored(),
+            "a range past the end marks only what exists"
+        );
+        assert!(cells[3].attrs.recolored());
+        assert!(!crate::core::stored_colors_continue(&cells, 0, 9));
     }
 
     #[test]

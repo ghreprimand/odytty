@@ -20,6 +20,10 @@ roadmap.
 
 ## v0.17.0: International Text (in development)
 
+Profile shell and command edits replace each other explicitly. Snapshot schema
+versions reject fractional and out-of-range values. Monitor notices preserve
+unseen failure badges until the pane is viewed or attention is cleared.
+
 Form-value Backspace uses terminal text-owner boundaries in profiles,
 connections, Settings edits, and Theme Builder save names. Selected prefill
 clearing and ASCII-only Theme Builder typing remain unchanged.
@@ -613,8 +617,10 @@ Delivered compatibility work under that policy:
         URLs / truncated escapes / control characters / backslashes / network-shaped
         paths are ignored
         non-panicking; OSC 7 emits no response and never leaks into the grid.
-        Windows network/device cwd prefixes are refused before filesystem probes
-        and ConPTY child creation. OSC 7 refuses double-slash paths on every
+        Windows network/device cwd prefixes from OSC 7, restored layouts and
+        inherited directories are refused before filesystem probes and ConPTY
+        child creation; explicit profile and command-line directories are kept
+        as typed. OSC 7 refuses double-slash paths on every
         platform and requires exact case-insensitive injected hostnames.
         OSC 6 accepted-and-ignored. Native consumers subsequently landed for
         recent-directory history, spawn-directory inheritance, duplicate

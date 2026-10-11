@@ -470,8 +470,8 @@ that fails validation leaves the old image in place.
 RGB and HLS color introducers, repeat introducer, VT340 16-color default
 palette, transparent background (`P2=1`). DECSDM (private mode 80) controls
 cursor-after-sixel behavior: reset (default) moves cursor to the row below the
-image; set keeps the cursor in place. Hard caps: 10,000 × 10,000 pixels or
-40 million total pixels.
+image; set keeps the cursor in place. Hard caps: 10,000 × 10,000 pixels and
+16,777,216 total pixels (64 MiB of RGBA, the image store's decoded bound).
 
 **iTerm2 protocol.** `OSC 1337 ; File=` displays bounded PNG, JPEG, and WebP
 payloads through the shared image layer. `inline=0` download requests are never
@@ -715,10 +715,15 @@ modifier subfield for repeat (`:2`) and release (`:3`) events, with release
 bytes emitted only when negotiated.
 
 Alternate-key reporting adds shifted and
-base-layout key-code subfields for character CSI-u events where OdyTTY can
-derive them from the logical key. Shifted punctuation maps back to its
-US-layout key only while Shift is held; a punctuation character that arrives
-without Shift keeps its own key code and carries no alternate fields. Associated-text reporting appends printable
+base-layout key-code subfields for character CSI-u events. The native keyboard
+reports the key by what it produces unshifted on the active layout, and gives
+the base-layout field from the physical key (what a standard US layout has in
+that position, omitted when it equals the produced character or the position
+has no US key); composed text with no single key behind it carries no
+alternate fields. Keys synthesized without layout data (alternate scroll,
+click-to-position) fold shifted punctuation back to its US-layout key only
+while Shift is held, and a punctuation character that arrives without Shift
+keeps its own key code and carries no alternate fields. Associated-text reporting appends printable
 generated text code points as the third CSI-u parameter when combined with
 report-all.
 
@@ -982,7 +987,8 @@ and is not reported as native delivery success.
 The command palette provides one-shot command completion and pane activity,
 30-second silence, BEL, process-finish, and explicit OSC 133 failure monitors,
 plus a clear action. BEL presentation remains governed separately by `bell`.
-No notification or monitor steals keyboard focus. The full protocol and
+Monitor notices preserve an unseen command-failure badge until viewing or
+clearing the pane. No notification or monitor steals keyboard focus. The full protocol and
 platform contract is in [`docs/notifications.md`](docs/notifications.md).
 
 ### Transient Window Feedback
@@ -1770,7 +1776,12 @@ that closed while the picker was open, including when names are duplicated.
   apply the same check before filesystem probes or child creation;
   an invalid directory falls back to a permitted home or the default directory.
   OSC 7 refuses double-slash paths on every platform before storing them.
-  This OSC boundary does not alter explicit-directory input handling.
+  An explicit directory, a profile `working_directory` or the command-line
+  working directory, is the exception: on Windows it may name a UNC or WSL
+  network or device directory, which is kept as typed, never probed by the
+  profile form or the missing-directory fallback, and passed to ConPTY child
+  creation. Directories reported by OSC 7, restored from saved layouts or
+  inherited from the focused pane stay refused.
 
   No
   response is emitted and no filesystem access occurs. RIS leaves the stored
@@ -2035,8 +2046,9 @@ that closed while the picker was open, including when names are duplicated.
   read-only candidate sources. Shell history reads are bounded to a 1 MiB tail
   window, 20,000 physical lines scanned, 5,000 returned entries, and 4,096
   characters per entry by default. Supported history formats are bash/plain
-  line history, zsh history (extended rows, multi-line commands continued with
-  a trailing backslash, and metafied non-ASCII bytes), and Fish `- cmd:` rows
+  line history, zsh history (extended rows, multi-line commands whose final
+  backslash marks the newline while earlier backslashes stay literal, and
+  metafied non-ASCII bytes), and Fish `- cmd:` rows
   with Fish's `\\` and `\n` escapes decoded and quotes kept as typed. Recent
   directories are fed from already-parsed OSC 7 cwd values; the source layer
   never writes history files, never logs history contents, and never sends
@@ -2284,6 +2296,12 @@ tools use zsync for transfer integrity; the signed SHA256SUMS remains the
 release-authentication boundary. Version 0.16.0 and earlier lack update info.
 
 ### Named Profiles And External Palette Following
+
+Profile-form shell and command edits are mutually exclusive. Clearing a command
+program selects the default shell; choosing a shell replaces the command and
+its arguments. Workspace snapshot versions must be integral unsigned 32-bit
+values before version-skew classification.
+
 
 The profile catalog keeps an explicit mouse-wheel scroll position through
 redraws. Keyboard navigation and filtering resume following the selected row.

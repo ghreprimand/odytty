@@ -756,6 +756,9 @@ fn highlight_span(
     let (Some(first), Some(last)) = (offset.checked_add(start), offset.checked_add(end)) else {
         return;
     };
+    if first <= last && last < snapshot.cells.len() {
+        crate::core::begin_recolor(&mut snapshot.cells, first, last);
+    }
     if let Some(cells) = snapshot.cells.get_mut(first..=last) {
         for cell in cells {
             highlight_cell(cell, themed);

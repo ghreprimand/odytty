@@ -1,0 +1,8 @@
+assets/fonts/victor-mono/OFL.txt
+assets/fonts/victor-mono/AUTHORS.txt
+assets/fonts/jetbrains-mono/OFL.txt
+assets/fonts/jetbrains-mono/AUTHORS.txt
+assets/fonts/nerd-fonts-symbols/LICENSE
+assets/fonts/nerd-fonts-symbols/NERD-FONTS-GLYPH-LICENSES.md
+assets/fonts/nerd-fonts-symbols-v2/LICENSE
+assets/fonts/nerd-fonts-symbols-v2/readme.md

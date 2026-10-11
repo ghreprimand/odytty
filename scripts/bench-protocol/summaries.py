@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from fractions import Fraction
 
 from prng import Xoshiro256StarStar
 
@@ -57,11 +58,14 @@ def median(values: list[float]) -> float:
     return (float(ordered[middle - 1]) + float(ordered[middle])) / 2.0
 
 
-def nearest_rank(values: list[float], percentile: float) -> float:
+def nearest_rank(values: list[float], percentile: float | Fraction) -> float:
     """Nearest-rank percentile: rank = ceil(p/100 * N), 1-indexed.
 
-    Integer arithmetic computes the ceiling so a floating-point representation
-    of, say, 25 percent of four samples cannot land one rank low.
+    The percentile is taken as an exact rational (a float converts to the
+    exact value it holds) and the ceiling is computed in rational arithmetic,
+    so neither a product such as 25 percent of four samples nor a percentile
+    derived by float arithmetic can move the rank. Callers that derive a
+    percentile, such as the bootstrap tails, pass a `Fraction`.
     """
     if not values:
         raise ValueError("percentile of an empty sample is undefined")
@@ -69,7 +73,7 @@ def nearest_rank(values: list[float], percentile: float) -> float:
         raise ValueError("percentile must be in (0, 100]")
     ordered = sorted(values)
     count = len(ordered)
-    numerator = percentile * count
+    numerator = Fraction(percentile) * count
     rank = int(numerator // 100)
     if numerator % 100 != 0:
         rank += 1
@@ -127,16 +131,26 @@ def bootstrap_median_ci(
     honest description of one observation, and hiding it would make a
     one-sample cell look like a missing one.
     """
-    medians = bootstrap_medians(values, seed, resamples)
-    tail = (1.0 - CONFIDENCE) / 2.0 * 100.0
+    low, high = interval_endpoints(bootstrap_medians(values, seed, resamples))
     return {
         "method": "percentile-bootstrap",
         "confidence": CONFIDENCE,
         "resamples": resamples,
         "seed": seed,
-        "low": nearest_rank(medians, tail),
-        "high": nearest_rank(medians, 100.0 - tail),
+        "low": low,
+        "high": high,
     }
+
+
+def interval_endpoints(medians: list[float]) -> tuple[float, float]:
+    """The 2.5th and 97.5th nearest-rank percentiles of resampled medians.
+
+    The tail is derived exactly from the decimal confidence level: computing
+    it in floating point gives 2.500000000000002, which moves the low rank
+    over 10,000 resamples from the rule's 250 to 251.
+    """
+    tail = (1 - Fraction(str(CONFIDENCE))) / 2 * 100
+    return nearest_rank(medians, tail), nearest_rank(medians, 100 - tail)
 
 
 def summarize(
@@ -281,6 +295,11 @@ def self_test() -> list[str]:
     # Floating-point ceiling hazard: 30 samples at p10 must be rank 3, not 4.
     if nearest_rank(list(range(1, 31)), 10.0) != 3.0:
         failures.append("summaries: integer ceiling for p10 over 30 samples is wrong")
+
+    # The bootstrap tails are exact: over 10,000 ordered medians the low
+    # endpoint is rank ceil(0.025 * 10000) = 250 and the high is rank 9750.
+    if interval_endpoints([float(value) for value in range(10_000)]) != (249.0, 9749.0):
+        failures.append("summaries: bootstrap interval endpoints are not ranks 250 and 9750")
 
     for bad_p in (0.0, -1.0, 101.0):
         try:

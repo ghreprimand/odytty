@@ -146,23 +146,19 @@ impl Drop for EndpointGuard {
     }
 }
 
-/// Bind the endpoint and take ownership of the socket file it created. If the
-/// file cannot be identified for the guard, it is removed here: the guard that
-/// would remove it does not exist yet, and a stale file at the path would make
-/// every later bind there fail with `AddrInUse`.
+/// Bind the endpoint and take ownership of the socket file it created. The
+/// bind does not report which file it created, so when the path cannot be
+/// identified afterwards nothing proves that what now occupies it is the
+/// socket this call bound. It is retained, never unlinked: removing it could
+/// delete a replacement. A later bind at that path reports `AddrInUse` until
+/// the leftover is removed by hand.
 fn bind_guarded(
     path: PathBuf,
     parent: Metadata,
     identify: impl FnOnce(&Path) -> io::Result<Metadata>,
 ) -> io::Result<(UnixListener, EndpointGuard)> {
     let listener = UnixListener::bind(&path)?;
-    let socket = match identify(&path) {
-        Ok(socket) => socket,
-        Err(error) => {
-            let _ = fs::remove_file(&path);
-            return Err(error);
-        }
-    };
+    let socket = identify(&path)?;
     Ok((
         listener,
         EndpointGuard {

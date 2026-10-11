@@ -1218,6 +1218,27 @@ pub(in crate::native) fn fit_chars(text: &str, max_width: usize) -> String {
     out
 }
 
+/// The longest suffix of `text` that fits `max_width` display cells, cut
+/// between owners (the counterpart of [`fit_chars`] for text whose end matters,
+/// such as a path).
+pub(in crate::native) fn fit_chars_tail(text: &str, max_width: usize) -> String {
+    let owners = glyph_widths(text);
+    let mut width = 0usize;
+    let mut start = owners.len();
+    while start > 0 {
+        let w = owners[start - 1].1;
+        if width + w > max_width {
+            break;
+        }
+        width += w;
+        start -= 1;
+    }
+    owners[start..]
+        .iter()
+        .map(|(owner, _)| owner.grapheme())
+        .collect()
+}
+
 /// Fit a footer / hint line into `max_width` display cells **without cutting a
 /// word in half**. When the whole hint already fits the
 /// string is returned unchanged, so the normal/large-window render is

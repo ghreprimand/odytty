@@ -64,7 +64,9 @@ fn startup_fish_keeps_default_and_explicit_data_dirs() {
         return;
     }
     for case in ["unset", "empty", "explicit"] {
+        let child_env = crate::test_dirs::ChildEnv::new();
         let mut child = Command::new(std::env::current_exe().unwrap());
+        child.envs(child_env.vars());
         child.args(["--exact", "shell_integration::startup_tests::startup_fish_keeps_default_and_explicit_data_dirs", "--nocapture"])
             .env(CASE, case).env_remove("XDG_DATA_DIRS");
         if case == "empty" {
@@ -140,7 +142,9 @@ fn startup_zsh_forwards_xdg_login_files_and_restores_zdotdir() {
         }
         let mut injected = crate::pty::CommandBuilder::new("zsh");
         apply_spawn_integration_in_dir(&mut injected, ShellKind::Zsh, &wrapper);
+        let child_env = crate::test_dirs::ChildEnv::new();
         let mut child = Command::new(&zsh);
+        child.envs(child_env.vars());
         child
             .args(["-l", "-i"])
             .env("HOME", &home)
@@ -244,7 +248,9 @@ fn startup_zsh_forwarders_preserve_unset_and_changed_directories() {
             .unwrap();
         let probe = wrapper.join("forward-probe.sh");
         fs::write(&probe, format!(". \"$ZDOTDIR/.zshenv\"\n. \"$ZDOTDIR/.zprofile\"\n{prefix}\nprintf 'FINAL:%s:%s\\n' \"${{ZDOTDIR+x}}\" \"${{ZDOTDIR-}}\"\n")).unwrap();
+        let child_env = crate::test_dirs::ChildEnv::new();
         let out = Command::new(&bash)
+            .envs(child_env.vars())
             .args(["--noprofile", "--norc", "-i"])
             .arg(&probe)
             .env("HOME", &home)

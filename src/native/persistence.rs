@@ -497,6 +497,14 @@ impl ShapeSnapshot {
             .get("version")
             .and_then(Json::as_f64)
             .ok_or_else(|| LoadError::malformed("missing \"version\""))?;
+        if !version.is_finite()
+            || version.fract() != 0.0
+            || !(0.0..=f64::from(u32::MAX)).contains(&version)
+        {
+            return Err(LoadError::malformed(
+                "version must be an unsigned 32-bit integer",
+            ));
+        }
         let version = version as u32;
         if version != SNAPSHOT_VERSION {
             return Err(LoadError::VersionSkew { found: version });
@@ -1095,9 +1103,11 @@ fn is_existing_dir(path: &Path) -> bool {
 /// Whether `path` is an existing directory suitable to seed a PTY spawn's
 /// working directory. Shared with the profile launch path so a profile's
 /// persisted starting directory can be probed with the same single-`metadata`
-/// discipline `validate_interactive_cwd` uses before it reaches a spawn.
-pub(crate) fn dir_exists_for_spawn(path: &Path) -> bool {
-    is_existing_dir(path)
+/// discipline `validate_interactive_cwd` uses before it reaches a spawn. An
+/// explicit Windows network or device directory is taken as typed and never
+/// probed; a derived one is refused (see [`crate::cwd::DirectorySource`]).
+pub(crate) fn dir_exists_for_spawn(path: &Path, source: crate::cwd::DirectorySource) -> bool {
+    crate::cwd::launch_dir_usable(path, source)
 }
 
 /// The user's home directory for restore fallbacks: `$HOME` on Unix,

@@ -50,6 +50,7 @@ fn profile_shell_command_with_a_home_override_sources_that_home() {
     let plan = LocalLaunchPlan {
         settings: integrated_settings(),
         working_directory: None,
+        working_directory_source: crate::cwd::DirectorySource::Derived,
         env: profile_env(&[("HOME", PROFILE_HOME)]),
         spawn: LocalSpawnKind::Shell {
             program: "zsh".to_owned(),

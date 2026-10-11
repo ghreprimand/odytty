@@ -2307,6 +2307,16 @@ impl App {
         });
     }
 
+    /// Test seam: the copy-mode caret, `None` when copy mode is not active.
+    #[cfg(test)]
+    pub(in crate::native) fn copy_mode_cursor_for_test(
+        &self,
+    ) -> Option<crate::selection::AbsoluteCellPoint> {
+        self.copy_mode
+            .as_ref()
+            .map(crate::native::copy_mode::CopyModeState::cursor)
+    }
+
     /// Test seam (MOUSE-SCROLLBAR): the live viewport offset.
     #[cfg(test)]
     pub(in crate::native) fn viewport_offset_for_test(&self) -> usize {

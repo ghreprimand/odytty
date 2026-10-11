@@ -221,6 +221,17 @@ impl SettingsPanel {
         body_width: usize,
         body_height: usize,
     ) -> Vec<(SettingsPanelLine, RowHit)> {
+        let rows = self.about_rows(body_width);
+        // Window to the visible height by `self.scroll` so a short overlay can
+        // scroll through the (normally short) About body.
+        let start = self.scroll.min(rows.len().saturating_sub(1));
+        let end = (start + body_height).min(rows.len());
+        rows[start..end].to_vec()
+    }
+
+    /// Every About row, unwindowed. Its length is what the wheel scrolls
+    /// through; only the footer hint depends on the width.
+    pub(super) fn about_rows(&self, body_width: usize) -> Vec<(SettingsPanelLine, RowHit)> {
         let inert = RowHit {
             entry_index: None,
             zone: RowZone::Detail,
@@ -321,11 +332,7 @@ impl SettingsPanel {
             inert,
         ));
 
-        // Window to the visible height by `self.scroll` so a short overlay can
-        // scroll through the (normally short) About body.
-        let start = self.scroll.min(rows.len().saturating_sub(1));
-        let end = (start + body_height).min(rows.len());
-        rows[start..end].to_vec()
+        rows
     }
 
     /// Dirty-close prompt body rows.
@@ -340,41 +347,31 @@ impl SettingsPanel {
             zone: RowZone::Message,
         };
         let _ = body_width; // layout is fixed text, width only clips
-        let mut rows = vec![
+        let text_row = |text: String| {
             (
                 SettingsPanelLine {
-                    text: format!("  You have {count} unsaved setting change(s)."),
+                    text,
                     focused: false,
                     bold: false,
                 },
                 inert,
-            ),
-            (
-                SettingsPanelLine {
-                    text: String::new(),
-                    focused: false,
-                    bold: false,
-                },
-                inert,
-            ),
+            )
+        };
+        // Every row, the fixed prompt lines included, is added only while the
+        // body has room, so a one-row body yields one row.
+        let lines = [
+            format!("  You have {count} unsaved setting change(s)."),
+            String::new(),
+            "  [S] Save and close".to_owned(),
+            "  [D] Discard and close".to_owned(),
+            "  [C] Cancel (return to settings)".to_owned(),
         ];
-        let actions = [
-            "  [S] Save and close",
-            "  [D] Discard and close",
-            "  [C] Cancel (return to settings)",
-        ];
-        for text in actions {
+        let mut rows: Vec<(SettingsPanelLine, RowHit)> = Vec::new();
+        for text in lines {
             if rows.len() >= body_height {
                 break;
             }
-            rows.push((
-                SettingsPanelLine {
-                    text: text.to_owned(),
-                    focused: false,
-                    bold: false,
-                },
-                inert,
-            ));
+            rows.push(text_row(text));
         }
         rows
     }
@@ -642,6 +639,12 @@ impl SettingsPanel {
         // Path picker owns wheel scroll when active.
         if let Some(picker) = self.path_picker.as_mut() {
             picker.scroll_lines(delta);
+            return;
+        }
+        if matches!(self.level, SettingsLevel::About) {
+            // The About view windows its own rows, not the entry list.
+            let max = self.about_rows(1).len().saturating_sub(1) as isize;
+            self.scroll = (self.scroll as isize + delta).clamp(0, max) as usize;
             return;
         }
         if matches!(self.level, SettingsLevel::SectionList) && !self.search_active {

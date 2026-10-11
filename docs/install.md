@@ -209,7 +209,7 @@ curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/inst
 ```
 
 The script chooses a native `.deb` when apt-get is available, a native `.rpm` on
-dnf/rpm systems, or the portable binary tarball otherwise (including a system
+dnf, zypper or rpm systems, or the portable binary tarball otherwise (including a system
 that has dpkg but not apt-get), and authenticates
 `SHA256SUMS` with the pinned release key before installing. Verification is
 automatic: if `minisign` is missing the script installs it from your package
@@ -252,9 +252,12 @@ the plan without downloading or installing packages.
 The one-line command executes an unauthenticated script fetched from mutable
 `master` over HTTPS. The script's subsequent signature check authenticates the
 release manifest, but cannot authenticate the code already executing. Use the
-manual block above to verify the versioned installer before execution. The
-installer script itself is versioned; it still selects the latest release's
-packages. To install a particular package version, use that release's
+manual block above to verify the versioned installer before execution. A
+versioned installer is stamped when the release is built, so it downloads the
+packages and the signed `SHA256SUMS` of the release it was published with, not
+the latest release; the one-line form installs the latest release. A versioned
+installer published before the stamping was added installs the latest release.
+To install a particular package version by hand, use that release's
 `releases/download/vX.Y.Z/` URLs and matching signed manifest directly.
 
 It is Linux x86_64 only: on macOS it prints the Homebrew command and on Windows
@@ -300,7 +303,10 @@ sudo dnf install ./odytty-x86_64.rpm
 
 Like the AppImage, the `.rpm` is a best-effort artifact: it is cross-built on
 Ubuntu and its metadata is validated in CI, but it is not tested on every RPM
-distribution. If it does not install cleanly on your system, use the binary
+distribution. Its declared dependencies use Fedora package names, and plain
+`rpm` resolves none, so a host without dnf may need to install the libraries
+itself. The one-line installer hands the package to dnf, then zypper, then
+`rpm -Uvh`. If it does not install cleanly on your system, use the binary
 tarball or build from source.
 
 ### Binary tarball (portable prebuilt)
@@ -323,8 +329,8 @@ cd odytty-*-linux-x86_64 &&
 The bundled `install.sh` copies the binary and desktop files into a prefix and
 refreshes the desktop and icon caches when those tools are present. `PREFIX`
 defaults to `~/.local` for a no-root per-user install (make sure
-`~/.local/bin` is on your `PATH`); set `PREFIX=/usr/local` and use `sudo` for a
-system-wide install. Remove a previous install with `./install.sh --uninstall`
+`~/.local/bin` is on your `PATH`); run `sudo env PREFIX=/usr/local ./install.sh`
+for a system-wide install (`sudo` drops a `PREFIX` assigned before it). Remove a previous install with `./install.sh --uninstall`
 (honoring the same `PREFIX`).
 
 The tarball binary bundles no libraries, so the host must provide what OdyTTY

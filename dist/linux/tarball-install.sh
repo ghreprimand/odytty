@@ -8,13 +8,14 @@
 # installs the files shipped in the tarball.
 #
 # Usage:
-#   ./install.sh                          install into ~/.local (no root needed)
-#   PREFIX=/usr/local sudo ./install.sh   system-wide install
-#   ./install.sh --uninstall              remove a previous install from PREFIX
+#   ./install.sh                              install into ~/.local (no root needed)
+#   sudo env PREFIX=/usr/local ./install.sh   system-wide install
+#   ./install.sh --uninstall                  remove a previous install from PREFIX
 #
 # PREFIX defaults to ~/.local so a normal user can install without sudo; the
-# binary lands in PREFIX/bin (ensure that is on your PATH). Set PREFIX and use
-# sudo for a system-wide install under /usr/local.
+# binary lands in PREFIX/bin (ensure that is on your PATH). For a system-wide
+# install under /usr/local, pass PREFIX through env: sudo resets the
+# environment, so a PREFIX assigned before sudo never reaches the script.
 set -eu
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"

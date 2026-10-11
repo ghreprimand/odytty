@@ -15,7 +15,11 @@
 #   * process resident set and, where the platform exposes it, proportional
 #     set size,
 #   * resident bytes per mapping, grouped by backing file,
-#   * the heap total as its own line rather than folded into anonymous memory,
+#   * the main heap (the brk `[heap]` mapping on Linux) as its own line rather
+#     than folded into anonymous memory. It is the main arena only: thread
+#     arenas and large allocations are anonymous mappings and stay in the
+#     anonymous class, so `heap_bytes` is a lower bound on all heap memory,
+#     and a process with no `[heap]` mapping records it `unmeasured`,
 #   * the loaded GPU/driver library set, so the driver component of a resident
 #     figure is visible instead of implied.
 #
@@ -216,6 +220,24 @@ def _subject_binary(pid: int) -> str | None:
         return None
 
 
+def heap_field(
+    mappings: list[dict[str, object]],
+) -> tuple[object, dict[str, str] | None]:
+    """The main-heap figure and the `unavailable` entry that goes with it.
+
+    Only the brk `[heap]` mapping is the main arena. A process without one
+    (an allocator that does not use brk, or one that moved its main arena into
+    an mmap) has no such measurement, which is `unmeasured`, not zero.
+    """
+    heap = next((m for m in mappings if m["class"] == CLASS_HEAP), None)
+    if heap is None:
+        return UNMEASURED, {
+            "field": "heap_bytes",
+            "reason": "the process has no [heap] mapping; its arenas are anonymous memory",
+        }
+    return int(heap["rss_bytes"]), None
+
+
 def capture_linux(pid: int) -> dict[str, object]:
     """Linux capture: smaps_rollup for totals, smaps for the decomposition."""
     unavailable: list[dict[str, str]] = []
@@ -274,8 +296,9 @@ def capture_linux(pid: int) -> dict[str, object]:
         )
     else:
         mappings = parse_smaps(smaps_text, subject)
-        heap = next((m for m in mappings if m["class"] == CLASS_HEAP), None)
-        process["heap_bytes"] = int(heap["rss_bytes"]) if heap else 0
+        process["heap_bytes"], heap_gap = heap_field(mappings)
+        if heap_gap is not None:
+            unavailable.append(heap_gap)
 
     by_class: dict[str, int] = {}
     for entry in mappings:
@@ -293,6 +316,39 @@ def capture_linux(pid: int) -> dict[str, object]:
         "unavailable": unavailable,
         "source": "proc_smaps",
     }
+
+
+def windows_unmeasured() -> tuple[dict[str, object], list[dict[str, str]]]:
+    """The Windows fields no interface here exposes, each with its reason."""
+    unavailable: list[dict[str, str]] = [
+        {
+            "field": "pss_bytes",
+            "reason": "Windows exposes no proportional set size",
+        },
+        {
+            "field": "mappings",
+            "reason": "per-mapping decomposition is not implemented on Windows",
+        },
+        {
+            "field": "gpu_libraries",
+            "reason": "the loaded-module walk is not implemented on Windows",
+        },
+        {
+            "field": "heap_bytes",
+            "reason": "no single heap region is exposed by PSAPI",
+        },
+        {
+            "field": "swap_bytes",
+            "reason": "PSAPI exposes the pagefile charge as commit_bytes, not swap",
+        },
+    ]
+    process: dict[str, object] = {
+        "pss_bytes": UNMEASURED,
+        "heap_bytes": UNMEASURED,
+        "anonymous_bytes": UNMEASURED,
+        "swap_bytes": UNMEASURED,
+    }
+    return process, unavailable
 
 
 def capture_windows(pid: int) -> dict[str, object]:
@@ -321,29 +377,7 @@ def capture_windows(pid: int) -> dict[str, object]:
             ("PeakPagefileUsage", ctypes.c_size_t),
         ]
 
-    unavailable: list[dict[str, str]] = [
-        {
-            "field": "pss_bytes",
-            "reason": "Windows exposes no proportional set size",
-        },
-        {
-            "field": "mappings",
-            "reason": "per-mapping decomposition is not implemented on Windows",
-        },
-        {
-            "field": "gpu_libraries",
-            "reason": "the loaded-module walk is not implemented on Windows",
-        },
-        {
-            "field": "heap_bytes",
-            "reason": "no single heap region is exposed by PSAPI",
-        },
-    ]
-    process: dict[str, object] = {
-        "pss_bytes": UNMEASURED,
-        "heap_bytes": UNMEASURED,
-        "anonymous_bytes": UNMEASURED,
-    }
+    process, unavailable = windows_unmeasured()
 
     PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
     PROCESS_VM_READ = 0x0010
@@ -387,7 +421,7 @@ def capture_windows(pid: int) -> dict[str, object]:
     }
 
 
-def capture_macos(pid: int) -> dict[str, object]:
+def capture_macos(pid: int, runner=None) -> dict[str, object]:
     """macOS capture: resident size from `ps`, everything else `unmeasured`.
 
     `ps` reports a resident size that is NOT the same quantity as Linux PSS and
@@ -399,6 +433,7 @@ def capture_macos(pid: int) -> dict[str, object]:
     """
     import subprocess
 
+    run = runner if runner is not None else subprocess.run
     unavailable: list[dict[str, str]] = [
         {"field": "pss_bytes", "reason": "macOS ps exposes no proportional set size"},
         {
@@ -411,15 +446,17 @@ def capture_macos(pid: int) -> dict[str, object]:
         },
         {"field": "heap_bytes", "reason": "no heap total is exposed by ps"},
         {"field": "peak_rss_bytes", "reason": "no peak resident size is exposed by ps"},
+        {"field": "swap_bytes", "reason": "macOS ps exposes no swap figure"},
     ]
     process: dict[str, object] = {
         "pss_bytes": UNMEASURED,
         "heap_bytes": UNMEASURED,
         "anonymous_bytes": UNMEASURED,
         "peak_rss_bytes": UNMEASURED,
+        "swap_bytes": UNMEASURED,
     }
     try:
-        out = subprocess.run(
+        out = run(
             ["ps", "-o", "rss=", "-p", str(pid)],
             capture_output=True,
             text=True,
@@ -455,6 +492,7 @@ def capture_unsupported() -> dict[str, object]:
             "peak_rss_bytes": UNMEASURED,
             "heap_bytes": UNMEASURED,
             "anonymous_bytes": UNMEASURED,
+            "swap_bytes": UNMEASURED,
         },
         "mappings": [],
         "rss_by_class": {},
@@ -569,6 +607,35 @@ def self_test() -> list[str]:
     # A missing file degrades to None rather than raising.
     if _read_text(Path("/definitely/not/here")) is not None:
         failures.append("memory-capture: reading a missing file did not return None")
+
+    # No [heap] mapping is `unmeasured` with a reason, never a zero measurement.
+    value, gap = heap_field([m for m in mappings if m["class"] != CLASS_HEAP])
+    if value != UNMEASURED or gap is None or gap.get("field") != "heap_bytes":
+        failures.append("memory-capture: a missing [heap] mapping was not unmeasured")
+    value, gap = heap_field(mappings)
+    if value != 28000 * 1024 or gap is not None:
+        failures.append("memory-capture: the [heap] mapping was not reported")
+
+    # Every platform carries swap_bytes, as a figure or as unmeasured with a reason.
+    class _Ps:
+        stdout = "2048\n"
+
+    macos = capture_macos(1, runner=lambda *args, **kwargs: _Ps())
+    if macos["process"].get("swap_bytes") != UNMEASURED:
+        failures.append("memory-capture: macOS omitted swap_bytes")
+    if macos["process"].get("rss_bytes") != 2048 * 1024:
+        failures.append("memory-capture: macOS rss was not converted from kB")
+    windows_process, windows_gaps = windows_unmeasured()
+    if windows_process.get("swap_bytes") != UNMEASURED:
+        failures.append("memory-capture: Windows omitted swap_bytes")
+    for name, body in (
+        ("macOS", macos),
+        ("Windows", {"unavailable": windows_gaps}),
+    ):
+        if not any(g.get("field") == "swap_bytes" for g in body["unavailable"]):
+            failures.append(f"memory-capture: {name} gave no reason for swap_bytes")
+    if capture_unsupported()["process"].get("swap_bytes") != UNMEASURED:
+        failures.append("memory-capture: the unsupported record omitted swap_bytes")
 
     # An unclassifiable name lands in `other`, never silently in `library`.
     if classify("some-data-file", None) != CLASS_OTHER:

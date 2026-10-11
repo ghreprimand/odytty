@@ -1138,3 +1138,60 @@ fn disabled_win32_input_preserves_legacy_fallback() {
         b"\r"
     );
 }
+
+/// A front end that knows the layout names the key; the encoder then reports
+/// that key instead of folding the produced character as a US layout would.
+#[test]
+fn kitty_char_identity_reports_the_layout_key_not_a_us_fold() {
+    let alternates = KeyModes {
+        kitty_keyboard_flags: KITTY_REPORT_ALL_KEYS | KITTY_REPORT_ALTERNATE_KEYS,
+        ..KeyModes::default()
+    };
+    let shift = Modifiers {
+        shift: true,
+        alt: false,
+        ctrl: false,
+    };
+    let encode = |ch: char, mods: Modifiers, identity: Option<CharIdentity>| {
+        encode_key_event_with_identity(
+            Key::Char(ch),
+            mods,
+            alternates,
+            KeyEventType::Press,
+            None,
+            identity,
+        )
+    };
+    // A German-layout key in the US right-bracket position: '+' unshifted,
+    // '*' shifted. A US fold would report shifted '*' as the key for '8'.
+    let plus_key = Some(CharIdentity {
+        unshifted: Some('+'),
+        base_layout: Some(']'),
+    });
+    assert_eq!(encode('+', Modifiers::NONE, plus_key), b"\x1b[43::93u");
+    assert_eq!(encode('*', shift, plus_key), b"\x1b[43:42:93;2u");
+    // The key in the US Y position produces z; shifted, the base layout is the
+    // key itself, not a fabricated lowercase of the produced letter.
+    let z_key = Some(CharIdentity {
+        unshifted: Some('z'),
+        base_layout: Some('y'),
+    });
+    assert_eq!(encode('z', Modifiers::NONE, z_key), b"\x1b[122::121u");
+    assert_eq!(encode('Z', shift, z_key), b"\x1b[122:90:121;2u");
+    // A layout whose key matches the US key reports no base-layout field when
+    // it equals the produced character, and the shifted field alone otherwise.
+    let semicolon = Some(CharIdentity {
+        unshifted: Some(';'),
+        base_layout: Some(';'),
+    });
+    assert_eq!(encode(';', Modifiers::NONE, semicolon), b"\x1b[59u");
+    assert_eq!(encode(':', shift, semicolon), b"\x1b[59:58:59;2u");
+    // Nothing known: the produced character stands for the key and no
+    // alternate is invented, with or without Shift.
+    let unknown = Some(CharIdentity::default());
+    assert_eq!(encode('+', Modifiers::NONE, unknown), b"\x1b[43u");
+    assert_eq!(encode('*', shift, unknown), b"\x1b[42;2u");
+    assert_eq!(encode('A', shift, unknown), b"\x1b[97:65;2u");
+    // Without identity the US derivation of the earlier tests is unchanged.
+    assert_eq!(encode('*', shift, None), b"\x1b[56:42:56;2u");
+}

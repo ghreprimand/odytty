@@ -170,6 +170,7 @@ futures-lite = "2"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_Storage_FileSystem",
@@ -246,6 +247,15 @@ assets = [
     ["dist/icons/hicolor/scalable/apps/io.unfinished_works.odytty.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
     ["README.md", "usr/share/doc/odytty/README.md", "644"],
     ["NOTICE", "usr/share/doc/odytty/NOTICE", "644"],
+    ["LICENSE", "usr/share/doc/odytty/LICENSE", "644"],
+    ["assets/fonts/victor-mono/OFL.txt", "usr/share/doc/odytty/licenses/fonts/victor-mono/OFL.txt", "644"],
+    ["assets/fonts/victor-mono/AUTHORS.txt", "usr/share/doc/odytty/licenses/fonts/victor-mono/AUTHORS.txt", "644"],
+    ["assets/fonts/jetbrains-mono/OFL.txt", "usr/share/doc/odytty/licenses/fonts/jetbrains-mono/OFL.txt", "644"],
+    ["assets/fonts/jetbrains-mono/AUTHORS.txt", "usr/share/doc/odytty/licenses/fonts/jetbrains-mono/AUTHORS.txt", "644"],
+    ["assets/fonts/nerd-fonts-symbols/LICENSE", "usr/share/doc/odytty/licenses/fonts/nerd-fonts-symbols/LICENSE", "644"],
+    ["assets/fonts/nerd-fonts-symbols/NERD-FONTS-GLYPH-LICENSES.md", "usr/share/doc/odytty/licenses/fonts/nerd-fonts-symbols/NERD-FONTS-GLYPH-LICENSES.md", "644"],
+    ["assets/fonts/nerd-fonts-symbols-v2/LICENSE", "usr/share/doc/odytty/licenses/fonts/nerd-fonts-symbols-v2/LICENSE", "644"],
+    ["assets/fonts/nerd-fonts-symbols-v2/readme.md", "usr/share/doc/odytty/licenses/fonts/nerd-fonts-symbols-v2/readme.md", "644"],
 ]
 
 # RPM package metadata (cargo-generate-rpm). Best-effort like the AppImage: the
@@ -270,6 +280,14 @@ assets = [
     { source = "README.md", dest = "/usr/share/doc/odytty/README.md", mode = "644" },
     { source = "NOTICE", dest = "/usr/share/doc/odytty/NOTICE", mode = "644" },
     { source = "LICENSE", dest = "/usr/share/licenses/odytty/LICENSE", mode = "644" },
+    { source = "assets/fonts/victor-mono/OFL.txt", dest = "/usr/share/licenses/odytty/fonts/victor-mono/OFL.txt", mode = "644" },
+    { source = "assets/fonts/victor-mono/AUTHORS.txt", dest = "/usr/share/licenses/odytty/fonts/victor-mono/AUTHORS.txt", mode = "644" },
+    { source = "assets/fonts/jetbrains-mono/OFL.txt", dest = "/usr/share/licenses/odytty/fonts/jetbrains-mono/OFL.txt", mode = "644" },
+    { source = "assets/fonts/jetbrains-mono/AUTHORS.txt", dest = "/usr/share/licenses/odytty/fonts/jetbrains-mono/AUTHORS.txt", mode = "644" },
+    { source = "assets/fonts/nerd-fonts-symbols/LICENSE", dest = "/usr/share/licenses/odytty/fonts/nerd-fonts-symbols/LICENSE", mode = "644" },
+    { source = "assets/fonts/nerd-fonts-symbols/NERD-FONTS-GLYPH-LICENSES.md", dest = "/usr/share/licenses/odytty/fonts/nerd-fonts-symbols/NERD-FONTS-GLYPH-LICENSES.md", mode = "644" },
+    { source = "assets/fonts/nerd-fonts-symbols-v2/LICENSE", dest = "/usr/share/licenses/odytty/fonts/nerd-fonts-symbols-v2/LICENSE", mode = "644" },
+    { source = "assets/fonts/nerd-fonts-symbols-v2/readme.md", dest = "/usr/share/licenses/odytty/fonts/nerd-fonts-symbols-v2/readme.md", mode = "644" },
 ]
 
 [package.metadata.generate-rpm.requires]

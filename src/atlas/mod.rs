@@ -820,6 +820,10 @@ pub struct GlyphAtlas {
     /// Contextual OpenType glyphs keyed independently from scalar codepoints.
     /// Empty on every freshly built atlas and untouched while ligatures are off.
     shaped: HashMap<ShapedGlyphKey, u32>,
+    /// The run each cluster key in `shaped` was drawn from. A cluster key
+    /// carries only a 64-bit digest of its run, so a hit is trusted only when
+    /// the run at hand equals the one stored here.
+    cluster_runs: HashMap<ShapedGlyphKey, cluster::ClusterRun>,
     /// Physical pixel size new glyphs are rasterized at (matches the ASCII block).
     px: f32,
     /// Monotonic counter bumped whenever pixels or dimensions change. The native

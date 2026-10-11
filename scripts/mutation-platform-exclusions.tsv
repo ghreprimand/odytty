@@ -11,7 +11,21 @@
 # inside an excluded region is caught or times out, the region demonstrably was
 # compiled, the exclusion is wrong, and the report fails instead of hiding it.
 #
-# Columns (tab separated): file, first line, last line, build condition, reason.
-src/core/kitty_transport.rs	123	127	cfg(windows)	Windows temp-directory allowlist entry; not compiled into a Linux build.
-src/core/kitty_transport.rs	272	279	cfg(not(unix))	Non-Unix fallback of read_shm_transport; not compiled into a Linux build.
-src/core/kitty_transport.rs	429	533	cfg(target_os = "macos")	macOS child-process isolated shm copy; not compiled into a Linux build.
+# Columns (tab separated): file, build condition, anchor, reason.
+#
+# A row names an item by its attribute and by text the item starts with, not by
+# line numbers, so edits elsewhere in the file move a region instead of leaving
+# the table pointing at the wrong code. The anchor is a regular expression
+# searched in the item's first line joined with the next one. The classifier
+# resolves each row in the source tree it is run against; a row whose item is
+# missing, or which matches more than one item, stops the report.
+src/core/kitty_transport.rs	cfg(windows)	^\s*if let Ok\(canonical\) = std::fs::canonicalize\(std::env::temp_dir\(\)\)	Windows temp-directory allowlist entry; not compiled into a Linux build.
+src/core/kitty_transport.rs	cfg(windows)	^fn admit_path\(	Windows admit_path; not compiled into a Linux build.
+src/core/kitty_transport.rs	cfg(windows)	^\s*\{\n\s*use std::os::windows::fs::OpenOptionsExt;	Windows open in open_admitted; not compiled into a Linux build.
+src/core/kitty_transport.rs	cfg(windows)	^\s*\{\n\s*let _ = admitted;	Windows delete in delete_admitted; not compiled into a Linux build.
+src/core/kitty_transport.rs	cfg(windows)	^mod windows_binding\b	Windows handle binding module; not compiled into a Linux build.
+src/core/kitty_transport.rs	cfg(not(unix))	^pub\(super\) fn read_shm_transport\(	Non-Unix fallback of read_shm_transport; not compiled into a Linux build.
+src/core/kitty_transport.rs	cfg(windows)	^\s*if metadata\.file_attributes\(\)	Windows reparse-point check in read_opened_file; not compiled into a Linux build.
+src/core/kitty_transport.rs	cfg(target_os = "macos")	^impl IsolatedCopyOps for SystemCopyOps	macOS isolated-copy operations; not compiled into a Linux build.
+src/core/kitty_transport.rs	cfg(target_os = "macos")	^pub\(super\) fn read_shm_fd_at_size\(	macOS shm read at a fixed size; not compiled into a Linux build.
+src/core/kitty_transport.rs	cfg(target_os = "macos")	^pub\(super\) fn read_shm_isolated\(	macOS child-process isolated shm copy; not compiled into a Linux build.

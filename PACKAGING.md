@@ -31,7 +31,9 @@ Each release publishes seven artifact types:
 
 Each of these seven package types has an always-latest alias and a byte-identical
 version-pinned copy. From v0.14.0, the version-pinned installer is an additional
-asset without an alias. The fourteen package files, installer, `SHA256SUMS`,
+asset without an alias. It is `dist/install.sh` with its download directory
+stamped to the release by `dist/pin-installer.sh`, so it installs that release
+and checks that release's signed manifest. The fourteen package files, installer, `SHA256SUMS`,
 and `SHA256SUMS.minisig` make seventeen published assets through v0.16.0.
 From v0.16.1, `odytty-x86_64.AppImage.zsync` adds an eighteenth asset, covered
 by the signed manifest and provenance, for AppImage update clients. Use the
@@ -261,7 +263,15 @@ odytty.exe
 README.md
 LICENSE
 NOTICE
+licenses/fonts/<font set>/<licence files>
 ```
+
+The font licence files are the paths in `dist/font-licenses.txt`: the fonts are
+embedded in the binary, and their licences require the notices to accompany
+every copy. The same files ship in the deb and rpm (listed in `Cargo.toml`),
+the AUR package, the binary tarball, the AppImage and the macOS app, through
+`dist/install-font-licenses.sh`; `tests/packaging_font_licenses.rs` keeps the
+list equal to the licence files in `assets/fonts`.
 
 It must not contain `.pdb` files, build directories, or installer work
 directories.

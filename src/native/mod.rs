@@ -249,11 +249,12 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // `crate::pty::spawn_held`).
     let session = crate::pty::spawn_held(|| {
         if let Some(command) = &options.command {
-            PtySession::spawn_exec(
+            PtySession::spawn_exec_from(
                 options.initial_grid,
                 command.program.clone(),
                 command.args.clone(),
                 options.working_directory.clone(),
+                crate::cwd::DirectorySource::Explicit,
             )
         } else if let Some(plan) = startup_plan.as_ref() {
             crate::profiles::spawn_local_plan(options.initial_grid, plan)
@@ -261,6 +262,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
             PtySession::spawn_default_shell_in_with_settings(
                 options.initial_grid,
                 options.working_directory.clone(),
+                crate::cwd::DirectorySource::Explicit,
                 &settings,
             )
         }
@@ -610,6 +612,7 @@ fn build_sibling_app(
         None => PtySession::spawn_default_shell_in_with_settings(
             options.initial_grid,
             options.working_directory.clone(),
+            crate::cwd::DirectorySource::Derived,
             settings,
         ),
     });

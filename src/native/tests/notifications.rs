@@ -94,3 +94,35 @@ fn attention_badge_replaces_the_cell_under_it() {
     app.paint_pane_attention_cell(&mut wide, None, true, false, false);
     assert_eq!(wide.cells[4].ch, ' ', "the covered wide lead is blanked");
 }
+
+#[test]
+fn bell_after_failed_command_keeps_unfocused_pane_failure_until_viewed() {
+    let dims = Dimensions::new(40, 8);
+    let (mut app, _) = headless_app_with(NativeOptions::default(), dims, Settings::default());
+    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    app.push_headless_workspace_for_test(
+        terminal.clone(),
+        crate::native::test_support::headless_writer(),
+        dims,
+    );
+    let token = app.active_session_token_for_test();
+    terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"\x1b]133;A\x07$ run\r\n\x1b]133;C\x07working");
+    app.notify_command_finished_for_test();
+    app.arm_pane_monitor_for_test(crate::native::notifications::PaneMonitorKind::Bell);
+    terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"\r\n\x1b]133;D;1\x07");
+    app.dispatch_workspace_action_for_test(BindableAction::PrevWorkspace);
+    app.drain_all_notifications_for_test(Instant::now(), true);
+    assert!(app.pane_attention_for_test(token).unwrap().2);
+    terminal.lock().expect("terminal").advance(b"\x07");
+    assert!(app.drain_bells_for_test().1);
+    assert!(app.pane_attention_for_test(token).unwrap().2);
+    app.dispatch_workspace_action_for_test(BindableAction::NextWorkspace);
+    app.drain_all_notifications_for_test(Instant::now(), true);
+    assert!(!app.pane_attention_for_test(token).unwrap().2);
+}
