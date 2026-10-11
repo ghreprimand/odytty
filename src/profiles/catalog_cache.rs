@@ -12,13 +12,15 @@
 //! parse.
 //!
 //! What a stamp detects differs by platform. On Unix any write, rename,
-//! replacement, or permission change alters the inode or change time, so a
-//! reused catalog always reflects the files on disk. Windows metadata through
-//! `std` has no change time or file index: a write, a resize, a new creation
-//! time, or an attribute change (read-only, hidden) is detected, but an
-//! ACL-only change, or a same-size replacement that keeps the modification
-//! and creation times (NTFS file-name tunneling can carry the creation time
-//! over), is not seen until a later detected change or a restart.
+//! replacement, or permission change alters the inode, change time, or mode,
+//! and a detected stamp change invalidates the cache on the next load; a write
+//! that lands after the listing is seen by the load after that. Windows
+//! metadata through `std` has no change time or file index: a write, a resize,
+//! a new creation time, or an attribute change (read-only, hidden) is
+//! detected, but an ACL-only change, or a same-size replacement that keeps the
+//! modification and creation times (NTFS file-name tunneling can carry the
+//! creation time over), is not seen until a later detected change or a
+//! restart.
 
 use std::fs;
 use std::io;

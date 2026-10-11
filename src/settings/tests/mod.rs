@@ -39,8 +39,59 @@ mod numeric;
 mod osc52_write;
 mod overlay;
 mod profiles;
+mod quick_terminal;
 mod sh2;
 mod system_theme;
+
+/// Every test in this directory that calls `apply_reloadable_values` holds
+/// `render_globals_lock` for its whole body, because the call republishes the
+/// process-wide render switches. The check reads each test source at compile
+/// time, so a new test that forgets the lock fails here instead of racing the
+/// render tests at the default test thread count.
+#[test]
+fn every_reload_test_holds_the_render_globals_lock() {
+    let sources = [
+        ("automation.rs", include_str!("automation.rs")),
+        ("cursor.rs", include_str!("cursor.rs")),
+        ("font_zero.rs", include_str!("font_zero.rs")),
+        ("info.rs", include_str!("info.rs")),
+        ("keybinds.rs", include_str!("keybinds.rs")),
+        ("kitty.rs", include_str!("kitty.rs")),
+        ("legacy.rs", include_str!("legacy.rs")),
+        ("ligature.rs", include_str!("ligature.rs")),
+        ("mouse.rs", include_str!("mouse.rs")),
+        ("numeric.rs", include_str!("numeric.rs")),
+        ("osc52_write.rs", include_str!("osc52_write.rs")),
+        ("overlay.rs", include_str!("overlay.rs")),
+        ("profiles.rs", include_str!("profiles.rs")),
+        ("quick_terminal.rs", include_str!("quick_terminal.rs")),
+        ("sh2.rs", include_str!("sh2.rs")),
+        ("system_theme.rs", include_str!("system_theme.rs")),
+    ];
+    let mut missing = Vec::new();
+    let mut checked = 0;
+    for (file, source) in sources {
+        for test in source.split("#[test]").skip(1) {
+            if !test.contains("apply_reloadable_values(") {
+                continue;
+            }
+            checked += 1;
+            if !test.contains("render_globals_lock()") {
+                let name = test
+                    .split("fn ")
+                    .nth(1)
+                    .and_then(|rest| rest.split('(').next())
+                    .unwrap_or("?");
+                missing.push(format!("{file}: {name}"));
+            }
+        }
+    }
+    assert!(checked > 0, "the scan found no reload test at all");
+    assert!(
+        missing.is_empty(),
+        "reload tests without render_globals_lock: {missing:?}"
+    );
+}
 
 /// C14 (structural): every `ODYTTY_*` env-key const declared in
 /// `settings/consts.rs` must be listed in [`SETTING_ENV_KEYS`]. That list is

@@ -373,10 +373,12 @@ impl Settings {
                 }
             }
         };
-        let visual = get(VISUAL_ENV)
-            .and_then(|value| value.into_string().ok())
-            .map(|value| VisualEffect::from_name_or_default(&value))
-            .unwrap_or(DEFAULT_VISUAL);
+        let visual_raw = get(VISUAL_ENV).and_then(|value| value.into_string().ok());
+        let visual = visual_raw
+            .as_deref()
+            .map_or(DEFAULT_VISUAL, VisualEffect::from_name_or_default);
+        // Only a recognized `visual` token decides the CRT pass below.
+        let visual_explicit = visual_raw.as_deref().and_then(VisualEffect::from_name);
         // Direct path knob (ODYTTY_FONT) takes precedence over family lookup so
         // an explicit file always wins. ODYTTY_FONT_FAMILY is resolved to a
         // validated monospace path only when no direct path is given; resolution
@@ -430,20 +432,23 @@ impl Settings {
         //   * unset            -> the bundled default (compiled-in sentinel),
         //   * `none`/`off`/""   -> explicitly no image (the documented off-switch),
         //   * `default`/`bundled` -> the bundled default,
-        //   * anything else     -> a real on-disk path.
+        //   * anything else     -> a real on-disk path; a path that is not
+        //     valid UTF-8 is kept byte for byte, like `font` and `symbol_font`.
         let background_image = match get(BACKGROUND_IMAGE_ENV) {
             None => Some(bundled_background_path()),
-            Some(raw) => {
-                let lossy = raw.to_string_lossy();
-                let trimmed = lossy.trim();
-                match trimmed.to_ascii_lowercase().as_str() {
-                    "" | "none" | "off" | "false" => None,
-                    "default" | "bundled" | BUNDLED_BACKGROUND_SENTINEL => {
-                        Some(bundled_background_path())
+            Some(raw) => match raw.into_string() {
+                Ok(text) => {
+                    let trimmed = text.trim();
+                    match trimmed.to_ascii_lowercase().as_str() {
+                        "" | "none" | "off" | "false" => None,
+                        "default" | "bundled" | BUNDLED_BACKGROUND_SENTINEL => {
+                            Some(bundled_background_path())
+                        }
+                        _ => Some(PathBuf::from(trimmed)),
                     }
-                    _ => Some(PathBuf::from(trimmed)),
                 }
-            }
+                Err(raw) => Some(PathBuf::from(raw)),
+            },
         };
         let background_blur_radius =
             parse_background_blur_radius(get(BACKGROUND_BLUR_RADIUS_ENV).as_deref(), &mut warn);
@@ -480,16 +485,16 @@ impl Settings {
             DEFAULT_RETRO,
             &mut warn,
         );
-        // UX5: the legacy `visual=ambient`/`scanlines` scanline effect is folded
-        // into the unified CRT post-process. An ambient visual aliases to
-        // `crt=on` ONLY when no explicit CRT setting is present — an explicit
-        // `crt=`/`ODYTTY_CRT` always wins over the alias (the alias merely fills
-        // the unset case), so a config can never stack two scanline passes.
+        // The legacy `visual` scanline switch is folded into the unified CRT
+        // post-process. With no explicit `crt` setting, an explicit `visual`
+        // decides it (`ambient`/`scanlines` on, `off`/`none`/`plain` off), and
+        // with neither set the CRT default applies. An explicit `crt` always
+        // wins, so a config can never stack two scanline passes.
         let crt_explicit = get(CRT_ENV);
-        let crt = if crt_explicit.is_some() {
-            parse_bool_setting(crt_explicit.as_deref(), CRT_ENV, DEFAULT_CRT, &mut warn)
-        } else {
-            DEFAULT_CRT || visual == VisualEffect::Ambient
+        let crt = match (crt_explicit, visual_explicit) {
+            (Some(raw), _) => parse_bool_setting(Some(&raw), CRT_ENV, DEFAULT_CRT, &mut warn),
+            (None, Some(visual)) => visual == VisualEffect::Ambient,
+            (None, None) => DEFAULT_CRT,
         };
         let crt_scanline_intensity =
             parse_crt_scanline_intensity(get(CRT_SCANLINE_INTENSITY_ENV).as_deref(), &mut warn);
@@ -540,13 +545,13 @@ impl Settings {
         let kitty_named_transports = parse_bool_setting(
             get(KITTY_NAMED_TRANSPORTS_ENV).as_deref(),
             KITTY_NAMED_TRANSPORTS_ENV,
-            false,
+            DEFAULT_KITTY_NAMED_TRANSPORTS,
             &mut warn,
         );
         let secure_keyboard_input = parse_bool_setting(
             get(SECURE_KEYBOARD_INPUT_ENV).as_deref(),
             SECURE_KEYBOARD_INPUT_ENV,
-            false,
+            DEFAULT_SECURE_KEYBOARD_INPUT,
             &mut warn,
         );
         let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
@@ -637,26 +642,26 @@ impl Settings {
         let osc52_read = parse_bool_setting(
             get(OSC52_READ_ENV).as_deref(),
             OSC52_READ_ENV,
-            false,
+            DEFAULT_OSC52_READ,
             &mut warn,
         );
         let osc52_write = parse_osc52_write(get(OSC52_WRITE_ENV).as_deref(), &mut warn);
         let synthetic_styles = parse_bool_setting(
             get(SYNTHETIC_STYLES_ENV).as_deref(),
             SYNTHETIC_STYLES_ENV,
-            true,
+            DEFAULT_SYNTHETIC_STYLES,
             &mut warn,
         );
         let geometric_boxdraw = parse_bool_setting(
             get(GEOMETRIC_BOXDRAW_ENV).as_deref(),
             GEOMETRIC_BOXDRAW_ENV,
-            true,
+            DEFAULT_GEOMETRIC_BOXDRAW,
             &mut warn,
         );
         let symbol_fallback = parse_bool_setting(
             get(SYMBOL_FALLBACK_ENV).as_deref(),
             SYMBOL_FALLBACK_ENV,
-            true,
+            DEFAULT_SYMBOL_FALLBACK,
             &mut warn,
         );
         let symbol_font = get(SYMBOL_FONT_ENV).and_then(parse_symbol_font_path);
@@ -667,7 +672,7 @@ impl Settings {
         let themed_ui_roles = parse_bool_setting(
             get(THEMED_UI_ROLES_ENV).as_deref(),
             THEMED_UI_ROLES_ENV,
-            true,
+            DEFAULT_THEMED_UI_ROLES,
             &mut warn,
         );
         let scroll_wheel_lines =

@@ -1499,3 +1499,33 @@ fn wrapper_write_creates_a_missing_file() {
     assert_eq!(fs::read_to_string(&path).expect("read back"), contents);
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// The PowerShell snippet keeps the user's named Enter function instead of
+/// always accepting with `AcceptLine`. The snippet is text pinned here, not
+/// executed (no PowerShell runs in this suite), so the structure is checked:
+/// the existing binding is read before the rebind, the accept branch calls the
+/// captured name, the plain call is gone, and braces and parentheses balance.
+#[test]
+fn the_powershell_enter_handler_runs_the_users_bound_function() {
+    let snippet = snippet_for_shell("powershell").expect("powershell");
+    let read = snippet
+        .find("Get-PSReadLineKeyHandler -Bound")
+        .expect("the existing Enter binding is read");
+    let rebind = snippet
+        .find("Set-PSReadLineKeyHandler -Key Enter")
+        .expect("Enter is rebound");
+    assert!(read < rebind, "the binding is read before it is replaced");
+    assert!(snippet.contains("$global:__odytty_enter_function = 'AcceptLine'"));
+    assert!(snippet.contains("[Microsoft.PowerShell.PSConsoleReadLine]::$accept()"));
+    assert!(
+        !snippet.contains("PSConsoleReadLine]::AcceptLine()"),
+        "the accept branch no longer hard-codes AcceptLine"
+    );
+    for (open, close) in [('{', '}'), ('(', ')')] {
+        assert_eq!(
+            snippet.matches(open).count(),
+            snippet.matches(close).count(),
+            "unbalanced {open}{close}"
+        );
+    }
+}

@@ -25,10 +25,9 @@ fn restored_hyperlink_is_inert_or_keeps_its_original_target_after_id_reuse() {
     restored.advance(b"\x1b]8;;https://different.example.invalid\x07new\x1b]8;;\x07");
 
     let resolved = restored.hyperlink(old_id).map(|link| link.uri.as_str());
-    assert_ne!(
-        resolved,
-        Some("https://different.example.invalid"),
-        "a visible old link must never resolve to a later URL"
+    assert!(
+        resolved.is_none() || resolved == Some("https://first.example.invalid"),
+        "a visible old link is inert or keeps its original target, got {resolved:?}"
     );
 }
 

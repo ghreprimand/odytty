@@ -83,8 +83,18 @@ pub const IMAGE_EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "webp"];
 /// gate. A path with no extension, a trailing dot, or a non-image extension
 /// returns `false`.
 pub fn is_image_path(abs: &str) -> bool {
+    // A backslash separates segments on Windows only; on Unix it is an ordinary
+    // file-name character.
+    #[cfg(windows)]
+    const SEPARATORS: &[char] = &['/', '\\'];
+    #[cfg(not(windows))]
+    const SEPARATORS: &[char] = &['/'];
+    is_image_path_with(abs, SEPARATORS)
+}
+
+fn is_image_path_with(abs: &str, separators: &[char]) -> bool {
     // The extension is the text after the final `.` in the final path segment.
-    let name = abs.rsplit('/').next().unwrap_or(abs);
+    let name = abs.rsplit(separators).next().unwrap_or(abs);
     let Some((stem, ext)) = name.rsplit_once('.') else {
         return false;
     };
@@ -381,6 +391,21 @@ mod tests {
         ] {
             assert!(!is_image_path(no), "{no} should NOT be offered");
         }
+    }
+
+    #[test]
+    fn image_dotfiles_are_rejected_under_either_separator_rule() {
+        // With a backslash separator (Windows) the segment after the last
+        // separator is `.png`, a dotfile with no stem.
+        assert!(!is_image_path_with("C:\\proj\\.png", &['/', '\\']));
+        assert!(is_image_path_with("C:\\proj\\a.png", &['/', '\\']));
+        assert!(is_image_path_with("C:/proj/a.PNG", &['/', '\\']));
+        // Without it (Unix) the whole text is one file name with a stem.
+        assert!(is_image_path_with("C:\\proj\\.png", &['/']));
+        #[cfg(windows)]
+        assert!(!is_image_path("C:\\proj\\.png"));
+        #[cfg(not(windows))]
+        assert!(is_image_path("C:\\proj\\.png"));
     }
 
     #[test]

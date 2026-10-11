@@ -27,6 +27,41 @@ const MAX_CLIENTS: usize = 8;
 const MAX_CONNECTIONS_PER_SECOND: usize = 32;
 const IO_TIMEOUT: Duration = Duration::from_secs(2);
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
+/// Consecutive transient `accept` failures tolerated before the listener
+/// faults: about one second of descriptor or memory exhaustion at one retry
+/// per poll interval.
+const MAX_TRANSIENT_ACCEPT_ERRORS: u32 = 100;
+
+/// What the accept loop does after an `accept` error.
+#[derive(Debug, PartialEq, Eq)]
+enum AcceptStep {
+    /// Sleep one poll interval and accept again.
+    Retry,
+    /// Record a terminal fault and stop the listener.
+    Fault,
+}
+
+/// Classify an `accept` error. Descriptor exhaustion (`EMFILE`, `ENFILE`),
+/// buffer or memory pressure (`ENOBUFS`, `ENOMEM`), and a peer that aborted
+/// before it was accepted (`ECONNABORTED`) usually clear on the next attempt,
+/// so they retry, up to [`MAX_TRANSIENT_ACCEPT_ERRORS`] in a row. Every other
+/// error, and a transient one that never clears, is a fault.
+fn accept_error_step(error: &io::Error, streak: &mut u32) -> AcceptStep {
+    let transient = error.kind() == io::ErrorKind::ConnectionAborted
+        || matches!(
+            error.raw_os_error(),
+            Some(libc::EMFILE | libc::ENFILE | libc::ENOBUFS | libc::ENOMEM | libc::ECONNABORTED)
+        );
+    if !transient {
+        return AcceptStep::Fault;
+    }
+    *streak = streak.saturating_add(1);
+    if *streak > MAX_TRANSIENT_ACCEPT_ERRORS {
+        AcceptStep::Fault
+    } else {
+        AcceptStep::Retry
+    }
+}
 pub(crate) const MAX_DISCOVERY_CANDIDATES: usize = 32;
 
 #[derive(Debug)]
@@ -210,6 +245,7 @@ impl Server {
                 let mut workers: Vec<JoinHandle<()>> = Vec::new();
                 let mut rate_started = Instant::now();
                 let mut accepted = 0;
+                let mut transient_errors = 0;
                 while !stop.load(Ordering::Acquire) {
                     if rate_started.elapsed() >= Duration::from_secs(1) {
                         rate_started = Instant::now();
@@ -228,6 +264,7 @@ impl Server {
                     if workers.len() < MAX_CLIENTS && accepted < MAX_CONNECTIONS_PER_SECOND {
                         match listener.accept() {
                             Ok((stream, _)) => {
+                                transient_errors = 0;
                                 if let Some(observer) = accept_observer.as_ref() {
                                     observer(&stream);
                                 }
@@ -252,6 +289,12 @@ impl Server {
                             }
                             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
                             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                            Err(error)
+                                if accept_error_step(&error, &mut transient_errors)
+                                    == AcceptStep::Retry =>
+                            {
+                                tracing::debug!(%error, "automation accept failed; retrying");
+                            }
                             Err(error) => {
                                 record_fault(
                                     &fault_slot,
@@ -417,10 +460,12 @@ fn request_with_deadlines(
     io_timeout: Duration,
     response_timeout: Duration,
 ) -> io::Result<Response> {
-    let path = validated_endpoint(path)?;
-    let stream = connect(&path, io_timeout)?;
-    peer_is_owner(&stream)?;
-    let mut io = DeadlineStream::new(stream, io_timeout)?;
+    // Everything before the first written byte is marked not delivered, so a
+    // mutation that never left is reported as safe to retry.
+    let path = validated_endpoint(path).map_err(protocol::not_delivered)?;
+    let stream = connect(&path, io_timeout).map_err(protocol::not_delivered)?;
+    peer_is_owner(&stream).map_err(protocol::not_delivered)?;
+    let mut io = DeadlineStream::new(stream, io_timeout).map_err(protocol::not_delivered)?;
     protocol::write_request(&mut io, request)?;
     io.reset_deadline(response_timeout);
     validate_response(protocol::read_response(&mut io)?, request)

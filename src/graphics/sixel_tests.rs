@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Tests for the Sixel decoder (`super::sixel`).
 
-use super::sixel::decode_sixel_with_repack_work;
 use super::sixel::*;
+use super::sixel::{decode_sixel_buffer_bytes, decode_sixel_with_repack_work};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -402,6 +402,29 @@ fn widening_a_tightened_stride_is_amortised() {
     );
 }
 
+/// A filled rectangle is an ordinary image, so the re-layout budget must admit
+/// it. 700 bands of 2500 columns form a 2500x4200 rectangle (10.5M pixels).
+/// Growing its height past the 4096-row mark needs one tighter stride; the
+/// stride must keep the height headroom the drawn width leaves (6710 rows), not
+/// shrink to the exact remaining rows and repack every band.
+#[test]
+fn filled_rectangle_past_the_geometric_height_is_admitted() {
+    let mut payload = Vec::new();
+    for _ in 0..700 {
+        payload.extend_from_slice(b"#1;2;100;0;0#1!2500~-");
+    }
+    let (result, repacked) = decode_sixel_with_repack_work(&payload, SixelBackground::default());
+    let img = result.expect("a filled 2500x4200 rectangle is inside the budget");
+    assert_eq!((img.width, img.height), (2500, 4200));
+    let red = [255, 0, 0, 255];
+    assert_eq!(pixel_at(&img, 0, 0), red);
+    assert_eq!(pixel_at(&img, 2499, 4199), red, "late band is painted");
+    assert!(
+        repacked <= 2 * 16_777_216,
+        "a filled rectangle needs about one re-layout, got {repacked} pixels"
+    );
+}
+
 /// An input that keeps reshaping the buffer in both axes while its drawn image
 /// stays inside the budget cannot repeat near-64 MiB re-layouts without bound:
 /// the cumulative re-layout allocation is capped at 16 canvases and the image is
@@ -462,6 +485,25 @@ fn sx4_header_only_stream_allocates_nothing() {
         decode_sixel(payload, SixelBackground::default()),
         Err(SixelError::Empty)
     ));
+    // `Empty` alone would also be returned after an eager build, so observe the
+    // buffer itself: none was ever allocated, for the declared size or for
+    // header commands (palette definitions, line feeds) that paint nothing.
+    for header in [
+        &b"\"1;1;4000;4000"[..],
+        b"\"1;1;4000;4000#1;2;100;0;0",
+        b"\"1;1;4000;4000#1;2;100;0;0$-$-",
+    ] {
+        assert_eq!(
+            decode_sixel_buffer_bytes(header, SixelBackground::default()),
+            0,
+            "{:?}",
+            String::from_utf8_lossy(header)
+        );
+    }
+    // Control: the same declaration with one painted column does build one.
+    assert!(
+        decode_sixel_buffer_bytes(b"\"1;1;4000;4000#1;2;100;0;0~", SixelBackground::default()) > 0
+    );
 }
 
 /// Declared raster size still establishes the reported image dimensions even

@@ -624,3 +624,12 @@ fn listener_fault_is_none_while_listening_and_keeps_first_reason() {
     );
     drop(server);
 }
+
+/// The client never lets the pipe server impersonate it beyond identification.
+#[test]
+fn client_pipe_open_limits_impersonation_to_identification() {
+    let flags = client_pipe_flags();
+    assert!(flags.contains(FILE_FLAG_OVERLAPPED));
+    assert!(flags.contains(SECURITY_SQOS_PRESENT));
+    assert!(flags.contains(SECURITY_IDENTIFICATION));
+}

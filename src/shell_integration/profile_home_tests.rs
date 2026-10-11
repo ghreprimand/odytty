@@ -56,7 +56,9 @@ fn profile_shell_command_with_a_home_override_sources_that_home() {
             args: Vec::new(),
         },
     };
-    assert_profile_home_is_the_zsh_dotfile_dir(&build_local_command(&plan));
+    assert_profile_home_is_the_zsh_dotfile_dir(
+        &build_local_command(&plan).expect("an explicit shell command"),
+    );
 }
 
 #[test]

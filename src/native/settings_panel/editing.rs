@@ -149,23 +149,8 @@ impl SettingsPanel {
 
     pub(super) fn commit_value(&mut self, key: &'static str, value: &str) -> SettingsPanelOutcome {
         let before_scroll = self.scroll;
-        let commit_value;
-        let value = if key == "cell_bg_opacity" {
-            let Ok(visibility) = value.trim().parse::<f32>() else {
-                self.message =
-                    Some("Background visibility must be a number from 0 to 1.".to_owned());
-                return SettingsPanelOutcome::Consumed;
-            };
-            if !visibility.is_finite() || !(0.0..=1.0).contains(&visibility) {
-                self.message =
-                    Some("Background visibility must be a number from 0 to 1.".to_owned());
-                return SettingsPanelOutcome::Consumed;
-            }
-            commit_value = format!("{:.3}", 1.0 - visibility);
-            commit_value.as_str()
-        } else {
-            value
-        };
+        // `apply_raw` takes the displayed value for every row, including the
+        // wallpaper-visibility row, and rejects one outside `0..=1`.
         let result = if key == "background_image" {
             self.commit_background_image(value)
         } else {
@@ -213,7 +198,8 @@ impl SettingsPanel {
         if candidate.settings().background_image.is_some() {
             candidate.apply_raw("background_treatment", "image")?;
             if candidate.settings().cell_bg_opacity >= DEFAULT_CELL_BG_OPACITY - 0.001 {
-                candidate.apply_raw("cell_bg_opacity", "0.850")?;
+                // Visibility 0.15, the stored opacity 0.85.
+                candidate.apply_raw("cell_bg_opacity", "0.15")?;
             }
         }
         let changed = candidate.settings() != self.edits.settings();

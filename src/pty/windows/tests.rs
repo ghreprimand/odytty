@@ -749,3 +749,44 @@ fn startup_reports_measure_a_held_child_from_its_resume() {
         "a close during the failed start is not reported"
     );
 }
+
+/// The bounded wait `Drop` relies on reports a running child as not exited and
+/// a killed one as exited, without blocking on the live one.
+#[test]
+fn the_bounded_wait_reports_running_then_exited() {
+    let dims = Dimensions {
+        rows: 24,
+        columns: 80,
+    };
+    let mut session =
+        PtySession::spawn_shell_command(dims, "ping -n 30 127.0.0.1").expect("long-running child");
+    assert!(!session.wait_timeout(0), "a running child has not exited");
+    session.kill().expect("kill the child");
+    assert!(
+        session.wait_timeout(10_000),
+        "a killed child is reaped within the wait"
+    );
+}
+
+/// The default interpreter's last resort is an absolute path, and a bare
+/// program name that exists on `PATH` is pinned to its absolute file.
+#[test]
+fn bare_program_names_are_pinned_to_absolute_files() {
+    let shell = default_shell();
+    assert!(
+        Path::new(&shell.program).is_absolute(),
+        "{:?}",
+        shell.program
+    );
+    let mut command = CommandBuilder::new("cmd");
+    pin_bare_program(&mut command);
+    let pinned = PathBuf::from(command.program());
+    assert!(pinned.is_absolute(), "{pinned:?}");
+    assert!(pinned.is_file(), "{pinned:?}");
+    let mut missing = CommandBuilder::new("definitely-not-a-real-binary-xyz");
+    pin_bare_program(&mut missing);
+    assert_eq!(
+        missing.program(),
+        &OsString::from("definitely-not-a-real-binary-xyz")
+    );
+}

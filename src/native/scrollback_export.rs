@@ -664,7 +664,15 @@ pub(super) fn safe_http_href(uri: &str) -> Option<&str> {
         return None;
     }
     let host = match authority.strip_prefix('[') {
-        Some(bracketed) => bracketed.split(']').next().unwrap_or_default(),
+        // An IPv6 literal must close its bracket and may be followed only by a
+        // port; an unclosed, empty or trailing-text form is not a host.
+        Some(bracketed) => {
+            let (literal, after) = bracketed.split_once(']')?;
+            if !(after.is_empty() || after.starts_with(':')) {
+                return None;
+            }
+            literal
+        }
         None => authority.split(':').next().unwrap_or_default(),
     };
     (!host.is_empty()).then_some(uri)

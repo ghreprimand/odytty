@@ -158,3 +158,42 @@ fn default_global_bindings_never_take_a_typing_key() {
         );
     }
 }
+
+#[test]
+fn a_non_latin_key_captures_to_a_chord_the_config_parser_reads_back() {
+    let ctrl_shift = Modifiers {
+        ctrl: true,
+        shift: true,
+        alt: false,
+    };
+    for (typed, stored) in [
+        ("\u{444}", '\u{444}'),
+        ("\u{c4}", '\u{e4}'),
+        ("\u{df}", '\u{df}'),
+    ] {
+        let chord = chord_from_winit(&WinitKey::Character(typed.into()), ctrl_shift, false)
+            .expect("a single non-Latin character captures as a chord");
+        assert_eq!(chord.key, KeyBindingKey::Character(stored));
+        let overrides = [over(chord, BindableAction::Copy)];
+        let value = crate::settings::key_bindings_config_value(&overrides);
+        let mut warnings = Vec::new();
+        let parsed = crate::settings::Settings::from_source(
+            |key| (key == crate::settings::KEYBINDS_ENV).then(|| value.clone().into()),
+            |warning| warnings.push(warning.to_owned()),
+            |_| None,
+            |_| None,
+        )
+        .key_bindings;
+        assert!(warnings.is_empty(), "{value:?} warned: {warnings:?}");
+        assert_eq!(parsed, overrides, "{value:?} reads back as captured");
+        let bindings = KeyBindings::from_overrides(&overrides);
+        assert_eq!(
+            bindings.action_for(&WinitKey::Character(typed.into()), ctrl_shift, false),
+            Some(BindableAction::Copy),
+            "the live table matches the key it captured"
+        );
+    }
+    // Whitespace and control characters still never capture.
+    assert!(chord_from_winit(&WinitKey::Character("\u{3000}".into()), ctrl_shift, false).is_none());
+    assert!(chord_from_winit(&WinitKey::Character("\u{85}".into()), ctrl_shift, false).is_none());
+}

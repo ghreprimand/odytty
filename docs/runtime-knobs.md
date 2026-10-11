@@ -149,14 +149,14 @@ environment variable was not set at startup.
 | `cursor_trail_strength` | `ODYTTY_CURSOR_TRAIL_STRENGTH` | `subtle`, `balanced`, `expressive` | `balanced` |
 | `reduced_motion` | `ODYTTY_REDUCED_MOTION` | `on`, `off` | `off` |
 | `quick_terminal` | `ODYTTY_QUICK_TERMINAL` | `on`, `off` | `off` |
-| `quick_terminal_shortcut` | `ODYTTY_QUICK_TERMINAL_SHORTCUT` | Accelerator, e.g. `F12` or `ctrl+shift+grave` | `F12` |
+| `quick_terminal_shortcut` | `ODYTTY_QUICK_TERMINAL_SHORTCUT` | Accelerator up to 64 characters, e.g. `F12` or `ctrl+shift+grave` | `F12` |
 | `quick_terminal_edge` | `ODYTTY_QUICK_TERMINAL_EDGE` | `top`, `bottom`, `left`, `right` | `top` |
-| `quick_terminal_coverage` | `ODYTTY_QUICK_TERMINAL_COVERAGE` | Percentage e.g. `40%` or pixels e.g. `600px` | `40%` |
-| `quick_terminal_span` | `ODYTTY_QUICK_TERMINAL_SPAN` | Percentage e.g. `100%` or pixels e.g. `800px` | `100%` |
+| `quick_terminal_coverage` | `ODYTTY_QUICK_TERMINAL_COVERAGE` | Percentage e.g. `40%` or pixels up to `16384px` (a bare number is pixels) | `40%` |
+| `quick_terminal_span` | `ODYTTY_QUICK_TERMINAL_SPAN` | Percentage e.g. `100%` or pixels up to `16384px` (a bare number is pixels) | `100%` |
 | `quick_terminal_monitor` | `ODYTTY_QUICK_TERMINAL_MONITOR` | `active`, `primary`, or a monitor index | `active` |
 | `quick_terminal_animation` | `ODYTTY_QUICK_TERMINAL_ANIMATION` | `instant`, `slide` | `instant` |
 | `quick_terminal_hide_on_focus_loss` | `ODYTTY_QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS` | `on`, `off` | `off` |
-| `quick_terminal_profile` | `ODYTTY_QUICK_TERMINAL_PROFILE` | Profile name, empty for default | (empty) |
+| `quick_terminal_profile` | `ODYTTY_QUICK_TERMINAL_PROFILE` | Profile name (ASCII letters, digits, `-`, `_`, `.`), empty for default | (empty) |
 | `new_output_fade` | `ODYTTY_NEW_OUTPUT_FADE` | `on`, `off` | `on` |
 | `new_output_fade_ms` | `ODYTTY_NEW_OUTPUT_FADE_MS` | Float, `50..=1000` ms | `250` |
 | `secure_keyboard_input` | `ODYTTY_SECURE_KEYBOARD_INPUT` | `on`, `off` | `off` |
@@ -277,7 +277,8 @@ are never touched, and the selection, cursor, and window chrome are exempt.
 readable over busy or colored backdrops. The default `1.0` keeps the exact
 theme colours; raising it toward `1.5` brightens strokes with a soft knee. The
 lift is applied after the `min_contrast` floor and leaves colour emoji
-unchanged.
+unchanged. Underline and strikethrough lines ride the same lift, an explicit
+`SGR 58` underline colour included.
 
 ### Tune The Selection Strength
 
@@ -410,9 +411,10 @@ one-shot actions, rate limits, expiry, and platform behavior.
 - `visual = ambient` (the default) and `visual = scanlines` are back-compat
   aliases for OdyTTY's scanline look, which is produced by the CRT post-process
   (`crt` / `crt_scanline_*`) - the legacy per-cell ambient wash was retired and
-  folded into it. When no explicit `crt` value is set, an ambient `visual` turns
-  the CRT pass on; an explicit `crt` setting always wins, so the two never stack.
-  `off`, `none`, and `plain` opt out of the alias.
+  folded into it. When no explicit `crt` value is set, an explicit `visual`
+  decides the CRT pass: `ambient` and `scanlines` turn it on, and `off`, `none`,
+  and `plain` turn it off. With neither key set, the CRT default (on) applies.
+  An explicit `crt` setting always wins, so the two never stack.
 - `render_quality = plain` is the hard direct-render fast path. It bypasses
   post-process effects and visual treatments even if individual effect knobs
   are enabled.
@@ -1297,6 +1299,16 @@ and reports "already saved".
 Typed input with embedded spaces, a leading `-`, or a port outside `1-65535` is
 rejected before any connect or write.
 
+A file saved with a leading UTF-8 byte order mark, as some Windows editors
+write, reads normally, and editing or removing a host keeps the mark. Editing
+or removing a host refuses a file that is not valid UTF-8 and leaves it
+untouched, rather than rewriting other lines. A `Port` must be digits from 1 to
+65535. An alias must be one concrete name (not empty, no leading `!`, no `*` or
+`?`); OdyTTY refuses to save any other, because the reader skips such aliases. An
+empty field is saved as unset. When the file is longer than the 256 KiB read
+limit, the connection manager reads only the complete lines before the limit,
+so a value cut at the limit is never used.
+
 You can also add and edit hosts with an in-app form instead of typing directives
 by hand. In the connection manager, **Tab** opens a blank **Add connection**
 form and the **Right** arrow key opens an **Edit** form pre-filled from
@@ -1374,6 +1386,11 @@ On Unix, the final ControlMaster directory must be a real, effective-UID-owned
 directory rather than a symlink or other object. OdyTTY validates it through a
 no-follow directory handle and repairs only its own permissions to `0700`; a
 failed check disables reuse for that launch rather than emitting a control path.
+A Unix-domain socket path is limited to 107 bytes on Linux and 103 on macOS, and
+OpenSSH binds the master to a name 17 bytes longer than the final one. When the
+state directory is too deep for that (on macOS, a user name over ten characters),
+the sockets live in a private `/tmp/odytty-<uid>` directory validated the same
+way; reuse is off only when neither path can be bound.
 
 ### SSH connection persistence window (`remote_persist`)
 
@@ -1403,6 +1420,12 @@ and scrollback intact, rather than starting fresh. When the remote host has no
 an installed tmux after it is launched can end startup; that path has no plain
 shell fallback. A per-host `Tmux on` line in `hosts.conf` opts a
 single host in (or `Tmux off` opts one out) regardless of the global default.
+
+The session name is fixed, so every integrated tab to the same host and remote
+user attaches to that one session: the tabs mirror each other and share one
+cursor and one scrollback, and an existing session ignores the new tab's
+bootstrap rcfile. Use `Tmux off` for a host where tabs must be independent
+shells.
 
 Persistence rides inside the integration bootstrap, so it only takes effect with
 `remote_integration` on; with integration off the SSH argv is byte-identical to

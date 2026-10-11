@@ -33,7 +33,11 @@ The app is ad-hoc signed but not notarized. macOS therefore quarantines the
 download, and Gatekeeper would normally block its first launch. The cask's
 `postflight_steps` removes `com.apple.quarantine` from the installed app and
 discloses that action in its caveats. The cask requires Homebrew 7.0 or newer;
-Homebrew normally auto-updates.
+Homebrew normally auto-updates. The step was checked on Apple Silicon with
+Homebrew 7.0.7: a `brew reinstall --cask odytty` left the installed app without
+the `com.apple.quarantine` attribute, so the literal `{{appdir}}` token in the
+step expands to the installed app. The caveat text names the default
+`/Applications` location.
 
 Users who do not want that quarantine change can install the source formula:
 

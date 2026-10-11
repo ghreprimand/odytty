@@ -12,6 +12,7 @@ use crate::settings::fs_read;
 use super::catalog_cache;
 use super::limits::*;
 use super::schema::{LaunchProfile, ProfileError, profile_file_name, validate_profile_name};
+use super::switch::unmatchable_switch_patterns;
 
 #[cfg(test)]
 thread_local! {
@@ -150,6 +151,9 @@ pub fn load_catalog_from_dir(dir: &Path) -> ProfileCatalog {
         let path = &candidate.path;
         match read_profile_file(path, Some(candidate.name.as_str())) {
             Ok(profile) => {
+                for problem in unmatchable_switch_patterns(&profile.name, &profile.switch) {
+                    warn(problem);
+                }
                 if let Some(existing) = catalog.profiles.insert(profile.name.clone(), profile) {
                     warn(format!(
                         "duplicate profile name {:?}; keeping {}",
@@ -183,12 +187,39 @@ pub fn write_profile_file(path: &Path, profile: &LaunchProfile) -> Result<(), Pr
     let bytes = profile.validated_serialization()?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
+        reject_case_only_collision(parent, path)?;
     }
     crate::state_dir::write_atomic(
         path,
         bytes.as_bytes(),
         crate::state_dir::WriteMode::Sensitive,
     )?;
+    Ok(())
+}
+
+/// Refuse a save whose file name differs from an existing profile file only by
+/// case. On a case-insensitive volume (macOS and Windows defaults) both names
+/// are one file, so the save would silently overwrite the other profile while
+/// the catalog, which keys by exact name, held both until a restart. Scans at
+/// most [`MAX_PROFILE_DIR_SCAN_ENTRIES`] entries, like a catalog load.
+fn reject_case_only_collision(dir: &Path, target: &Path) -> Result<(), ProfileStoreError> {
+    let Some(target_name) = target.file_name().and_then(|name| name.to_str()) else {
+        return Ok(());
+    };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Ok(());
+    };
+    for entry in entries.flatten().take(MAX_PROFILE_DIR_SCAN_ENTRIES) {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if name != target_name && name.eq_ignore_ascii_case(target_name) {
+            return Err(ProfileStoreError::Validation(ProfileError::InvalidName(
+                format!("{name:?} already exists and differs only by letter case"),
+            )));
+        }
+    }
     Ok(())
 }
 
@@ -229,8 +260,16 @@ pub fn profile_path_in_dir(dir: &Path, name: &str) -> Result<PathBuf, ProfileErr
     Ok(dir.join(profile_file_name(&name)))
 }
 
+/// Most `.bad` copies kept beside one profile file; see
+/// [`quarantine_malformed_file`].
+pub(super) const MAX_QUARANTINE_COPIES: usize = 100;
+
 /// Recover a malformed profile file by renaming it beside the original with a
-/// `.bad` suffix. Returns `true` when a rename happened.
+/// `.bad` suffix. A later quarantine of the same profile takes the first free
+/// name (`.bad`, `.bad.1`, `.bad.2`, ...) so an earlier copy, which may be the
+/// only record of the user's hand-edited text, is never overwritten; once
+/// [`MAX_QUARANTINE_COPIES`] names are taken the file is left in place and an
+/// error is returned. Returns `true` when a rename happened.
 pub fn quarantine_malformed_file(path: &Path) -> io::Result<bool> {
     if !path.is_file() {
         return Ok(false);
@@ -239,7 +278,18 @@ pub fn quarantine_malformed_file(path: &Path) -> io::Result<bool> {
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("profile.profile.json");
-    let quarantined = path.with_file_name(format!("{file_name}.bad"));
+    let quarantined = (0..MAX_QUARANTINE_COPIES)
+        .map(|attempt| match attempt {
+            0 => path.with_file_name(format!("{file_name}.bad")),
+            n => path.with_file_name(format!("{file_name}.bad.{n}")),
+        })
+        .find(|candidate| fs::symlink_metadata(candidate).is_err())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "too many quarantined copies of this profile; remove old .bad files",
+            )
+        })?;
     match fs::rename(path, &quarantined) {
         Ok(()) => Ok(true),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),

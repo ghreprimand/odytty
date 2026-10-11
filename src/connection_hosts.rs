@@ -164,11 +164,13 @@ pub fn read_odytty_hosts_with_limits(
     if limits.max_bytes == 0 || limits.max_entries == 0 || limits.max_field_chars == 0 {
         return Vec::new();
     }
-    // Stream only a bounded prefix so an oversized or adversarial hosts
-    // file can never be read whole into memory. The parser intentionally treats
-    // that prefix as authoritative; mutation paths use the rejecting mode below
-    // because they must preserve every existing byte.
-    let Ok(bytes) = read_hosts_file(path.as_ref(), limits.max_bytes, false) else {
+    // Stream only a bounded prefix, plus one byte that shows whether the file
+    // is longer, so an oversized or adversarial hosts file can never be read
+    // whole into memory. The parser keeps only the complete lines of a cut
+    // prefix; mutation paths use the rejecting mode below because they must
+    // preserve every existing byte.
+    let Ok(bytes) = read_hosts_file(path.as_ref(), limits.max_bytes.saturating_add(1), false)
+    else {
         return Vec::new();
     };
     parse_odytty_hosts_bytes_with_limits(&bytes, limits)
@@ -243,9 +245,54 @@ pub fn parse_odytty_hosts_bytes_with_limits(
     if limits.max_bytes == 0 || limits.max_entries == 0 || limits.max_field_chars == 0 {
         return Vec::new();
     }
-    let capped_len = bytes.len().min(limits.max_bytes as usize);
-    let text = String::from_utf8_lossy(&bytes[..capped_len]);
+    let bytes = strip_utf8_bom(bytes).1;
+    let cap = usize::try_from(limits.max_bytes).unwrap_or(usize::MAX);
+    let kept = if bytes.len() > cap {
+        // The cap cut the file. A line the cut ended (`HostName long.exa`)
+        // would parse as a plausible but wrong value, so only the complete
+        // lines before the last newline inside the cap are kept.
+        let prefix = &bytes[..cap];
+        let complete = prefix
+            .iter()
+            .rposition(|&byte| byte == b'\n')
+            .map_or(0, |end| end + 1);
+        tracing::warn!(
+            limit = limits.max_bytes,
+            "connection-hosts file is longer than its read limit; later hosts are ignored"
+        );
+        &prefix[..complete]
+    } else {
+        bytes
+    };
+    let text = String::from_utf8_lossy(kept);
     parse_odytty_hosts_text(&text, limits)
+}
+
+/// The UTF-8 byte order mark some Windows editors write at the start of a file.
+const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
+
+/// Split a leading UTF-8 byte order mark from `bytes`: `(mark, rest)`, where
+/// `mark` is empty when there is none. Readers parse `rest`; writers put `mark`
+/// back in front, so editing a host keeps the file's encoding as it was.
+fn strip_utf8_bom(bytes: &[u8]) -> (&[u8], &[u8]) {
+    match bytes.strip_prefix(UTF8_BOM) {
+        Some(rest) => (UTF8_BOM, rest),
+        None => (&[], bytes),
+    }
+}
+
+/// The hosts text a mutation splices, after its byte order mark. A file that is
+/// not valid UTF-8 is refused and left untouched: rewriting it from a lossy
+/// decode would replace every invalid byte anywhere in it with U+FFFD.
+fn mutation_source(bytes: &[u8]) -> io::Result<(&[u8], &str)> {
+    let (bom, body) = strip_utf8_bom(bytes);
+    let text = std::str::from_utf8(body).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the connection-hosts file is not valid UTF-8; fix it in a text editor before editing hosts here",
+        )
+    })?;
+    Ok((bom, text))
 }
 
 /// Push a single `Host` block (no trailing blank-line separator) into `out`,
@@ -268,6 +315,9 @@ fn push_host_block_aliased(
     validate_serializable_host(host)?;
     if aliases.iter().any(|alias| contains_control(alias)) {
         return Err(control_character_error());
+    }
+    if !aliases.iter().all(|alias| is_concrete_alias(alias)) {
+        return Err(not_concrete_alias_error());
     }
     out.push_str("Host");
     for alias in aliases {
@@ -453,10 +503,15 @@ pub fn append_adhoc_host(
         Err(err) => return Err(err),
     };
 
-    // Exact-alias collision: connect, but never duplicate a saved block.
-    if parse_odytty_hosts_bytes(&existing_bytes)
-        .iter()
-        .any(|existing| existing.alias == host.alias)
+    // Exact-alias collision: connect, but never duplicate a saved block. The
+    // block scan has no entry cap, so a host past the reader's entry limit
+    // still counts; the mutation read already bounds the file size.
+    let existing_text = String::from_utf8_lossy(strip_utf8_bom(&existing_bytes).1);
+    if find_block(
+        &parse_host_blocks(&existing_text, DEFAULT_CONNECTION_HOSTS_MAX_FIELD_CHARS),
+        &host.alias,
+    )
+    .is_some()
     {
         return Ok(AppendHostOutcome::AlreadyExists);
     }
@@ -644,9 +699,8 @@ fn render_edited_block(
 /// Splice a byte-identical edit of the block owning `target_alias`, replacing
 /// only that block's body with `updated` re-rendered. Every other byte -
 /// comments, blank lines, other blocks' unknown fields - is preserved. Returns
-/// `None` when no block matches. Valid UTF-8 in/out; a source with invalid UTF-8
-/// is lossily normalized (matching the reader), so the byte-identity guarantee
-/// holds for well-formed files.
+/// `None` when no block matches. The source is valid UTF-8 without its byte
+/// order mark ([`mutation_source`]).
 fn splice_host_block_edit(
     source: &str,
     target_alias: &str,
@@ -696,7 +750,9 @@ fn splice_host_block_remove(source: &str, target_alias: &str, max_chars: usize) 
 ///
 /// The one caveat, worth surfacing in an editing UI: the edited host's own
 /// known fields are re-serialized to canonical form (ordering/whitespace); its
-/// unknown lines and all other hosts and comments are untouched.
+/// unknown lines and all other hosts and comments are untouched. A leading
+/// byte order mark is kept. A file that is not valid UTF-8 is refused with
+/// `InvalidData` and never written.
 pub fn edit_host_block(
     path: impl AsRef<Path>,
     target_alias: &str,
@@ -707,19 +763,20 @@ pub fn edit_host_block(
         return Err(control_character_error());
     }
     validate_serializable_host(updated)?;
-    let source = match read_hosts_for_mutation(path) {
-        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+    let bytes = match read_hosts_for_mutation(path) {
+        Ok(bytes) => bytes,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(HostsEditOutcome::NotFound),
         Err(err) => return Err(err),
     };
+    let (bom, source) = mutation_source(&bytes)?;
     match splice_host_block_edit(
-        &source,
+        source,
         target_alias,
         updated,
         DEFAULT_CONNECTION_HOSTS_MAX_FIELD_CHARS,
     ) {
         Some(next) => {
-            write_hosts_bytes_atomic(path, next.as_bytes())?;
+            write_hosts_bytes_atomic(path, &[bom, next.as_bytes()].concat())?;
             Ok(HostsEditOutcome::Written)
         }
         None => Ok(HostsEditOutcome::NotFound),
@@ -728,8 +785,10 @@ pub fn edit_host_block(
 
 /// Remove the OdyTTY-owned `Host` block whose alias list contains
 /// `target_alias`, deleting its byte span and trailing blank-line separator;
-/// every other byte is preserved. Atomic write. A missing/empty file or an
-/// unmatched alias returns [`HostsEditOutcome::NotFound`] and never writes.
+/// every other byte, including a leading byte order mark, is preserved. Atomic
+/// write. A missing/empty file or an unmatched alias returns
+/// [`HostsEditOutcome::NotFound`] and never writes; a file that is not valid
+/// UTF-8 is refused with `InvalidData` and never written.
 pub fn remove_host_block(
     path: impl AsRef<Path>,
     target_alias: &str,
@@ -738,18 +797,19 @@ pub fn remove_host_block(
     if contains_control(target_alias) {
         return Err(control_character_error());
     }
-    let source = match read_hosts_for_mutation(path) {
-        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+    let bytes = match read_hosts_for_mutation(path) {
+        Ok(bytes) => bytes,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(HostsEditOutcome::NotFound),
         Err(err) => return Err(err),
     };
+    let (bom, source) = mutation_source(&bytes)?;
     match splice_host_block_remove(
-        &source,
+        source,
         target_alias,
         DEFAULT_CONNECTION_HOSTS_MAX_FIELD_CHARS,
     ) {
         Some(next) => {
-            write_hosts_bytes_atomic(path, next.as_bytes())?;
+            write_hosts_bytes_atomic(path, &[bom, next.as_bytes()].concat())?;
             Ok(HostsEditOutcome::Written)
         }
         None => Ok(HostsEditOutcome::NotFound),
@@ -930,7 +990,7 @@ fn concrete_aliases(args: &[String], max_chars: usize) -> Vec<String> {
     let mut aliases = Vec::new();
     let mut seen = HashSet::new();
     for arg in args {
-        if arg.is_empty() || arg.starts_with('!') || arg.contains('*') || arg.contains('?') {
+        if !is_concrete_alias(arg) {
             continue;
         }
         let alias = trim_chars(arg, max_chars);
@@ -939,6 +999,20 @@ fn concrete_aliases(args: &[String], max_chars: usize) -> Vec<String> {
         }
     }
     aliases
+}
+
+/// Whether `alias` names one concrete host: not empty, not a negation (`!`),
+/// and no wildcard (`*`, `?`). The reader skips any other alias, so the writers
+/// refuse one rather than save a host that would never load.
+fn is_concrete_alias(alias: &str) -> bool {
+    !(alias.is_empty() || alias.starts_with('!') || alias.contains(['*', '?']))
+}
+
+fn not_concrete_alias_error() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "a connection-host alias must be one concrete name: not empty, no leading `!`, no `*` or `?`",
+    )
 }
 
 fn flush_block(
@@ -1010,7 +1084,13 @@ fn apply_host_field(
         }
         "port" => {
             if let Some(v) = value {
-                block.port = v.parse::<u16>().ok();
+                // Digits only, 1-65535: `0` and a signed `+22` are not ports.
+                block.port = v
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit())
+                    .then(|| v.parse::<u16>().ok())
+                    .flatten()
+                    .filter(|port| *port >= 1);
             }
         }
         "theme" => {
@@ -1082,8 +1162,10 @@ fn is_known_host_field(keyword: &str) -> bool {
     )
 }
 
+/// Write `key value` when `value` is set and not empty. An empty value would
+/// be a bare key that reads back as unset, so it is written as unset.
 fn push_optional_field(out: &mut String, key: &str, value: Option<&str>) -> io::Result<()> {
-    let Some(value) = value else {
+    let Some(value) = value.filter(|value| !value.is_empty()) else {
         return Ok(());
     };
     out.push_str("    ");
@@ -1134,6 +1216,15 @@ fn validate_serializable_host(host: &ConnectionHost) -> io::Result<()> {
     if values.into_iter().flatten().any(contains_control) {
         return Err(control_character_error());
     }
+    if !is_concrete_alias(&host.alias) {
+        return Err(not_concrete_alias_error());
+    }
+    if host.port == Some(0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a connection-host port must be from 1 to 65535",
+        ));
+    }
     Ok(())
 }
 
@@ -1142,821 +1233,5 @@ fn trim_chars(value: &str, max_chars: usize) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn limits() -> ConnectionHostsLimits {
-        ConnectionHostsLimits {
-            max_bytes: 4096,
-            max_entries: 16,
-            max_field_chars: 128,
-        }
-    }
-
-    fn host(alias: &str, source: ConnectionHostSource) -> ConnectionHost {
-        ConnectionHost {
-            alias: alias.to_owned(),
-            host_name: Some(format!("{alias}.example.invalid")),
-            user: None,
-            port: None,
-            theme: None,
-            font: None,
-            title: None,
-            integration: None,
-            reuse: None,
-            tmux: None,
-            protocol: None,
-            identity_file: None,
-            persist: None,
-            source,
-        }
-    }
-
-    fn temp_dir(prefix: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("{prefix}-{}-{nanos}", std::process::id()));
-        fs::create_dir_all(&path).expect("create synthetic temp dir");
-        path
-    }
-
-    #[test]
-    fn parse_adhoc_target_accepts_all_destination_shapes() {
-        assert_eq!(
-            parse_adhoc_target("host.example.invalid"),
-            Some(AdhocTarget {
-                user: None,
-                host: "host.example.invalid".to_owned(),
-                port: None,
-            })
-        );
-        assert_eq!(
-            parse_adhoc_target("deploy@host.example.invalid"),
-            Some(AdhocTarget {
-                user: Some("deploy".to_owned()),
-                host: "host.example.invalid".to_owned(),
-                port: None,
-            })
-        );
-        assert_eq!(
-            parse_adhoc_target("host.example.invalid:2200"),
-            Some(AdhocTarget {
-                user: None,
-                host: "host.example.invalid".to_owned(),
-                port: Some(2200),
-            })
-        );
-        assert_eq!(
-            parse_adhoc_target("deploy@host.example.invalid:22"),
-            Some(AdhocTarget {
-                user: Some("deploy".to_owned()),
-                host: "host.example.invalid".to_owned(),
-                port: Some(22),
-            })
-        );
-    }
-
-    #[test]
-    fn parse_adhoc_target_rejects_unsafe_and_malformed_input() {
-        // Empty / whitespace / embedded space.
-        assert_eq!(parse_adhoc_target(""), None);
-        assert_eq!(parse_adhoc_target("   "), None);
-        assert_eq!(parse_adhoc_target("bad host"), None);
-        // Option-injection leading dash (host and user parts).
-        assert_eq!(parse_adhoc_target("-oProxyCommand=x"), None);
-        assert_eq!(parse_adhoc_target("-host.example.invalid"), None);
-        assert_eq!(parse_adhoc_target("-u@host.example.invalid"), None);
-        // Missing host, empty user, double `@`.
-        assert_eq!(parse_adhoc_target("user@"), None);
-        assert_eq!(parse_adhoc_target("@host.example.invalid"), None);
-        assert_eq!(parse_adhoc_target("a@b@host.example.invalid"), None);
-        // Bad ports.
-        assert_eq!(parse_adhoc_target("host.example.invalid:"), None);
-        assert_eq!(parse_adhoc_target("host.example.invalid:0"), None);
-        assert_eq!(parse_adhoc_target("host.example.invalid:70000"), None);
-        assert_eq!(parse_adhoc_target("host.example.invalid:ssh"), None);
-        assert_eq!(parse_adhoc_target("host.example.invalid:22:22"), None);
-    }
-
-    #[test]
-    fn adhoc_target_builds_a_defaults_only_connection_host() {
-        let host = parse_adhoc_target("deploy@host.example.invalid:2200")
-            .expect("valid target")
-            .to_connection_host();
-        assert_eq!(host.alias, "host.example.invalid");
-        assert_eq!(
-            host.host_name, None,
-            "alias is the host, no separate HostName"
-        );
-        assert_eq!(host.user.as_deref(), Some("deploy"));
-        assert_eq!(host.port, Some(2200));
-        // Ad-hoc carries no per-host overrides - global defaults apply.
-        assert_eq!(host.integration, None);
-        assert_eq!(host.reuse, None);
-        assert_eq!(host.tmux, None);
-    }
-
-    #[test]
-    fn append_adhoc_host_creates_file_and_writes_a_block() {
-        let dir = temp_dir("odytty-adhoc-append");
-        let path = dir.join("nested").join(CONNECTION_HOSTS_FILE_NAME);
-        let host = parse_adhoc_target("deploy@host.example.invalid:2200")
-            .expect("valid")
-            .to_connection_host();
-
-        let outcome = append_adhoc_host(&path, &host).expect("append");
-        assert_eq!(outcome, AppendHostOutcome::Appended);
-
-        let written = fs::read_to_string(&path).expect("read back");
-        assert!(written.contains("Host host.example.invalid"));
-        assert!(
-            !written.contains("HostName"),
-            "no redundant HostName for a bare host"
-        );
-        assert!(written.contains("    User deploy"));
-        assert!(written.contains("    Port 2200"));
-
-        // The written block round-trips through the parser.
-        let reparsed = read_odytty_hosts_with_limits(&path, limits());
-        assert_eq!(reparsed.len(), 1);
-        assert_eq!(reparsed[0].alias, "host.example.invalid");
-        assert_eq!(reparsed[0].user.as_deref(), Some("deploy"));
-        assert_eq!(reparsed[0].port, Some(2200));
-
-        fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn append_adhoc_host_preserves_existing_content_and_appends() {
-        let dir = temp_dir("odytty-adhoc-preserve");
-        let path = dir.join(CONNECTION_HOSTS_FILE_NAME);
-        // Existing content with a comment and custom spacing to prove byte
-        // preservation of everything before the appended block.
-        let existing = "# my hosts\nHost existing\n    HostName existing.example.invalid\n";
-        fs::write(&path, existing).expect("seed");
-
-        let host = parse_adhoc_target("new.example.invalid")
-            .expect("valid")
-            .to_connection_host();
-        let outcome = append_adhoc_host(&path, &host).expect("append");
-        assert_eq!(outcome, AppendHostOutcome::Appended);
-
-        let written = fs::read_to_string(&path).expect("read back");
-        assert!(
-            written.starts_with(existing),
-            "existing bytes preserved verbatim"
-        );
-        assert!(written.contains("Host new.example.invalid"));
-        // Both hosts parse.
-        let reparsed = read_odytty_hosts_with_limits(&path, limits());
-        assert_eq!(reparsed.len(), 2);
-
-        fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn append_adhoc_host_skips_write_on_exact_alias_collision() {
-        let dir = temp_dir("odytty-adhoc-collision");
-        let path = dir.join(CONNECTION_HOSTS_FILE_NAME);
-        let existing = "Host host.example.invalid\n    User someone\n";
-        fs::write(&path, existing).expect("seed");
-
-        let host = parse_adhoc_target("host.example.invalid")
-            .expect("valid")
-            .to_connection_host();
-        let outcome = append_adhoc_host(&path, &host).expect("append");
-        assert_eq!(outcome, AppendHostOutcome::AlreadyExists);
-
-        // File untouched byte-for-byte.
-        let written = fs::read_to_string(&path).expect("read back");
-        assert_eq!(written, existing);
-
-        fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn mutation_reader_accepts_exact_limit_and_rejects_limit_plus_one() {
-        let dir = temp_dir("odytty-hosts-mutation-cap");
-        let path = dir.join(CONNECTION_HOSTS_FILE_NAME);
-        let mut bytes = vec![b'#'; DEFAULT_CONNECTION_HOSTS_MAX_BYTES as usize];
-        fs::write(&path, &bytes).expect("seed exact-limit file");
-        assert_eq!(
-            read_hosts_for_mutation(&path)
-                .expect("read exact-limit file")
-                .len(),
-            DEFAULT_CONNECTION_HOSTS_MAX_BYTES as usize
-        );
-
-        bytes.push(b'\n');
-        fs::write(&path, &bytes).expect("seed over-limit file");
-        let error = read_hosts_for_mutation(&path).expect_err("reject limit plus one");
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-        fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn every_mutation_rejects_oversized_input_without_changing_it() {
-        let dir = temp_dir("odytty-hosts-all-mutations-cap");
-        let path = dir.join(CONNECTION_HOSTS_FILE_NAME);
-        let mut oversized = b"Host existing.example.invalid\n    User original\n".to_vec();
-        oversized.resize(DEFAULT_CONNECTION_HOSTS_MAX_BYTES as usize + 1, b'#');
-        fs::write(&path, &oversized).expect("seed oversized file");
-
-        let appended = host("new.example.invalid", ConnectionHostSource::Odytty);
-        let append_error = append_adhoc_host(&path, &appended).expect_err("append must reject");
-        assert_eq!(append_error.kind(), io::ErrorKind::InvalidData);
-        assert_eq!(fs::read(&path).expect("read after append"), oversized);
-
-        let mut updated = host("existing.example.invalid", ConnectionHostSource::Odytty);
-        updated.user = Some("updated".to_owned());
-        let edit_error = edit_host_block(&path, "existing.example.invalid", &updated)
-            .expect_err("edit must reject");
-        assert_eq!(edit_error.kind(), io::ErrorKind::InvalidData);
-        assert_eq!(fs::read(&path).expect("read after edit"), oversized);
-
-        let remove_error =
-            remove_host_block(&path, "existing.example.invalid").expect_err("remove must reject");
-        assert_eq!(remove_error.kind(), io::ErrorKind::InvalidData);
-        assert_eq!(fs::read(&path).expect("read after remove"), oversized);
-        fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn append_refuses_to_grow_an_accepted_file_past_the_limit() {
-        let dir = temp_dir("odytty-hosts-output-cap");
-        let path = dir.join(CONNECTION_HOSTS_FILE_NAME);
-        let existing = vec![b'#'; DEFAULT_CONNECTION_HOSTS_MAX_BYTES as usize - 8];
-        fs::write(&path, &existing).expect("seed near-limit file");
-
-        let appended = host("new.example.invalid", ConnectionHostSource::Odytty);
-        let error = append_adhoc_host(&path, &appended).expect_err("growth must be rejected");
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-        assert_eq!(
-            fs::read(&path).expect("read after rejected growth"),
-            existing
-        );
-        fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn parses_odytty_owned_hosts_with_profile_fields() {
-        let entries = parse_odytty_hosts_bytes_with_limits(
-            br#"
-                # synthetic OdyTTY-owned hosts list
-                Host web1 web2
-                    HostName gateway.example.invalid
-                    User deploy
-                    Port 2222
-                    Theme odyssey
-                    Font "Victor Mono"
-                    Title "Synthetic Web"
-            "#,
-            limits(),
-        );
-
-        assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].alias, "web1");
-        assert_eq!(
-            entries[0].host_name.as_deref(),
-            Some("gateway.example.invalid")
-        );
-        assert_eq!(entries[0].user.as_deref(), Some("deploy"));
-        assert_eq!(entries[0].port, Some(2222));
-        assert_eq!(entries[0].theme.as_deref(), Some("odyssey"));
-        assert_eq!(entries[0].font.as_deref(), Some("Victor Mono"));
-        assert_eq!(entries[0].title.as_deref(), Some("Synthetic Web"));
-        assert_eq!(entries[0].integration, None);
-        assert_eq!(entries[0].source, ConnectionHostSource::Odytty);
-    }
-
-    #[test]
-    fn parses_and_round_trips_per_host_integration_optout() {
-        let entries = parse_odytty_hosts_bytes_with_limits(
-            b"Host secure\n    HostName secure.example.invalid\n    Integration off\n",
-            limits(),
-        );
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].integration, Some(false));
-
-        // The field survives a render/reload round-trip.
-        let mut formatted = String::new();
-        push_host_block(&mut formatted, &entries[0]);
-        assert!(formatted.contains("Integration off"));
-        let reparsed = parse_odytty_hosts_bytes_with_limits(formatted.as_bytes(), limits());
-        assert_eq!(reparsed[0].integration, Some(false));
-    }
-
-    #[test]
-    fn per_host_integration_ignores_unrecognized_values() {
-        let entries = parse_odytty_hosts_bytes_with_limits(
-            b"Host a\nHost b\n    Integration maybe\n    Integration on\n",
-            limits(),
-        );
-        // Absent field inherits the global default (None); a later valid value
-        // wins over an earlier unrecognized one.
-        assert_eq!(entries[0].integration, None);
-        assert_eq!(entries[1].integration, Some(true));
-    }
-
-    #[test]
-    fn parses_and_round_trips_per_host_reuse_optout() {
-        let entries = parse_odytty_hosts_bytes_with_limits(
-            b"Host bastion\n    HostName bastion.example.invalid\n    Reuse off\n",
-            limits(),
-        );
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].reuse, Some(false));
-        assert_eq!(entries[0].integration, None);
-
-        let mut formatted = String::new();
-        push_host_block(&mut formatted, &entries[0]);
-        assert!(formatted.contains("Reuse off"));
-        let reparsed = parse_odytty_hosts_bytes_with_limits(formatted.as_bytes(), limits());
-        assert_eq!(reparsed[0].reuse, Some(false));
-    }
-
-    #[test]
-    fn parses_and_round_trips_per_host_tmux_override() {
-        let entries = parse_odytty_hosts_bytes_with_limits(
-            b"Host persistent\n    HostName persistent.example.invalid\n    Tmux on\n",
-            limits(),
-        );
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].tmux, Some(true));
-        assert_eq!(entries[0].reuse, None);
-        assert_eq!(entries[0].integration, None);
-
-        let mut formatted = String::new();
-        push_host_block(&mut formatted, &entries[0]);
-        assert!(formatted.contains("Tmux on"));
-        let reparsed = parse_odytty_hosts_bytes_with_limits(formatted.as_bytes(), limits());
-        assert_eq!(reparsed[0].tmux, Some(true));
-    }
-
-    #[test]
-    fn append_round_trips_odytty_owned_hosts() {
-        let dir = temp_dir("odytty-connection-hosts");
-        let path = hosts_file_path(&dir);
-        let mut entry = host("web 1", ConnectionHostSource::Odytty);
-        entry.user = Some("deploy".to_owned());
-        entry.title = Some("Synthetic Web".to_owned());
-
-        append_adhoc_host(&path, &entry).expect("append synthetic host");
-        let loaded = read_odytty_hosts_with_limits(&path, limits());
-
-        assert_eq!(loaded, vec![entry]);
-        fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn mutation_rejects_control_characters_without_changing_existing_bytes() {
-        let dir = temp_dir("odytty-hosts-controls");
-        let path = hosts_file_path(&dir);
-        let original = annotated_fixture();
-        for control in ['\r', '\n', '\t', '\0', '\u{0085}'] {
-            fs::write(&path, &original).expect("seed fixture");
-            let mut appended = host("safe", ConnectionHostSource::Odytty);
-            appended.title = Some(format!("unsafe{control}value"));
-            let append_error =
-                append_adhoc_host(&path, &appended).expect_err("append rejects control");
-            assert_eq!(append_error.kind(), io::ErrorKind::InvalidInput);
-            assert_eq!(fs::read_to_string(&path).unwrap(), original);
-
-            let mut updated = host("alpha", ConnectionHostSource::Odytty);
-            updated.user = Some(format!("unsafe{control}value"));
-            let edit_error =
-                edit_host_block(&path, "alpha", &updated).expect_err("edit rejects control");
-            assert_eq!(edit_error.kind(), io::ErrorKind::InvalidInput);
-            assert_eq!(fs::read_to_string(&path).unwrap(), original);
-
-            let remove_error = remove_host_block(&path, &format!("alpha{control}"))
-                .expect_err("remove rejects control selector");
-            assert_eq!(remove_error.kind(), io::ErrorKind::InvalidInput);
-            assert_eq!(fs::read_to_string(&path).unwrap(), original);
-        }
-        fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn missing_and_malformed_hosts_files_degrade_to_empty_or_partial() {
-        let dir = temp_dir("odytty-connection-hosts-missing");
-        assert!(read_odytty_hosts_with_limits(dir.join("missing"), limits()).is_empty());
-
-        let partial = parse_odytty_hosts_bytes_with_limits(
-            b"Host good\nHostName good.example.invalid\n\xff",
-            limits(),
-        );
-        assert_eq!(partial.len(), 1);
-        assert_eq!(partial[0].alias, "good");
-        fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn caps_are_enforced_for_owned_hosts() {
-        let capped = ConnectionHostsLimits {
-            max_bytes: 48,
-            max_entries: 1,
-            max_field_chars: 4,
-        };
-        let entries = parse_odytty_hosts_bytes_with_limits(
-            b"Host abcdef\nHostName abcdef.example.invalid\nHost second\n",
-            capped,
-        );
-
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].alias, "abcd");
-        assert_eq!(entries[0].host_name.as_deref(), Some("abcd"));
-    }
-
-    #[test]
-    fn disabled_ssh_config_integration_never_calls_ssh_loader() {
-        let entries = load_connection_hosts_with_loaders(
-            false,
-            || vec![host("owned", ConnectionHostSource::Odytty)],
-            || panic!("disabled SSH config source must not be read"),
-        );
-
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].alias, "owned");
-    }
-
-    #[test]
-    fn opt_in_ssh_config_hosts_are_merged_after_owned_hosts() {
-        let entries = load_connection_hosts_with_loaders(
-            true,
-            || vec![host("owned", ConnectionHostSource::Odytty)],
-            || {
-                vec![
-                    SshHostEntry {
-                        alias: "owned".to_owned(),
-                        host_name: Some("ssh-owned.example.invalid".to_owned()),
-                        user: Some("ssh".to_owned()),
-                        port: Some(2200),
-                    },
-                    SshHostEntry {
-                        alias: "remote".to_owned(),
-                        host_name: Some("remote.example.invalid".to_owned()),
-                        user: None,
-                        port: None,
-                    },
-                ]
-            },
-        );
-
-        assert_eq!(
-            entries
-                .iter()
-                .map(|entry| entry.alias.as_str())
-                .collect::<Vec<_>>(),
-            vec!["owned", "remote"]
-        );
-        assert_eq!(entries[0].source, ConnectionHostSource::Odytty);
-        assert_eq!(entries[1].source, ConnectionHostSource::SshConfig);
-    }
-
-    #[test]
-    fn loaded_connection_hosts_honor_settings_opt_in() {
-        let dir = temp_dir("odytty-connection-hosts-settings");
-        let owned_path = hosts_file_path(&dir);
-        let ssh_path = dir.join("ssh_config");
-        fs::write(&owned_path, b"Host owned\nHostName owned.example.invalid\n")
-            .expect("write synthetic owned hosts");
-        fs::write(&ssh_path, b"Host remote\nHostName remote.example.invalid\n")
-            .expect("write synthetic ssh config");
-        let paths = ConnectionHostPaths::new(&owned_path, Some(ssh_path));
-
-        let disabled = load_connection_hosts(&Settings::default(), &paths);
-        let enabled = load_connection_hosts(
-            &Settings {
-                ssh_config_hosts: true,
-                ..Settings::default()
-            },
-            &paths,
-        );
-
-        assert_eq!(
-            disabled
-                .iter()
-                .map(|entry| entry.alias.as_str())
-                .collect::<Vec<_>>(),
-            vec!["owned"]
-        );
-        assert_eq!(
-            enabled
-                .iter()
-                .map(|entry| entry.alias.as_str())
-                .collect::<Vec<_>>(),
-            vec!["owned", "remote"]
-        );
-        fs::remove_dir_all(dir).ok();
-    }
-
-    // ---- Block-span byte-splice edit / remove ----
-
-    /// A hand-annotated fixture: a leading comment, three blocks (one
-    /// multi-alias), an in-block comment, an unknown field, a tab indent, and
-    /// blank-line separators - the shapes an in-place edit must not disturb.
-    fn annotated_fixture() -> String {
-        [
-            "# OdyTTY hosts \u{2014} hand annotated",
-            "",
-            "Host alpha",
-            "    HostName alpha.example.invalid",
-            "    User alice",
-            "    # alpha is the bastion",
-            "    XCustomField keep-me",
-            "",
-            "Host beta gamma",
-            "\tHostName beta.example.invalid",
-            "    User bob",
-            "",
-            "# a note that belongs to delta",
-            "Host delta",
-            "    HostName delta.example.invalid",
-            "",
-        ]
-        .join("\n")
-    }
-
-    fn max_chars() -> usize {
-        limits().max_field_chars
-    }
-
-    #[test]
-    fn edit_replaces_only_the_target_block_bytes() {
-        let orig = annotated_fixture();
-        let mut updated = host("beta", ConnectionHostSource::Odytty);
-        updated.host_name = Some("beta.example.invalid".to_owned());
-        updated.user = Some("bob-2".to_owned());
-
-        let edited =
-            splice_host_block_edit(&orig, "beta", &updated, max_chars()).expect("beta edited");
-
-        // Everything before the edited block is byte-identical...
-        let head = orig.find("Host beta gamma").expect("beta present");
-        assert_eq!(
-            &edited[..head],
-            &orig[..head],
-            "preamble + alpha block untouched"
-        );
-        // ...and everything from the delta preamble comment onward is too.
-        let tail = orig
-            .find("# a note that belongs to delta")
-            .expect("delta note present");
-        assert!(
-            edited.ends_with(&orig[tail..]),
-            "delta note + delta block untouched"
-        );
-        // The edited block took the new user and canonicalized its tab indent;
-        // its sibling alias survived.
-        assert!(edited.contains("Host beta gamma"), "sibling alias kept");
-        assert!(edited.contains("    User bob-2"));
-        assert!(
-            !edited.contains("\tHostName beta"),
-            "tab indent canonicalized"
-        );
-        assert!(!edited.contains("    User bob\n"), "old user replaced");
-    }
-
-    #[test]
-    fn edit_preserves_unknown_lines_inside_the_edited_block() {
-        let orig = annotated_fixture();
-        let mut updated = host("alpha", ConnectionHostSource::Odytty);
-        updated.host_name = Some("alpha.example.invalid".to_owned());
-        updated.user = Some("alice-2".to_owned());
-
-        let edited =
-            splice_host_block_edit(&orig, "alpha", &updated, max_chars()).expect("alpha edited");
-
-        assert!(edited.contains("    User alice-2"), "new user applied");
-        // The unknown field and in-block comment survive, re-emitted after the
-        // known fields.
-        assert!(
-            edited.contains("    XCustomField keep-me"),
-            "unknown field kept"
-        );
-        assert!(
-            edited.contains("    # alpha is the bastion"),
-            "in-block comment kept"
-        );
-        let user_at = edited.find("User alice-2").unwrap();
-        let unknown_at = edited.find("XCustomField keep-me").unwrap();
-        assert!(
-            unknown_at > user_at,
-            "unknown lines follow the known fields"
-        );
-    }
-
-    #[test]
-    fn edit_then_parse_round_trips_the_new_value() {
-        let dir = temp_dir("odytty-edit-parse");
-        let path = hosts_file_path(&dir);
-        fs::write(&path, annotated_fixture()).expect("seed");
-
-        let mut updated = host("alpha", ConnectionHostSource::Odytty);
-        updated.host_name = Some("alpha.example.invalid".to_owned());
-        updated.user = Some("alice-2".to_owned());
-        let outcome = edit_host_block(&path, "alpha", &updated).expect("edit");
-        assert_eq!(outcome, HostsEditOutcome::Written);
-
-        let reparsed = read_odytty_hosts_with_limits(&path, limits());
-        let alpha = reparsed
-            .iter()
-            .find(|h| h.alias == "alpha")
-            .expect("alpha still present");
-        assert_eq!(alpha.user.as_deref(), Some("alice-2"));
-        // The unknown field remains in the raw file after the round trip.
-        let raw = fs::read_to_string(&path).expect("read back");
-        assert!(raw.contains("XCustomField keep-me"));
-        fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn remove_middle_block_leaves_no_doubled_gap() {
-        let orig = annotated_fixture();
-        let edited = splice_host_block_remove(&orig, "beta", max_chars()).expect("beta removed");
-
-        let head = orig.find("Host beta gamma").unwrap();
-        assert_eq!(&edited[..head], &orig[..head], "prefix untouched");
-        let tail = orig.find("# a note that belongs to delta").unwrap();
-        assert!(edited.ends_with(&orig[tail..]), "suffix untouched");
-        assert!(!edited.contains("Host beta gamma"));
-        assert!(!edited.contains("User bob"));
-        assert!(
-            !edited.contains("\n\n\n"),
-            "trailing blank consumed, no doubled gap"
-        );
-    }
-
-    #[test]
-    fn remove_first_block_keeps_the_preamble() {
-        let orig = annotated_fixture();
-        let edited = splice_host_block_remove(&orig, "alpha", max_chars()).expect("alpha removed");
-
-        let head = orig.find("Host alpha").unwrap();
-        assert_eq!(&edited[..head], &orig[..head], "leading comment preserved");
-        let tail = orig.find("Host beta gamma").unwrap();
-        assert!(
-            edited.ends_with(&orig[tail..]),
-            "remaining blocks untouched"
-        );
-        assert!(edited.starts_with("# OdyTTY hosts"));
-        assert!(!edited.contains("Host alpha"));
-        assert!(
-            !edited.contains("XCustomField"),
-            "alpha's unknown field left with it"
-        );
-    }
-
-    #[test]
-    fn remove_last_block_orphans_only_its_own_body() {
-        let orig = annotated_fixture();
-        let edited = splice_host_block_remove(&orig, "delta", max_chars()).expect("delta removed");
-
-        let head = orig.find("Host delta").unwrap();
-        assert_eq!(&edited[..head], &orig[..head], "prefix untouched");
-        assert!(!edited.contains("Host delta"));
-        // The note above delta is its preamble (blank-line separated), owned by
-        // no block, so it stays.
-        assert!(edited.contains("# a note that belongs to delta"));
-        assert!(edited.contains("Host beta gamma"));
-    }
-
-    #[test]
-    fn edit_and_remove_on_a_missing_file_report_not_found() {
-        let dir = temp_dir("odytty-edit-missing");
-        let path = dir.join("does-not-exist").join(CONNECTION_HOSTS_FILE_NAME);
-        let updated = host("x", ConnectionHostSource::Odytty);
-
-        assert_eq!(
-            edit_host_block(&path, "x", &updated).expect("edit missing"),
-            HostsEditOutcome::NotFound
-        );
-        assert_eq!(
-            remove_host_block(&path, "x").expect("remove missing"),
-            HostsEditOutcome::NotFound
-        );
-        assert!(!path.exists(), "a not-found edit never creates the file");
-        fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn edit_on_empty_or_unmatched_file_leaves_it_untouched() {
-        let dir = temp_dir("odytty-edit-untouched");
-        let path = hosts_file_path(&dir);
-
-        // Empty file: nothing to edit.
-        fs::write(&path, b"").expect("seed empty");
-        assert_eq!(
-            edit_host_block(&path, "any", &host("any", ConnectionHostSource::Odytty))
-                .expect("edit empty"),
-            HostsEditOutcome::NotFound
-        );
-        assert_eq!(fs::read_to_string(&path).unwrap(), "");
-
-        // Populated file, alias that matches no block: bytes unchanged.
-        let fixture = annotated_fixture();
-        fs::write(&path, &fixture).expect("seed fixture");
-        assert_eq!(
-            remove_host_block(&path, "nonexistent").expect("remove unmatched"),
-            HostsEditOutcome::NotFound
-        );
-        assert_eq!(fs::read_to_string(&path).unwrap(), fixture);
-        fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn edit_stays_byte_aligned_at_eof_without_a_trailing_newline() {
-        let orig = "Host solo\n    User x".to_owned();
-        let mut updated = host("solo", ConnectionHostSource::Odytty);
-        updated.host_name = None;
-        updated.user = Some("y".to_owned());
-
-        let edited =
-            splice_host_block_edit(&orig, "solo", &updated, max_chars()).expect("solo edited");
-        assert_eq!(
-            edited, "Host solo\n    User y",
-            "no trailing newline injected"
-        );
-    }
-
-    #[test]
-    fn persist_field_parses_emits_and_survives_an_edit() {
-        // A per-host Persist override parses and round-trips.
-        let entries = parse_odytty_hosts_bytes_with_limits(
-            b"Host pw\n    HostName pw.example.invalid\n    Persist 2h\n",
-            limits(),
-        );
-        assert_eq!(entries[0].persist.as_deref(), Some("2h"));
-        let mut rendered = String::new();
-        push_host_block(&mut rendered, &entries[0]);
-        assert!(rendered.contains("Persist 2h"));
-
-        // An off override is preserved verbatim.
-        let off = parse_odytty_hosts_bytes_with_limits(b"Host po\n    Persist off\n", limits());
-        assert_eq!(off[0].persist.as_deref(), Some("off"));
-    }
-
-    #[test]
-    fn protocol_field_parses_emits_and_preserves_odd_values() {
-        // The reserved Protocol field parses and round-trips through a render.
-        let entries = parse_odytty_hosts_bytes_with_limits(
-            b"Host p\n    HostName p.example.invalid\n    Protocol ssh\n",
-            limits(),
-        );
-        assert_eq!(entries[0].protocol.as_deref(), Some("ssh"));
-        let mut rendered = String::new();
-        push_host_block(&mut rendered, &entries[0]);
-        assert!(rendered.contains("Protocol ssh"));
-
-        // A non-`ssh` value is preserved verbatim (reserved, forward-compatible)
-        // rather than dropped, so a hand-added protocol survives a reparse.
-        let odd = parse_odytty_hosts_bytes_with_limits(b"Host q\n    Protocol quic\n", limits());
-        assert_eq!(odd[0].protocol.as_deref(), Some("quic"));
-    }
-
-    #[test]
-    fn identity_file_parses_emits_and_survives_an_edit() {
-        // IdentityFile stores a key PATH (never a secret) and
-        // round-trips through a render.
-        let entries = parse_odytty_hosts_bytes_with_limits(
-            b"Host k\n    HostName k.example.invalid\n    IdentityFile /home/user/.ssh/id_ed25519.example\n",
-            limits(),
-        );
-        assert_eq!(
-            entries[0].identity_file.as_deref(),
-            Some("/home/user/.ssh/id_ed25519.example")
-        );
-        let mut rendered = String::new();
-        push_host_block(&mut rendered, &entries[0]);
-        assert!(rendered.contains("IdentityFile /home/user/.ssh/id_ed25519.example"));
-
-        // An in-place edit that sets the identity path splices it in while every
-        // other byte is preserved.
-        let dir = temp_dir("odytty-identity-edit");
-        let path = hosts_file_path(&dir);
-        fs::write(&path, annotated_fixture()).expect("seed");
-        let mut updated = host("alpha", ConnectionHostSource::Odytty);
-        updated.host_name = Some("alpha.example.invalid".to_owned());
-        updated.identity_file = Some("/home/user/.ssh/alpha.example".to_owned());
-        assert_eq!(
-            edit_host_block(&path, "alpha", &updated).expect("edit"),
-            HostsEditOutcome::Written
-        );
-        let reparsed = read_odytty_hosts_with_limits(&path, limits());
-        let alpha = reparsed.iter().find(|h| h.alias == "alpha").expect("alpha");
-        assert_eq!(
-            alpha.identity_file.as_deref(),
-            Some("/home/user/.ssh/alpha.example")
-        );
-        let raw = fs::read_to_string(&path).expect("read back");
-        assert!(
-            raw.contains("XCustomField keep-me"),
-            "unknown field preserved"
-        );
-        fs::remove_dir_all(dir).ok();
-    }
-}
+#[path = "connection_hosts/tests.rs"]
+mod tests;

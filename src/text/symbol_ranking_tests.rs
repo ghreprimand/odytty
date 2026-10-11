@@ -61,12 +61,50 @@ fn static_symbol_hint_prefers_regular_then_shortest_remaining_stem() {
     let plain = fixture.face("Marker.ttf");
     let regular = fixture.face("Marker-Regular.ttf");
     let inventory = FontFileInventory::new(vec![fixture.0.clone()]);
-    let faces = hinted_fallback_faces(&inventory, &["marker"]);
+    let faces = hinted_fallback_faces(&inventory, &[("marker", 0)]);
     assert_eq!(faces[0].0, SymbolFontSource::Host(regular.clone()));
     std::fs::remove_file(regular).expect("remove regular fixture");
     let inventory = FontFileInventory::new(vec![fixture.0.clone()]);
-    let faces = hinted_fallback_faces(&inventory, &["marker"]);
+    let faces = hinted_fallback_faces(&inventory, &[("marker", 0)]);
     assert_eq!(faces[0].0, SymbolFontSource::Host(plain));
+}
+
+/// A hint names the face to load from a collection, and the same file at two
+/// faces is two entries while the same (file, face) twice is one.
+#[cfg(any(windows, all(unix, not(target_os = "macos"))))]
+#[test]
+fn static_symbol_hints_load_the_face_they_name() {
+    let fixture = FixtureDir::new();
+    let path = fixture.face("Marker.ttf");
+    let inventory = FontFileInventory::new(vec![fixture.0.clone()]);
+    let requested = std::cell::RefCell::new(Vec::new());
+    let load = |file: &Path, face: u32| {
+        requested.borrow_mut().push((file.to_path_buf(), face));
+        // The fixture is a single-face font, so the real read is face 0.
+        load_font_face_at(file, 0)
+    };
+    let faces = hinted_fallback_faces_with(&inventory, &[("marker", 1)], load);
+    assert_eq!(faces.len(), 1);
+    assert_eq!(*requested.borrow(), vec![(path.clone(), 1)]);
+
+    requested.borrow_mut().clear();
+    let faces = hinted_fallback_faces_with(
+        &inventory,
+        &[("marker", 0), ("marker", 1), ("marker", 1)],
+        load,
+    );
+    assert_eq!(faces.len(), 2, "one entry per (file, face)");
+    assert_eq!(*requested.borrow(), vec![(path.clone(), 0), (path, 1)]);
+}
+
+/// The Windows tail reaches Cambria Math, the face of `cambria.ttc` that
+/// carries the math and symbol coverage, not the text face at index 0.
+#[test]
+fn the_windows_symbol_tail_names_the_cambria_math_face() {
+    assert_eq!(
+        WINDOWS_SYMBOL_FALLBACK_HINTS,
+        &[("seguisym", 0), ("segmdl2", 0), ("cambria", 1)]
+    );
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]

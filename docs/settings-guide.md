@@ -49,6 +49,9 @@ The config file lives at:
   `~/.config/odytty/odytty.conf` when `XDG_CONFIG_HOME` is unset;
 - `%APPDATA%\odytty\odytty.conf` on Windows.
 
+Saving takes a lock on `odytty.conf.lock` beside the file, so two OdyTTY
+windows saving different settings at the same time both keep their changes.
+
 OdyTTY checks the file about once per second and applies valid external changes
 live. Values resolve from built-in defaults, then `odytty.conf`, then matching
 `ODYTTY_*` environment variables. An environment override therefore pins that

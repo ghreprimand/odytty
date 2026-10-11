@@ -282,3 +282,62 @@ fn unknown_action_tag_is_unsupported_capability() {
     bytes[14] = 255;
     assert_eq!(decode(&bytes), Err(ErrorCode::UnsupportedCapability));
 }
+
+/// The server only decodes, so the control-scalar and length rules must hold on
+/// hand-assembled wire bytes, not just behind `encode`'s own `put_name`.
+#[test]
+fn hostile_names_on_the_wire_are_rejected_by_decode() {
+    let window = object(ObjectKind::Window);
+    let carriers = [
+        Action::OpenProfile {
+            window,
+            name: "a".into(),
+        },
+        Action::CreateWorkspace {
+            window,
+            name: "a".into(),
+        },
+        Action::Rename {
+            target: object(ObjectKind::Tab),
+            name: "a".into(),
+        },
+    ];
+    for carrier in carriers {
+        let valid = encode(&request(carrier.clone())).expect("carrier encodes");
+        // The name is the last field: a u16 length and the one byte `a`.
+        let prefix = &valid[..valid.len() - 3];
+        let frame = |length: u16, name: &[u8]| {
+            let mut bytes = prefix.to_vec();
+            bytes.extend_from_slice(&length.to_le_bytes());
+            bytes.extend_from_slice(name);
+            bytes
+        };
+        assert!(
+            decode(&frame(1, b"a")).is_ok(),
+            "the splice itself is valid"
+        );
+        for hostile in [
+            "line\nline",
+            "a\0b",
+            "a\u{1b}[31mb",
+            "a\u{9b}31mb",
+            "a\u{9d}0;x\u{9c}b",
+        ] {
+            let bytes = hostile.as_bytes();
+            assert_eq!(
+                decode(&frame(bytes.len() as u16, bytes)),
+                Err(ErrorCode::InvalidRequest),
+                "{carrier:?} with {hostile:?}"
+            );
+        }
+        let long = vec![b'n'; MAX_NAME_BYTES + 1];
+        assert_eq!(decode(&frame(0, b"")), Err(ErrorCode::InvalidRequest));
+        assert_eq!(
+            decode(&frame(long.len() as u16, &long)),
+            Err(ErrorCode::InvalidRequest)
+        );
+        // A length that claims more bytes than the frame holds, or fewer.
+        assert_eq!(decode(&frame(5, b"abc")), Err(ErrorCode::InvalidRequest));
+        assert_eq!(decode(&frame(2, b"abc")), Err(ErrorCode::InvalidRequest));
+    }
+}

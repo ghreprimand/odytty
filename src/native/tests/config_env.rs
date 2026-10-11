@@ -531,6 +531,58 @@ fn ssh_control_dir_stays_out_of_a_redirected_state_base() {
     assert!(dir.is_dir());
 }
 
+/// A state directory too deep for a Unix-domain socket path (the master binds
+/// `<dir>/ssh-<40 hex>.<16 characters>` before renaming it) uses the short
+/// per-user fallback, and reuse is off only when neither can be bound.
+#[cfg(unix)]
+#[test]
+fn ssh_control_dir_falls_back_when_the_state_path_is_too_deep_for_a_socket() {
+    use std::os::unix::fs::PermissionsExt;
+    // Room needed beyond the directory: "/" + "ssh-" + 40 hex + "." + 16.
+    const OVERHEAD: usize = 1 + 4 + 40 + 1 + 16;
+    let root = crate::test_dirs::fresh_temp_dir("odytty-ssh-limit-");
+    let _cleanup = ScratchRoot(root.clone());
+    let under = crate::native::App::ssh_control_dir_under_for_test;
+
+    let state = root.join("state");
+    let preferred = state.join("ssh");
+    let fallback = root.join("short");
+    let preferred_len = preferred.as_os_str().len();
+
+    // Exactly at the limit the preferred directory is used.
+    assert_eq!(
+        under(&state, Some(fallback.clone()), preferred_len + OVERHEAD),
+        Some(preferred.clone())
+    );
+    assert!(!fallback.exists());
+
+    // One byte over: the short directory is used, private to the user.
+    let deep_state = root.join("deep-state");
+    let deep_limit = deep_state.join("ssh").as_os_str().len() + OVERHEAD - 1;
+    let used = under(&deep_state, Some(fallback.clone()), deep_limit);
+    assert_eq!(used, Some(fallback.clone()));
+    assert!(
+        !deep_state.join("ssh").exists(),
+        "the deep directory is not created"
+    );
+    let mode = std::fs::metadata(&fallback)
+        .expect("fallback exists")
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o700);
+
+    // Neither fits: reuse is off and nothing is created.
+    let other_state = root.join("other-state");
+    let other_fallback = root.join("other-short");
+    let none_limit = other_fallback.as_os_str().len() + OVERHEAD - 1;
+    assert_eq!(
+        under(&other_state, Some(other_fallback.clone()), none_limit),
+        None
+    );
+    assert!(!other_state.exists() && !other_fallback.exists());
+    assert_eq!(under(&other_state, None, 0), None);
+}
+
 /// Launch resolution on a thread that does not hold the environment lock
 /// reads neither the config file nor the setting variables another test has
 /// redirected; the lock-holding thread still reads both.

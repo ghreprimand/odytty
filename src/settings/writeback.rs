@@ -79,6 +79,9 @@ pub fn write_settings_changes_to_path(
         });
     }
 
+    // Held until the rename lands, so a concurrent save from another OdyTTY
+    // process re-reads this one's result instead of overwriting it.
+    let _lock = lock_config(path)?;
     let existing = match super::fs_read::read_capped(path) {
         Ok(contents) => contents,
         Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
@@ -119,10 +122,13 @@ pub fn ensure_config_file_exists() -> Result<ConfigWritebackResult, ConfigWriteb
 
 /// Path-explicit form of [`ensure_config_file_exists`]. No-op (reports
 /// `changed: 0`) when the file already exists, so it never clobbers user
-/// content; otherwise atomically writes a comment-only first-run stub.
+/// content; otherwise atomically writes a comment-only first-run stub. The
+/// check and the write happen under the config lock, so a save from another
+/// OdyTTY process between them is never replaced by the stub.
 pub fn ensure_config_file_exists_at(
     path: &Path,
 ) -> Result<ConfigWritebackResult, ConfigWritebackError> {
+    let _lock = lock_config(path)?;
     if path.exists() {
         return Ok(ConfigWritebackResult {
             path: path.to_path_buf(),
@@ -134,6 +140,56 @@ pub fn ensure_config_file_exists_at(
         path: path.to_path_buf(),
         changed: 1,
     })
+}
+
+/// How long a save waits for another OdyTTY process to finish its own save.
+const CONFIG_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Take the advisory lock that serializes OdyTTY's read-modify-write of
+/// `odytty.conf` across processes: a kernel lock (`flock` on Unix, `LockFileEx`
+/// on Windows) on the sidecar `odytty.conf.lock` beside it, released when the
+/// returned handle drops. A file system that cannot lock, or a sidecar that
+/// cannot be opened, saves without the lock as before (the write itself then
+/// reports any real error); a lock still held after [`CONFIG_LOCK_WAIT`] is an
+/// error rather than a silent lost update.
+fn lock_config(path: &Path) -> Result<Option<std::fs::File>, ConfigWritebackError> {
+    let Some(name) = path.file_name() else {
+        return Ok(None);
+    };
+    let mut lock_name = name.to_os_string();
+    lock_name.push(".lock");
+    let lock_path = path.with_file_name(lock_name);
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let Ok(file) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)
+    else {
+        return Ok(None);
+    };
+    let deadline = std::time::Instant::now() + CONFIG_LOCK_WAIT;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(Some(file)),
+            Err(std::fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(std::fs::TryLockError::WouldBlock) => {
+                return Err(ConfigWritebackError::new(format!(
+                    "another OdyTTY window is still saving {}; try again",
+                    path.display()
+                )));
+            }
+            Err(std::fs::TryLockError::Error(_)) => return Ok(None),
+        }
+    }
 }
 
 fn canonical_changes(changes: &[SettingEdit]) -> BTreeMap<&'static str, String> {
@@ -478,6 +534,69 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), ConfigWritebackError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Concurrent saves of different keys keep every key: each read-modify-write
+    /// runs under the config lock, so none rewrites the file from a stale read.
+    /// Every writer opens its own lock handle, as a separate process would.
+    #[test]
+    fn concurrent_saves_of_different_keys_lose_no_update() {
+        let dir = crate::test_dirs::ScratchDir::new("odytty-conf-lock");
+        let path = dir.path().join("odytty.conf");
+        let keys = [
+            ("font_size", super::super::FONT_SIZE_ENV, "21"),
+            ("theme", super::super::THEME_ENV, "plain"),
+            ("line_height", super::super::LINE_HEIGHT_ENV, "1.2"),
+            ("bloom_intensity", super::super::BLOOM_INTENSITY_ENV, "0.4"),
+        ];
+        for _ in 0..10 {
+            let _ = std::fs::remove_file(&path);
+            let barrier = std::sync::Arc::new(std::sync::Barrier::new(keys.len()));
+            let writers: Vec<_> = keys
+                .iter()
+                .map(|&(key, env, value)| {
+                    let path = path.clone();
+                    let barrier = std::sync::Arc::clone(&barrier);
+                    std::thread::spawn(move || {
+                        barrier.wait();
+                        write_settings_changes_to_path(
+                            &path,
+                            &[SettingEdit {
+                                key,
+                                env,
+                                value: value.to_owned(),
+                            }],
+                        )
+                        .expect("save");
+                    })
+                })
+                .collect();
+            for writer in writers {
+                writer.join().expect("writer");
+            }
+            let saved = std::fs::read_to_string(&path).expect("saved config");
+            for (key, _, value) in keys {
+                assert!(
+                    saved.lines().any(|line| line == format!("{key} = {value}")),
+                    "{key} lost: {saved:?}"
+                );
+            }
+        }
+    }
+
+    /// The first-run stub never replaces a config that exists by the time the
+    /// lock is held.
+    #[test]
+    fn the_first_run_stub_does_not_replace_an_existing_config() {
+        let dir = crate::test_dirs::ScratchDir::new("odytty-conf-stub");
+        let path = dir.path().join("odytty.conf");
+        std::fs::write(&path, "theme = plain\n").expect("user config");
+        let result = ensure_config_file_exists_at(&path).expect("ensure");
+        assert_eq!(result.changed, 0);
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("config"),
+            "theme = plain\n"
+        );
+    }
 
     #[test]
     fn rewrite_preserves_comments_unknowns_and_updates_last_matching_key() {

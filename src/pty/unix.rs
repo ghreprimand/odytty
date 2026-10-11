@@ -795,6 +795,15 @@ impl Drop for PtySession {
     }
 }
 
+/// Known limit off Linux: `posix_openpt` has no close-on-exec flag there, so
+/// the master descriptor (and the wake pipe, see [`make_reader_wake_pipe`]) is
+/// created inheritable and marked a few instructions later. A thread that forks
+/// in that window, such as a second window spawning a shell or a helper
+/// `Command`, inherits the master of an unrelated session; the kernel then
+/// cannot deliver the hang-up when the owner closes its copy, so that shell
+/// lives until the group `SIGKILL`. The window is rare and not closed here
+/// (serializing every PTY creation with every process spawn would couple
+/// unrelated subsystems); Linux uses the atomic flags and is unaffected.
 pub(crate) fn open_pty_pair(dimensions: Dimensions) -> Result<(File, File)> {
     // `posix_openpt` only accepts a CLOEXEC flag on Linux; elsewhere the flag is
     // set on the master fd explicitly after opening (see below).
@@ -833,7 +842,8 @@ pub(crate) fn open_pty_pair(dimensions: Dimensions) -> Result<(File, File)> {
 /// sets that atomically through `pipe2` (`PipeFlags::CLOEXEC`); macOS and the
 /// BSDs lack `pipe2`, so a plain `pipe` is created and each end is marked
 /// close-on-exec with `fcntl` immediately after (the same fallback the master fd
-/// uses off Linux). The wake behavior is identical on every platform.
+/// uses off Linux). The wake behavior is identical on every platform. The same
+/// fork-window limit as [`open_pty_pair`] applies to both ends off Linux.
 #[cfg(target_os = "linux")]
 fn make_reader_wake_pipe() -> Result<(rustix::fd::OwnedFd, rustix::fd::OwnedFd)> {
     pipe_with(PipeFlags::CLOEXEC).context("create pty reader wake pipe")

@@ -797,4 +797,110 @@ mod tests {
             Color::Rgb(0x24, 0x33, 0x52)
         );
     }
+
+    fn bar_text(snapshot: &Snapshot) -> String {
+        let columns = snapshot.dimensions.columns;
+        let row = snapshot.dimensions.rows - 1;
+        snapshot.cells[row * columns..(row + 1) * columns]
+            .iter()
+            .filter(|cell| !cell.wide_continuation)
+            .map(|cell| cell.ch)
+            .collect()
+    }
+
+    #[test]
+    fn a_wide_query_matches_both_cells_of_its_owner() {
+        let mut terminal = Terminal::new(20, 3);
+        terminal.advance("\u{6f22}\u{5b57} ab".as_bytes());
+        let mut ui = SearchUi::default();
+        ui.open();
+        ui.push_char('\u{5b57}');
+        ui.refresh(&terminal);
+        assert_eq!(ui.match_count(), 1);
+        let found = ui.current.expect("a current match");
+        assert_eq!((found.start, found.end), (point(0, 2), point(0, 3)));
+    }
+
+    #[test]
+    fn a_combining_query_matches_the_owner_and_backspace_removes_it_whole() {
+        let mut terminal = Terminal::new(20, 3);
+        terminal.advance("caf\u{65}\u{301} x".as_bytes());
+        let mut ui = SearchUi::default();
+        ui.open();
+        ui.push_char('e');
+        ui.push_char('\u{301}');
+        ui.refresh(&terminal);
+        assert_eq!(ui.match_count(), 1);
+        assert_eq!(ui.current.expect("match").start, point(0, 3));
+        // One backspace removes the base and its mark together.
+        ui.backspace();
+        assert!(ui.query.is_empty());
+    }
+
+    #[test]
+    fn a_scoped_search_clears_when_the_origin_moves_and_never_widens() {
+        let mut terminal = Terminal::new(20, 4);
+        terminal.advance(b"foo one\r\nfoo two\r\n");
+        let scope_start = point(1, 0);
+        let scope_end = point(1, 19);
+        let mut ui = SearchUi::default();
+        ui.open_scoped(scope_start, scope_end, terminal.render_revision());
+        for ch in "foo".chars() {
+            ui.push_char(ch);
+        }
+        ui.refresh(&terminal);
+        assert_eq!(ui.match_count(), 1, "only the scoped row matches");
+        assert_eq!(ui.current.expect("match").start, point(1, 0));
+
+        // Output moves the origin: the stale scope shows no matches at all,
+        // even though the query still matches the unscoped text.
+        terminal.advance(b"x");
+        ui.refresh(&terminal);
+        assert_eq!(ui.match_count(), 0);
+        assert!(ui.current.is_none());
+        assert_eq!(
+            terminal.search_scoped("foo", ui.options, None).len(),
+            2,
+            "the unscoped text still matches twice"
+        );
+    }
+
+    #[test]
+    fn a_status_longer_than_the_bar_is_cut_at_the_edge_without_touching_other_rows() {
+        let mut terminal = Terminal::new(20, 3);
+        terminal.advance(b"aaaa");
+        let original = terminal.snapshot();
+        let mut snapshot = original.clone();
+        let mut ui = SearchUi::default();
+        ui.open();
+        for _ in 0..30 {
+            ui.push_char('a');
+        }
+        ui.refresh(&terminal);
+        apply_search_ui(&mut snapshot, &ui, 0, 0, Dimensions::new(20, 3), None);
+        assert_eq!(snapshot.cells.len(), original.cells.len());
+        assert_eq!(bar_text(&snapshot), " Search: aaaaaaaaaaa");
+        assert_eq!(snapshot.cells[..40], original.cells[..40], "other rows");
+    }
+
+    #[test]
+    fn a_wide_owner_that_does_not_fit_the_bar_is_left_out_whole() {
+        let mut terminal = Terminal::new(20, 3);
+        terminal.advance(b"x");
+        let mut snapshot = terminal.snapshot();
+        let mut ui = SearchUi::default();
+        ui.open();
+        // " Search: " takes nine cells and ten letters reach column 18, so the
+        // wide owner would need columns 19 and 20.
+        for _ in 0..10 {
+            ui.push_char('a');
+        }
+        ui.push_char('\u{6f22}');
+        ui.refresh(&terminal);
+        apply_search_ui(&mut snapshot, &ui, 0, 0, Dimensions::new(20, 3), None);
+        assert_eq!(bar_text(&snapshot), " Search: aaaaaaaaaa ");
+        let last = &snapshot.cells[2 * 20 + 19];
+        assert_eq!(last.ch, ' ');
+        assert!(!last.wide_continuation, "no half-painted wide tail");
+    }
 }

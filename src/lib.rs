@@ -376,7 +376,9 @@ pub(crate) mod test_lock {
             crate::text::set_default_colors(PROBE_FG, PROBE_BG);
             crate::text::set_ansi_palette(&[PROBE_FG; 16]);
             crate::settings::set_synthetic_styles_enabled(false);
-            crate::settings::set_geometric_boxdraw_enabled(true);
+            crate::settings::set_geometric_boxdraw_enabled(
+                !crate::settings::geometric_boxdraw_enabled(),
+            );
             crate::settings::set_ligatures_enabled(!crate::settings::ligatures_enabled());
             crate::settings::set_script_shaping_enabled(!crate::settings::script_shaping_enabled());
             crate::settings::set_ligature_ss01_enabled(true);
@@ -553,7 +555,9 @@ pub(crate) mod test_lock {
             {
                 let _guard = render_globals_lock();
                 crate::settings::set_synthetic_styles_enabled(false);
-                crate::settings::set_geometric_boxdraw_enabled(true);
+                crate::settings::set_geometric_boxdraw_enabled(
+                    !crate::settings::geometric_boxdraw_enabled(),
+                );
                 crate::settings::set_symbol_fallback_enabled(false);
                 crate::settings::set_symbol_font_path(Some(std::path::PathBuf::from("probe.ttf")));
                 crate::settings::set_symbol_map(probe_symbol_map());

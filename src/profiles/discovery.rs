@@ -6,6 +6,8 @@
 
 use std::path::Path;
 use std::sync::OnceLock;
+#[cfg(unix)]
+use std::{ffi::OsString, io::Read};
 
 use super::limits::MAX_PROFILE_ENTRIES;
 
@@ -47,15 +49,7 @@ fn discover_shells() -> Vec<DiscoveredShell> {
 fn push_platform_defaults(out: &mut Vec<DiscoveredShell>) {
     #[cfg(unix)]
     {
-        if let Some(shell) = std::env::var_os("SHELL").filter(|value| !value.is_empty()) {
-            let program = shell.to_string_lossy().into_owned();
-            out.push(DiscoveredShell {
-                label: format!("Default ({program})"),
-                program: program.clone(),
-                args: Vec::new(),
-                kind: ShellKind::Default,
-            });
-        }
+        push_unix_default_entry(out, std::env::var_os("SHELL"));
         for candidate in unix_login_shell_candidates() {
             push_unique_shell(out, &candidate, ShellKind::Posix);
         }
@@ -84,6 +78,22 @@ fn push_platform_defaults(out: &mut Vec<DiscoveredShell>) {
     }
 }
 
+/// The `Default` entry for the login shell named by `SHELL`. It exists only
+/// when `SHELL` is set and non-empty; an environment without it is valid and
+/// simply has no default entry.
+#[cfg(unix)]
+fn push_unix_default_entry(out: &mut Vec<DiscoveredShell>, shell: Option<OsString>) {
+    if let Some(shell) = shell.filter(|value| !value.is_empty()) {
+        let program = shell.to_string_lossy().into_owned();
+        out.push(DiscoveredShell {
+            label: format!("Default ({program})"),
+            program: program.clone(),
+            args: Vec::new(),
+            kind: ShellKind::Default,
+        });
+    }
+}
+
 #[cfg(windows)]
 fn push_windows_extras(out: &mut Vec<DiscoveredShell>) {
     for (label, program, kind) in [
@@ -92,9 +102,15 @@ fn push_windows_extras(out: &mut Vec<DiscoveredShell>) {
         ("Command Prompt", "cmd.exe", ShellKind::Cmd),
     ] {
         if program_exists(program) {
+            // Relabel only an entry this call added: when the program is
+            // already listed (the `COMSPEC` fallback is `powershell.exe`), the
+            // existing `Default (...)` label stays.
+            let before = out.len();
             push_unique_shell(out, program, kind);
-            if let Some(idx) = out.iter().position(|entry| entry.program == program) {
-                out[idx].label = label.to_owned();
+            if out.len() > before
+                && let Some(entry) = out.last_mut()
+            {
+                entry.label = label.to_owned();
             }
         }
     }
@@ -105,20 +121,52 @@ fn default_windows_shell_program() -> String {
     std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".to_owned())
 }
 
+/// Bytes read from the shell registry. A real `/etc/shells` is a few hundred
+/// bytes; the cap only bounds a damaged or hostile file.
+#[cfg(unix)]
+const MAX_SHELL_REGISTRY_BYTES: u64 = 64 * 1024;
+
+/// Lines examined in the shell registry, comments and blanks included.
+#[cfg(unix)]
+const MAX_SHELL_REGISTRY_LINES: usize = 512;
+
 #[cfg(unix)]
 fn unix_login_shell_candidates() -> Vec<String> {
-    let mut out = Vec::new();
-    if let Ok(file) = std::fs::read_to_string("/etc/shells") {
-        for line in file.lines().map(str::trim).filter(|line| !line.is_empty()) {
-            if line.starts_with('#') {
-                continue;
-            }
-            if Path::new(line).is_absolute() {
-                out.push(line.to_owned());
-            }
-        }
+    match std::fs::File::open("/etc/shells") {
+        Ok(file) => shell_registry_candidates(file),
+        Err(_) => Vec::new(),
     }
-    out
+}
+
+/// Absolute shell paths from a registry stream. Reads at most
+/// [`MAX_SHELL_REGISTRY_BYTES`], examines at most [`MAX_SHELL_REGISTRY_LINES`]
+/// lines, and keeps at most [`MAX_PROFILE_ENTRIES`] candidates, all before any
+/// filesystem probe. A cut final line is dropped rather than read as a path.
+#[cfg(unix)]
+fn shell_registry_candidates(reader: impl Read) -> Vec<String> {
+    let mut bytes = Vec::new();
+    if reader
+        .take(MAX_SHELL_REGISTRY_BYTES)
+        .read_to_end(&mut bytes)
+        .is_err()
+    {
+        return Vec::new();
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let complete = if bytes.len() as u64 == MAX_SHELL_REGISTRY_BYTES {
+        text.rfind('\n').map_or("", |end| &text[..end])
+    } else {
+        &text
+    };
+    complete
+        .lines()
+        .take(MAX_SHELL_REGISTRY_LINES)
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .filter(|line| Path::new(line).is_absolute())
+        .take(MAX_PROFILE_ENTRIES)
+        .map(str::to_owned)
+        .collect()
 }
 
 #[cfg(windows)]
@@ -169,11 +217,18 @@ fn push_unique_shell(out: &mut Vec<DiscoveredShell>, program: &str, kind: ShellK
     }
 }
 
+/// Whether `program` names an existing file. A path with a directory part is
+/// checked as given; a bare name is looked up on `PATH` only, never in the
+/// working directory, so a copy of a shell in the launch directory does not
+/// make a candidate appear.
 fn program_exists_path(program: &str) -> bool {
-    Path::new(program).is_file()
-        || std::env::var("PATH")
-            .ok()
-            .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+    let path = Path::new(program);
+    if path.components().count() > 1 {
+        return path.is_file();
+    }
+    std::env::var("PATH")
+        .ok()
+        .is_some_and(|search| std::env::split_paths(&search).any(|dir| dir.join(program).is_file()))
 }
 
 #[cfg(test)]
@@ -188,36 +243,66 @@ mod tests {
         assert!(first.len() <= MAX_PROFILE_ENTRIES);
     }
 
+    #[cfg(unix)]
     #[test]
-    fn unix_discovery_includes_a_default_entry_on_unix() {
-        #[cfg(unix)]
-        {
-            let shells = discovered_shells();
-            assert!(shells.iter().any(|shell| shell.kind == ShellKind::Default));
-        }
+    fn the_unix_default_entry_exists_only_when_shell_is_set_and_non_empty() {
+        let mut out = Vec::new();
+        push_unix_default_entry(&mut out, None);
+        push_unix_default_entry(&mut out, Some(OsString::new()));
+        assert!(out.is_empty(), "no SHELL is valid and has no default entry");
+
+        push_unix_default_entry(&mut out, Some(OsString::from("/bin/zsh")));
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].kind, ShellKind::Default);
+        assert_eq!(out[0].program, "/bin/zsh");
+        assert_eq!(out[0].label, "Default (/bin/zsh)");
     }
 
+    #[cfg(windows)]
     #[test]
     fn windows_discovery_lists_powershell_or_cmd_when_present() {
-        #[cfg(windows)]
-        {
-            let shells = discovered_shells();
-            assert!(shells.iter().any(|shell| {
-                matches!(
-                    shell.kind,
-                    ShellKind::Default | ShellKind::PowerShell | ShellKind::Cmd
-                )
-            }));
-        }
+        let shells = discovered_shells();
+        assert!(shells.iter().any(|shell| {
+            matches!(
+                shell.kind,
+                ShellKind::Default | ShellKind::PowerShell | ShellKind::Cmd
+            )
+        }));
     }
 
-    // ---- v0.14 Phase A3 adversarial: inert labels, no arbitrary exec ----
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_extra_never_relabels_an_entry_listed_before_it() {
+        // When the default program is already one of the extras, the existing
+        // `Default (...)` entry keeps its label and kind.
+        let mut out = vec![DiscoveredShell {
+            label: "Default (powershell.exe)".to_owned(),
+            program: "powershell.exe".to_owned(),
+            args: Vec::new(),
+            kind: ShellKind::Default,
+        }];
+        push_windows_extras(&mut out);
+        let first = &out[0];
+        assert_eq!(first.label, "Default (powershell.exe)");
+        assert_eq!(first.kind, ShellKind::Default);
+    }
 
     #[test]
-    fn a3_push_unique_shell_rejects_relative_non_exe_programs() {
-        // A discovered candidate must be an absolute path or a `.exe` name;
-        // discovery can never inject a bare relative command (e.g. "sh" or a
-        // hostile "rm") that would resolve against an attacker-controlled PATH.
+    fn a_bare_program_name_is_never_found_in_the_working_directory() {
+        // Tests run with the package root as the working directory, which holds
+        // `Cargo.toml`; a bare name must be looked up on PATH only.
+        assert!(Path::new("Cargo.toml").is_file());
+        assert!(!program_exists_path("Cargo.toml"));
+        // A path with a directory part is still checked as given.
+        assert!(program_exists_path("./Cargo.toml"));
+    }
+
+    #[test]
+    fn discovery_admits_only_absolute_paths_or_exe_names() {
+        // A relative suggestion that is not an executable name is refused, and
+        // discovery returns candidates without executing any of them. An `.exe`
+        // name is admitted when it exists on PATH, so the admission rule is
+        // narrower than "never relative".
         let mut out = Vec::new();
         push_unique_shell(&mut out, "sh", ShellKind::Posix);
         push_unique_shell(&mut out, "../evil", ShellKind::Posix);
@@ -229,9 +314,9 @@ mod tests {
     }
 
     #[test]
-    fn a3_push_unique_shell_rejects_nonexistent_absolute_paths() {
-        // An absolute path that does not exist is not offered: discovery reports
-        // only real, inert candidates, never a fabricated program string.
+    fn a_nonexistent_absolute_path_is_not_offered() {
+        // Discovery reports only real, inert candidates, never a fabricated
+        // program string.
         let mut out = Vec::new();
         push_unique_shell(
             &mut out,
@@ -241,23 +326,78 @@ mod tests {
         assert!(out.is_empty());
     }
 
+    #[cfg(unix)]
     #[test]
-    fn a3_unix_discovered_posix_programs_are_absolute_and_inert() {
-        // Every non-default POSIX candidate is an absolute path (an inert label),
-        // never a relative command name. Discovery returns data, not something it
-        // has executed.
-        #[cfg(unix)]
-        {
-            for shell in discovered_shells() {
-                if shell.kind == ShellKind::Posix {
-                    assert!(
-                        Path::new(&shell.program).is_absolute(),
-                        "POSIX discovery candidate {:?} must be an absolute path",
-                        shell.program
-                    );
-                }
+    fn discovered_posix_programs_are_absolute() {
+        for shell in discovered_shells() {
+            if shell.kind == ShellKind::Posix {
+                assert!(
+                    Path::new(&shell.program).is_absolute(),
+                    "POSIX discovery candidate {:?} must be an absolute path",
+                    shell.program
+                );
             }
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_shell_registry_keeps_absolute_paths_and_skips_comments_and_blanks() {
+        let text = "# list\n\n/bin/sh\n  /bin/bash  \nrelative/sh\n#/bin/zsh\n";
+        assert_eq!(
+            shell_registry_candidates(text.as_bytes()),
+            vec!["/bin/sh".to_owned(), "/bin/bash".to_owned()]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_shell_registry_read_is_bounded_in_bytes_lines_and_candidates() {
+        struct Endless {
+            served: u64,
+        }
+        impl Read for Endless {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let line = b"/bin/sh\n";
+                for (index, byte) in buf.iter_mut().enumerate() {
+                    *byte = line[(self.served as usize + index) % line.len()];
+                }
+                self.served += buf.len() as u64;
+                Ok(buf.len())
+            }
+        }
+        let mut endless = Endless { served: 0 };
+        let candidates = shell_registry_candidates(&mut endless);
+        assert!(
+            endless.served <= MAX_SHELL_REGISTRY_BYTES + 8192,
+            "read {} bytes past the cap",
+            endless.served
+        );
+        assert!(candidates.len() <= MAX_SHELL_REGISTRY_LINES.min(MAX_PROFILE_ENTRIES));
+        assert!(!candidates.is_empty());
+
+        // Candidates beyond the line budget are never examined.
+        let many = "/bin/sh\n".repeat(MAX_SHELL_REGISTRY_LINES + 100);
+        assert_eq!(
+            shell_registry_candidates(many.as_bytes()).len(),
+            MAX_SHELL_REGISTRY_LINES.min(MAX_PROFILE_ENTRIES)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_registry_cut_inside_a_line_drops_the_partial_line() {
+        let line = "/usr/bin/some-shell\n";
+        let whole_lines = (MAX_SHELL_REGISTRY_BYTES as usize) / line.len();
+        let mut text = line.repeat(whole_lines + 5);
+        text.push_str("/usr/bin/tail");
+        let candidates = shell_registry_candidates(text.as_bytes());
+        assert!(
+            candidates
+                .iter()
+                .all(|candidate| candidate == "/usr/bin/some-shell"),
+            "a cut line must not become a candidate"
+        );
     }
 
     #[test]

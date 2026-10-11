@@ -306,9 +306,15 @@ impl Decoder {
             let rounded = true_w.next_power_of_two().min(MAX_WIDTH);
             new_cap_w = if u64::from(rounded) * u64::from(true_h) <= MAX_PIXELS {
                 rounded
+            } else if need_w <= self.cap_w {
+                // Only the height outgrew the buffer: keep the most height
+                // headroom the drawn width allows, so a filled rectangle that
+                // keeps adding bands re-lays out once, not once per band.
+                true_w
             } else {
-                // Widest stride the drawn height leaves room for, but no wider
-                // than the geometric step already chosen, so a band that keeps
+                // The width outgrew the buffer. Take the widest stride the
+                // drawn height leaves room for, but no wider than the
+                // geometric step already chosen, so a band that keeps
                 // widening re-lays out O(log W) times instead of once per
                 // column. It is at least `true_w` because the joint drawn
                 // extent fits the budget.
@@ -663,6 +669,16 @@ pub(super) fn decode_sixel_with_repack_work(
     background: SixelBackground,
 ) -> (Result<SixelImage, SixelError>, u64) {
     decode_counting_work(payload, background)
+}
+
+/// Capacity (in bytes) of the pixel buffer after the commands have run and
+/// before `finish` releases it, so a test can tell "no buffer was ever built"
+/// from "built and then discarded".
+#[cfg(test)]
+pub(super) fn decode_sixel_buffer_bytes(payload: &[u8], background: SixelBackground) -> usize {
+    let mut dec = Decoder::new(background);
+    let _ = decode_into(&mut dec, payload);
+    dec.rgba.capacity()
 }
 
 fn decode_counting_work(

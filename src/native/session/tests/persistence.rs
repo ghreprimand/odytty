@@ -434,6 +434,45 @@ fn is_single_pristine_workspace_false_for_any_real_state() {
     let token = titled.workspaces[0].tabs[0].focused;
     titled.set_title_override(token, Some("build".to_owned()));
     assert!(!titled.is_single_pristine_workspace(), "tab titled");
+
+    // A workspace bound to a launch profile.
+    let mut profiled = fresh_pristine();
+    profiled.workspaces[0].launch_profile = Some("dev".to_owned());
+    assert!(!profiled.is_single_pristine_workspace(), "launch profile");
+
+    // A zoomed, stacked or floating sole tab.
+    let mut zoomed = fresh_pristine();
+    zoomed.workspaces[0].tabs[0].zoomed = true;
+    assert!(!zoomed.is_single_pristine_workspace(), "zoomed");
+    let mut stacked = fresh_pristine();
+    stacked.workspaces[0].tabs[0].arrangement = crate::native::float_layout::Arrangement::Stacked;
+    assert!(!stacked.is_single_pristine_workspace(), "stacked");
+    let mut floating = fresh_pristine();
+    floating.workspaces[0].tabs[0].arrangement =
+        crate::native::float_layout::Arrangement::Floating(Default::default());
+    assert!(!floating.is_single_pristine_workspace(), "floating");
+
+    // Live-pane state a layout open would destroy: a remote connection, an
+    // attached host session, a profile-opened pane and a read-only pane.
+    type PaneChange = fn(&mut Session);
+    let pane_states: [(&str, PaneChange); 4] = [
+        ("remote pane", |pane| {
+            pane.remote_destination = Some("edge".to_owned())
+        }),
+        ("attached pane", |pane| {
+            pane.attached_session_id = Some("host-1".to_owned())
+        }),
+        ("profile pane", |pane| {
+            pane.launch_profile = Some("dev".to_owned())
+        }),
+        ("read-only pane", |pane| pane.read_only = true),
+    ];
+    for (name, change) in pane_states {
+        let mut set = fresh_pristine();
+        let token = set.workspaces[0].tabs[0].focused;
+        change(set.sessions.get_mut(&token).expect("pane"));
+        assert!(!set.is_single_pristine_workspace(), "{name}");
+    }
 }
 
 /// PRISTINE-CONSUME: opening a layout onto a pristine launch replaces the

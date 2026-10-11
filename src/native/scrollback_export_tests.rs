@@ -280,6 +280,50 @@ fn only_http_and_https_links_become_hrefs() {
     );
 }
 
+/// An IPv6 literal host must close its bracket and be followed only by a port;
+/// the malformed forms stay text instead of becoming a link.
+#[test]
+fn malformed_bracketed_hosts_are_not_links() {
+    for refused in [
+        "http://[::1/x",
+        "http://[/x",
+        "http://[]/x",
+        "http://[]:80/",
+        "https://[::1]junk/x",
+        "https://[::1]x",
+        "http://[",
+    ] {
+        assert_eq!(safe_http_href(refused), None, "{refused}");
+        let html = html_document(&linked_row("t", refused), &palette());
+        assert!(!html.contains("<a "), "{refused} must stay text");
+    }
+    for accepted in [
+        "http://[::1]/x",
+        "https://[2001:db8::1]:443/",
+        "http://[::1]",
+    ] {
+        assert_eq!(safe_http_href(accepted), Some(accepted), "{accepted}");
+    }
+}
+
+/// Concealed (SGR 8) text is still the document's text: the export is the
+/// source text, not the picture, so plain and HTML keep it and the HTML adds no
+/// class or style that would hide it.
+#[test]
+fn concealed_text_is_exported_as_ordinary_text() {
+    let mut attrs = Attrs::default();
+    attrs.set_hidden(true);
+    let cells: Vec<Cell> = "secret".chars().map(|ch| Cell::new(ch, attrs)).collect();
+    let mut builder = DocumentBuilder::default();
+    builder.push_row(&cells, false, &mut no_links);
+    let lines = builder.finish();
+    assert_eq!(plain_text(&lines), "secret\n");
+    let html = html_document(&lines, &palette());
+    assert!(html.contains("secret"), "{html}");
+    assert!(!html.contains("hidden") && !html.contains("display:none"));
+    assert!(!html.contains("visibility"), "{html}");
+}
+
 #[test]
 fn plain_text_never_carries_link_targets() {
     let text = plain_text(&linked_row("label", "https://example.com/secret-target"));

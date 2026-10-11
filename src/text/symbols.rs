@@ -12,10 +12,8 @@ use super::FontHandle;
 
 use super::bundled::{load_font_at, resolve_bundled_symbol_font, resolve_bundled_symbol_fonts};
 use super::discovery::{FontFileInventory, file_stem, font_search_dirs, normalize_family};
-// Used only by the fontconfig-backed runtime fallback, which exists on Linux
-// and other non-macOS Unix targets; the gate must match that item's gate or
-// the import is dead on macOS and Windows.
-#[cfg(all(unix, not(target_os = "macos")))]
+// The static symbol tails load a named face (macOS, Linux, Windows) and the
+// fontconfig-backed runtime fallback does too (non-macOS Unix).
 use super::bundled::load_font_face_at;
 #[cfg(all(unix, not(target_os = "macos")))]
 use super::metrics::font_provides_outline_glyph;
@@ -65,12 +63,21 @@ const SYMBOL_FONT_HINTS: &[&str] = &["symbolsnerdfont", "nerdfont"];
 /// body font because glyph fallback is only consulted after the primary face
 /// misses a printable spacing codepoint. Broadest coverage first; each is
 /// skipped silently if absent.
+///
+/// Each entry names its face index inside the file: `Menlo.ttc` is a collection
+/// whose face 0 is Menlo Regular; the other files hold a single face.
 #[cfg(target_os = "macos")]
-const SYSTEM_SYMBOL_FALLBACK_FONTS: &[&str] = &[
-    "/System/Library/Fonts/Menlo.ttc",
-    "/System/Library/Fonts/Apple Symbols.ttf",
-    "/System/Library/Fonts/Supplemental/STIXTwoMath.otf",
+const SYSTEM_SYMBOL_FALLBACK_FONTS: &[(&str, u32)] = &[
+    ("/System/Library/Fonts/Menlo.ttc", 0),
+    ("/System/Library/Fonts/Apple Symbols.ttf", 0),
+    ("/System/Library/Fonts/Supplemental/STIXTwoMath.otf", 0),
 ];
+
+/// One static symbol-tail entry: a normalized filename-stem fragment and the
+/// face index to load from the matching file (non-zero only for a collection
+/// whose symbol coverage is not face 0).
+#[cfg(any(windows, test, all(unix, not(target_os = "macos"))))]
+type SymbolHint = (&'static str, u32);
 
 /// Linux/Unix (non-macOS) symbol-fallback tail: normalized filename-stem hints
 /// for the broad-coverage system symbol faces that commonly backfill standard
@@ -86,12 +93,12 @@ const SYSTEM_SYMBOL_FALLBACK_FONTS: &[&str] = &[
 /// because glyph fallback is only consulted after the primary face misses a
 /// printable spacing codepoint.
 #[cfg(all(unix, not(target_os = "macos")))]
-const LINUX_SYMBOL_FALLBACK_HINTS: &[&str] = &[
-    "notosanssymbols2",
-    "notosanssymbols",
-    "symbola",
-    "dejavusans",
-    "unifont",
+const LINUX_SYMBOL_FALLBACK_HINTS: &[SymbolHint] = &[
+    ("notosanssymbols2", 0),
+    ("notosanssymbols", 0),
+    ("symbola", 0),
+    ("dejavusans", 0),
+    ("unifont", 0),
 ];
 
 /// Resolve the Linux/Unix system symbol-fallback tail (see
@@ -127,12 +134,15 @@ fn linux_symbol_fallback_faces_in_inventory(
 /// shipped since Windows 7) is broadest-first: it covers Arrows, Miscellaneous
 /// Technical, Geometric Shapes, Miscellaneous Symbols and Dingbats — including
 /// both reported codepoints. `segmdl2` (`segmdl2.ttf`, the MDL2 assets icon
-/// face) and `cambria` (`cambria.ttc`, Cambria / Cambria Math) backstop any
-/// Segoe UI Symbol gaps with monochrome outlines. Each is skipped silently if
+/// face) and `cambria` (`cambria.ttc`, loaded at face 1, Cambria Math: face 0 is
+/// the Cambria text face, which covers few symbols) backstop any Segoe UI
+/// Symbol gaps with monochrome outlines. Each is skipped silently if
 /// absent, and none shadows the body font because glyph fallback is only
 /// consulted after the primary face misses a printable spacing codepoint.
-#[cfg(windows)]
-const WINDOWS_SYMBOL_FALLBACK_HINTS: &[&str] = &["seguisym", "segmdl2", "cambria"];
+#[cfg(any(windows, test))]
+#[cfg_attr(not(windows), allow(dead_code))]
+const WINDOWS_SYMBOL_FALLBACK_HINTS: &[SymbolHint] =
+    &[("seguisym", 0), ("segmdl2", 0), ("cambria", 1)];
 
 /// Resolve the Windows system symbol-fallback tail (see
 /// [`WINDOWS_SYMBOL_FALLBACK_HINTS`]): for each hint, in priority order, the
@@ -157,18 +167,28 @@ fn windows_symbol_fallback_faces_in_inventory(
 
 /// Shared body of the Linux and Windows static symbol tails: for each hint, in
 /// priority order, a regular-preferred file whose normalized stem contains it,
-/// de-duplicated by path across hints: a hint whose first match an earlier
-/// hint already loaded adds nothing. A matching file that fails to load falls
-/// through to the hint's next match instead of dropping the hint, trying at
-/// most [`MAX_SYMBOL_FONT_CANDIDATES`] files per hint.
+/// loaded at the hint's face index and de-duplicated by (path, face) across
+/// hints: a hint whose first match an earlier hint already loaded adds nothing.
+/// A matching file that fails to load falls through to the hint's next match
+/// instead of dropping the hint, trying at most [`MAX_SYMBOL_FONT_CANDIDATES`]
+/// files per hint.
 #[cfg(any(windows, all(unix, not(target_os = "macos"))))]
 fn hinted_fallback_faces(
     inventory: &FontFileInventory,
-    hints: &[&str],
+    hints: &[SymbolHint],
+) -> Vec<(SymbolFontSource, FontHandle)> {
+    hinted_fallback_faces_with(inventory, hints, load_font_face_at)
+}
+
+#[cfg(any(windows, all(unix, not(target_os = "macos"))))]
+fn hinted_fallback_faces_with(
+    inventory: &FontFileInventory,
+    hints: &[SymbolHint],
+    load: impl Fn(&Path, u32) -> Result<FontHandle, super::TextError>,
 ) -> Vec<(SymbolFontSource, FontHandle)> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for hint in hints {
+    for (hint, face) in hints {
         let mut matches: Vec<_> = inventory
             .files()
             .iter()
@@ -176,11 +196,11 @@ fn hinted_fallback_faces(
             .collect();
         matches.sort_by_key(|path| symbol_style_rank(path));
         for path in matches.into_iter().take(MAX_SYMBOL_FONT_CANDIDATES) {
-            if seen.contains(path) {
+            if seen.contains(&(path.clone(), *face)) {
                 break;
             }
-            if let Ok(font) = load_font_at(path) {
-                seen.insert(path.clone());
+            if let Ok(font) = load(path, *face) {
+                seen.insert((path.clone(), *face));
                 out.push((SymbolFontSource::Host(path.clone()), font));
                 break;
             }
@@ -347,9 +367,9 @@ pub(crate) fn resolve_symbol_fonts_with_inventory(
     // always-present system faces that DO cover them (see
     // [`SYSTEM_SYMBOL_FALLBACK_FONTS`]) so they render instead of tofu.
     #[cfg(target_os = "macos")]
-    for path in SYSTEM_SYMBOL_FALLBACK_FONTS {
+    for (path, face) in SYSTEM_SYMBOL_FALLBACK_FONTS {
         let path = Path::new(path);
-        if let Ok(font) = load_font_at(path) {
+        if let Ok(font) = load_font_face_at(path, *face) {
             sources.push(SymbolFontSource::Host(path.to_path_buf()));
             fonts.push(font);
         }

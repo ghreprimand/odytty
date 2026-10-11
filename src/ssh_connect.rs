@@ -566,11 +566,49 @@ fn parse_duration_secs(s: &str) -> Option<u64> {
 /// (`%l%h%p%r`: local host, remote host, port, and remote user). Delegating the
 /// key to OpenSSH is load-bearing: hashing only OdyTTY's textual `user@host`
 /// destination would alias profiles that use different ports or routing config.
-/// The fixed-width expansion also keeps the path under the platform `sun_path`
-/// limit (104 bytes on macOS/BSD, 108 on Linux) without exposing the destination.
+/// The fixed-width expansion keeps the file name short without exposing the
+/// destination; the directory is checked against the platform `sun_path` limit
+/// (104 bytes on macOS/BSD, 108 on Linux) by [`control_dir_fits_socket_limit`].
 #[cfg(not(windows))]
 fn control_socket_path(control_dir: &std::path::Path) -> PathBuf {
     control_dir.join("ssh-%C")
+}
+
+/// Longest socket path a Unix-domain `bind` accepts, without the terminating
+/// NUL: `sun_path` is 108 bytes on Linux and 104 on macOS and the BSDs.
+#[cfg(target_os = "linux")]
+pub const SOCKET_PATH_MAX: usize = 107;
+#[cfg(all(unix, not(target_os = "linux")))]
+pub const SOCKET_PATH_MAX: usize = 103;
+
+/// Width of `%C`, a hex SHA-1.
+#[cfg(unix)]
+const CONTROL_HASH_LEN: usize = 40;
+
+/// OpenSSH binds the master to `<ControlPath>.<16 random characters>` before
+/// it renames the socket into place, so the bound path is 17 bytes longer than
+/// the final one.
+#[cfg(unix)]
+const CONTROL_TEMP_SUFFIX_LEN: usize = 17;
+
+/// Whether a control socket under `control_dir` stays bindable within `limit`
+/// bytes. The template is `<dir>/ssh-%C`; a directory that makes the master's
+/// temporary path longer than `sun_path` would make every master listener
+/// fail.
+#[cfg(unix)]
+pub fn control_dir_fits_socket_limit(control_dir: &std::path::Path, limit: usize) -> bool {
+    let bound = control_dir.as_os_str().len() + 1 + "ssh-".len() + CONTROL_HASH_LEN;
+    bound + CONTROL_TEMP_SUFFIX_LEN <= limit
+}
+
+/// The short per-user directory used for control sockets when the state
+/// directory is too deep for `sun_path`: `/tmp/odytty-<uid>`, prepared by
+/// [`ensure_control_dir`] (private, owned by the user, never a symlink).
+#[cfg(unix)]
+pub fn short_control_dir() -> PathBuf {
+    // SAFETY: `geteuid` takes no arguments, reads no memory, and cannot fail.
+    let euid = unsafe { libc::geteuid() };
+    PathBuf::from(format!("/tmp/odytty-{euid}"))
 }
 
 /// Create OdyTTY's `ControlMaster` socket directory with owner-only `0700`

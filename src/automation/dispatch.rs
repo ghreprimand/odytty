@@ -351,13 +351,21 @@ mod tests {
             policy_epoch: 0,
         });
         sender.send(shared.clone()).unwrap();
-        assert_eq!(
-            Receipt(shared).wait().reply,
-            Reply::Error(ErrorCode::TimedOut)
-        );
+        // The receipt stays alive and unobserved, so only the dispatcher's own
+        // deadline check can stop the request: nothing else expires it first.
+        let receipt = Receipt(shared);
         let (_, mut queue) = channel(false);
         queue.receiver = receiver;
-        queue.dispatch(|_| panic!("expired mutation ran"));
+        let mut ran = false;
+        queue.dispatch(|_| {
+            ran = true;
+            Reply::Objects(vec![])
+        });
+        assert!(!ran, "a request past its deadline must not run");
+        assert_eq!(
+            receipt.try_response().map(|response| response.reply),
+            Some(Reply::Error(ErrorCode::TimedOut))
+        );
     }
 
     #[test]

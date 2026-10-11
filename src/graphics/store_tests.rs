@@ -168,3 +168,33 @@ fn frame_growth_through_the_guard_enters_the_byte_accounting() {
         store.limits().max_decoded_bytes - 48
     );
 }
+
+/// A disabled image count refuses every insert, whatever the protocol ids,
+/// after the length check and before anything is stored, replaced or counted.
+#[test]
+fn a_disabled_image_count_refuses_every_insert_and_stores_nothing() {
+    let mut store = ImageStore::new(ImageStoreLimits {
+        max_images: 0,
+        ..ImageStoreLimits::default()
+    });
+    for (id, number) in [
+        (None, None),
+        (Some(1), None),
+        (None, Some(5)),
+        (Some(2), Some(6)),
+    ] {
+        assert_eq!(
+            store.insert_rgba_numbered(id, number, 2, 2, rgba(2, 2, 1)),
+            Err(ImageStoreError::ImageCountDisabled),
+            "{id:?} {number:?}"
+        );
+    }
+    // A malformed payload is reported as malformed, not as disabled.
+    assert!(matches!(
+        store.insert_rgba(None, 2, 2, vec![0; 3]),
+        Err(ImageStoreError::InvalidRgbaLength { .. })
+    ));
+    assert!(store.is_empty());
+    assert_eq!(store.decoded_bytes(), 0);
+    assert!(store.animated_ids().is_empty());
+}

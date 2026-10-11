@@ -64,7 +64,9 @@ both sides. Regeneration is byte-for-byte reproducible:
 python3 tests/fixtures/fonts/generate_bidi_fixture.py
 ```
 
-The bidi rendering pixel fixtures in `src/grid/bidi_tests.rs` use it.
+The bidi rendering pixel fixtures in `src/grid/bidi_tests.rs` use it, and the
+wide-glyph seam test in `tests/pixel_smoke/decorations.rs` uses its two-cell
+U+754C because the bundled face has no wide glyph.
 
 ## Arabic harakat fixture
 

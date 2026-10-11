@@ -315,8 +315,10 @@ attacker-chosen bytes to process execution.
   (`src/graphics/sixel.rs`). The pixel cap applies to the drawn extent;
   buffer slack never refuses an image whose drawn pixels fit, because the
   decoder repacks to a tighter row stride instead. Row re-layouts are
-  bounded per DCS at 16 canvases of pixels, and a widening band re-lays out in
-  geometric steps, so a small payload cannot repeat near-64 MiB repacks.
+  bounded per DCS at 16 canvases of pixels, a widening band re-lays out in
+  geometric steps, and a band that only adds height keeps the most height
+  headroom the drawn width allows, so a small payload cannot repeat near-64 MiB
+  repacks while a filled rectangle needs about one.
   Dimension arithmetic uses
   checked multiplication because a `u32` squared fits in `u64` but the
   four-byte-per-pixel product does not (`src/graphics/store.rs`).
@@ -1362,8 +1364,10 @@ tests. Each closure carries its own tests and sibling-path sweep.
 
 - **Anchors:** normal parsing plus `append_adhoc_host`, `edit_host_block`, and
   `remove_host_block` in `src/connection_hosts.rs` route through
-  `read_hosts_file`. The parser retains its bounded-prefix behavior; mutations
-  reject a file over 256 KiB because truncating unseen bytes would be unsafe.
+  `read_hosts_file`. The parser retains its bounded-prefix behavior, keeping
+  only the complete lines of a cut prefix; mutations reject a file over 256 KiB
+  because truncating unseen bytes would be unsafe, and refuse a file that is
+  not valid UTF-8 rather than rewrite it from a lossy decode.
 - **Scope demonstrated:** the shared reader validates the path and opened object
   as regular files, uses a nonblocking open on Unix, and detects growth with one
   byte beyond the mutation ceiling. Focused tests cover the exact boundary,

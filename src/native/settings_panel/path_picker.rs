@@ -387,6 +387,13 @@ impl PathPickerState {
             ));
         }
 
+        // Every row honors the body width, whatever its indent and marker
+        // add: cut on a character boundary, never by bytes.
+        for (line, _) in &mut rows {
+            if let Some((end, _)) = line.text.char_indices().nth(body_width) {
+                line.text.truncate(end);
+            }
+        }
         rows
     }
 }
@@ -434,8 +441,9 @@ fn spawn_read_dir(dir: PathBuf, ext_filter: &'static [&'static str]) -> PendingR
 
 /// Read the entries of `dir`: directories first (sorted), then files whose
 /// extension matches `ext_filter` (sorted). If `ext_filter` is empty, all
-/// non-directory files are shown. Hidden entries (starting with `.`) are
-/// excluded from file listings but included for directories.
+/// non-directory files are shown. Hidden entries (starting with `.`), files and
+/// directories alike, are not listed, and a symlink is neither a file nor a
+/// directory here: the picker lists real entries only.
 fn read_dir_entries(dir: &Path, ext_filter: &[&str]) -> Vec<PathEntry> {
     let Ok(read) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -660,8 +668,19 @@ mod tests {
         // no-panic assertion; also every rendered line honors the char budget.
         for w in 0..=7usize {
             // Byte-indexing or an unchecked subtraction would panic here; a clean
-            // return of any row set is the pass condition.
-            let _rows = picker.build_visible_rows(w, 6);
+            // return of any row set is the first pass condition.
+            let rows = picker.build_visible_rows(w, 6);
+            // The second is the char budget: no row is wider than the body, and
+            // a body with room for anything renders rows at all.
+            for (line, _) in &rows {
+                assert!(
+                    line.text.chars().count() <= w,
+                    "width {w}: {:?} is {} chars",
+                    line.text,
+                    line.text.chars().count()
+                );
+            }
+            assert_eq!(rows.is_empty(), w == 0, "width {w}");
         }
         // A normal width still renders both entries.
         let wide = picker.build_visible_rows(40, 10);
@@ -700,6 +719,42 @@ mod tests {
 
         drop(rx);
         fs::remove_dir_all(dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn hidden_entries_are_not_listed_whether_file_or_directory() {
+        let dir = temp_dir("hidden");
+        fs::create_dir(dir.join(".hidden-dir")).expect("hidden dir");
+        fs::create_dir(dir.join("shown-dir")).expect("shown dir");
+        fs::write(dir.join(".hidden.png"), b"png").expect("hidden file");
+        fs::write(dir.join("shown.png"), b"png").expect("shown file");
+        let names: Vec<String> = read_dir_entries(&dir, extension_filter("background_image"))
+            .into_iter()
+            .map(|entry| entry.name)
+            .filter(|name| name != "../")
+            .collect();
+        assert_eq!(names, ["shown-dir/", "shown.png"]);
+        fs::remove_dir_all(dir).expect("remove temp dir");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_file_is_not_listed_either() {
+        use std::os::unix::fs::symlink;
+
+        let dir = temp_dir("symlink-file");
+        let target = temp_dir("symlink-file-target");
+        fs::write(target.join("wall.png"), b"png").expect("write target");
+        symlink(target.join("wall.png"), dir.join("linked.png")).expect("create symlink");
+        fs::write(dir.join("real.png"), b"png").expect("real file");
+        let names: Vec<String> = read_dir_entries(&dir, extension_filter("background_image"))
+            .into_iter()
+            .map(|entry| entry.name)
+            .filter(|name| name != "../")
+            .collect();
+        assert_eq!(names, ["real.png"], "only the real file is listed");
+        fs::remove_dir_all(dir).expect("remove temp dir");
+        fs::remove_dir_all(target).expect("remove target dir");
     }
 
     #[cfg(unix)]

@@ -233,7 +233,12 @@ impl LaunchProfile {
     /// parser so programmatic structs cannot persist secrets or over-limit
     /// fields that a file parse would reject.
     pub fn parse_json(text: &str, expected_name: Option<&str>) -> Result<Self, ProfileError> {
-        let root = json::parse(text).map_err(ProfileError::Malformed)?;
+        if text.len() as u64 > MAX_PROFILE_FILE_BYTES {
+            return Err(ProfileError::LimitExceeded(format!(
+                "profile document exceeds {MAX_PROFILE_FILE_BYTES} bytes"
+            )));
+        }
+        let root = json::parse_strict(text).map_err(ProfileError::Malformed)?;
         reject_secret_material(&root)?;
         let obj = match &root {
             Json::Obj(entries) => entries,
@@ -341,7 +346,26 @@ pub fn validate_profile_name(raw: &str) -> Result<String, ProfileError> {
             "use ASCII letters, digits, hyphen, underscore, or dot".to_owned(),
         ));
     }
+    if is_reserved_device_stem(trimmed) {
+        return Err(ProfileError::InvalidName(format!(
+            "{trimmed:?} is a reserved device name on Windows"
+        )));
+    }
     Ok(trimmed.to_owned())
+}
+
+/// Whether the part of `name` before its first dot is a Windows device name
+/// (`CON`, `PRN`, `AUX`, `NUL`, `COM0`-`COM9`, `LPT0`-`LPT9`, any case). Win32
+/// name parsing treats `nul.profile.json` as the device, so the file would be
+/// silently discarded there. Profile files are portable between platforms, so
+/// the names are refused everywhere.
+fn is_reserved_device_stem(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).to_ascii_lowercase();
+    matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+        || ["com", "lpt"].iter().any(|prefix| {
+            stem.strip_prefix(prefix)
+                .is_some_and(|digit| matches!(digit.as_bytes(), [b'0'..=b'9']))
+        })
 }
 
 pub fn profile_file_name(name: &str) -> String {
@@ -418,7 +442,10 @@ fn appearance_to_json(appearance: &ProfileAppearance) -> Json {
         appearance.font_weight.as_deref(),
     );
     if let Some(size) = appearance.font_size_px {
-        entries.push(("font_size_px".to_owned(), Json::Num(f64::from(size))));
+        // The shortest decimal that reads back as the same f32, so a
+        // hand-written 13.3 is saved as 13.3 and not 13.300000190734863.
+        let shortest = size.to_string().parse::<f64>().unwrap_or(f64::from(size));
+        entries.push(("font_size_px".to_owned(), Json::Num(shortest)));
     }
     push_opt_str(&mut entries, "title", appearance.title.as_deref());
     push_bool(
@@ -627,12 +654,18 @@ fn read_launch(
     };
     let mut launch_known = BTreeSet::new();
     let shell = read_bounded_string(entries, "shell", &mut launch_known, MAX_PROFILE_FIELD_CHARS)?;
+    if let Some(shell) = &shell {
+        reject_os_invalid_launch_text("launch.shell", shell, true)?;
+    }
     let working_directory = read_bounded_string(
         entries,
         "working_directory",
         &mut launch_known,
         MAX_PROFILE_FIELD_CHARS,
     )?;
+    if let Some(directory) = &working_directory {
+        reject_os_invalid_launch_text("launch.working_directory", directory, false)?;
+    }
     let command = read_command(entries, &mut launch_known)?;
     let env = read_env(entries, &mut launch_known)?;
     let preserved = collect_unknown(entries, &launch_known);
@@ -670,6 +703,7 @@ fn read_command(
         MAX_PROFILE_FIELD_CHARS,
     )?
     .ok_or_else(|| ProfileError::Malformed("command.program is required".to_owned()))?;
+    reject_os_invalid_launch_text("command.program", &program, true)?;
     command_known.insert("args".to_owned());
     let args = match entries.iter().find(|(key, _)| key == "args") {
         None => Vec::new(),
@@ -688,7 +722,8 @@ fn read_command(
                                 "command arg too long".to_owned(),
                             ))
                         } else {
-                            Ok(value.clone())
+                            reject_os_invalid_launch_text("command.args entry", value, false)
+                                .map(|()| value.clone())
                         }
                     }
                     _ => Err(ProfileError::Malformed(
@@ -911,8 +946,11 @@ fn read_bounded_string_array(
     else {
         return Ok(Vec::new());
     };
-    let Json::Arr(items) = value else {
-        return Err(ProfileError::Malformed(format!("{key} must be an array")));
+    let items = match value {
+        Json::Arr(items) => items,
+        // An explicit null is absent, as for every other optional field.
+        Json::Null => return Ok(Vec::new()),
+        _ => return Err(ProfileError::Malformed(format!("{key} must be an array"))),
     };
     if items.len() > max_items {
         return Err(ProfileError::LimitExceeded(format!(
@@ -961,7 +999,18 @@ fn read_f32(
     known.insert(key.to_owned());
     match obj.iter().find(|(entry_key, _)| entry_key == key) {
         None => Ok(None),
-        Some((_, Json::Num(value))) if value.is_finite() => Ok(Some(*value as f32)),
+        Some((_, Json::Num(value))) if value.is_finite() => {
+            let narrowed = *value as f32;
+            // A size of zero or less, or one beyond f32, has no meaning and
+            // would otherwise reach the settings parser as infinity.
+            if narrowed.is_finite() && narrowed > 0.0 {
+                Ok(Some(narrowed))
+            } else {
+                Err(ProfileError::LimitExceeded(format!(
+                    "{key} must be a positive number within f32 range"
+                )))
+            }
+        }
         Some((_, Json::Null)) => Ok(None),
         Some((_, _)) => Err(ProfileError::Malformed(format!("{key} must be a number"))),
     }
@@ -989,6 +1038,30 @@ fn read_bool(
 pub(crate) fn reject_os_invalid_env(key: &str, value: &str) -> Result<(), ProfileError> {
     reject_invalid_env_key(key)?;
     reject_invalid_env_value(value)?;
+    Ok(())
+}
+
+/// Reject launch text that cannot cross the spawn boundary: a NUL byte ends a C
+/// string and fails or truncates the spawn, and (for a program or shell) an
+/// empty value names nothing to run. Other control characters stay legal, since
+/// arguments may carry them deliberately. The parser applies this at the file
+/// boundary and the local spawn path repeats it for plans built without the
+/// parser, as it does for the environment.
+pub(crate) fn reject_os_invalid_launch_text(
+    field: &str,
+    value: &str,
+    must_not_be_empty: bool,
+) -> Result<(), ProfileError> {
+    if value.contains('\0') {
+        return Err(ProfileError::Malformed(format!(
+            "{field} must not contain a NUL byte"
+        )));
+    }
+    if must_not_be_empty && value.is_empty() {
+        return Err(ProfileError::Malformed(format!(
+            "{field} must not be empty"
+        )));
+    }
     Ok(())
 }
 
@@ -1044,9 +1117,9 @@ fn reject_secret_env_key(key: &str) -> Result<(), ProfileError> {
         "privatekey",
         "identityfile",
     ];
-    if BLOCKED.iter().any(|blocked| normalized.contains(blocked)) {
+    if let Some(blocked) = BLOCKED.iter().find(|blocked| normalized.contains(*blocked)) {
         return Err(ProfileError::RejectedSecret(format!(
-            "environment key {key:?} is not allowed in profiles"
+            "key {key:?} contains \"{blocked}\", which profiles do not store"
         )));
     }
     Ok(())

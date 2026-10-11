@@ -57,3 +57,26 @@ fn a_source_of_exactly_the_cap_is_not_treated_as_cut() {
 fn text_that_is_not_utf8_is_refused() {
     assert_eq!(read_capped_lines(Cursor::new(&[0xff, b'\n'][..]), 16), None);
 }
+
+#[test]
+fn a_newline_just_past_the_cap_is_not_kept() {
+    // The size-detection byte is a newline: the line it ends is not complete
+    // inside the cap, so it is dropped and the output stays within the cap.
+    let text = format!("{ENTRY}Exec=viewer %f\nName=Later\n");
+    let cap = ENTRY.len() + "Exec=viewer %f".len();
+    let read = read_capped_lines(Cursor::new(text.as_bytes()), cap as u64).expect("kept lines");
+    assert_eq!(read, ENTRY);
+    assert!(read.len() <= cap);
+}
+
+#[test]
+fn a_source_with_its_only_newline_just_past_the_cap_is_refused() {
+    assert_eq!(read_capped_lines(Cursor::new(&b"abcd\nx"[..]), 4), None);
+}
+
+#[test]
+fn a_newline_on_the_last_byte_inside_the_cap_is_kept() {
+    // Control: the newline at index cap - 1 ends a complete line inside the cap.
+    let read = read_capped_lines(Cursor::new(&b"abc\nxyz"[..]), 4);
+    assert_eq!(read.as_deref(), Some("abc\n"));
+}

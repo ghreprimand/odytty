@@ -367,6 +367,9 @@ an **"Open in OdyTTY"** item that renders the image inside the terminal window.
 
 **Offer gate (pure, no I/O).** `crate::paths::is_image_path` (std-only) trusts
 only the extension against `IMAGE_EXTENSIONS` = `png`, `jpg`, `jpeg`, `webp`.
+The file name is the text after the last `/`, and after the last `\` as well on
+Windows (on Unix a backslash is an ordinary file-name character); a name that is
+only a dot and an extension, such as `.png`, has no stem and is not offered.
 This list **must equal the enabled `image`-crate decoders** (`Cargo.toml`
 features `jpeg`/`png`/`webp`); GIF/BMP/TIFF are deliberately excluded (their
 decoders are not enabled, and animated GIF implies frame handling the raster

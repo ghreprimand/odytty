@@ -20,6 +20,8 @@ use std::process::Command;
 
 #[cfg(any(windows, test))]
 mod held_gate;
+#[cfg(any(windows, test))]
+mod program_path;
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]

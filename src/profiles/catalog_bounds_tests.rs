@@ -129,15 +129,38 @@ fn an_in_place_edit_of_the_same_length_reloads() {
         Some("AAAA".to_owned())
     );
 
+    // Move the modification time explicitly so the test never depends on the
+    // timestamp resolution of the filesystem it runs on.
     let text = fs::read_to_string(&path).expect("read");
-    std::thread::sleep(std::time::Duration::from_millis(20));
+    let first_modified = fs::metadata(&path)
+        .and_then(|metadata| metadata.modified())
+        .expect("modified time");
     fs::write(&path, text.replace("AAAA", "BBBB")).expect("edit in place");
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .and_then(|file| file.set_modified(first_modified + std::time::Duration::from_secs(5)))
+        .expect("advance modified time");
     assert_eq!(
         load_catalog_from_dir(dir.path())
             .get("dev")
             .and_then(|p| p.display_name.clone()),
         Some("BBBB".to_owned())
     );
+}
+
+/// Restores a file's saved permissions on drop, including during unwinding, so
+/// a failed assertion never leaves a read-only fixture for the directory
+/// cleanup to trip over (a read-only file can block deletion on Windows).
+struct RestorePermissions {
+    path: PathBuf,
+    original: fs::Permissions,
+}
+
+impl Drop for RestorePermissions {
+    fn drop(&mut self) {
+        let _ = fs::set_permissions(&self.path, self.original.clone());
+    }
 }
 
 /// A read-only toggle changes the Unix mode and change time and the Windows
@@ -161,6 +184,10 @@ fn a_read_only_toggle_reloads_on_every_platform() {
 
     let before = fs::metadata(&path).expect("metadata");
     let original = before.permissions();
+    let _restore = RestorePermissions {
+        path: path.clone(),
+        original: original.clone(),
+    };
     let mut read_only = original.clone();
     read_only.set_readonly(true);
     fs::set_permissions(&path, read_only).expect("set read-only");
@@ -174,5 +201,4 @@ fn a_read_only_toggle_reloads_on_every_platform() {
         parses + 2,
         "an attribute or mode change reloads the catalog"
     );
-    fs::set_permissions(&path, original).expect("restore permissions");
 }

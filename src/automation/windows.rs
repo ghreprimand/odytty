@@ -23,8 +23,9 @@ use windows::Win32::Security::{
     PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, FILE_SHARE_MODE,
-    OPEN_EXISTING, PIPE_ACCESS_DUPLEX, ReadFile, WriteFile,
+    CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, FILE_FLAGS_AND_ATTRIBUTES,
+    FILE_SHARE_MODE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, ReadFile, SECURITY_IDENTIFICATION,
+    SECURITY_SQOS_PRESENT, WriteFile,
 };
 use windows::Win32::System::IO::{
     CancelIoEx, GetOverlappedResult, GetOverlappedResultEx, OVERLAPPED,
@@ -802,6 +803,14 @@ fn serve(
 /// window elapses.
 const NOT_FOUND_GRACE: Duration = Duration::from_millis(250);
 
+/// Open flags for the client end. Overlapped I/O for deadlines, plus an
+/// explicit security quality of service at identification level: the server
+/// may learn who connected but can never impersonate the client, whatever the
+/// order of the owner check and the first read.
+fn client_pipe_flags() -> FILE_FLAGS_AND_ATTRIBUTES {
+    FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION
+}
+
 fn connect(path: &Path, timeout: Duration) -> io::Result<PipeIo> {
     let name = wide_endpoint(path)?;
     let deadline = Instant::now() + timeout;
@@ -832,7 +841,7 @@ fn connect(path: &Path, timeout: Duration) -> io::Result<PipeIo> {
                 FILE_SHARE_MODE(0),
                 None,
                 OPEN_EXISTING,
-                FILE_FLAG_OVERLAPPED,
+                client_pipe_flags(),
                 None,
             )
         };
@@ -848,12 +857,15 @@ fn connect(path: &Path, timeout: Duration) -> io::Result<PipeIo> {
 /// no remote UNC name, discovery, or shell parsing is used. The only retry is
 /// the bounded missing-name grace in [`connect`]; a request is never resent.
 pub fn request(path: &Path, request: &Request) -> io::Result<Response> {
-    let owner = process_user_sid(None)?;
-    let mut io = connect(path, IO_TIMEOUT)?;
+    // Everything before the first written byte is marked not delivered, so a
+    // mutation that never left is reported as safe to retry.
+    let owner = process_user_sid(None).map_err(protocol::not_delivered)?;
+    let mut io = connect(path, IO_TIMEOUT).map_err(protocol::not_delivered)?;
     let mut server_pid = 0u32;
     unsafe { GetNamedPipeServerProcessId(raw_handle(&io.handle), &raw mut server_pid) }
-        .map_err(windows_error)?;
-    verify_process_owner(server_pid, &owner)?;
+        .map_err(windows_error)
+        .map_err(protocol::not_delivered)?;
+    verify_process_owner(server_pid, &owner).map_err(protocol::not_delivered)?;
 
     protocol::write_request(&mut io, request)?;
     io.reset_deadline(IO_TIMEOUT + super::dispatch::REQUEST_TIMEOUT);

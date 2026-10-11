@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! A tiny, self-contained JSON reader/writer for named profiles.
 //!
-//! `serde_json` is not in the dependency tree, and the profile schema uses a
-//! bounded set of JSON value kinds, so a small
-//! hand-serializer is used instead of adding a dependency (design §10.4). The
-//! reader tolerates unknown object keys (forward-compat) because extraction is
-//! by key lookup, not positional; the writer emits pretty-printed, hand-
-//! editable output with a stable key order and two-space indentation.
+//! No `serde_json` dependency: profiles use a bounded set of value kinds, so a
+//! small reader and writer suffice. The lenient [`parse`] serves tool output
+//! and palette files; profile documents use [`parse_strict`], which also
+//! rejects raw control characters in strings, numbers outside the JSON grammar
+//! or beyond `f64`, and duplicate object keys. Unknown object keys are kept
+//! (forward compatibility); the writer emits pretty-printed, hand-editable
+//! output with a stable key order and two-space indentation. Numbers are held
+//! as `f64`, so an unknown integer beyond 2^53 loses exactness on a save.
 
 use std::fmt::Write as _;
 
@@ -172,7 +174,6 @@ fn write_string(out: &mut String, s: &str) {
     out.push('"');
 }
 
-/// Parse JSON text into a [`Json`] value, or an error message.
 /// Maximum object/array nesting depth accepted by [`parse`]. A hand-editable
 /// profile is only a few levels deep; this bound is far above any real profile
 /// yet well below the ~thousands of frames that would exhaust the thread stack.
@@ -180,11 +181,24 @@ fn write_string(out: &mut String, s: &str) {
 /// instead of aborting the process via a stack overflow.
 const MAX_PARSE_DEPTH: usize = 128;
 
+/// Parse JSON text into a [`Json`] value, or an error message.
 pub(crate) fn parse(input: &str) -> Result<Json, String> {
+    parse_with(input, false)
+}
+
+/// Parse a profile document: [`parse`] plus the strict checks listed in the
+/// module header, so a damaged hand-edited file is refused with a precise
+/// message instead of being silently normalized on the next save.
+pub(crate) fn parse_strict(input: &str) -> Result<Json, String> {
+    parse_with(input, true)
+}
+
+fn parse_with(input: &str, strict: bool) -> Result<Json, String> {
     let mut parser = Parser {
         chars: input.chars().collect(),
         pos: 0,
         depth: 0,
+        strict,
     };
     parser.skip_ws();
     let value = parser.parse_value()?;
@@ -201,6 +215,8 @@ struct Parser {
     /// Current object/array nesting depth, bounded by [`MAX_PARSE_DEPTH`] to
     /// keep a pathological deeply-nested input from overflowing the stack.
     depth: usize,
+    /// Apply the profile-document checks (see [`parse_strict`]).
+    strict: bool,
 }
 
 impl Parser {
@@ -274,6 +290,9 @@ impl Parser {
         loop {
             self.skip_ws();
             let key = self.parse_string()?;
+            if self.strict && entries.iter().any(|(existing, _)| *existing == key) {
+                return Err(format!("duplicate object key {key:?}"));
+            }
             self.skip_ws();
             self.expect(':')?;
             let value = self.parse_value()?;
@@ -334,6 +353,13 @@ impl Parser {
                         return Err(format!("invalid escape '\\{}'", other.unwrap_or(' ')));
                     }
                 },
+                Some(c) if self.strict && (c as u32) < 0x20 => {
+                    return Err(format!(
+                        "unescaped control character U+{:04X} in string at position {}",
+                        c as u32,
+                        self.pos - 1
+                    ));
+                }
                 Some(c) => out.push(c),
             }
         }
@@ -382,10 +408,16 @@ impl Parser {
             self.pos += 1;
         }
         let slice: String = self.chars[start..self.pos].iter().collect();
-        slice
-            .parse::<f64>()
-            .map(Json::Num)
-            .map_err(|_| format!("invalid number '{slice}'"))
+        if self.strict && !is_json_number(&slice) {
+            return Err(format!("invalid number '{slice}'"));
+        }
+        match slice.parse::<f64>() {
+            Ok(value) if self.strict && !value.is_finite() => {
+                Err(format!("number '{slice}' is out of range"))
+            }
+            Ok(value) => Ok(Json::Num(value)),
+            Err(_) => Err(format!("invalid number '{slice}'")),
+        }
     }
 
     fn parse_bool(&mut self) -> Result<Json, String> {
@@ -417,4 +449,45 @@ impl Parser {
             false
         }
     }
+}
+
+/// Whether `text` matches the JSON number grammar: an optional minus, an
+/// integer part without a leading zero, then optional fraction and exponent
+/// parts that each need at least one digit.
+fn is_json_number(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = usize::from(bytes.first() == Some(&b'-'));
+    match bytes.get(index) {
+        Some(b'0') => index += 1,
+        Some(b'1'..=b'9') => {
+            while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+                index += 1;
+            }
+        }
+        _ => return false,
+    }
+    if bytes.get(index) == Some(&b'.') {
+        index += 1;
+        let digits = index;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+        if index == digits {
+            return false;
+        }
+    }
+    if matches!(bytes.get(index), Some(b'e' | b'E')) {
+        index += 1;
+        if matches!(bytes.get(index), Some(b'+' | b'-')) {
+            index += 1;
+        }
+        let digits = index;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+        if index == digits {
+            return false;
+        }
+    }
+    index == bytes.len()
 }

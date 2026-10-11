@@ -5,11 +5,12 @@
 //! path) and uses [`super::app::win_spawn::apply_no_console_window`] so a GUI
 //! build does not flash a console window.
 
-#[cfg(not(windows))]
 use crate::profiles::DiscoveredShell;
+#[cfg(any(windows, test))]
+use crate::profiles::ShellKind;
 use crate::profiles::discovered_shells as base_discovered_shells;
 #[cfg(windows)]
-use crate::profiles::{DiscoveredShell, ShellKind, parse_wsl_distro_list};
+use crate::profiles::parse_wsl_distro_list;
 
 /// Shell discovery for UI pickers: base platform shells plus Windows WSL distros.
 pub(crate) fn discovered_shells() -> Vec<DiscoveredShell> {
@@ -27,7 +28,14 @@ pub(crate) fn discovered_shells() -> Vec<DiscoveredShell> {
 
 #[cfg(windows)]
 fn append_wsl_shells(out: &mut Vec<DiscoveredShell>) {
-    for distro in read_wsl_distro_names() {
+    append_wsl_shells_from(out, read_wsl_distro_names());
+}
+
+/// Add one structured `wsl.exe -d <distro>` shell per distro name, skipping a
+/// name an entry already holds.
+#[cfg(any(windows, test))]
+fn append_wsl_shells_from(out: &mut Vec<DiscoveredShell>, distros: Vec<String>) {
+    for distro in distros {
         if out
             .iter()
             .any(|entry| entry.kind == ShellKind::Wsl && entry.args.get(1) == Some(&distro))
@@ -165,25 +173,44 @@ mod tests {
         assert_eq!(reused, ["Ubuntu"]);
     }
 
+    /// Each distro becomes one structured `wsl.exe -d <name>` entry; a name an
+    /// entry already holds is not added again. Driven by injected names, so it
+    /// is not vacuous on a host without WSL.
     #[test]
-    #[cfg(windows)]
     fn wsl_shell_entries_use_structured_program_and_args() {
-        let mut out = base_discovered_shells().to_vec();
-        append_wsl_shells(&mut out);
-        for shell in out.iter().filter(|entry| entry.kind == ShellKind::Wsl) {
+        let mut out = vec![DiscoveredShell {
+            label: "WSL: Ubuntu".to_owned(),
+            program: "wsl.exe".to_owned(),
+            args: vec!["-d".to_owned(), "Ubuntu".to_owned()],
+            kind: ShellKind::Wsl,
+        }];
+        append_wsl_shells_from(
+            &mut out,
+            ["Ubuntu", "Debian", "Debian", "Arch Linux"]
+                .map(str::to_owned)
+                .to_vec(),
+        );
+        let labels: Vec<&str> = out.iter().map(|shell| shell.label.as_str()).collect();
+        assert_eq!(labels, ["WSL: Ubuntu", "WSL: Debian", "WSL: Arch Linux"]);
+        for shell in &out {
             assert_eq!(shell.program, "wsl.exe");
-            assert!(
-                shell.args.len() >= 2 && shell.args[0] == "-d",
-                "expected structured -d args, got {:?}",
-                shell.args
-            );
+            assert_eq!(shell.kind, ShellKind::Wsl);
+            assert_eq!(shell.args.len(), 2, "{:?}", shell.args);
+            assert_eq!(shell.args[0], "-d");
+            assert_eq!(shell.label, format!("WSL: {}", shell.args[1]));
         }
     }
 
     #[test]
     fn discovered_shells_merge_is_cached_via_profiles_base() {
+        // The platform part comes from the process-wide cache: both calls read
+        // the very same stored entries, not a rediscovery.
+        assert!(std::ptr::eq(
+            base_discovered_shells().as_ptr(),
+            base_discovered_shells().as_ptr()
+        ));
         let first = discovered_shells();
         let second = discovered_shells();
-        assert_eq!(first.len(), second.len());
+        assert_eq!(first, second);
     }
 }

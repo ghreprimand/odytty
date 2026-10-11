@@ -722,10 +722,10 @@ pub(in crate::native) fn chord_from_winit(
         WinitKey::Character(text) => {
             let mut chars = text.chars();
             let ch = chars.next()?;
-            if chars.next().is_some() || !ch.is_ascii_graphic() {
+            if chars.next().is_some() {
                 return None;
             }
-            KeyBindingKey::Character(ch.to_ascii_lowercase())
+            KeyBindingKey::Character(crate::settings::binding_key_char(ch)?)
         }
         WinitKey::Named(named) => KeyBindingKey::Named(binding_named_key(*named)?),
         _ => return None,
@@ -754,8 +754,7 @@ pub(in crate::native) fn chord_from_winit(
 /// nothing on hardware.
 ///
 /// Resolve by preferring the logical character when it yields a printable
-/// (ascii-graphic, single-char) chord, falling back to the base key otherwise.
-/// This fires `%`/`"` correctly, while a `Ctrl+<letter>` second key (whose
+/// (one scalar, not a control or space) chord, else the base key. This fires `%`/`"` correctly, while a `Ctrl+<letter>` second key (whose
 /// `logical` is a non-printable control char on platforms that fold Ctrl into
 /// `logical_key`) and the `Ctrl-b` prefix itself both fall through to the base
 /// key unchanged. When `logical` and `binding_key` agree (every unshifted key:

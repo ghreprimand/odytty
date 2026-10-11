@@ -629,6 +629,52 @@ mod tests {
         );
     }
 
+    /// A secret passed as the next word of an option is hidden; an option with
+    /// nothing after it, or only another option, has nothing to hide, and the
+    /// short `-p` keeps meaning a port or a parent directory.
+    #[test]
+    fn preview_redacts_the_word_after_a_sensitive_flag() {
+        for (input, expected) in [
+            (
+                "login --password hunter2 --verbose",
+                "login --password [redacted] --verbose",
+            ),
+            ("cli --token abc go", "cli --token [redacted] go"),
+            ("cli --api-key abc", "cli --api-key [redacted]"),
+            (
+                "curl -u admin:hunter2 https://h.invalid",
+                "curl -u [redacted] https://h.invalid",
+            ),
+            ("curl --user admin:hunter2", "curl --user [redacted]"),
+            (
+                "curl -u admin https://h.invalid",
+                "curl -u admin https://h.invalid",
+            ),
+            ("run --token --verbose", "run --token --verbose"),
+            ("run --token", "run --token"),
+            ("mkdir -p build", "mkdir -p build"),
+            ("ssh -p 2222 host.invalid", "ssh -p 2222 host.invalid"),
+        ] {
+            assert_eq!(redact_preview(input), expected, "{input}");
+        }
+    }
+
+    /// The row is judged whole before it is bounded, so a secret that crosses
+    /// the 96-character bound never survives as a fragment, and an IPv6 remote
+    /// is hidden like any other.
+    #[test]
+    fn preview_judges_a_secret_across_the_bound_whole() {
+        for offset in [80usize, 88, 92, 95, 96] {
+            let row = format!("{} token=hunter2hunter2", "a".repeat(offset));
+            let shown = redact_preview(&row);
+            assert!(!shown.contains("hunter"), "offset {offset}: {shown}");
+        }
+        assert_eq!(
+            redact_preview("operator@[2001:db8::1]:22 ok"),
+            "[redacted] ok"
+        );
+    }
+
     #[test]
     fn preview_keeps_non_sensitive_shell_text() {
         assert_eq!(

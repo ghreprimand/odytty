@@ -582,7 +582,9 @@ end
 // only when the buffer parses as complete; on an incomplete multiline
 // continuation it inserts a newline (`AddLine`) without a spurious OutputStart.
 // `click_events=1` matches the unix snippets; the click-to-position action
-// stays consumer-gated by `sh_click` (default on). cmd.exe has no equivalent
+// stays consumer-gated by `sh_click` (default on). The Enter handler runs the
+// user's own bound PSReadLine function (captured before the rebind) in place of
+// the plain `AcceptLine`. cmd.exe has no equivalent
 // hook surface and is deliberately unsupported.
 const POWERSHELL_SNIPPET: &str = r##"if (-not $env:ODYTTY_SHELL_INTEGRATION) {
     $env:ODYTTY_SHELL_INTEGRATION = "1"
@@ -673,6 +675,17 @@ const POWERSHELL_SNIPPET: &str = r##"if (-not $env:ODYTTY_SHELL_INTEGRATION) {
 
     if (Get-Module -ListAvailable -Name PSReadLine) {
         Import-Module PSReadLine -ErrorAction SilentlyContinue
+        # Keep the Enter binding the user already has when it is a named
+        # PSReadLine function (ViAcceptLine in Vi mode, ValidateAndAcceptLine
+        # from a validating profile): the handler below runs that function
+        # where it used to run AcceptLine. A script-block binding has no
+        # callable name and is replaced, as before.
+        $global:__odytty_enter_function = 'AcceptLine'
+        $__odytty_bound = Get-PSReadLineKeyHandler -Bound -ErrorAction SilentlyContinue | Where-Object { $_.Key -eq 'Enter' } | Select-Object -First 1
+        if ($__odytty_bound -and $__odytty_bound.Function -and ([Microsoft.PowerShell.PSConsoleReadLine] | Get-Member -Static -MemberType Method -Name $__odytty_bound.Function -ErrorAction SilentlyContinue)) {
+            $global:__odytty_enter_function = $__odytty_bound.Function
+        }
+        Remove-Variable __odytty_bound -ErrorAction SilentlyContinue
         Set-PSReadLineKeyHandler -Key Enter -ScriptBlock {
             $line = $null
             $cursor = $null
@@ -686,7 +699,8 @@ const POWERSHELL_SNIPPET: &str = r##"if (-not $env:ODYTTY_SHELL_INTEGRATION) {
             } else {
                 [Console]::Write("$([char]27)]133;C$([char]7)")
                 $global:__odytty_command_started = $true
-                [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
+                $accept = $global:__odytty_enter_function
+                [Microsoft.PowerShell.PSConsoleReadLine]::$accept()
             }
         }
     }

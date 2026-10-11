@@ -429,9 +429,14 @@ mod tests {
     fn visible_lines_are_bounded_by_body_height() {
         let mut overlay = ReplayOverlay::new();
         overlay.open(frames(&['a']));
-        // Header + up to (height-1) body rows, never more than body_height.
+        // The recorded frame is 8x3, so the view is a header plus its three
+        // rows, never more than the body height and never padded past the frame.
+        assert_eq!(overlay.visible_lines(20, 0).len(), 0);
+        assert_eq!(overlay.visible_lines(20, 1).len(), 1);
         assert_eq!(overlay.visible_lines(20, 2).len(), 2);
-        assert!(overlay.visible_lines(20, 10).len() <= 10);
+        assert_eq!(overlay.visible_lines(20, 3).len(), 3);
+        assert_eq!(overlay.visible_lines(20, 4).len(), 4);
+        assert_eq!(overlay.visible_lines(20, 10).len(), 4);
     }
 
     #[test]

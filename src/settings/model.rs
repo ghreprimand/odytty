@@ -8,7 +8,9 @@ use super::*;
 /// DECSCUSR can still override it at runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CursorBlink {
-    /// Cursor blinks by default.
+    /// Cursor blinks by default. This is the shipped default; the `default`
+    /// token selects it.
+    #[default]
     On,
     /// Cursor is steady by default.
     Off,
@@ -18,7 +20,6 @@ pub enum CursorBlink {
     /// defers to that conventional default rather than to a system setting that
     /// does not exist. An application's DECSCUSR / DECSET 12 can still override
     /// it at runtime, exactly as for `On`/`Off`.
-    #[default]
     Auto,
 }
 
@@ -45,9 +46,9 @@ impl CursorBlink {
 
     pub(super) fn parse(raw: &str) -> Option<Self> {
         match normalize_name(raw).as_str() {
-            "on" | "true" | "yes" | "blink" | "blinking" => Some(Self::On),
+            "on" | "true" | "yes" | "blink" | "blinking" | "default" => Some(Self::On),
             "off" | "false" | "no" | "steady" | "solid" => Some(Self::Off),
-            "auto" | "default" => Some(Self::Auto),
+            "auto" => Some(Self::Auto),
             _ => None,
         }
     }
@@ -126,6 +127,22 @@ pub enum KeyBindingNamedKey {
     F(u8),
 }
 
+/// The stored form of a character key in a binding: any single Unicode scalar
+/// that is neither a control character nor whitespace, lowercased when its
+/// lowercase form is itself one scalar (`A` and `a` bind alike, as do `Ä` and
+/// `ä`). The config parser and the live key-capture path both use this, so a
+/// captured chord always saves to a value the parser reads back.
+pub fn binding_key_char(ch: char) -> Option<char> {
+    if ch.is_control() || ch.is_whitespace() {
+        return None;
+    }
+    let mut lower = ch.to_lowercase();
+    match (lower.next(), lower.next()) {
+        (Some(single), None) => Some(single),
+        _ => Some(ch),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KeyChord {
     pub modifiers: KeyBindingModifiers,
@@ -185,8 +202,9 @@ pub struct SettingsEditOverlay {
     pub(super) settings: Settings,
 }
 
-/// Master render-quality profile. `Balanced` is the current renderer behavior;
-/// `Plain` derives a hard fast path by neutralizing optional visual work.
+/// Master render-quality profile. `High` is the shipped default and the
+/// `default` token selects it; `Plain` derives a hard fast path by neutralizing
+/// optional visual work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RenderQuality {
     Plain,
@@ -236,8 +254,8 @@ impl RenderQuality {
     pub(super) fn parse(value: &str) -> Option<Self> {
         match normalize_name(value).as_str() {
             "plain" | "fast" | "minimal" | "minimum" => Some(Self::Plain),
-            "balanced" | "default" | "normal" => Some(Self::Balanced),
-            "high" | "quality" => Some(Self::High),
+            "balanced" | "normal" => Some(Self::Balanced),
+            "high" | "quality" | "default" => Some(Self::High),
             _ => None,
         }
     }
@@ -1577,12 +1595,12 @@ impl Default for Settings {
             ligature_ss02: DEFAULT_LIGATURE_SS02,
             font_zero: DEFAULT_FONT_ZERO,
             bidi_reorder: DEFAULT_BIDI_REORDER,
-            kitty_named_transports: false,
-            secure_keyboard_input: false,
+            kitty_named_transports: DEFAULT_KITTY_NAMED_TRANSPORTS,
+            secure_keyboard_input: DEFAULT_SECURE_KEYBOARD_INPUT,
             key_bindings: Vec::new(),
             pane_prefix: default_pane_prefix(),
             cursor_style: CursorStyle::Block,
-            cursor_blink: CursorBlink::On,
+            cursor_blink: CursorBlink::default(),
             ambiguous_width: AmbiguousWidth::Narrow,
             cursor_easing: DEFAULT_CURSOR_EASING,
             cursor_glow: DEFAULT_CURSOR_GLOW,
@@ -1600,14 +1618,14 @@ impl Default for Settings {
             quick_terminal_animation: DEFAULT_QUICK_TERMINAL_ANIMATION.to_owned(),
             quick_terminal_hide_on_focus_loss: DEFAULT_QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS,
             quick_terminal_profile: DEFAULT_QUICK_TERMINAL_PROFILE.to_owned(),
-            osc52_read: false,
+            osc52_read: DEFAULT_OSC52_READ,
             osc52_write: Osc52WritePolicy::default(),
-            synthetic_styles: true,
-            geometric_boxdraw: true,
-            symbol_fallback: true,
+            synthetic_styles: DEFAULT_SYNTHETIC_STYLES,
+            geometric_boxdraw: DEFAULT_GEOMETRIC_BOXDRAW,
+            symbol_fallback: DEFAULT_SYMBOL_FALLBACK,
             symbol_font: None,
             symbol_map: crate::text::SymbolMap::new(),
-            themed_ui_roles: true,
+            themed_ui_roles: DEFAULT_THEMED_UI_ROLES,
             scroll_wheel_lines: DEFAULT_SCROLL_WHEEL_LINES,
             scrollback_lines: DEFAULT_SCROLLBACK_LINES,
             scroll_drag_speed: ScrollDragSpeed::default(),

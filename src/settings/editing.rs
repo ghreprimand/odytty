@@ -103,6 +103,19 @@ impl SettingsEditOverlay {
 
         let mut values = self.values.clone();
         let trimmed = raw.trim();
+        // Every row takes the value it displays. The `cell_bg_opacity` row
+        // displays wallpaper visibility (`1 - opacity`), so its input is
+        // converted back to the stored opacity here, for every caller.
+        let stored_opacity;
+        let trimmed = if key == "cell_bg_opacity" {
+            stored_opacity = visibility_to_opacity(trimmed).ok_or_else(|| SettingEditError {
+                key,
+                message: "Background visibility must be a number from 0 to 1.".to_owned(),
+            })?;
+            stored_opacity.as_str()
+        } else {
+            trimmed
+        };
         if clears_setting(key, trimmed) {
             values.remove(info.env);
         } else {
@@ -132,6 +145,14 @@ impl SettingsEditOverlay {
         self.settings = candidate.clone();
         Ok(Some(candidate))
     }
+}
+
+/// Convert a displayed wallpaper visibility in `0..=1` to the stored
+/// `cell_bg_opacity` text. `None` for anything else.
+fn visibility_to_opacity(raw: &str) -> Option<String> {
+    let visibility = raw.parse::<f32>().ok()?;
+    (visibility.is_finite() && (0.0..=1.0).contains(&visibility))
+        .then(|| format_float(1.0 - visibility))
 }
 
 fn clears_setting(key: &str, value: &str) -> bool {

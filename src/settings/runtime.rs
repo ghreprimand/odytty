@@ -6,12 +6,11 @@ use super::*;
 /// Runtime flag mirroring [`Settings::synthetic_styles`], published process-wide
 /// so the GPU renderer can read it without threading `Settings` through the
 /// `NativeOptions` seam (whose construction literals live in a separate
-/// module). Defaults to `true` (synthesis on); the native entry point
-/// publishes the resolved setting at startup and the config-reload path
-/// republishes it on change. This mirrors the existing process-global pattern
-/// used for default cell colors ([`crate::text::set_default_colors`]).
+/// module). Starts at [`DEFAULT_SYNTHETIC_STYLES`], the same value as
+/// [`Settings::default`]; the native entry point publishes the resolved setting
+/// at startup and the config-reload path republishes it on change.
 static SYNTHETIC_STYLES_ENABLED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(true);
+    std::sync::atomic::AtomicBool::new(DEFAULT_SYNTHETIC_STYLES);
 
 /// Publish the synthetic-styles kill switch so the renderer's atlas-build path
 /// can gate font synthesis. Called at startup and whenever the config reloads.
@@ -28,11 +27,11 @@ pub fn synthetic_styles_enabled() -> bool {
 
 /// Runtime flag mirroring [`Settings::geometric_boxdraw`], published
 /// process-wide so the GPU renderer can apply it to every rebuilt glyph atlas
-/// without threading `Settings` through the native options seam. Defaults to
-/// `false`, preserving the font-rasterized plain path unless explicitly
-/// enabled.
+/// without threading `Settings` through the native options seam. Starts at
+/// [`DEFAULT_GEOMETRIC_BOXDRAW`], the same value as [`Settings::default`], so an
+/// atlas built before startup publishes the setting draws the shipped look.
 static GEOMETRIC_BOXDRAW_ENABLED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+    std::sync::atomic::AtomicBool::new(DEFAULT_GEOMETRIC_BOXDRAW);
 
 /// Publish the geometric box-drawing switch so the renderer's atlas-build path
 /// can enable pixel geometry for box/block/Powerline glyphs. Called at startup
@@ -113,11 +112,11 @@ pub fn font_zero_enabled() -> bool {
 
 /// Runtime flag mirroring [`Settings::symbol_fallback`], published
 /// process-wide so the GPU renderer can rebuild the glyph atlas when live
-/// settings enable or disable the RV6 symbol / Nerd-font fallback. Defaults to
-/// `true`, with a bundled symbols face intended to make PUA prompt icons work
-/// out of the box; users can still disable it explicitly.
+/// settings enable or disable the symbol and Nerd Font fallback. Starts at
+/// [`DEFAULT_SYMBOL_FALLBACK`], the same value as [`Settings::default`], with a
+/// bundled symbols face so private-use prompt icons work out of the box.
 static SYMBOL_FALLBACK_ENABLED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(true);
+    std::sync::atomic::AtomicBool::new(DEFAULT_SYMBOL_FALLBACK);
 
 /// Optional explicit symbol / Nerd-font path mirroring [`Settings::symbol_font`].
 /// `None` means the renderer falls back to its host font search.

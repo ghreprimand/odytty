@@ -51,10 +51,12 @@ fn unique_runtime_dir() -> RuntimeDir {
     RuntimeDir(dir)
 }
 
-/// How long a fake host waits for the client to connect, and for each read or
-/// write on the accepted stream. A host that hits it panics or sees an error
-/// and drops the stream, so the client's pump reaches EOF and every close that
-/// waits on the pump returns; no fake host can hold a test open past it.
+/// How long a fake host waits for the client to connect, and for each single
+/// read or write on the accepted stream. A host that hits it panics or sees an
+/// error and drops the stream, so the client's pump reaches EOF. The bound is
+/// per accept and per blocking operation, not a whole-host lifetime: a host
+/// that keeps receiving frames keeps running. Helper joins have their own
+/// [`JOIN_DEADLINE`].
 const FAKE_HOST_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Accept one client within `deadline`, panicking (inside the host thread, so
@@ -233,6 +235,18 @@ fn join_within<T: Send + 'static>(handle: JoinHandle<T>, what: &str) -> T {
              fake host is wedged (never EOFed). Failing fast instead of hanging \
              the suite."
         ),
+    }
+}
+
+/// Shuts down both directions of a socket when dropped, including on unwind,
+/// so a peer thread blocked in a read reaches EOF even while another copy of
+/// the descriptor (a retained alias, or one a concurrent fork inherited) keeps
+/// the socket itself open.
+struct ShutdownOnDrop(UnixStream);
+
+impl Drop for ShutdownOnDrop {
+    fn drop(&mut self) {
+        let _ = self.0.shutdown(std::net::Shutdown::Both);
     }
 }
 
@@ -1668,12 +1682,19 @@ fn detach_truncated_write_poisons_client_against_further_writes() {
 #[test]
 fn input_to_a_slowly_draining_host_stops_at_the_whole_frame_budget() {
     let (ours, theirs) = UnixStream::pair().expect("socketpair");
+    // The retained alias keeps the client endpoint open after `client` drops,
+    // so the drainer's EOF comes from the explicit shutdown, not the last close.
+    let alias = ShutdownOnDrop(ours.try_clone().expect("client endpoint alias"));
     let mut client = budgeted_client(ours, true, Duration::from_millis(300));
+    theirs
+        .set_read_timeout(Some(FAKE_HOST_DEADLINE))
+        .expect("drainer read deadline");
     let drainer = std::thread::spawn(move || {
         let mut reader = &theirs;
         let mut buffer = [0u8; 4096];
         // A few kilobytes per tick keeps every kernel write progressing, and
-        // the loop ends at EOF when the client drops its end.
+        // the loop ends at EOF once the client endpoint is shut down, or at
+        // the read deadline.
         while let Ok(read) = std::io::Read::read(&mut reader, &mut buffer) {
             if read == 0 {
                 break;
@@ -1692,6 +1713,7 @@ fn input_to_a_slowly_draining_host_stops_at_the_whole_frame_budget() {
     );
     assert!(client.poisoned, "a truncated frame poisons the client");
     drop(client);
+    drop(alias);
     join_within(drainer, "slow drainer");
 }
 

@@ -202,17 +202,22 @@ fn wide_char_spans_two_cells_without_double_draw() {
 }
 
 #[test]
-fn wide_glyph_inks_across_the_seam_when_supported() {
-    // W1: with a CJK/fullwidth-capable font, a width-2 glyph rasterizes into a
-    // two-cell slot and inks across the cell seam — not clipped at the lead
-    // cell's right edge. Skips on hosts without such a font (the validation host
-    // here), where the always-running atlas unit test
+fn wide_glyph_inks_across_the_seam() {
+    // W1: a width-2 glyph rasterizes into a two-cell slot and inks across the
+    // cell seam, not clipped at the lead cell's right edge. The bundled face has
+    // no CJK or fullwidth glyph, so the project-authored bidi fixture face
+    // (two-cell U+754C, a block-pattern 'M') supplies one; the test always runs.
+    // The always-running atlas unit test
     // `rasterize_clip_width_relieves_wide_glyph_clipping` proves the mechanism.
-    let (font, mut atlas) = setup();
-    let Some(wide) = find_supported_wide_glyph(&mut atlas, &font) else {
-        eprintln!("skipping: no wide (CJK/fullwidth) glyph in the loaded font");
-        return;
-    };
+    let font =
+        text::FontHandle::try_from_vec(include_bytes!("../fixtures/fonts/bidi-mixed.ttf").to_vec())
+            .expect("the wide-glyph fixture face parses");
+    let mut atlas = odytty::atlas::GlyphAtlas::build(&font, PX);
+    let wide = '\u{754C}';
+    assert!(
+        ensure_real_glyph(&mut atlas, &font, wide),
+        "the fixture face must provide a real outline for the wide glyph"
+    );
 
     // Grid: wide lead at cols 0-1, a narrow neighbour at col 2, blank at col 3.
     let mut term = Terminal::new(4, 1);

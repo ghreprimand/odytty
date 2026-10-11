@@ -115,6 +115,36 @@ impl std::fmt::Display for ErrorCode {
 
 impl std::error::Error for ErrorCode {}
 
+/// Marks a transport error raised before any request byte was written: the
+/// endpoint path, the connect, or the owner check failed. Such a mutation was
+/// never delivered, so the caller may retry it.
+#[derive(Debug)]
+pub struct NotDelivered(pub std::io::Error);
+
+impl std::fmt::Display for NotDelivered {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "request not sent: {}", self.0)
+    }
+}
+
+impl std::error::Error for NotDelivered {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+/// Wrap `error` as [`NotDelivered`], keeping its kind.
+pub fn not_delivered(error: std::io::Error) -> std::io::Error {
+    std::io::Error::new(error.kind(), NotDelivered(error))
+}
+
+/// Whether `error` was raised before any request byte was written.
+pub fn was_not_delivered(error: &std::io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|inner| inner.is::<NotDelivered>())
+}
+
 /// Read a single bounded frame. The transport sets its read deadline before
 /// calling. Any read or parse error is fatal to that connection; no resync.
 pub fn read_request(reader: &mut impl Read) -> io::Result<Request> {

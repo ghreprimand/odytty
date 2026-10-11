@@ -45,10 +45,16 @@ Each profile is one hand-editable JSON document under the profiles directory:
 the profile name; the `.profile.json` suffix is required. A directory scan
 examines at most 1,024 directory entries of any kind (other files, folders,
 and malformed profiles all count), returns at most 256 profiles, reads at most
-1 MiB per file, and retains at most 100 parse warnings. A file saved with a
+1 MiB per file, and retains at most 100 parse warnings. A document is strict JSON:
+a raw control character inside a string, a number outside the JSON grammar or
+beyond a 64-bit float, and a repeated key in any object are refused with a
+message naming the problem. A save is refused when the pretty-printed document
+would exceed that 1 MiB read limit, so a saved profile always reloads. A file saved with a
 leading UTF-8 byte order mark, as some Windows editors write, loads normally;
 the same applies to `odytty.conf`, theme files, and external palette files. Profile files load in
-name order. A scan that stops at either limit adds a warning, which the Profile
+name order. A profile is trusted like `odytty.conf`: its `theme`, `font`, and
+`external_palette_path` values may name any file your account can read, so
+install only profiles you would put in your own configuration. A scan that stops at either limit adds a warning, which the Profile
 Manager shows. OdyTTY keeps the last parsed catalog and reuses it while every
 profile file's name, size, and modification time are unchanged, together with
 its inode, change time, and mode on Unix, or its creation time and file
@@ -70,7 +76,8 @@ widen it. See [Import, export, and migration](#import-export-and-migration).
 ## Schema reference
 
 The current document schema is `schema_version` 1. Within a supported version,
-schema-owned objects retain unknown keys for saving. A current exception is a
+schema-owned objects retain unknown keys for saving. Numbers are held as 64-bit
+floats, so an unknown integer above 2^53 loses exactness when the profile is saved. A current exception is a
 `switch` object containing only unknown fields and no populated known match
 arrays: saving or exporting it fails validation because serialization omits that
 object. Avoid editing such a profile until this round-trip defect is fixed.
@@ -84,7 +91,7 @@ Top-level fields:
 | Field | Type | Notes |
 | --- | --- | --- |
 | `schema_version` | integer | Required. Currently `1`. |
-| `name` | string | Required. Matches the file stem. ASCII letters, digits, hyphen, underscore, or dot only; up to 64 characters. |
+| `name` | string | Required. Matches the file stem. ASCII letters, digits, hyphen, underscore, or dot only; up to 64 characters. Windows device names (`con`, `prn`, `aux`, `nul`, `com0`-`com9`, `lpt0`-`lpt9`, with or without an extension) are refused on every platform, and a save is refused when another profile file differs from it only by letter case. |
 | `display_name` | string | Optional label shown in menus. Up to 512 characters. |
 | `platforms` | array | Optional applicability list: `linux`, `macos`, `windows`. Absent means all. |
 | `launch` | object | Shell, command, starting directory, and environment. |
@@ -99,13 +106,13 @@ Top-level fields:
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `shell` | string | Interactive shell to run instead of the discovered default. |
-| `command` | object | `program` (string) plus `args` (array, up to 32). Runs instead of a shell. |
-| `working_directory` | string | Starting directory. |
+| `shell` | string | Interactive shell to run instead of the discovered default. Not empty, no NUL. |
+| `command` | object | `program` (string, not empty) plus `args` (array, up to 32). Runs instead of a shell. A NUL in the program or an argument is refused. |
+| `working_directory` | string | Starting directory. No NUL. |
 | `env` | object | Bounded environment overrides. Up to 64 entries; values up to 1024 characters. |
 
 `appearance` fields: `theme`, `visual`, `font`, `font_family`, `font_weight`
-(strings), `font_size_px` (number), `title` (string), `follow_external_palette`
+(strings), `font_size_px` (a number above zero that fits a 32-bit float; the size in use is still clamped to 6-72 pixels), `title` (string), `follow_external_palette`
 (boolean), `external_palette_provider` and `external_palette_path` (strings).
 See [external palette following](v0.14.0-external-palette.md) and
 [themes](themes.md).
@@ -114,7 +121,10 @@ See [external palette following](v0.14.0-external-palette.md) and
 vocabulary). `effects` fields: `render_quality` (string), `bloom`, `crt`,
 `retro` (booleans). `layout.saved_layout` (string) names a saved layout to open.
 `switch.match_hosts` and `switch.match_directories` are string arrays, each up to
-16 entries.
+16 entries; an explicit `null` counts as absent, as for every other optional
+field. A rule that can never match (a host with a space or path separator, a
+directory that is not absolute or contains `..`) still loads, and the catalog
+reports it as a warning naming the entry.
 
 Every string field is bounded to 512 characters unless a different cap is noted
 above. Environment values are the deliberate exception at 1024 characters, and
@@ -310,7 +320,12 @@ asks for suggestions, never on the default launch path:
 - **Windows** lists PowerShell, cmd, and installed WSL distributions read-only.
   Discovery never changes the OS default shell and never executes its output.
 - **macOS and Linux** read `/etc/shells` and common login shells; discovery is
-  explicit and separately tested.
+  explicit and separately tested. The registry read stops at 64 KiB and 512
+  lines and keeps at most 256 candidates before any file is probed. A
+  `Default` entry appears only when `SHELL` is set and non-empty. A shell given
+  as a bare name is looked up on `PATH` only, never in the working directory.
+  On Windows a built-in shell that is already listed as the default keeps its
+  `Default` label.
 
 Environment values pass through fork/exec on Unix and fold into the ConPTY
 environment block on Windows. A profile value replaces any variable of the same
@@ -346,7 +361,9 @@ Existing configuration migrates without data loss:
 - **No secrets.** Secret-shaped environment keys (`password`, `secret`, `token`,
   `credential`, `apikey`, `privatekey`, `identityfile`, and names containing
   them) are rejected across the whole document at parse time, and private-key
-  material in any string value is rejected. Writes re-serialize through that same
+  material in any string value is rejected. The error names the key and the
+  word it matched; the match is by substring, so a key such as
+  `TOKENIZERS_PARALLELISM` is refused too and has to be set outside the profile. Writes re-serialize through that same
   parser, so a programmatically built profile cannot persist what a file parse
   would reject.
 - **Environment validation.** An empty key, a key containing `=`, a NUL in any
@@ -356,6 +373,9 @@ Existing configuration migrates without data loss:
 - **Malformed recovery.** A malformed profile file does not take down the
   manager: the parse failure is reported and other profiles continue to load.
   Import surfaces the same validation errors instead of writing a bad file.
+  Quarantining a malformed file renames it to `<name>.bad`; a later quarantine of
+  the same profile uses `<name>.bad.1`, `<name>.bad.2`, and so on (up to 100
+  copies), so an earlier copy is never overwritten.
 
 ## Startup responsiveness
 

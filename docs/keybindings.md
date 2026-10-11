@@ -417,7 +417,9 @@ A chord is `+`-joined modifiers plus one key:
 
 - Modifiers: `ctrl`/`control`, `shift`, `alt`/`option`,
   `super`/`meta`/`cmd`/`command`/`win`/`windows`.
-- Key: a single printable character (use `comma` for the comma separator); a named key
+- Key: a single character other than whitespace, including non-Latin letters
+  such as `ä` or `ф` (use `comma` for the comma separator; a letter is
+  stored in lowercase); a named key
   (`enter`, `backspace`, `esc`, `tab`, `space`, `pageup`, `pagedown`, `home`,
   `end`, `delete`, `insert`, `up`/`down`/`left`/`right`); or `f1`–`f24`.
 - `+` and `=` cannot be used as the bound key character.

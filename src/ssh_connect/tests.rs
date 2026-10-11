@@ -1089,3 +1089,49 @@ fn imported_alias_delegates_identity_and_rejects_unsafe_aliases() {
     h.alias = "bad alias".to_owned();
     assert!(ssh_command_for_host(&h).is_err());
 }
+
+/// The socket directory must leave room for the name the master binds first:
+/// `<dir>/ssh-<40 hex>` plus OpenSSH's `.<16 characters>` suffix.
+#[cfg(unix)]
+#[test]
+fn a_control_dir_leaves_room_for_the_masters_temporary_socket_name() {
+    use std::path::Path;
+    let limit = 103;
+    let room = limit - (1 + 4 + 40 + 1 + 16);
+    let at_limit = "a".repeat(room);
+    assert!(control_dir_fits_socket_limit(Path::new(&at_limit), limit));
+    assert!(!control_dir_fits_socket_limit(
+        Path::new(&format!("{at_limit}a")),
+        limit
+    ));
+    // The macOS state directory is `/Users/<name>/Library/Logs/odytty/ssh`:
+    // ten characters of user name fit, eleven do not.
+    let dir = |name: &str| format!("/Users/{name}/Library/Logs/odytty/ssh");
+    assert!(control_dir_fits_socket_limit(
+        Path::new(&dir("abcdefghij")),
+        103
+    ));
+    assert!(!control_dir_fits_socket_limit(
+        Path::new(&dir("abcdefghijk")),
+        103
+    ));
+    // Linux allows 107 bytes.
+    assert!(control_dir_fits_socket_limit(
+        Path::new(&dir("abcdefghijklmn")),
+        107
+    ));
+}
+
+/// The short fallback is a fixed, per-user, shallow directory.
+#[cfg(unix)]
+#[test]
+fn the_short_control_dir_is_per_user_and_always_fits() {
+    let dir = short_control_dir();
+    assert!(dir.starts_with("/tmp"));
+    assert!(control_dir_fits_socket_limit(&dir, 103), "{dir:?}");
+    // A user id of any width still fits the strictest platform limit.
+    assert!(control_dir_fits_socket_limit(
+        std::path::Path::new("/tmp/odytty-4294967295"),
+        103
+    ));
+}

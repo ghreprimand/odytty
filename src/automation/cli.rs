@@ -11,16 +11,33 @@ use super::protocol::{
     VERSION,
 };
 
-pub const USAGE: &str = "Usage: odytty control [--endpoint PATH] [--json] COMMAND [ARGS]\n\
-Commands: capabilities | list | status ID | focus ID | open-profile WINDOW NAME |\n\
-          create-tab WINDOW | create-workspace WINDOW NAME |\n\
-          split PANE columns|rows | rename ID NAME | quick-terminal toggle\n\
-IDs: 32-hex-instance:window|workspace|tab|pane:decimal-serial\n\
-Only quick-terminal toggle can discover an endpoint; every other command requires --endpoint.\n\
-Discovery skips stale sockets; it refuses when any live socket cannot be classified.\n\
-The endpoint must be explicitly enabled by its owner. No terminal input or content reads.\n\
-Unix requires an owner-private directory; Windows requires a local OdyTTY named pipe.\n\
-A lost mutation reply has an unknown outcome; do not retry automatically.\n";
+macro_rules! usage {
+    ($endpoint_rule:literal) => {
+        concat!(
+            "Usage: odytty control [--endpoint PATH] [--json] COMMAND [ARGS]\n",
+            "Commands: capabilities | list | status ID | focus ID | open-profile WINDOW NAME |\n",
+            "          create-tab WINDOW | create-workspace WINDOW NAME |\n",
+            "          split PANE columns|rows | rename ID NAME | quick-terminal toggle\n",
+            "IDs: 32-hex-instance:window|workspace|tab|pane:decimal-serial\n",
+            $endpoint_rule,
+            "The endpoint must be explicitly enabled by its owner. No terminal input or content reads.\n",
+            "Unix requires an owner-private directory; Windows requires a local OdyTTY named pipe.\n",
+            "A lost mutation reply has an unknown outcome; do not retry automatically.\n",
+        )
+    };
+}
+
+#[cfg(not(windows))]
+pub const USAGE: &str = usage!(
+    "Only quick-terminal toggle can discover an endpoint; every other command requires --endpoint.\n\
+Discovery skips stale sockets; it refuses when any live socket cannot be classified.\n"
+);
+
+/// Windows has no endpoint discovery, so the help says every command needs one.
+#[cfg(windows)]
+pub const USAGE: &str = usage!(
+    "Windows has no endpoint discovery: every command, including quick-terminal toggle, requires --endpoint.\n"
+);
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
@@ -246,6 +263,15 @@ pub fn run(command: Command) -> (String, bool) {
     };
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     if endpoint.is_none() {
+        // `parse` already enforces this; a hand-built command must not reach
+        // discovery with a mutation that names no endpoint.
+        if !matches!(request.action, Action::QuickTerminalToggle) {
+            let response = Response {
+                request_id: request.request_id,
+                reply: Reply::Error(ErrorCode::InvalidRequest),
+            };
+            return (format_response(&response, json), false);
+        }
         return run_discovered_unix(request, json);
     }
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -303,16 +329,19 @@ fn mutation_response(
 
 /// Classify a transport failure for the caller. A read-only request is always
 /// `unavailable`: repeating it is harmless. A mutation is `unavailable` only
-/// when the failure proves the request was never delivered: the endpoint does
-/// not exist (a stale pid in the name), refused the connection, failed the
-/// owner or path checks, or the name was invalid. Every other failure (a
-/// connect or reply timeout, a broken or reset stream, a malformed reply) may
-/// have happened after the request bytes left, so it stays `outcome_unknown`
-/// and the caller must not retry automatically.
+/// when the failure proves the request was never delivered: the transport
+/// marked it [`protocol::NotDelivered`] (any failure before the first written
+/// byte, including a connect timeout against a busy endpoint), or the endpoint
+/// does not exist (a stale pid in the name), refused the connection, failed the
+/// owner or path checks, or the name was invalid. Every other failure (a reply
+/// timeout, a broken or reset stream, a malformed reply) may have happened
+/// after the request bytes left, so it stays `outcome_unknown` and the caller
+/// must not retry automatically.
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 fn transport_error_code(error: &std::io::Error, read_only: bool) -> ErrorCode {
     use std::io::ErrorKind;
     if read_only
+        || protocol::was_not_delivered(error)
         || matches!(
             error.kind(),
             ErrorKind::NotFound
@@ -344,7 +373,6 @@ enum DiscoveryFailure {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn run_discovered_unix(request: Request, json: bool) -> (String, bool) {
-    debug_assert!(matches!(request.action, Action::QuickTerminalToggle));
     let started = Instant::now();
     #[cfg(target_os = "linux")]
     let candidates = super::unix::discovery_candidates(
@@ -976,6 +1004,72 @@ mod tests {
                 "{kind:?} read-only"
             );
         }
+    }
+
+    /// A failure the transport marked as raised before the first written byte
+    /// is `unavailable` whatever its kind, including a connect timeout against
+    /// a busy endpoint; the same kind after delivery stays unknown.
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    #[test]
+    fn failures_marked_not_delivered_are_unavailable_for_mutations() {
+        use std::io::{Error, ErrorKind};
+        for kind in [
+            ErrorKind::TimedOut,
+            ErrorKind::WouldBlock,
+            ErrorKind::BrokenPipe,
+            ErrorKind::Other,
+        ] {
+            let before = protocol::not_delivered(Error::new(kind, "connect"));
+            assert_eq!(before.kind(), kind, "the mark keeps the kind");
+            assert_eq!(
+                transport_error_code(&before, false),
+                ErrorCode::Unavailable,
+                "{kind:?}"
+            );
+            assert_eq!(
+                transport_error_code(&Error::new(kind, "reply"), false),
+                ErrorCode::OutcomeUnknown,
+                "{kind:?}"
+            );
+        }
+    }
+
+    /// The help text states each platform's endpoint rule: Unix discovers an
+    /// endpoint for `quick-terminal toggle`, Windows never discovers one.
+    #[test]
+    fn usage_states_this_platforms_endpoint_rule() {
+        if cfg!(windows) {
+            assert!(!USAGE.contains("can discover"), "{USAGE}");
+            assert!(USAGE.contains("Windows has no endpoint discovery"));
+        } else {
+            assert!(USAGE.contains("Only quick-terminal toggle can discover"));
+            assert!(!USAGE.contains("Windows has no endpoint discovery"));
+        }
+    }
+
+    /// A hand-built mutation with no endpoint is refused on Unix instead of
+    /// reaching discovery; only `parse` used to enforce this.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn a_hand_built_endpointless_mutation_is_refused_without_discovery() {
+        let (output, success) = run(Command::Request {
+            endpoint: None,
+            json: false,
+            request: Request {
+                version: VERSION,
+                request_id: 7,
+                action: Action::Rename {
+                    target: ObjectId {
+                        instance: [1; 16],
+                        kind: ObjectKind::Tab,
+                        serial: 1,
+                    },
+                    name: "renamed".into(),
+                },
+            },
+        });
+        assert!(!success);
+        assert!(output.contains("invalid"), "{output}");
     }
 
     #[cfg(windows)]

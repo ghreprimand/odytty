@@ -186,7 +186,7 @@ impl ColorGlyphRun {
     pub fn covers(self, row: usize, column: usize) -> bool {
         self.row == row
             && column >= self.column
-            && column < self.column + self.covered_columns as usize
+            && column < self.column.saturating_add(self.covered_columns as usize)
     }
 }
 
@@ -211,14 +211,17 @@ pub struct ColorRunCoverage {
 
 impl ColorRunCoverage {
     pub fn new(runs: &[ColorGlyphRun], columns: usize, rows: usize) -> Self {
-        if runs.is_empty() || columns == 0 || rows == 0 {
+        // A grid whose cell count overflows has no addressable cells, so no
+        // run can cover one: the same empty answer as no runs at all.
+        let cells = columns.checked_mul(rows);
+        if runs.is_empty() || columns == 0 || rows == 0 || cells.is_none() {
             return Self {
                 columns,
                 rows,
                 bits: Vec::new(),
             };
         }
-        let mut bits = vec![0u64; (columns * rows).div_ceil(64)];
+        let mut bits = vec![0u64; cells.unwrap_or(0).div_ceil(64)];
         for run in runs {
             if run.row >= rows {
                 continue;

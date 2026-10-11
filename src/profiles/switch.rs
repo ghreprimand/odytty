@@ -138,6 +138,37 @@ fn directory_matches(cwd: Option<&Path>, pattern: &str) -> bool {
     cwd_path.starts_with(prefix)
 }
 
+/// Describe each match rule in `rules` that can never match, so a typo in a
+/// hand-edited profile is reported when the catalog loads instead of silently
+/// disabling switching. A host pattern must be non-empty without whitespace or
+/// path separators; a directory pattern must be rooted and free of `..`
+/// components, because a cwd is always reported without them.
+pub(crate) fn unmatchable_switch_patterns(
+    profile: &str,
+    rules: &ProfileSwitchRules,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    for host in &rules.match_hosts {
+        if normalize_host_pattern(host).is_none() {
+            problems.push(format!(
+                "profile {profile:?}: match_hosts entry {host:?} never matches (a host name has no spaces or path separators)"
+            ));
+        }
+    }
+    for directory in &rules.match_directories {
+        let rooted = normalize_directory_pattern(directory).is_some();
+        let traverses = Path::new(directory.trim())
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir));
+        if !rooted || traverses {
+            problems.push(format!(
+                "profile {profile:?}: match_directories entry {directory:?} never matches (use an absolute path without '..')"
+            ));
+        }
+    }
+    problems
+}
+
 /// Normalize a directory match pattern for storage.
 pub fn normalize_directory_pattern(raw: &str) -> Option<String> {
     let trimmed = raw.trim();

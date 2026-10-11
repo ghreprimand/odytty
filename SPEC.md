@@ -165,7 +165,12 @@ code; `portable-pty` and `crossterm` are gone from the dependency tree.
   default interactive shell prefers PowerShell to match Windows Terminal's
   command surface - `pwsh.exe` (PowerShell 7) if present, else Windows
   PowerShell 5.1 (resolved by its fixed `%SystemRoot%\System32\WindowsPowerShell\v1.0\`
-  path), else `%ComSpec%` (cmd.exe) as a last resort. `spawn_shell_command`
+  path), else `%ComSpec%` (cmd.exe) as a last resort, which is always an
+  absolute path (`%SystemRoot%\System32\cmd.exe` when `%ComSpec%` is not
+  drive-absolute). A bare program name from a profile or `--exec` is pinned to
+  the absolute file found in the executable's directory, `System32`, the Windows
+  directory and `PATH`, never the launch directory. Dropping a session waits at
+  most one second for a killed child before detaching its waiter thread. `spawn_shell_command`
   selects the one-shot flag by shell family - `cmd /C <command>` for cmd,
   `powershell -NoProfile -Command <command>` for PowerShell - the Windows
   analogue of the Unix `$SHELL -lc` split, not a `-lc` login shell. The
@@ -242,7 +247,10 @@ approximation confined within the cell.
 
 Underline color is taken from the cell's
 `underline_color` attribute when set, or falls back to the effective foreground;
-this is resolved in the vertex builder, not in the shader.
+this is resolved in the vertex builder, not in the shader. An explicit color
+passes the same minimum-contrast floor and `text_brightness` lift as the
+foreground, and underline and strikethrough lines follow the glyph's centering
+shift and its crop at the pinned-chrome seam.
 
 **GPU shader pipeline** (`src/native/gpu.rs` facade over
 `src/native/gpu/{frame,resources,pipelines,pipeline_policy,present_mode,scene,post}.rs`).
@@ -2122,7 +2130,8 @@ that closed while the picker was open, including when names are duplicated.
   never substitutes a shorter destination-only discriminator that could alias
   separate endpoints.
   Tmux wraps the remote shell in `tmux new-session -A -s odytty` for
-  reconnect-survivable persistence. Each is globally configurable and
+  reconnect-survivable persistence; the session name is fixed, so tabs to one
+  host and remote user share that single tmux session. Each is globally configurable and
   per-host-overridable in `hosts.conf` (`Integration`/`Reuse`/`Tmux`).
 
   A
@@ -2150,7 +2159,11 @@ that closed while the picker was open, including when names are duplicated.
   On Unix, the final ControlMaster directory is accepted only when it is a
   non-symlink directory owned by the effective UID. Permission repair occurs
   through a no-follow directory handle, so a foreign, special, or swapped leaf
-  fails closed without changing its target. Windows has no ControlMaster surface.
+  fails closed without changing its target. When the state directory is too deep
+  for the Unix-domain socket path limit (107 bytes on Linux, 103 on macOS, less
+  the 17-byte temporary suffix OpenSSH binds first), the sockets use a private
+  `/tmp/odytty-<uid>` directory under the same checks. Windows has no
+  ControlMaster surface.
 
 ### Platform Integration
 

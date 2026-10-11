@@ -983,6 +983,9 @@ fn strikethrough_attribute_appends_thin_solid_quad() {
 
 #[test]
 fn block_cursor_matches_default_build() {
+    // Two builds are compared below: hold the render globals so no other test
+    // changes the minimum-contrast floor or the palette between them.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -1859,6 +1862,9 @@ fn selection_test_vertices(
 // corrected lerp.
 #[test]
 fn selection_surface_alpha_lerps_content_to_opaque() {
+    // Two builds are compared below: hold the render globals so no other test
+    // changes the minimum-contrast floor or the palette between them.
+    let _guard = crate::test_lock::render_globals_lock();
     let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
     let mut term = Terminal::new(3, 1);
     term.advance(b"\x1b[?25l");
@@ -1987,6 +1993,9 @@ fn selection_opacity_one_is_byte_identical_and_below_one_tints() {
 // one for ANY selection scalar (the blend is never taken).
 #[test]
 fn no_selection_is_byte_identical_for_any_scalar() {
+    // Two builds are compared below: hold the render globals so no other test
+    // changes the minimum-contrast floor or the palette between them.
+    let _guard = crate::test_lock::render_globals_lock();
     let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
     let plain = {
         let mut t = Terminal::new(3, 1);
@@ -3146,6 +3155,9 @@ fn color_run_coverage_matches_the_linear_scan_exactly() {
 
 #[test]
 fn cell_vertices_are_identical_with_mask_backed_coverage() {
+    // Two builds are compared below: hold the render globals so no other test
+    // changes the minimum-contrast floor or the palette between them.
+    let _guard = crate::test_lock::render_globals_lock();
     // End-to-end pin: a grid mixing covered and uncovered cells must emit the
     // same vertex stream whether coverage is answered by the mask (the shipped
     // path) or by the previous per-cell linear scan. Since the mask is now the
@@ -4215,4 +4227,289 @@ fn selection_strength_above_one_saturates_alpha_and_strengthens_color() {
         "strength 1.5 must visibly strengthen the selection color \
          (one={one_rgb:?}, boosted={boost_rgb:?})"
     );
+}
+
+// ----- audit hardening: decoration seams, geometry preconditions ------------
+
+#[test]
+fn a_cell_shorter_than_the_strike_line_keeps_the_line_at_its_top() {
+    // `clamp` would panic here (upper bound below the lower one).
+    for cell_h in [0.0_f32, 0.25, 0.5, 0.99] {
+        let rect = strikethrough_rect(3.0, 7.0, 10.0, cell_h, 0.4);
+        assert_eq!(rect[1], 7.0, "cell_h {cell_h}");
+        assert_eq!((rect[0], rect[2]), (3.0, 13.0));
+    }
+    // An ordinary cell is unchanged: the line sits near the midline inside it.
+    let rect = strikethrough_rect(0.0, 0.0, 10.0, 20.0, 16.0);
+    assert!(rect[1] > 0.0 && rect[3] <= 20.0, "{rect:?}");
+}
+
+#[test]
+fn a_cell_region_at_the_edge_of_the_index_range_does_not_overflow() {
+    let region = CellRegion {
+        left: usize::MAX - 1,
+        top: usize::MAX - 1,
+        width: 5,
+        height: 5,
+    };
+    assert!(region.contains(usize::MAX - 1, usize::MAX - 1));
+    // The end saturates at the largest index, so that index is the one cell
+    // past the region rather than an overflow.
+    assert!(!region.contains(usize::MAX - 1, usize::MAX));
+    assert!(!region.contains(0, 0));
+    assert!(!region.contains(usize::MAX - 1, 3));
+}
+
+#[test]
+fn a_color_run_at_the_edge_of_the_index_range_does_not_overflow() {
+    let key = ColorGlyphKey::new(1, crate::emoji::ColorGlyphId::Glyph(1), 24.0, 1.0, 1);
+    let run = ColorGlyphRun::cluster(0, usize::MAX, key, 4);
+    assert!(!run.covers(0, 3), "left of the run");
+    // Saturated end: no column of a run at the top of the range is covered,
+    // and asking is not an overflow.
+    assert!(!run.covers(0, usize::MAX), "its own column");
+    assert!(!run.covers(1, usize::MAX), "another row");
+    // The coverage mask answers as the linear scan does, at an in-grid cell.
+    let near = ColorGlyphRun::cluster(0, 1, key, 2);
+    let mask = ColorRunCoverage::new(&[near], 4, 1);
+    for column in 0..4 {
+        assert_eq!(mask.covers(0, column), near.covers(0, column), "{column}");
+    }
+    // A grid whose cell count overflows has nothing to cover and no bitmap.
+    let empty = ColorRunCoverage::new(&[near], usize::MAX / 2, 4);
+    assert!(empty.is_empty());
+    assert!(!empty.covers(0, 1));
+}
+
+/// A dashed, dotted or curly decoration over a non-finite or absurd width is
+/// bounded: it ends, and emits no more segments than the cap.
+#[test]
+fn dashed_dotted_and_curly_decorations_are_bounded_over_absurd_widths() {
+    for style in [
+        UnderlineStyle::Dotted,
+        UnderlineStyle::Dashed,
+        UnderlineStyle::Curly,
+    ] {
+        for width in [f32::INFINITY, f32::NAN, 1.0e12] {
+            let mut out = Vec::new();
+            push_underline_decoration(&mut out, style, 0.0, 0.0, width, 20.0, 16.0, [1.0; 4], None);
+            assert!(
+                out.len() <= MAX_DECORATION_SEGMENTS * INSTANCES_PER_QUAD,
+                "{style:?} over width {width}: {} vertices",
+                out.len()
+            );
+        }
+        // An ordinary cell still emits its segments.
+        let mut ordinary = Vec::new();
+        push_underline_decoration(
+            &mut ordinary,
+            style,
+            0.0,
+            0.0,
+            11.0,
+            20.0,
+            16.0,
+            [1.0; 4],
+            None,
+        );
+        assert!(!ordinary.is_empty(), "{style:?}");
+    }
+}
+
+/// The seam crop: a decoration rectangle starts at the pinned-chrome seam, a
+/// rectangle wholly above it is dropped, and `None` is unchanged.
+#[test]
+fn decoration_quads_are_cropped_at_the_chrome_seam() {
+    let color = [1.0, 0.5, 0.25, 1.0];
+    let mut straddling = Vec::new();
+    push_decoration_quad(&mut straddling, [2.0, 10.0, 9.0, 14.0], color, Some(12.0));
+    assert_eq!(straddling.len(), INSTANCES_PER_QUAD);
+    assert_eq!(quad_rect(&straddling, 0), [2.0, 12.0, 9.0, 14.0]);
+
+    let mut above = Vec::new();
+    push_decoration_quad(&mut above, [2.0, 10.0, 9.0, 12.0], color, Some(12.0));
+    assert!(above.is_empty(), "wholly above the seam");
+
+    let mut below = Vec::new();
+    push_decoration_quad(&mut below, [2.0, 13.0, 9.0, 14.0], color, Some(12.0));
+    assert_eq!(quad_rect(&below, 0), [2.0, 13.0, 9.0, 14.0]);
+
+    let mut none = Vec::new();
+    push_decoration_quad(&mut none, [2.0, 10.0, 9.0, 14.0], color, None);
+    assert_eq!(quad_rect(&none, 0), [2.0, 10.0, 9.0, 14.0]);
+}
+
+/// A snapshot that does not hold the cells its dimensions claim draws nothing
+/// through every builder instead of indexing past them.
+#[test]
+fn a_snapshot_shorter_than_its_dimensions_draws_nothing() {
+    let atlas = atlas().expect("bundled font");
+    let color_atlas = ColorGlyphAtlas::new(atlas.cell);
+    let mut real = Terminal::new(4, 2);
+    real.advance(b"ab");
+    let valid = real.snapshot();
+    let mut short = valid.clone();
+    short.cells.truncate(3);
+    let mut overflowing = valid.clone();
+    overflowing.dimensions = crate::core::Dimensions::new(usize::MAX / 2, 4);
+    overflowing.cells.clear();
+    for snapshot in [&short, &overflowing] {
+        let mut out = vec![<Vertex as bytemuck::Zeroable>::zeroed(); 3];
+        build_vertices_into(&mut out, snapshot, &atlas);
+        assert!(out.is_empty(), "cells");
+        let mut cursor = Vec::new();
+        build_vertices_with_cursor_into(&mut cursor, snapshot, &atlas, CursorStyle::Block);
+        assert!(cursor.is_empty(), "cells and cursor");
+        let key = ColorGlyphKey::new(1, crate::emoji::ColorGlyphId::Glyph(1), 24.0, 1.0, 1);
+        let run = ColorGlyphRun::new(0, 0, key);
+        let mut color = Vec::new();
+        build_color_glyph_vertices_into(&mut color, snapshot, &color_atlas, &[run]);
+        assert!(color.is_empty(), "color glyphs");
+    }
+    let mut ok = Vec::new();
+    build_vertices_into(&mut ok, &valid, &atlas);
+    assert!(!ok.is_empty(), "the valid snapshot still draws");
+}
+
+mod decoration_seams {
+    use super::*;
+
+    /// Solid (non-glyph) quads after the `cells` background quads: the
+    /// decorations, in emission order.
+    fn decorations(verts: &[Vertex], cells: usize) -> Vec<[f32; 4]> {
+        verts
+            .chunks(INSTANCES_PER_QUAD)
+            .skip(cells)
+            .filter(|quad| quad[0].is_glyph == 0.0)
+            .map(|quad| {
+                [
+                    quad[0].pos[0],
+                    quad[0].pos[1],
+                    quad[0].end_pos[0],
+                    quad[0].end_pos[1],
+                ]
+            })
+            .collect()
+    }
+
+    fn build(
+        snapshot: &Snapshot,
+        atlas: &GlyphAtlas,
+        origin: [f32; 2],
+        text_brightness: f32,
+        pin: ChromePin,
+    ) -> Vec<Vertex> {
+        let mut out = Vec::new();
+        build_cell_vertices_with_focus_dim_and_origin_into(
+            &mut out,
+            snapshot,
+            atlas,
+            &[],
+            0.0,
+            origin,
+            BackgroundTreatmentParams::default(),
+            1.0,
+            text_brightness,
+            None,
+            pin,
+        );
+        out
+    }
+
+    fn pin(scroll_offset_y: f32, top_rows: usize, band_glyph_dy_rows: f32) -> ChromePin {
+        ChromePin {
+            scroll_offset_y,
+            top_rows,
+            rail_col_start: 0,
+            rail_col_end: 0,
+            band_glyph_dy_rows,
+            rail_glyph_dy_rows: 0.0,
+            gap_x: 0.0,
+            gap_y: 0.0,
+        }
+    }
+
+    /// A struck label in a recentred tab band is struck at the label's own
+    /// midline, not at the cell's top, matching its underline and glyph.
+    #[test]
+    fn a_struck_band_label_follows_the_label_centering_shift() {
+        let _guard = crate::test_lock::render_globals_lock();
+        let atlas = atlas().expect("bundled font");
+        let mut term = Terminal::new(2, 2);
+        term.advance(b"\x1b[?25l\x1b[9mS");
+        let snapshot = term.snapshot();
+        let cell_h = atlas.cell.height as f32;
+        let band = pin(0.0, 2, 0.5);
+        let dy = band.glyph_center_dy(0, 0, cell_h);
+        assert!(dy > 0.0, "the fixture must shift the label ({dy})");
+        let verts = build(&snapshot, &atlas, [0.0, 0.0], 1.0, band);
+        let strikes = decorations(&verts, 4);
+        let expected = strikethrough_rect(
+            0.0,
+            dy,
+            atlas.cell.width as f32,
+            cell_h,
+            atlas.cell.baseline as f32,
+        );
+        assert_eq!(strikes, vec![expected]);
+    }
+
+    /// Content gliding up under the pinned bar: a decoration wholly above the
+    /// seam is not drawn over the bar.
+    #[test]
+    fn a_strike_above_the_chrome_seam_is_not_drawn_over_the_bar() {
+        let _guard = crate::test_lock::render_globals_lock();
+        let atlas = atlas().expect("bundled font");
+        let mut term = Terminal::new(2, 3);
+        term.advance(b"\x1b[?25l\r\n\x1b[9mS");
+        let snapshot = term.snapshot();
+        let cell_h = atlas.cell.height as f32;
+        let pad = 8.0_f32;
+        let glide = -cell_h * 0.9;
+        let origin = [pad, pad + glide];
+        let seam = pad + cell_h;
+        let gliding = build(&snapshot, &atlas, origin, 1.0, pin(glide, 1, 0.0));
+        let strikes = decorations(&gliding, 6);
+        assert!(
+            strikes.iter().all(|rect| rect[1] >= seam - 1e-3),
+            "no decoration above the seam {seam}: {strikes:?}"
+        );
+        // Control: at rest the same struck cell draws its line.
+        let resting = build(&snapshot, &atlas, [pad, pad], 1.0, ChromePin::NONE);
+        assert_eq!(
+            decorations(&resting, 6).len(),
+            1,
+            "the strike is drawn at rest"
+        );
+    }
+
+    /// Every mono ink rides the text-brightness lift, an explicit underline
+    /// color included.
+    #[test]
+    fn an_explicit_underline_color_is_lifted_like_the_text_it_replaces() {
+        let _guard = crate::test_lock::render_globals_lock();
+        let atlas = atlas().expect("bundled font");
+        let mut term = Terminal::new(1, 1);
+        term.advance(b"\x1b[?25l\x1b[4m\x1b[58;2;100;100;100mS");
+        let snapshot = term.snapshot();
+        let cell = &snapshot.cells[0];
+        assert_eq!(cell.attrs.underline_color, Some(Color::Rgb(100, 100, 100)));
+        let brightness = 2.0;
+        let verts = build(&snapshot, &atlas, [0.0, 0.0], brightness, ChromePin::NONE);
+        let underline = verts
+            .chunks(INSTANCES_PER_QUAD)
+            .skip(1)
+            .find(|quad| quad[0].is_glyph == 0.0)
+            .expect("an underline quad")[0];
+        let bg = background_linear(&snapshot.colors, Color::Default);
+        let floored = text::enforce_contrast_rgba(
+            foreground_linear(&snapshot.colors, Color::Rgb(100, 100, 100)),
+            bg,
+        );
+        assert_eq!(
+            underline.color,
+            text::lift_brightness_rgba(floored, brightness)
+        );
+        assert_ne!(underline.color, floored, "the lift moved the color");
+    }
 }

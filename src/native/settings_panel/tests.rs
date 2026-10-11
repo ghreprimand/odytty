@@ -8,8 +8,6 @@ use super::*;
 use crate::settings::{FONT_SIZE_ENV, Settings};
 use std::collections::BTreeSet;
 
-const EXPERT_ONLY_GROUPS: &[&str] = &[];
-
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 /// Navigate to Level 2 for the section containing `key`, then select that
@@ -90,25 +88,7 @@ fn every_setting_group_has_one_visible_section_unless_expert_only() {
 
     assert!(!catalog_groups.is_empty());
 
-    for group in EXPERT_ONLY_GROUPS {
-        assert!(
-            catalog_groups.contains(*group),
-            "expert-only group {group:?} is not present in the settings catalog"
-        );
-        let section_count = SECTIONS
-            .iter()
-            .filter(|section| section.groups.contains(group))
-            .count();
-        assert_eq!(
-            section_count, 0,
-            "expert-only group {group:?} should not map to a visible section"
-        );
-    }
-
     for group in catalog_groups {
-        if EXPERT_ONLY_GROUPS.contains(&group) {
-            continue;
-        }
         let section_count = SECTIONS
             .iter()
             .filter(|section| section.groups.contains(&group))
@@ -962,12 +942,12 @@ fn slash_enters_search_and_filters_to_matches() {
     assert!(sig.search_active);
     assert_eq!(sig.query, "cursor");
     assert!(!sig.entries.is_empty() && sig.entries.len() < total);
-    assert!(
-        sig.entries
-            .iter()
-            .all(|entry| entry.key.contains("cursor") || entry.key == "cursor_blink")
-            || sig.entries.iter().any(|entry| entry.key.contains("cursor"))
-    );
+    // Every result matches the query in its key or its description, and the
+    // key match itself is among them.
+    assert!(sig.entries.iter().all(|entry| {
+        entry.key.contains("cursor") || entry.description.to_lowercase().contains("cursor")
+    }));
+    assert!(sig.entries.iter().any(|entry| entry.key == "cursor_blink"));
     let text = panel
         .visible_lines(80, 80)
         .iter()
@@ -1071,27 +1051,44 @@ fn empty_query_signature_matches_unsearched_panel() {
 
 #[test]
 fn editing_a_filtered_row_exits_search_cleanly() {
-    // In the new model, Enter in search drills into the entry's section
-    // instead of starting a text edit. For non-bool/enum entries, this
-    // moves to Level 2 and selects the entry.
+    // Enter on a search result drills into that result's section and leaves
+    // the search; the result stays the selected row. The row is reached through
+    // the search results, with real input, not selected behind the search.
     let mut panel = SettingsPanel::new(&Settings::default());
     let total = panel.render_signature().entries.len();
     let _ = panel.handle_input(OverlayInput::Char('/'));
-    for ch in "bloom intensity".chars() {
-        if ch == ' ' {
-            break; // avoid space activating
-        }
+    for ch in "font_size".chars() {
         let _ = panel.handle_input(OverlayInput::Char(ch));
     }
-    // Move to a numeric row and activate → drills into its section.
-    select_key(&mut panel, "font_size");
+    let results = panel.render_signature();
+    assert!(results.search_active);
+    let position = results
+        .entries
+        .iter()
+        .position(|entry| entry.key == "font_size")
+        .expect("the search finds font_size");
+    for _ in 0..position {
+        let _ = panel.handle_input(OverlayInput::Down);
+    }
+    assert_eq!(panel.render_signature().selected, position);
     let _ = panel.handle_input(OverlayInput::Activate);
-    // After drilling in, search should be exited.
+
     let sig = panel.render_signature();
     assert!(!sig.search_active, "drill exits search");
+    assert!(sig.query.is_empty(), "the query is cleared");
+    assert!(
+        matches!(sig.level, SettingsLevel::SectionDetail { .. }),
+        "a result drills into its section: {:?}",
+        sig.level
+    );
     assert!(
         sig.entries.len() < total,
         "section-filtered roster is shorter than full list"
+    );
+    assert_eq!(
+        sig.entries.get(sig.selected).map(|entry| entry.key),
+        Some("font_size"),
+        "the chosen result stays selected"
     );
 }
 
@@ -1897,6 +1894,64 @@ fn about_row_is_the_last_section_row_and_drills_into_about() {
         matches!(panel.level, SettingsLevel::About),
         "activating the About row enters the About level"
     );
+}
+
+/// The synthetic About row stays selected and reachable through every clamp a
+/// live apply, a refresh or a one-row window runs.
+#[test]
+fn about_row_survives_clamps_a_live_apply_and_a_one_row_window() {
+    let mut panel = SettingsPanel::new(&Settings::default());
+    panel.update_body_height(40);
+    panel.update_body_width(80);
+    panel.set_about(test_about());
+    let _ = panel.handle_input(OverlayInput::End);
+    assert_eq!(panel.section_selected, SECTIONS.len());
+
+    panel.clamp();
+    panel.apply_settings(&Settings::default());
+    assert_eq!(panel.section_selected, SECTIONS.len(), "clamp and apply");
+
+    panel.update_body_height(1);
+    panel.clamp();
+    assert_eq!(panel.section_selected, SECTIONS.len(), "a one-row window");
+    let body = body_text(&panel);
+    assert!(
+        body.contains("About"),
+        "the About row is the visible row: {body}"
+    );
+}
+
+/// Clearing the image is not choosing one: it must not switch the treatment to
+/// `image` or move the visibility, and a typed bad visibility leaves the
+/// pending edits untouched.
+#[test]
+fn clearing_the_background_image_changes_neither_treatment_nor_visibility() {
+    let defaults = Settings::default();
+    let mut panel = SettingsPanel::new(&defaults);
+    select_key(&mut panel, "background_image");
+    let outcome = panel.commit_value("background_image", "none");
+    let settings = match outcome {
+        SettingsPanelOutcome::Apply(settings) => settings,
+        other => panic!("clearing the image applies: {other:?}"),
+    };
+    assert_eq!(settings.background_image, None);
+    assert_eq!(settings.background_treatment, defaults.background_treatment);
+    assert_eq!(settings.cell_bg_opacity, defaults.cell_bg_opacity);
+
+    let before = panel.edits.settings().clone();
+    select_key(&mut panel, "cell_bg_opacity");
+    for garbage in ["abc", "", "50%", "NaN", "2"] {
+        let outcome = panel.commit_value("cell_bg_opacity", garbage);
+        assert!(
+            matches!(outcome, SettingsPanelOutcome::Consumed),
+            "{garbage:?} is refused"
+        );
+        assert_eq!(
+            panel.edits.settings(),
+            &before,
+            "{garbage:?} changed nothing"
+        );
+    }
 }
 
 #[test]

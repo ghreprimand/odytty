@@ -107,7 +107,7 @@ pub(super) fn tail_setting_rows(settings: &Settings) -> Vec<SettingInfo> {
             env: REMOTE_TMUX_ENV,
             name: "Persist SSH sessions with tmux",
             value: bool_display(settings.remote_tmux).to_owned(),
-            description: "Wrap an integrated SSH tab's remote shell in a persistent tmux session ('tmux new-session -A -s odytty'), so a dropped-and-reconnected link reattaches the same remote session with its running programs and scrollback intact. Off by default; the remote shell degrades to plain bash when the remote has no tmux, so enabling it never breaks a session. A per-host 'Tmux on'/'Tmux off' in hosts.conf overrides for a single host. Only takes effect with remote integration on.",
+            description: "Wrap an integrated SSH tab's remote shell in a persistent tmux session ('tmux new-session -A -s odytty'), so a dropped-and-reconnected link reattaches the same remote session with its running programs and scrollback intact. The session name is fixed, so every integrated tab to the same host and remote user attaches to that one session and mirrors the others (one cursor, one scrollback); turn it off for a host where tabs must be independent shells. Off by default; the remote shell degrades to plain bash when the remote has no tmux, so enabling it never breaks a session. A per-host 'Tmux on'/'Tmux off' in hosts.conf overrides for a single host. Only takes effect with remote integration on.",
             kind: SettingKind::Bool,
             range: None,
             options: &["on", "off"],

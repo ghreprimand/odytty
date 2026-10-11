@@ -197,6 +197,7 @@ fn assert_renders_as(logical: &str, visual: &str, cols: usize) {
 
 #[test]
 fn ltr_only_text_through_the_seam_is_byte_identical_to_production() {
+    let _render = crate::test_lock::render_globals_lock();
     let (mut atlas, fonts) = setup();
     for text in [
         "plain ab->c 2x",
@@ -238,6 +239,7 @@ fn ltr_only_text_through_the_seam_is_byte_identical_to_production() {
 
 #[test]
 fn rows_left_in_identity_layout_keep_production_pixels() {
+    let _render = crate::test_lock::render_globals_lock();
     // Row 0 reorders; row 1 is a separate, left-to-right paragraph.
     let text = "ab \u{05D0}\u{05D1}\r\nxy->2x (c)";
     let (frame, _, map) = bidi_frame(text, 12, 2);
@@ -256,6 +258,7 @@ fn rows_left_in_identity_layout_keep_production_pixels() {
 
 #[test]
 fn hebrew_latin_and_digits_render_in_display_order() {
+    let _render = crate::test_lock::render_globals_lock();
     assert_renders_as(
         "ab \u{05D0}\u{05D1} 12 \u{05D2}\u{05D3}.",
         "ab \u{05D3}\u{05D2} 12 \u{05D1}\u{05D0}.",
@@ -265,6 +268,7 @@ fn hebrew_latin_and_digits_render_in_display_order() {
 
 #[test]
 fn mirrored_bracket_pair_presents_mirror_glyphs() {
+    let _render = crate::test_lock::render_globals_lock();
     let logical = "\u{05D0}\u{05D1} (\u{05D2}\u{05D3}) \u{05D4}";
     assert_renders_as(logical, "\u{05D4} (\u{05D3}\u{05D2}) \u{05D1}\u{05D0}", 12);
     // Without presentation mirroring the reversed brackets would face away.
@@ -277,6 +281,7 @@ fn mirrored_bracket_pair_presents_mirror_glyphs() {
 
 #[test]
 fn wide_cells_beside_and_inside_rtl_keep_two_adjacent_cells() {
+    let _render = crate::test_lock::render_globals_lock();
     // U+754C is left to right and stays put; the ideographic comma U+3001 is
     // a neutral between two Hebrew letters, so it moves as one two-cell owner.
     assert_renders_as(
@@ -294,6 +299,7 @@ fn wide_cells_beside_and_inside_rtl_keep_two_adjacent_cells() {
 
 #[test]
 fn ligature_crossing_a_direction_boundary_does_not_form() {
+    let _render = crate::test_lock::render_globals_lock();
     // "2x" is a fixture ligature. Logically adjacent here, but the digits sit
     // at level 2 and x at level 0, so alef separates them on screen.
     let logical = "\u{05D0}12x";
@@ -321,6 +327,7 @@ fn ligature_crossing_a_direction_boundary_does_not_form() {
 
 #[test]
 fn arabic_joining_run_draws_right_to_left_with_its_lam_alef_ligature() {
+    let _render = crate::test_lock::render_globals_lock();
     // x, space, beh lam alef, space, c. Logical shaping gives beh.init at
     // column 2 and a two-cell lam-alef final form anchored at column 3.
     let logical = "x \u{0628}\u{0644}\u{0627} c";
@@ -359,6 +366,7 @@ fn arabic_joining_run_draws_right_to_left_with_its_lam_alef_ligature() {
 
 #[test]
 fn background_quads_tile_every_row_exactly_once() {
+    let _render = crate::test_lock::render_globals_lock();
     for text in [
         "ab \u{05D0}\u{05D1} 12 \u{05D2}\u{05D3}.",
         "\u{754C}\u{05D0}\u{3001}\u{05D1}x",
@@ -388,6 +396,7 @@ fn background_quads_tile_every_row_exactly_once() {
 
 #[test]
 fn glyph_ink_is_clipped_to_its_visual_owner_on_reordered_rows() {
+    let _render = crate::test_lock::render_globals_lock();
     // The fixture y overflows its advance on both sides.
     let cell_w = setup().0.cell.width as f32;
     let glyph_spans = |verts: &[Vertex]| -> Vec<(f32, f32)> {
@@ -414,6 +423,7 @@ fn glyph_ink_is_clipped_to_its_visual_owner_on_reordered_rows() {
 
 #[test]
 fn color_glyph_runs_follow_display_order_without_changing_width() {
+    let _render = crate::test_lock::render_globals_lock();
     let cell = CellSize {
         width: 8,
         height: 16,
@@ -480,6 +490,7 @@ fn color_glyph_runs_follow_display_order_without_changing_width() {
 
 #[test]
 fn soft_wrapped_rows_resolve_as_one_paragraph() {
+    let _render = crate::test_lock::render_globals_lock();
     // "abc" then alef bet wraps onto row 1 at width 4; the first strong
     // character of the paragraph is on row 0, and each row reorders alone.
     let terminal = terminal("abc\u{05D0}\u{05D1}\u{05D2}", 4, 2);
@@ -521,6 +532,7 @@ fn wrapped_flags(terminal: &Terminal) -> Vec<bool> {
 
 #[test]
 fn paragraph_opening_in_scrollback_places_visible_rows_as_the_whole_paragraph() {
+    let _render = crate::test_lock::render_globals_lock();
     // Tall: all three rows visible. Short: the Hebrew row scrolled into
     // history, so the visible rows start with Latin text.
     let tall = terminal(PARAGRAPH, 6, 3);
@@ -553,6 +565,7 @@ fn paragraph_opening_in_scrollback_places_visible_rows_as_the_whole_paragraph() 
 
 #[test]
 fn paragraph_context_stops_at_hard_breaks_and_the_alternate_screen() {
+    let _render = crate::test_lock::render_globals_lock();
     let hard = terminal("\u{05D0}\u{05D1}\r\nab cx\r\nxy", 6, 2);
     assert_eq!(context_of(&hard), BidiParagraphContext::default());
     let mut alt = terminal(PARAGRAPH, 6, 2);
@@ -569,6 +582,7 @@ fn paragraph_context_stops_at_hard_breaks_and_the_alternate_screen() {
 
 #[test]
 fn context_overflow_keeps_only_the_first_paragraph_in_identity_layout() {
+    let _render = crate::test_lock::render_globals_lock();
     let terminal = terminal("ab \u{05D0}\u{05D1}\r\nab \u{05D0}\u{05D1}", 8, 2);
     let snapshot = terminal.snapshot();
     let overflow = BidiParagraphContext {
@@ -584,6 +598,7 @@ fn context_overflow_keeps_only_the_first_paragraph_in_identity_layout() {
 
 #[test]
 fn logical_column_inverts_visual_column_on_every_cell() {
+    let _render = crate::test_lock::render_globals_lock();
     for (text, cols, rows) in [
         ("ab \u{05D0}\u{05D1} 12 \u{05D2}\u{05D3}.", 16, 1),
         ("\u{754C}\u{05D0}\u{3001}\u{05D1}x", 10, 1),
@@ -606,6 +621,7 @@ fn logical_column_inverts_visual_column_on_every_cell() {
 
 #[test]
 fn embedded_map_keeps_chrome_cells_in_identity_layout() {
+    let _render = crate::test_lock::render_globals_lock();
     let content = display_map(&terminal("ab \u{05D0}\u{05D1}", 6, 1));
     let frame = content.embedded(9, 3, 1, 3);
     for row in [0, 2] {
@@ -634,6 +650,7 @@ fn embedded_map_keeps_chrome_cells_in_identity_layout() {
 
 #[test]
 fn overlay_painted_rows_reset_to_identity() {
+    let _render = crate::test_lock::render_globals_lock();
     let terminal = terminal("ab \u{05D0}\u{05D1}\r\nab \u{05D0}\u{05D1}", 8, 2);
     let planned = terminal.snapshot();
     let mut map = display_map(&terminal);
@@ -652,6 +669,7 @@ fn overlay_painted_rows_reset_to_identity() {
 
 #[test]
 fn frame_shaping_under_a_map_follows_levels_and_never_reuses_a_logical_plan() {
+    let _render = crate::test_lock::render_globals_lock();
     // The frame's shaper is long-lived: the same row is shaped first with
     // reordering off, then on. The arrow ligature forms in logical order but
     // must not survive into the reordered row, where it sits at level 1.
@@ -697,6 +715,7 @@ fn frame_shaping_under_a_map_follows_levels_and_never_reuses_a_logical_plan() {
 
 #[test]
 fn production_entry_with_a_map_matches_the_seam_and_none_matches_production() {
+    let _render = crate::test_lock::render_globals_lock();
     let (mut atlas, fonts) = setup();
     let terminal = terminal("ab \u{05D0}\u{05D1} (\u{05D2}\u{05D3}) 12", 16, 1);
     let snapshot = terminal.snapshot();
@@ -779,6 +798,7 @@ fn cursor_vertices(
 
 #[test]
 fn cursor_draws_its_logical_cell_at_the_visual_column() {
+    let _render = crate::test_lock::render_globals_lock();
     // Logical "ab אב (גד)": the cursor on alef (column 3) draws where the
     // visual-order string holds alef, and a cursor on "(" (column 6) shows
     // the mirrored glyph the content pass draws there.
@@ -800,19 +820,125 @@ fn cursor_draws_its_logical_cell_at_the_visual_column() {
             "cursor at logical {column} ({style:?}) draws at visual {visual_column}"
         );
     }
-    // Without a map the cursor stays at its logical column.
-    assert_eq!(
-        cursor_vertices(logical, 12, 3, CursorStyle::Block, true, false),
-        cursor_vertices(logical, 12, 3, CursorStyle::Block, true, false)
-    );
+    // Without a map the cursor stays at its logical column: its block starts
+    // at column 3 of the unmapped frame.
+    let (atlas, _) = setup();
+    let unmapped = cursor_vertices(logical, 12, 3, CursorStyle::Block, true, false);
+    assert_eq!(unmapped[0].pos[0], 3.0 * atlas.cell.width as f32);
     assert_ne!(
         cursor_vertices(logical, 12, 3, CursorStyle::Block, true, true),
         cursor_vertices(logical, 12, 3, CursorStyle::Block, true, false)
     );
 }
 
+/// On a reordered row the under-cursor glyph is cropped to its owner's visual
+/// span, as every glyph of the content pass is. The fixture's wide glyph is
+/// given a one-cell owner (its continuation dropped), so its ink overflows the
+/// owner: uncropped without a map, inside the owner with one.
+#[test]
+fn the_cursor_glyph_is_cropped_to_its_owner_on_a_reordered_row() {
+    let _render = crate::test_lock::render_globals_lock();
+    let (atlas, _) = setup();
+    let mut terminal = Terminal::new(6, 1);
+    terminal.advance("\u{05D0}\u{754C}x\x1b[1;2H".as_bytes());
+    let mut snapshot = terminal.snapshot();
+    assert!(
+        snapshot.cells[2].wide_continuation,
+        "the wide glyph owns column 2"
+    );
+    snapshot.cells[2].wide_continuation = false;
+    let map = BidiDisplayMap::plan(&snapshot, &[false]);
+    assert!(
+        map.row_is_reordered(0),
+        "the Hebrew letter makes the row RTL"
+    );
+
+    let cell_w = atlas.cell.width as f32;
+    let glyph_quad = |bidi: Option<&BidiDisplayMap>| {
+        let mut out = Vec::new();
+        append_cursor_vertices_with_origin_and_bidi(
+            &mut out,
+            &snapshot,
+            &atlas,
+            CursorStyle::Block,
+            [0.0, 0.0],
+            CursorRenderParams {
+                focused: true,
+                ..CursorRenderParams::default()
+            },
+            bidi,
+        );
+        let quads: Vec<Vertex> = out
+            .chunks(INSTANCES_PER_QUAD)
+            .filter(|quad| quad[0].is_glyph == 1.0)
+            .map(|quad| quad[0])
+            .collect();
+        assert_eq!(quads.len(), 1, "one under-cursor glyph");
+        quads[0]
+    };
+    let owner_left = map.visual_column(0, 1) as f32 * cell_w;
+    let unmapped = glyph_quad(None);
+    assert!(
+        unmapped.end_pos[0] > cell_w + cell_w + 0.5 || unmapped.pos[0] < cell_w - 0.5,
+        "control: the wide glyph overflows its one-cell owner ({unmapped:?})"
+    );
+    let mapped = glyph_quad(Some(&map));
+    assert!(
+        mapped.pos[0] >= owner_left - 1e-3 && mapped.end_pos[0] <= owner_left + cell_w + 1e-3,
+        "cropped to the owner [{owner_left}, {}]: {mapped:?}",
+        owner_left + cell_w
+    );
+}
+
+/// A snapshot that cannot back the dimensions it claims maps nothing: the plan
+/// is the empty identity map, built without allocating for the claim.
+#[test]
+fn a_snapshot_that_cannot_back_its_dimensions_maps_nothing() {
+    let _render = crate::test_lock::render_globals_lock();
+    let valid = terminal("\u{05D0}\u{05D1}", 4, 2).snapshot();
+    let mut short = valid.clone();
+    short.cells.truncate(5);
+    let mut overflowing = valid.clone();
+    overflowing.dimensions = crate::core::Dimensions::new(usize::MAX / 2, 4);
+    overflowing.cells.clear();
+    for snapshot in [&short, &overflowing] {
+        let map = BidiDisplayMap::plan(snapshot, &[false, false]);
+        assert!(map.is_identity());
+        assert!(!map.row_is_reordered(0));
+        assert_eq!(
+            map.visual_column(0, 1),
+            1,
+            "outside the map: the column itself"
+        );
+    }
+    assert!(
+        !BidiDisplayMap::plan(&valid, &[false, false]).is_identity(),
+        "control: the valid snapshot reorders"
+    );
+}
+
+/// A painted frame with fewer cells than the planned one (same dimensions)
+/// is not compared by the shorter zip: every row falls back to identity.
+#[test]
+fn a_shortened_painted_frame_resets_every_row() {
+    let _render = crate::test_lock::render_globals_lock();
+    let planned = terminal("\u{05D0}\u{05D1}\r\n\u{05D0}\u{05D1}", 4, 2).snapshot();
+    let mut map = BidiDisplayMap::plan(&planned, &[false, false]);
+    assert!(map.row_is_reordered(0) && map.row_is_reordered(1));
+
+    // Unchanged and complete: the placement stays.
+    map.reset_rows_changed_between(&planned, &planned.clone());
+    assert!(map.row_is_reordered(0) && map.row_is_reordered(1));
+
+    let mut painted = planned.clone();
+    painted.cells.truncate(4);
+    map.reset_rows_changed_between(&planned, &painted);
+    assert!(map.is_identity(), "a short painted frame resets every row");
+}
+
 #[test]
 fn logical_selection_highlights_the_visual_cells_of_its_logical_cells() {
+    let _render = crate::test_lock::render_globals_lock();
     use crate::selection::{CellPoint, SelectionRange, apply_highlight, selected_text};
     let text = "ab \u{05D0}\u{05D1}\u{05D2} xy";
     let (atlas, _) = setup();
@@ -855,6 +981,7 @@ fn logical_selection_highlights_the_visual_cells_of_its_logical_cells() {
 
 #[test]
 fn search_reports_logical_columns_on_reordered_rows() {
+    let _render = crate::test_lock::render_globals_lock();
     use crate::core::SearchOptions;
     let terminal = terminal("ab \u{05D0}\u{05D1}\u{05D2} xy", 12, 1);
     let hits = terminal.search("\u{05D1}\u{05D2} x", SearchOptions::default());
@@ -865,6 +992,7 @@ fn search_reports_logical_columns_on_reordered_rows() {
 
 #[test]
 fn placement_hash_tracks_placement_alone() {
+    let _render = crate::test_lock::render_globals_lock();
     let mixed = display_map(&terminal("ab \u{05D0}\u{05D1}\u{05D2} xy", 12, 2));
     let latin = display_map(&terminal("ab cde xy", 12, 2));
     let identity = BidiDisplayMap::identity(12, 2);

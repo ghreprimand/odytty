@@ -1022,3 +1022,81 @@ fn listener_fault_is_none_while_listening_and_keeps_first_reason() {
     );
     drop(server);
 }
+
+/// Descriptor and memory exhaustion and an aborted peer retry instead of
+/// stopping the endpoint, up to a bounded streak; other errors still fault.
+#[test]
+fn transient_accept_errors_retry_and_other_errors_fault() {
+    for errno in [
+        libc::EMFILE,
+        libc::ENFILE,
+        libc::ENOBUFS,
+        libc::ENOMEM,
+        libc::ECONNABORTED,
+    ] {
+        let mut streak = 0;
+        let error = io::Error::from_raw_os_error(errno);
+        for _ in 0..MAX_TRANSIENT_ACCEPT_ERRORS {
+            assert_eq!(
+                accept_error_step(&error, &mut streak),
+                AcceptStep::Retry,
+                "{error}"
+            );
+        }
+        assert_eq!(
+            accept_error_step(&error, &mut streak),
+            AcceptStep::Fault,
+            "a transient error that never clears still faults: {error}"
+        );
+    }
+    let mut streak = 0;
+    for errno in [libc::EBADF, libc::EINVAL, libc::ENOTSOCK] {
+        assert_eq!(
+            accept_error_step(&io::Error::from_raw_os_error(errno), &mut streak),
+            AcceptStep::Fault
+        );
+    }
+}
+
+/// Fill a listener's accept queue: lower its backlog to zero and connect
+/// nonblocking clients until the kernel refuses with `EAGAIN`.
+#[cfg(target_os = "linux")]
+fn saturated_listener(socket: &Path) -> (UnixListener, Vec<UnixStream>) {
+    let listener = UnixListener::bind(socket).expect("bind fixture listener");
+    // SAFETY: a valid listening socket; a second listen only lowers the backlog.
+    assert_eq!(unsafe { libc::listen(listener.as_raw_fd(), 0) }, 0);
+    let mut queued = Vec::new();
+    for _ in 0..64 {
+        match connect(socket, Duration::ZERO) {
+            Ok(stream) => queued.push(stream),
+            Err(error) if error.kind() == io::ErrorKind::TimedOut => return (listener, queued),
+            Err(error) => panic!("unexpected connect error while filling: {error}"),
+        }
+    }
+    panic!("the accept queue never filled");
+}
+
+/// A full accept queue is waited for until the connect deadline, then reported
+/// as a timeout, rather than failing at once with `WouldBlock`.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_full_accept_queue_is_waited_for_until_the_deadline() {
+    let fixture = fixture();
+    let (listener, _queued) = saturated_listener(&fixture.socket);
+    let started = Instant::now();
+    let error = connect(&fixture.socket, Duration::from_millis(150))
+        .expect_err("nobody accepts, so the connect times out");
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut, "{error}");
+    assert!(
+        started.elapsed() >= Duration::from_millis(150),
+        "the connect waited for the deadline instead of failing at once"
+    );
+    // Once the owner accepts, a waiting connect gets the freed slot.
+    let accepter = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(50));
+        let accepted = listener.accept().expect("accept one queued client");
+        (listener, accepted)
+    });
+    connect(&fixture.socket, Duration::from_secs(5)).expect("a freed slot is taken");
+    drop(accepter.join().expect("accepter"));
+}

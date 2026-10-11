@@ -908,6 +908,70 @@ fn tab_foreground_job_running_resolves_tokens_and_defaults_false_when_idle() {
     assert!(!set.tab_foreground_job_running(SessionToken(99)));
 }
 
+fn set_job(set: &WorkspaceSet, token: SessionToken, job: crate::pty::ForegroundJob) {
+    set.get(token)
+        .and_then(Session::headless_session)
+        .expect("headless pane")
+        .set_foreground_job(job);
+}
+
+/// The `true` branches: a running job in ANY pane of the tab that owns the
+/// token, in a background workspace too, and never for another tab; `Unknown`
+/// (a ConPTY or exited pane) counts as safe to close, not running.
+#[test]
+fn a_running_foreground_job_is_found_in_its_tab_in_any_workspace() {
+    use crate::pty::ForegroundJob::{None as Idle, Running, Unknown};
+    let mut set = WorkspaceSet::new(build_session(), None);
+    // Workspace 0: one tab of two panes (0 and 1) and a second tab (2).
+    set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+    let other_tab = set.push_arena_only(build_session_with_id(SessionToken(2)));
+    set.workspaces[0].tabs.push(Tab::single(other_tab));
+    // Workspace 1 (active, so workspace 0 is in the background).
+    set.push_workspace(build_session_with_id(SessionToken(3)));
+    assert!(
+        set.switch_workspace(1),
+        "workspace 0 is now in the background"
+    );
+
+    assert!(!set.tab_foreground_job_running(SessionToken(0)));
+    set_job(&set, SessionToken(1), Running);
+    assert!(
+        set.tab_foreground_job_running(SessionToken(0)),
+        "a job in a sibling pane of a background tab is found from any pane"
+    );
+    assert!(set.tab_foreground_job_running(SessionToken(1)));
+    assert!(
+        !set.tab_foreground_job_running(SessionToken(2)),
+        "another tab of the same workspace is not affected"
+    );
+    assert!(!set.tab_foreground_job_running(SessionToken(3)));
+
+    set_job(&set, SessionToken(1), Unknown);
+    assert!(
+        !set.tab_foreground_job_running(SessionToken(0)),
+        "unknown is not running"
+    );
+    set_job(&set, SessionToken(1), Idle);
+    assert!(!set.tab_foreground_job_running(SessionToken(0)));
+}
+
+#[test]
+fn a_running_job_elsewhere_counts_for_the_except_scan_and_the_named_session_does_not() {
+    use crate::pty::ForegroundJob::Running;
+    let mut set = WorkspaceSet::new(build_session(), None);
+    set.push_workspace(build_session_with_id(SessionToken(1)));
+    set_job(&set, SessionToken(1), Running);
+    assert!(
+        set.any_foreground_job_running_except(SessionToken(0)),
+        "a job in another workspace blocks the exit quit"
+    );
+    assert!(
+        !set.any_foreground_job_running_except(SessionToken(1)),
+        "the exiting session's own job is excluded"
+    );
+    assert!(set.any_foreground_job_running_except(SessionToken(999)));
+}
+
 #[test]
 fn move_tab_rejects_unknown_token_out_of_range_and_same_workspace() {
     let mut set = WorkspaceSet::new(build_session(), None);

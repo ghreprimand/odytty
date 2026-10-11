@@ -39,7 +39,7 @@ use glyph_quads::push_color_glyph_quad;
 pub use glyph_quads::{
     build_color_glyph_vertices_into, build_color_glyph_vertices_with_origin_into,
 };
-use glyph_quads::{push_cell_glyph, push_glyph_quad, push_glyph_quad_clipped_rect};
+use glyph_quads::{push_cell_glyph, push_glyph_quad_clipped_rect};
 pub use model::{
     ColorGlyphRun, ColorGlyphVertex, ColorRunCoverage, INSTANCES_PER_QUAD, RowFade, SolidQuad,
     VERTS_PER_QUAD, Vertex,
@@ -139,32 +139,56 @@ pub fn underline_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32, baseline: f32)
     [x0, y, x0 + cell_w, y + thickness]
 }
 
+/// Push one decoration rectangle, cropped to start at the chrome `seam` when
+/// content is gliding under a pinned bar (the same crop glyph ink gets). A
+/// rectangle wholly above the seam is dropped; `None` pushes it unchanged.
+fn push_decoration_quad(out: &mut Vec<Vertex>, rect: [f32; 4], color: [f32; 4], seam: Option<f32>) {
+    let [x0, y0, x1, y1] = rect;
+    let rect = match seam {
+        Some(seam) if y0 < seam => {
+            if y1 <= seam {
+                return;
+            }
+            [x0, seam, x1, y1]
+        }
+        _ => rect,
+    };
+    push_solid_quad(out, SolidQuad { rect, color });
+}
+
+/// The most segments one dashed, dotted or curly decoration may emit. A cell is
+/// a few dozen pixels wide, so the bound is never reached by a real frame; it
+/// keeps a non-finite or absurd width from looping or filling memory.
+const MAX_DECORATION_SEGMENTS: usize = 4096;
+
 fn push_segmented_line(
     out: &mut Vec<Vertex>,
     rect: [f32; 4],
     color: [f32; 4],
     painted: f32,
     gap: f32,
+    seam: Option<f32>,
 ) {
+    if !rect.iter().all(|value| value.is_finite()) {
+        return;
+    }
     let [x0, y0, x1, y1] = rect;
     let painted = painted.max(1.0);
     let gap = gap.max(1.0);
     let mut x = x0;
-    while x < x1 {
+    for _ in 0..MAX_DECORATION_SEGMENTS {
+        if x >= x1 {
+            break;
+        }
         let end = (x + painted).min(x1);
         if end > x {
-            push_solid_quad(
-                out,
-                SolidQuad {
-                    rect: [x, y0, end, y1],
-                    color,
-                },
-            );
+            push_decoration_quad(out, [x, y0, end, y1], color, seam);
         }
         x += painted + gap;
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_double_underline(
     out: &mut Vec<Vertex>,
     x0: f32,
@@ -173,20 +197,21 @@ fn push_double_underline(
     cell_h: f32,
     baseline: f32,
     color: [f32; 4],
+    seam: Option<f32>,
 ) {
     let lower = underline_rect(x0, y0, cell_w, cell_h, baseline);
     let thickness = lower[3] - lower[1];
     let upper_y = (lower[1] - thickness * 2.0).max(y0);
-    push_solid_quad(
+    push_decoration_quad(
         out,
-        SolidQuad {
-            rect: [lower[0], upper_y, lower[2], upper_y + thickness],
-            color,
-        },
+        [lower[0], upper_y, lower[2], upper_y + thickness],
+        color,
+        seam,
     );
-    push_solid_quad(out, SolidQuad { rect: lower, color });
+    push_decoration_quad(out, lower, color, seam);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_curly_underline(
     out: &mut Vec<Vertex>,
     x0: f32,
@@ -195,28 +220,29 @@ fn push_curly_underline(
     cell_h: f32,
     baseline: f32,
     color: [f32; 4],
+    seam: Option<f32>,
 ) {
     let base = underline_rect(x0, y0, cell_w, cell_h, baseline);
     let thickness = base[3] - base[1];
     let step = (thickness * 2.0).max(2.0);
     let upper_y = (base[1] - thickness).max(y0);
     let lower_y = (base[1] + thickness).min(y0 + cell_h - thickness);
+    if !base.iter().all(|value| value.is_finite()) {
+        return;
+    }
     let mut x = base[0];
     let mut high = true;
 
     // Curly underline uses a small stepped square-wave approximation. It stays
     // in the existing solid-quad path while keeping the visual distinct from
     // straight, dashed, and dotted styles.
-    while x < base[2] {
+    for _ in 0..MAX_DECORATION_SEGMENTS {
+        if x >= base[2] {
+            break;
+        }
         let end = (x + step).min(base[2]);
         let y = if high { upper_y } else { lower_y };
-        push_solid_quad(
-            out,
-            SolidQuad {
-                rect: [x, y, end, y + thickness],
-                color,
-            },
-        );
+        push_decoration_quad(out, [x, y, end, y + thickness], color, seam);
         x = end;
         high = !high;
     }
@@ -232,25 +258,28 @@ fn push_underline_decoration(
     cell_h: f32,
     baseline: f32,
     color: [f32; 4],
+    seam: Option<f32>,
 ) {
     let rect = underline_rect(x0, y0, cell_w, cell_h, baseline);
     let thickness = rect[3] - rect[1];
     match style {
         UnderlineStyle::None => {}
-        UnderlineStyle::Straight => push_solid_quad(out, SolidQuad { rect, color }),
+        UnderlineStyle::Straight => push_decoration_quad(out, rect, color, seam),
         UnderlineStyle::Double => {
-            push_double_underline(out, x0, y0, cell_w, cell_h, baseline, color)
+            push_double_underline(out, x0, y0, cell_w, cell_h, baseline, color, seam)
         }
-        UnderlineStyle::Curly => push_curly_underline(out, x0, y0, cell_w, cell_h, baseline, color),
+        UnderlineStyle::Curly => {
+            push_curly_underline(out, x0, y0, cell_w, cell_h, baseline, color, seam)
+        }
         UnderlineStyle::Dotted => {
             // One painted square, one square gap. The dot size follows line
             // thickness so small fonts stay crisp.
-            push_segmented_line(out, rect, color, thickness, thickness)
+            push_segmented_line(out, rect, color, thickness, thickness, seam)
         }
         UnderlineStyle::Dashed => {
             // Six thickness units painted, three units gap. This is long enough
             // to read as a dash on small cells without spanning whole words.
-            push_segmented_line(out, rect, color, thickness * 6.0, thickness * 3.0)
+            push_segmented_line(out, rect, color, thickness * 6.0, thickness * 3.0, seam)
         }
     }
 }
@@ -261,9 +290,12 @@ fn push_underline_decoration(
 /// stays stable across font sizes and faces without needing per-glyph metrics.
 pub fn strikethrough_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32, baseline: f32) -> [f32; 4] {
     let thickness = line_decoration_thickness(cell_h);
+    // `min` then `max`, not `clamp`: a cell shorter than the line makes the
+    // upper bound fall below the lower one, and `clamp` panics on that.
     let y = (y0 + baseline * 0.6)
         .round()
-        .clamp(y0, y0 + cell_h - thickness);
+        .min(y0 + cell_h - thickness)
+        .max(y0);
     [x0, y, x0 + cell_w, y + thickness]
 }
 
@@ -413,10 +445,22 @@ impl CellRegion {
     #[inline]
     pub fn contains(&self, row: usize, col: usize) -> bool {
         col >= self.left
-            && col < self.left + self.width
+            && col < self.left.saturating_add(self.width)
             && row >= self.top
-            && row < self.top + self.height
+            && row < self.top.saturating_add(self.height)
     }
+}
+
+/// Whether `snapshot` holds a cell for every position its dimensions claim.
+/// Every public builder checks it once at admission and draws nothing for a
+/// snapshot that does not (the dimension product is checked, so it cannot wrap),
+/// instead of indexing past the cells.
+pub(crate) fn snapshot_shape_is_valid(snapshot: &Snapshot) -> bool {
+    snapshot
+        .dimensions
+        .columns
+        .checked_mul(snapshot.dimensions.rows)
+        .is_some_and(|cells| snapshot.cells.len() >= cells)
 }
 
 /// TAB-LABEL-CENTERING: the sub-row vertical offset (in cell-height units) that
@@ -956,8 +1000,11 @@ fn build_cells_core(
     // glide is in flight - then the top bar/rail stay put while content glides).
     let chrome_seam_y = chrome_pin.seam_y(origin[1], cell_h);
 
-    let needed = rows * cols * INSTANCES_PER_QUAD * 2;
     out.clear();
+    if !snapshot_shape_is_valid(snapshot) {
+        return;
+    }
+    let needed = rows * cols * INSTANCES_PER_QUAD * 2;
     if out.capacity() < needed {
         out.reserve(needed - out.capacity());
     }
@@ -1346,8 +1393,14 @@ fn build_cells_core(
                 // (OKLab-L bisect, hue+chroma preserved, exact passthrough at the
                 // default floor of 1.0 so plain frames stay byte-identical).
                 let underline_color = cell.attrs.underline_color.map_or(fg, |color| {
-                    let floored =
+                    let mut floored =
                         text::enforce_contrast_rgba(foreground_linear(&snapshot.colors, color), bg);
+                    // TEXT-BRIGHTNESS: mono ink is lifted uniformly, so an
+                    // explicit underline color rides the same lift as the cell
+                    // `fg` it replaces (after the floor, as in `resolve`).
+                    if text_brightness > 1.0 {
+                        floored = text::lift_brightness_rgba(floored, text_brightness);
+                    }
                     // VE4 new-output fade: an explicit SGR underline color rides
                     // the same foreground ramp as the cell `fg` default above.
                     if fade_mul < 1.0 {
@@ -1365,16 +1418,18 @@ fn build_cells_core(
                     cell_h,
                     baseline,
                     underline_color,
+                    seam,
                 );
             }
 
             if cell.attrs.strikethrough() {
-                push_solid_quad(
+                // Same origin and seam crop as the underline and the glyph, so
+                // a label recentred in its band is struck at its own midline.
+                push_decoration_quad(
                     out,
-                    SolidQuad {
-                        rect: strikethrough_rect(x0, y0, cell_w * span, cell_h, baseline),
-                        color: fg,
-                    },
+                    strikethrough_rect(x0, decoration_y0, cell_w * span, cell_h, baseline),
+                    fg,
+                    seam,
                 );
             }
         }
@@ -1613,7 +1668,7 @@ fn push_cursor(
 
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
-    if cols == 0 || rows == 0 {
+    if cols == 0 || rows == 0 || !snapshot_shape_is_valid(snapshot) {
         return;
     }
 
@@ -1649,6 +1704,17 @@ fn push_cursor(
     // VE4-slide: additive sub-cell shift. Default `[0.0, 0.0]` ⇒ identity.
     let x0 = origin[0] + visual_col as f32 * cell_w + params.offset[0];
     let y0 = origin[1] + row as f32 * cell_h + params.offset[1];
+    // BIDI: on a reordered row the under-cursor glyph is cropped to its
+    // owner's visual span, as every glyph of the content pass is, so overflow
+    // ink cannot cover a neighbouring visual owner. Elsewhere it is uncropped.
+    let owner_span = if col + 1 < cols && snapshot.cells[row * cols + col + 1].wide_continuation {
+        2.0
+    } else {
+        1.0
+    };
+    let owner_clip = bidi
+        .filter(|map| map.row_is_reordered(row))
+        .map(|_| [x0, x0 + cell_w * owner_span]);
 
     match style {
         CursorStyle::Block => {
@@ -1696,7 +1762,7 @@ fn push_cursor(
                 && let Some(bounds) =
                     atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), glyph_ch)
             {
-                push_glyph_quad(out, x0, y0, bounds, glyph_color);
+                push_cell_glyph(out, [x0, y0, y0], bounds, glyph_color, None, owner_clip);
             }
             // The under-cursor glyph keeps its combining marks too, drawn in
             // the same contrast-derived color as the base (see the content
@@ -1707,7 +1773,7 @@ fn push_cursor(
                     if let Some(bounds) =
                         atlas.combining_mark_quad(font_style_for_attrs(&cell.attrs), mark)
                     {
-                        push_glyph_quad(out, x0, y0, bounds, glyph_color);
+                        push_cell_glyph(out, [x0, y0, y0], bounds, glyph_color, None, owner_clip);
                     }
                 }
             }

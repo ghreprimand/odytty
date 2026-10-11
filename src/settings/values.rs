@@ -125,12 +125,13 @@ fn parse_key_chord(raw: &str) -> Option<KeyChord> {
 
 fn parse_key_binding_key(raw: &str) -> Option<KeyBindingKey> {
     let trimmed = raw.trim();
-    let lower = trimmed.to_ascii_lowercase();
-    if lower.len() == 1 {
-        let ch = lower.chars().next()?;
-        if ch.is_ascii_graphic() && ch != '+' && ch != '=' {
-            return Some(KeyBindingKey::Character(ch));
-        }
+    let mut chars = trimmed.chars();
+    if let (Some(ch), None) = (chars.next(), chars.next())
+        && ch != '+'
+        && ch != '='
+        && let Some(folded) = binding_key_char(ch)
+    {
+        return Some(KeyBindingKey::Character(folded));
     }
 
     let named = match normalize_name(trimmed).as_str() {
@@ -235,19 +236,19 @@ pub(super) fn parse_cursor_style_setting(
     }
 }
 
-/// Parse `ODYTTY_CURSOR_BLINK`, falling back to the default `auto` policy with
-/// one warning on an unrecognized value. Empty/unset is the silent default.
+/// Parse `ODYTTY_CURSOR_BLINK`. Unset or empty input is the silent default
+/// `on`; an unrecognized value warns once and also uses `on`.
 pub(super) fn parse_cursor_blink_setting(
     raw: Option<&OsStr>,
     warn: &mut impl FnMut(&str),
 ) -> CursorBlink {
     let Some(raw) = raw else {
-        return CursorBlink::On;
+        return CursorBlink::default();
     };
     let value = raw.to_string_lossy();
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        return CursorBlink::On;
+        return CursorBlink::default();
     }
     match CursorBlink::parse(trimmed) {
         Some(policy) => policy,
@@ -255,7 +256,7 @@ pub(super) fn parse_cursor_blink_setting(
             warn(&format!(
                 "{CURSOR_BLINK_ENV}={trimmed:?} is not on|off|auto; using on"
             ));
-            CursorBlink::On
+            CursorBlink::default()
         }
     }
 }
@@ -1551,20 +1552,27 @@ fn split_key_binding_entries(value: &str) -> Vec<&str> {
 /// surfaces at startup instead of being dropped at parse time.
 pub(super) fn parse_quick_terminal_shortcut(
     raw: Option<&OsStr>,
-    _warn: &mut impl FnMut(&str),
+    warn: &mut impl FnMut(&str),
 ) -> String {
-    match raw {
-        Some(value) => {
-            let text = value.to_string_lossy();
-            let trimmed = text.trim();
-            if trimmed.is_empty() {
-                DEFAULT_QUICK_TERMINAL_SHORTCUT.to_owned()
-            } else {
-                trimmed.to_owned()
-            }
-        }
-        None => DEFAULT_QUICK_TERMINAL_SHORTCUT.to_owned(),
+    let Some(value) = raw else {
+        return DEFAULT_QUICK_TERMINAL_SHORTCUT.to_owned();
+    };
+    let text = value.to_string_lossy();
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_QUICK_TERMINAL_SHORTCUT.to_owned();
     }
+    // The accelerator grammar is the platform's (each registers it its own
+    // way and reports a refusal); this only refuses text no platform accepts.
+    if trimmed.chars().count() > MAX_QUICK_TERMINAL_SHORTCUT_CHARS
+        || trimmed.chars().any(char::is_control)
+    {
+        warn(&format!(
+            "{QUICK_TERMINAL_SHORTCUT_ENV} must be at most {MAX_QUICK_TERMINAL_SHORTCUT_CHARS} printable characters; using '{DEFAULT_QUICK_TERMINAL_SHORTCUT}'"
+        ));
+        return DEFAULT_QUICK_TERMINAL_SHORTCUT.to_owned();
+    }
+    trimmed.to_owned()
 }
 
 /// Parse `ODYTTY_QUICK_TERMINAL_EDGE` (v0.15.0 A) into the normalized anchor
@@ -1658,10 +1666,11 @@ pub(super) fn parse_quick_terminal_monitor(
 }
 
 /// Parse a quick-terminal extent value (`coverage`/`span`, v0.15.0 A): a
-/// percentage in `(0, 100]` (e.g. `40%`) or an absolute pixel size (e.g.
-/// `600px` or a bare positive integer). Unset or blank uses `default_value`; an
-/// out-of-range or malformed value warns and falls back. The normalized form is
-/// stored (`NN%` or `NNpx`); the host resolves it against the live monitor.
+/// percentage in `(0, 100]` (e.g. `40%`) or an absolute pixel size from 1 to
+/// [`MAX_QUICK_TERMINAL_EXTENT_PX`] (e.g. `600px`; a bare positive integer is
+/// also read as pixels). Unset or blank uses `default_value`; an out-of-range
+/// or malformed value warns and falls back. The normalized form is stored
+/// (`NN%` or `NNpx`); the host resolves it against the live monitor.
 pub(super) fn parse_quick_terminal_extent(
     raw: Option<&OsStr>,
     key: &str,
@@ -1697,10 +1706,10 @@ pub(super) fn parse_quick_terminal_extent(
     }
     let digits = lower.strip_suffix("px").unwrap_or(&lower);
     match digits.trim().parse::<u32>() {
-        Ok(px) if px > 0 => format!("{px}px"),
+        Ok(px) if px > 0 && px <= MAX_QUICK_TERMINAL_EXTENT_PX => format!("{px}px"),
         _ => {
             warn(&format!(
-                "invalid {key} size '{trimmed}', using '{default_value}' (expected a percentage like 40% or a pixel size like 600px)"
+                "invalid {key} size '{trimmed}', using '{default_value}' (expected a percentage like 40% or a pixel size from 1px to {MAX_QUICK_TERMINAL_EXTENT_PX}px)"
             ));
             default_value.to_owned()
         }
@@ -1708,16 +1717,30 @@ pub(super) fn parse_quick_terminal_extent(
 }
 
 /// Parse `ODYTTY_QUICK_TERMINAL_PROFILE` (v0.15.0 A) into the optional quick
-/// session profile name. Stored verbatim (trimmed); blank means "use the
-/// default profile" and is stored as the empty string. Profile existence is
+/// session profile name. Stored trimmed; blank means "use the default
+/// profile" and is stored as the empty string. A value that is not a valid
+/// profile name warns and also uses the default profile. Profile existence is
 /// resolved by the launcher, matching the other profile-name settings.
 pub(super) fn parse_quick_terminal_profile(
     raw: Option<&OsStr>,
-    _warn: &mut impl FnMut(&str),
+    warn: &mut impl FnMut(&str),
 ) -> String {
-    match raw {
-        Some(value) => value.to_string_lossy().trim().to_owned(),
-        None => DEFAULT_QUICK_TERMINAL_PROFILE.to_owned(),
+    let Some(value) = raw else {
+        return DEFAULT_QUICK_TERMINAL_PROFILE.to_owned();
+    };
+    let text = value.to_string_lossy();
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    match crate::profiles::validate_profile_name(trimmed) {
+        Ok(name) => name,
+        Err(error) => {
+            warn(&format!(
+                "{QUICK_TERMINAL_PROFILE_ENV}={trimmed:?} is not a valid profile name ({error}); using the default profile"
+            ));
+            DEFAULT_QUICK_TERMINAL_PROFILE.to_owned()
+        }
     }
 }
 
@@ -1774,8 +1797,13 @@ pub(super) fn pane_prefix_display(prefix: Option<KeyChord>) -> String {
     }
 }
 
+/// Render a float setting for the edit values, the panel, and the saved
+/// config: up to four decimal places with trailing zeros trimmed. Four places
+/// keep a typed `1.125` or `0.333` exact (two used to round them, so the panel
+/// and the file disagreed) while still hiding `f32` noise such as
+/// `0.15000001` from stepper arithmetic.
 pub(super) fn format_float(value: f32) -> String {
-    let formatted = format!("{value:.2}");
+    let formatted = format!("{value:.4}");
     formatted
         .trim_end_matches('0')
         .trim_end_matches('.')

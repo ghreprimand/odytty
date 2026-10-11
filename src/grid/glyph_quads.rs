@@ -84,6 +84,9 @@ pub(super) fn color_glyph_vertices_core(
     bidi: Option<&BidiDisplayMap>,
 ) {
     out.clear();
+    if !super::snapshot_shape_is_valid(snapshot) {
+        return;
+    }
     out.reserve(runs.len() * INSTANCES_PER_QUAD);
 
     let cols = snapshot.dimensions.columns;

@@ -5,13 +5,19 @@
 mod catalog_bounds_tests;
 mod catalog_cache;
 mod discovery;
+#[cfg(test)]
+mod field_boundary_tests;
 mod json;
 mod launch;
 mod limits;
 mod migration;
 pub(crate) mod precedence;
+#[cfg(test)]
+mod quarantine_tests;
 mod schema;
 mod store;
+#[cfg(test)]
+mod strict_json_tests;
 mod switch;
 
 pub use catalog_cache::catalog_parse_count_for_test;

@@ -205,7 +205,10 @@ impl DesktopEnv for FsDesktopEnv {
 /// is dropped, so a command-bearing field (`Exec=`) cut mid-argument is never
 /// offered and a cut inside a multi-byte scalar never loses the whole entry
 /// (the newline that ends the kept prefix is ASCII, so the prefix is always on
-/// a scalar boundary). A longer source with no newline inside the cap, a read
+/// a scalar boundary). The output never exceeds `cap` bytes: the one byte read
+/// past the cap only detects the longer source and is never kept, so a line
+/// whose newline falls exactly past the cap is dropped like any other cut
+/// line. A longer source with no newline inside the cap, a read
 /// error, and text that is not valid UTF-8 all yield `None`.
 #[cfg(all(unix, not(target_os = "macos")))]
 fn read_capped_lines(reader: impl std::io::Read, cap: u64) -> Option<String> {
@@ -216,6 +219,9 @@ fn read_capped_lines(reader: impl std::io::Read, cap: u64) -> Option<String> {
         .read_to_end(&mut bytes)
         .ok()?;
     if u64::try_from(bytes.len()).ok()? > cap {
+        // The extra byte only detects that the source is longer than the cap.
+        // It is never retained, even when it is a newline.
+        bytes.truncate(usize::try_from(cap).ok()?);
         let kept = bytes.iter().rposition(|&byte| byte == b'\n')? + 1;
         bytes.truncate(kept);
     }

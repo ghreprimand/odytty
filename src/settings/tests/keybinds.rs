@@ -272,27 +272,42 @@ fn keybinds_value_round_trips_for_every_action() {
     // in-app keybinding editor saves through, then re-parse — proving the full
     // expanded editor set (overlay/tab/pane actions included) survives the
     // config round-trip, not only the original 12.
+    // Mixed radix over 36 keys (a-z, 0-9) and the four alt/super combinations
+    // on top of ctrl+shift: 144 distinct chords. The capacity check fails
+    // loudly, naming the generator, if `ALL` ever outgrows it.
+    const KEYS: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+    const CAPACITY: usize = 36 * 4;
+    assert!(
+        BindableAction::ALL.len() <= CAPACITY,
+        "the chord generator covers {CAPACITY} actions; extend it for {}",
+        BindableAction::ALL.len()
+    );
     let overrides: Vec<KeyBindingOverride> = BindableAction::ALL
         .iter()
         .enumerate()
-        .map(|(i, &action)| KeyBindingOverride {
-            chord: KeyChord {
-                modifiers: KeyBindingModifiers {
-                    ctrl: true,
-                    shift: true,
-                    // The `alt` bit distinguishes the second pass over the
-                    // alphabet, so every action gets a distinct chord even once
-                    // `ALL` grows past 26 entries.
-                    alt: i >= 26,
-                    super_key: false,
+        .map(|(i, &action)| {
+            let combo = i / KEYS.len();
+            KeyBindingOverride {
+                chord: KeyChord {
+                    modifiers: KeyBindingModifiers {
+                        ctrl: true,
+                        shift: true,
+                        alt: combo & 1 != 0,
+                        super_key: combo & 2 != 0,
+                    },
+                    key: KeyBindingKey::Character(KEYS[i % KEYS.len()] as char),
                 },
-                // Distinct printable key per action: cycle the alphabet, with
-                // the `alt` bit above keeping the wrapped letters distinct.
-                key: KeyBindingKey::Character((b'a' + (i % 26) as u8) as char),
-            },
-            action,
+                action,
+            }
         })
         .collect();
+    let distinct: std::collections::HashSet<_> =
+        overrides.iter().map(|binding| binding.chord).collect();
+    assert_eq!(
+        distinct.len(),
+        overrides.len(),
+        "every action gets its own chord"
+    );
 
     let value = key_bindings_config_value(&overrides);
     let mut warnings = Vec::new();
@@ -414,4 +429,37 @@ fn a_global_action_on_an_unmodified_typing_key_is_skipped_with_a_warning() {
         3,
         "{warnings:?}"
     );
+}
+
+#[test]
+fn non_latin_key_chords_parse_and_round_trip() {
+    // U+00C4 folds to U+00E4; U+0444 and U+00DF are stored as typed.
+    let (settings, warnings) = settings_from([(
+        KEYBINDS_ENV,
+        "ctrl+shift+\u{c4}=copy;ctrl+\u{444}=paste;alt+\u{df}=new-tab",
+    )]);
+    assert!(warnings.is_empty(), "non-Latin chords warned: {warnings:?}");
+    let keys: Vec<_> = settings
+        .key_bindings
+        .iter()
+        .map(|binding| binding.chord.key)
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            KeyBindingKey::Character('\u{e4}'),
+            KeyBindingKey::Character('\u{444}'),
+            KeyBindingKey::Character('\u{df}'),
+        ]
+    );
+    let serialized = key_bindings_config_value(&settings.key_bindings);
+    let mut round_trip_warnings = Vec::new();
+    let round_trip = parse_key_bindings(Some(OsStr::new(&serialized)), &mut |warning| {
+        round_trip_warnings.push(warning.to_owned())
+    });
+    assert!(round_trip_warnings.is_empty());
+    assert_eq!(round_trip, settings.key_bindings);
+    // Whitespace other than ASCII space is still not a key.
+    let (_, warnings) = settings_from([(KEYBINDS_ENV, "ctrl+\u{3000}=copy")]);
+    assert_eq!(warnings.len(), 1, "an ideographic space is not a key");
 }

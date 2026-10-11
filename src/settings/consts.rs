@@ -676,6 +676,10 @@ pub const DEFAULT_QUICK_TERMINAL: bool = false;
 /// `quick_terminal` is on. Whether the OS can grant a global grab is
 /// platform-dependent and reported after the first usable frame.
 pub const DEFAULT_QUICK_TERMINAL_SHORTCUT: &str = "F12";
+/// Longest `quick_terminal_shortcut` accepted, in characters.
+pub const MAX_QUICK_TERMINAL_SHORTCUT_CHARS: usize = 64;
+/// Largest absolute quick-terminal `coverage` or `span`, in pixels.
+pub const MAX_QUICK_TERMINAL_EXTENT_PX: u32 = 16_384;
 
 /// Quick terminal anchor edge (`ODYTTY_QUICK_TERMINAL_EDGE`, v0.15.0 A): which
 /// monitor edge the drop-down anchors to. One of `top`, `bottom`, `left`,
@@ -751,6 +755,32 @@ pub const MAX_NEW_OUTPUT_FADE_MS: f32 = 1000.0;
 /// Programming ligatures (`ODYTTY_LIGATURES`): `calt` and `liga` on eligible
 /// Latin/operator runs. On by default; independent of script shaping.
 pub const DEFAULT_LIGATURES: bool = true;
+
+/// Kitty graphics file, temporary-file and shared-memory transports
+/// (`ODYTTY_KITTY_NAMED_TRANSPORTS`). Off by default.
+pub const DEFAULT_KITTY_NAMED_TRANSPORTS: bool = false;
+
+/// Process-wide secure keyboard entry (`ODYTTY_SECURE_KEYBOARD_INPUT`). Off by
+/// default; only macOS applies it.
+pub const DEFAULT_SECURE_KEYBOARD_INPUT: bool = false;
+
+/// OSC 52 clipboard read replies (`ODYTTY_OSC52_READ`). Off by default.
+pub const DEFAULT_OSC52_READ: bool = false;
+
+/// Synthesized bold and italic faces (`ODYTTY_SYNTHETIC_STYLES`). On by default.
+pub const DEFAULT_SYNTHETIC_STYLES: bool = true;
+
+/// Atlas-owned geometry for box-drawing, block and Powerline glyphs
+/// (`ODYTTY_GEOMETRIC_BOXDRAW`). On by default.
+pub const DEFAULT_GEOMETRIC_BOXDRAW: bool = true;
+
+/// Bundled symbol and Nerd Font fallback (`ODYTTY_SYMBOL_FALLBACK`). On by
+/// default.
+pub const DEFAULT_SYMBOL_FALLBACK: bool = true;
+
+/// Semantic theme roles for cursor, selection and search colors
+/// (`ODYTTY_THEMED_UI_ROLES`). On by default.
+pub const DEFAULT_THEMED_UI_ROLES: bool = true;
 
 /// Arabic contextual joining and complex-script owner shaping. On by default;
 /// off restores the per-cell path for these scripts without disabling Latin

@@ -117,13 +117,15 @@ fn bare_launch_without_profile_selection_keeps_default_theme() {
 
 #[test]
 fn default_settings_load_does_not_enumerate_profiles() {
-    // Observable startup seam: ordinary Settings::from_env (default first-
-    // terminal path) must not call load_catalog_from_dir. Explicitly selecting
-    // a named profile or opening the Profile Manager authorizes a catalog load.
+    // Observable startup seam: ordinary settings resolution (the default
+    // first-terminal path) must not call load_catalog_from_dir. Explicitly
+    // selecting a named profile or opening the Profile Manager authorizes a
+    // catalog load. The source is empty rather than the developer's real
+    // config and environment, so the result does not depend on the machine.
     let _count_guard = crate::test_lock::catalog_count_lock();
     reset_catalog_load_count_for_test();
     let before = catalog_load_count_for_test();
-    let _ = Settings::from_env();
+    let _ = Settings::from_source(|_| None, |_| {}, |_| None, |_| None);
     let _ = resolve_effective_launch(
         None,
         &HashMap::new(),
@@ -142,12 +144,13 @@ fn default_settings_load_does_not_enumerate_profiles() {
 
 #[test]
 fn default_settings_load_does_not_read_external_palette() {
-    let _env_guard = crate::test_lock::test_env_lock();
+    // An empty source stands for a default install; the developer's real
+    // config and environment could enable the palette and fail this test.
     use crate::external_palette::{palette_read_count_for_test, reset_palette_read_count_for_test};
     let _read_guard = crate::test_lock::palette_read_lock();
     reset_palette_read_count_for_test();
     let before = palette_read_count_for_test();
-    let settings = Settings::from_env();
+    let settings = Settings::from_source(|_| None, |_| {}, |_| None, |_| None);
     assert!(!settings.follow_external_palette);
     assert_eq!(
         palette_read_count_for_test(),

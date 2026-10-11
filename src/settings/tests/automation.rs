@@ -32,6 +32,8 @@ fn automation_endpoint_defaults_off_and_parses_opt_in() {
 
 #[test]
 fn automation_endpoint_round_trips_config_panel_and_reload() {
+    // `apply_reloadable_values` republishes every process-wide render switch.
+    let _render_globals = crate::test_lock::render_globals_lock();
     assert_eq!(
         config_key_to_env("automation_endpoint"),
         Some(AUTOMATION_ENDPOINT_ENV)

@@ -94,6 +94,9 @@ const STILL_ACTIVE_CODE: u32 = 259;
 /// The exit code used when force-terminating a child via `TerminateProcess`.
 const KILL_EXIT_CODE: u32 = 1;
 
+/// How long `Drop` waits for a killed child before giving up on it.
+const DROP_EXIT_WAIT_MS: u32 = 1_000;
+
 pub struct PtySession {
     /// Shell family captured from the actual spawn command, never from terminal output.
     launch_shell: Option<crate::shell_integration::ShellKind>,
@@ -257,6 +260,7 @@ impl PtySession {
         reject_interior_nul(&command)?;
         // Refuse network/device cwd prefixes before any Win32 spawn call.
         // This also covers direct CommandBuilder callers and restored state.
+        pin_bare_program(&mut command);
         let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
         command.current_dir =
             crate::cwd::spawn_directory(command.current_dir.as_deref(), home.as_deref());
@@ -673,6 +677,13 @@ impl PtySession {
         Ok(ExitStatus::from_raw(code))
     }
 
+    /// Wait up to `millis` for the child to exit; whether it did.
+    fn wait_timeout(&self, millis: u32) -> bool {
+        // SAFETY: live owned process handle.
+        let status = unsafe { WaitForSingleObject(self.process_handle(), millis) };
+        status == WAIT_OBJECT_0
+    }
+
     pub fn kill(&mut self) -> Result<()> {
         // D-5: signal deliberate teardown BEFORE terminating so the child-waiter
         // thread does not misreport the forced-termination exit code as a
@@ -763,13 +774,20 @@ impl Drop for PtySession {
         // owned pipe/process handles close when their `OwnedHandle` fields drop
         // after this body.
         let _ = self.kill();
-        let _ = self.wait();
+        // The wait is bounded: `kill` can fail (access denied on an elevated or
+        // protected child), and an unbounded wait would then hang the calling
+        // thread forever.
+        let exited = self.wait_timeout(DROP_EXIT_WAIT_MS);
         self.close_pcon();
-        // Join the child-waiter thread. `kill` has terminated the child (or it
-        // already exited), so the waiter's blocking `WaitForSingleObject` has
-        // returned and the thread is finishing — the join cannot hang, and it
-        // guarantees the waiter never touches state after the session drops.
-        if let Some(waiter) = self.waiter.take() {
+        // Join the child-waiter thread when the child is gone: its blocking
+        // `WaitForSingleObject` has returned and the thread is finishing, so the
+        // join cannot hang and the waiter never touches state after the session
+        // drops. A child that survived `kill` leaves the waiter blocked on its
+        // own duplicated process handle and shared pseudoconsole state, neither
+        // of which depends on this session, so it is detached instead.
+        if let Some(waiter) = self.waiter.take()
+            && exited
+        {
             let _ = waiter.join();
         }
     }
@@ -1189,7 +1207,9 @@ fn shell_command_builder(command: &str) -> CommandBuilder {
 ///   2. `powershell.exe` (Windows PowerShell 5.1) — resolved by its fixed
 ///      absolute path under `%SystemRoot%\System32\WindowsPowerShell\v1.0\`,
 ///      which is present on every Windows install (do not trust `%PATH%` alone).
-///   3. `%ComSpec%` / `cmd.exe` — last resort.
+///   3. `%ComSpec%`, else `%SystemRoot%\System32\cmd.exe` - last resort, always
+///      an absolute path (a bare `cmd.exe` would be taken from the launch
+///      directory first).
 fn default_shell() -> ResolvedShell {
     if let Some(program) = resolve_pwsh() {
         return ResolvedShell {
@@ -1204,7 +1224,10 @@ fn default_shell() -> ResolvedShell {
         };
     }
     ResolvedShell {
-        program: std::env::var_os("ComSpec").unwrap_or_else(|| OsString::from("cmd.exe")),
+        program: super::program_path::command_interpreter(
+            std::env::var_os("ComSpec"),
+            std::env::var_os("SystemRoot"),
+        ),
         kind: ShellKind::Cmd,
     }
 }
@@ -1253,6 +1276,36 @@ fn resolve_windows_powershell() -> Option<OsString> {
         .join("v1.0")
         .join("powershell.exe");
     candidate.is_file().then(|| candidate.into_os_string())
+}
+
+/// Replace a bare program name with the absolute file `CreateProcessW` would
+/// have found, searching its directories in its order (the OdyTTY executable's
+/// directory, `System32`, the Windows directory, `PATH`) but never the launch
+/// directory. A name found nowhere is left as given, so the failure surfaces
+/// as the spawn error it always was.
+fn pin_bare_program(command: &mut CommandBuilder) {
+    if !super::program_path::is_bare_program(&command.program) {
+        return;
+    }
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(app_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+    {
+        dirs.push(app_dir);
+    }
+    let system_root =
+        std::env::var_os("SystemRoot").unwrap_or_else(|| OsString::from(r"C:\Windows"));
+    dirs.push(Path::new(&system_root).join("System32"));
+    dirs.push(PathBuf::from(&system_root));
+    if let Some(path) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&path));
+    }
+    if let Some(found) =
+        super::program_path::resolve_bare_program(&command.program, dirs, Path::is_file)
+    {
+        command.program = found.into_os_string();
+    }
 }
 
 /// Search `%PATH%` for `exe`, returning its full path if an *absolute* file by

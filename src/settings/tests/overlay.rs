@@ -476,6 +476,26 @@ fn disabled_background_image_round_trips_through_edit_values() {
     assert!(round_trip.background_image.is_none());
 }
 
+/// A background image path that is not valid UTF-8 reaches the loader byte for
+/// byte, like the `font` and `symbol_font` paths, instead of being rewritten
+/// with U+FFFD into a file that does not exist.
+#[cfg(unix)]
+#[test]
+fn a_non_utf8_background_image_path_is_kept_byte_for_byte() {
+    use std::os::unix::ffi::OsStringExt;
+    let raw = OsString::from_vec(b"/srv/wallpaper-\xff.png".to_vec());
+    let settings = Settings::from_source(
+        |key| (key == BACKGROUND_IMAGE_ENV).then(|| raw.clone()),
+        |_| {},
+        |_| None,
+        |_| None,
+    );
+    assert_eq!(
+        settings.background_image.map(PathBuf::into_os_string),
+        Some(raw)
+    );
+}
+
 #[test]
 fn automatic_background_scrim_survives_other_edits_and_round_trip() {
     let settings = Settings {
@@ -499,4 +519,64 @@ fn automatic_background_scrim_survives_other_edits_and_round_trip() {
         .apply_raw("background_image_scrim", "auto")
         .expect("valid automatic scrim");
     assert_eq!(edits.settings().background_image_scrim, None);
+}
+
+/// A float typed with more than two decimals is applied and saved as typed, and
+/// a change in the third decimal is a real edit rather than a no-op.
+#[test]
+fn a_three_decimal_float_edit_is_kept_exactly() {
+    let mut edits = SettingsEditOverlay::new(&Settings::default());
+    let applied = edits
+        .apply_raw("line_height", "1.125")
+        .expect("valid edit")
+        .expect("1.125 differs from the default");
+    assert_eq!(applied.line_height, 1.125);
+    assert_eq!(
+        edits
+            .settings()
+            .to_edit_values()
+            .get(LINE_HEIGHT_ENV)
+            .map(String::as_str),
+        Some("1.125")
+    );
+    let applied = edits
+        .apply_raw("bloom_intensity", "0.333")
+        .expect("valid edit")
+        .expect("0.333 differs from the default");
+    assert_eq!(applied.bloom_intensity, 0.333);
+    assert!(
+        edits
+            .apply_raw("bloom_intensity", "0.334")
+            .expect("valid edit")
+            .is_some(),
+        "a third-decimal change is applied, not dropped"
+    );
+}
+
+/// The wallpaper-visibility row takes the value it displays: any caller of
+/// `apply_raw` passes visibility, and the stored opacity is its complement.
+#[test]
+fn the_visibility_row_applies_the_value_it_displays() {
+    let mut edits = SettingsEditOverlay::new(&Settings::default());
+    let applied = edits
+        .apply_raw("cell_bg_opacity", "0.37")
+        .expect("valid visibility")
+        .expect("a change");
+    assert!((applied.cell_bg_opacity - 0.63).abs() < 1e-6);
+    let row = applied
+        .setting_info()
+        .into_iter()
+        .find(|row| row.key == "cell_bg_opacity")
+        .expect("visibility row");
+    assert_eq!(row.value, "0.37", "the row shows what was applied");
+    for invalid in ["1.1", "-0.1", "NaN", "abc"] {
+        let error = edits
+            .apply_raw("cell_bg_opacity", invalid)
+            .expect_err("outside 0..=1 is refused");
+        assert!(
+            error.message.contains("0 to 1"),
+            "{invalid}: {}",
+            error.message
+        );
+    }
 }

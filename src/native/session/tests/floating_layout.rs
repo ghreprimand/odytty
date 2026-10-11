@@ -289,6 +289,41 @@ fn a_pane_added_or_closed_while_floating_joins_or_leaves_the_layout() {
     assert_eq!(rects(&set).len(), 2, "a closed pane leaves the layout");
 }
 
+/// A pane closed in a background workspace (a background shell exiting) leaves
+/// that workspace's floating layout too, and the active workspace is untouched.
+#[test]
+fn a_pane_closed_in_a_background_floating_workspace_leaves_its_layout() {
+    let mut set = tab_of(3);
+    float(&mut set);
+    set.push_workspace(build_session_with_id(SessionToken(10)));
+    assert!(
+        set.switch_workspace(1),
+        "workspace 0 is now in the background"
+    );
+    assert!(!set.close(SessionToken(1)), "other panes remain");
+    assert_eq!(
+        set.active_workspace_index(),
+        1,
+        "the active workspace stays"
+    );
+    assert!(set.get(SessionToken(1)).is_none());
+    let tab = &set.workspaces[0].tabs[0];
+    assert_eq!(tab.layout.leaves(), vec![SessionToken(0), SessionToken(2)]);
+    assert!(
+        tab.focused == SessionToken(0) || tab.focused == SessionToken(2),
+        "focus moved to a surviving pane"
+    );
+    assert!(
+        matches!(tab.arrangement, Arrangement::Floating(_)),
+        "the background tab stays floating"
+    );
+
+    assert!(set.switch_workspace(0));
+    let shown: Vec<SessionToken> = rects(&set).into_iter().map(|(token, _)| token).collect();
+    assert_eq!(shown.len(), 2);
+    assert!(!shown.contains(&SessionToken(1)));
+}
+
 #[test]
 fn closing_down_to_one_pane_renders_as_a_plain_single_pane() {
     let mut set = tab_of(2);

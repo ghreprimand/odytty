@@ -1008,6 +1008,24 @@ fn retro_config_key_no_longer_aliases_crt_only() {
     assert!(warnings.is_empty());
 }
 
+/// An explicit `visual = off` (or `none`/`plain`) with no `crt` setting turns
+/// the scanline pass off, as the `visual` row promises; with CRT on by default
+/// it used to stay on.
+#[test]
+fn explicit_visual_off_turns_crt_off_when_crt_is_unset() {
+    for raw in ["off", "none", "plain"] {
+        let (settings, warnings) = settings_from([(VISUAL_ENV, raw)]);
+        assert!(warnings.is_empty(), "visual={raw}: {warnings:?}");
+        assert_eq!(settings.visual, VisualEffect::Off, "visual={raw}");
+        assert!(
+            !settings.crt,
+            "visual={raw} with crt unset must turn CRT off"
+        );
+    }
+    let (settings, _) = settings_from([(VISUAL_ENV, "off"), (CRT_ENV, "on")]);
+    assert!(settings.crt, "an explicit crt still wins over visual=off");
+}
+
 #[test]
 fn ux5_no_ambient_still_uses_crt_default() {
     // CRT is now a default profile choice, independent of the legacy
@@ -1401,13 +1419,30 @@ fn render_quality_parses_known_values_and_aliases() {
         ("plain", RenderQuality::Plain),
         ("fast", RenderQuality::Plain),
         ("balanced", RenderQuality::Balanced),
-        ("default", RenderQuality::Balanced),
+        ("default", RenderQuality::High),
+        ("normal", RenderQuality::Balanced),
         ("high", RenderQuality::High),
     ] {
         let (settings, warnings) = settings_from([(RENDER_QUALITY_ENV, raw)]);
         assert_eq!(settings.render_quality, expected, "raw={raw}");
         assert!(warnings.is_empty(), "raw={raw}: {warnings:?}");
     }
+}
+
+/// The `default` token and each enum's own `Default` select the shipped
+/// default, so writing `default` never picks a different profile from leaving
+/// the key unset.
+#[test]
+fn default_tokens_select_the_shipped_defaults() {
+    let shipped = Settings::default();
+    assert_eq!(CursorBlink::default(), shipped.cursor_blink);
+    assert_eq!(RenderQuality::default(), shipped.render_quality);
+    let (blink, warnings) = settings_from([(CURSOR_BLINK_ENV, "default")]);
+    assert!(warnings.is_empty());
+    assert_eq!(blink.cursor_blink, shipped.cursor_blink);
+    let (quality, warnings) = settings_from([(RENDER_QUALITY_ENV, "default")]);
+    assert!(warnings.is_empty());
+    assert_eq!(quality.render_quality, shipped.render_quality);
 }
 
 #[test]

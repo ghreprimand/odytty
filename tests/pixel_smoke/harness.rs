@@ -497,17 +497,3 @@ pub(crate) fn ensure_real_glyph(atlas: &mut GlyphAtlas, font: &FontHandle, ch: c
     let got = atlas.ensure(font, ch);
     got.is_some() && got != fallback
 }
-
-/// A width-2 (East Asian) codepoint the loaded font has a real outline for, used
-/// to exercise the wide-slot raster path. Returns `None` on hosts without a
-/// CJK/fullwidth-capable font (the common case here), so the caller skips. Width
-/// is decided with the same `unicode-width` rule core uses for cell layout.
-pub(crate) fn find_supported_wide_glyph(atlas: &mut GlyphAtlas, font: &FontHandle) -> Option<char> {
-    use unicode_width::UnicodeWidthChar;
-    let ranges = [0x4E00u32..=0x4F00, 0x3040..=0x30FF, 0xFF01..=0xFF60];
-    ranges
-        .into_iter()
-        .flatten()
-        .filter_map(char::from_u32)
-        .find(|&ch| UnicodeWidthChar::width(ch) == Some(2) && ensure_real_glyph(atlas, font, ch))
-}

@@ -237,7 +237,7 @@ impl Settings {
                 env: VISUAL_ENV,
                 name: "Ambient visual effect",
                 value: self.visual.as_str().to_owned(),
-                description: "Ambient scanline look, produced by the unified CRT post-process: ambient turns on CRT scanlines when no explicit crt setting is present, and an explicit crt setting always wins. Requires a GPU adapter with filterable 16-bit float support; falls back to no effect otherwise. Off keeps the renderer plain and is the fastest, most compatible option.",
+                description: "Ambient scanline look, produced by the unified CRT post-process. When no explicit crt setting is present, ambient turns CRT scanlines on and off turns them off; an explicit crt setting always wins. Requires a GPU adapter with filterable 16-bit float support; falls back to no effect otherwise. Bloom and other effects have their own switches.",
                 kind: SettingKind::Enum,
                 range: None,
                 options: &["off", "ambient"],

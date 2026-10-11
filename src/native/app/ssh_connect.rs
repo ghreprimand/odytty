@@ -631,12 +631,46 @@ impl App {
             let state = crate::settings::test_process_base().join("state");
             std::fs::create_dir_all(&state).map(|()| state)
         };
-        let dir = match state {
-            Ok(state_dir) => state_dir.join("ssh"),
+        // The socket path limit is a production fact; a test state folder is
+        // process-owned and may sit under a deep temporary directory.
+        #[cfg(not(test))]
+        let limit = crate::ssh_connect::SOCKET_PATH_MAX;
+        #[cfg(test)]
+        let limit = usize::MAX;
+        match state {
+            Ok(state_dir) => Self::ssh_control_dir_under(
+                &state_dir,
+                Some(crate::ssh_connect::short_control_dir()),
+                limit,
+            ),
             Err(_) => {
                 tracing::warn!("ssh connection reuse disabled: secure state unavailable");
-                return None;
+                None
             }
+        }
+    }
+
+    /// The prepared `ssh` socket directory below `state_dir`. When the master's
+    /// socket path there would exceed `limit` (the Unix-domain `sun_path`
+    /// limit) the short `fallback` directory is used instead; with neither
+    /// bindable, or when the directory is not private to this user, reuse is
+    /// off. Warnings do not name the paths, which contain a home directory.
+    #[cfg(unix)]
+    fn ssh_control_dir_under(
+        state_dir: &std::path::Path,
+        fallback: Option<std::path::PathBuf>,
+        limit: usize,
+    ) -> Option<std::path::PathBuf> {
+        let preferred = state_dir.join("ssh");
+        let dir = if crate::ssh_connect::control_dir_fits_socket_limit(&preferred, limit) {
+            preferred
+        } else if let Some(short) =
+            fallback.filter(|short| crate::ssh_connect::control_dir_fits_socket_limit(short, limit))
+        {
+            short
+        } else {
+            tracing::warn!("ssh connection reuse disabled: no socket path short enough");
+            return None;
         };
         match crate::ssh_connect::ensure_control_dir(&dir) {
             Ok(()) => Some(dir),
@@ -650,6 +684,16 @@ impl App {
     #[cfg(windows)]
     fn ssh_control_dir(_enabled: bool) -> Option<std::path::PathBuf> {
         None
+    }
+
+    /// Test seam: [`Self::ssh_control_dir_under`].
+    #[cfg(all(unix, test))]
+    pub(in crate::native) fn ssh_control_dir_under_for_test(
+        state_dir: &std::path::Path,
+        fallback: Option<std::path::PathBuf>,
+        limit: usize,
+    ) -> Option<std::path::PathBuf> {
+        Self::ssh_control_dir_under(state_dir, fallback, limit)
     }
 
     /// Test seam: the `ControlMaster` socket directory reuse would use.

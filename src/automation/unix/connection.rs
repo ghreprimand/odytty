@@ -5,6 +5,9 @@ use super::*;
 use std::os::fd::FromRawFd;
 use std::os::unix::ffi::OsStrExt;
 
+/// How long a connect waits before retrying a full accept queue.
+const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(5);
+
 pub(crate) fn peer_is_owner(stream: &UnixStream) -> io::Result<()> {
     #[cfg(target_os = "linux")]
     let uid = {
@@ -166,9 +169,16 @@ impl Write for DeadlineStream {
     }
 }
 
-/// A blocking AF_UNIX connect can wait for a saturated accept queue. Start
-/// nonblocking and poll once against an absolute deadline instead.
+/// Connect to an AF_UNIX endpoint within `timeout`, never blocking past it.
+///
+/// The socket is nonblocking. A nonblocking AF_UNIX connect completes at once
+/// or, when the listener's accept queue is full, fails with `EAGAIN` (Linux)
+/// without starting; that is retried every few milliseconds until the deadline
+/// and then reported as `TimedOut`, so a busy owner is waited for rather than
+/// refused. `EINPROGRESS`, which AF_UNIX does not return on Linux, is still
+/// handled by polling for writability against the same deadline.
 pub(crate) fn connect(path: &Path, timeout: Duration) -> io::Result<UnixStream> {
+    let deadline = Instant::now() + timeout;
     let bytes = path.as_os_str().as_bytes();
     let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
     if bytes.len() >= address.sun_path.len() || bytes.contains(&0) {
@@ -222,22 +232,36 @@ pub(crate) fn connect(path: &Path, timeout: Duration) -> io::Result<UnixStream> 
         }
     }
     stream.set_nonblocking(true)?;
-    // SAFETY: address is a fully initialized sockaddr_un of the supplied size.
-    let result = unsafe {
-        libc::connect(
-            fd,
-            (&address as *const libc::sockaddr_un).cast(),
-            address_len,
-        )
-    };
-    if result != 0 {
+    let result = loop {
+        // SAFETY: address is a fully initialized sockaddr_un of the supplied size.
+        let result = unsafe {
+            libc::connect(
+                fd,
+                (&address as *const libc::sockaddr_un).cast(),
+                address_len,
+            )
+        };
+        if result == 0 {
+            break Ok(());
+        }
         let error = io::Error::last_os_error();
-        // Linux reports EAGAIN when an AF_UNIX listen queue is full. It has not
-        // started a connect, so fail promptly rather than mistaking POLLOUT for success.
+        match error.kind() {
+            io::ErrorKind::Interrupted => continue,
+            // A full accept queue: no connect was started, so trying again on
+            // the same unconnected socket is safe.
+            io::ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline {
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, ErrorCode::TimedOut));
+                }
+                thread::sleep(CONNECT_RETRY_INTERVAL);
+            }
+            _ => break Err(error),
+        }
+    };
+    if let Err(error) = result {
         if error.raw_os_error() != Some(libc::EINPROGRESS) {
             return Err(error);
         }
-        let deadline = Instant::now() + timeout;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {

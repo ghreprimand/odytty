@@ -1621,8 +1621,19 @@ queued work and remove only the endpoint instance owned by the current process.
 Windows cancels pending named-pipe reads and writes with a terminal I/O error,
 so an incomplete client frame cannot trap shutdown in a framing retry loop.
 
+A transient `accept` failure on Unix (too many open files, memory or buffer
+pressure, or a client that gave up first) is retried rather than stopping the
+endpoint; one that persists for about a second still stops it with a notice.
+A client that finds the endpoint's accept queue full waits for a slot until
+its connect deadline. A mutation that failed before any byte was sent,
+including that connect timeout, is reported as `unavailable` and is safe to
+retry; a failure after sending stays `outcome_unknown`.
+
 The Windows CLI accepts only the explicit local OdyTTY pipe form; remote UNC
-pipe names are rejected before opening. Windows CI covers same-user round trips,
+pipe names are rejected before opening. Windows has no endpoint discovery, so
+every command there, including `quick-terminal toggle`, needs `--endpoint`.
+The Windows client opens the pipe at identification impersonation level, so
+the server cannot act as the client. Windows CI covers same-user round trips,
 exclusive-name collision, and malformed-frame refusal. Remote-machine and
 second-account permission checks remain hands-on release acceptance.
 
@@ -1983,6 +1994,10 @@ The tmux behavior is equivalent to:
 ```sh
 tmux new-session -A -s odytty
 ```
+
+The session name is fixed: every integrated tab to the same host and remote
+user attaches to that one session and mirrors the others. Turn Tmux off for a
+host where tabs must be independent shells.
 
 Each saved host can override Integration, Reuse, and Tmux in `hosts.conf`.
 Connection reuse is available on Unix clients; Windows clients authenticate

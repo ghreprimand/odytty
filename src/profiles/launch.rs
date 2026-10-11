@@ -9,7 +9,7 @@ use crate::pty::{CommandBuilder, PtySession};
 use crate::settings::Settings;
 
 use super::precedence::EffectiveLaunch;
-use super::schema::ProfileCommand;
+use super::schema::{self, ProfileCommand};
 
 /// Resolved local spawn inputs for one profile-aware session insert.
 #[derive(Debug, Clone, PartialEq)]
@@ -50,9 +50,11 @@ impl LocalLaunchPlan {
 }
 
 /// Build the platform [`CommandBuilder`] for a non-default [`LocalLaunchPlan`].
-pub fn build_local_command(plan: &LocalLaunchPlan) -> CommandBuilder {
+/// A [`LocalSpawnKind::DefaultShell`] plan has no explicit command (it takes the
+/// dedicated default-shell spawn path), so it yields `None`.
+pub fn build_local_command(plan: &LocalLaunchPlan) -> Option<CommandBuilder> {
     let mut command = match &plan.spawn {
-        LocalSpawnKind::DefaultShell => unreachable!("default shell uses dedicated spawn path"),
+        LocalSpawnKind::DefaultShell => return None,
         LocalSpawnKind::Shell { program, args } => {
             let mut builder = CommandBuilder::new(OsString::from(program.clone()));
             for arg in args {
@@ -79,7 +81,7 @@ pub fn build_local_command(plan: &LocalLaunchPlan) -> CommandBuilder {
     if let Some(path) = plan.working_directory.as_ref() {
         command.current_dir(path.clone());
     }
-    command
+    Some(command)
 }
 
 /// Spawn a local PTY from a resolved [`LocalLaunchPlan`].
@@ -98,6 +100,36 @@ pub fn spawn_local_plan(
             anyhow::anyhow!("profile environment rejected before launch: {error}")
         })?;
     }
+    let launch_text = |error: super::ProfileError| {
+        anyhow::anyhow!("profile launch rejected before launch: {error}")
+    };
+    match &plan.spawn {
+        LocalSpawnKind::DefaultShell => {}
+        LocalSpawnKind::Shell { program, args } => {
+            schema::reject_os_invalid_launch_text("launch.shell", program, true)
+                .map_err(launch_text)?;
+            for arg in args {
+                schema::reject_os_invalid_launch_text("launch.shell argument", arg, false)
+                    .map_err(launch_text)?;
+            }
+        }
+        LocalSpawnKind::Exec(command) => {
+            schema::reject_os_invalid_launch_text("command.program", &command.program, true)
+                .map_err(launch_text)?;
+            for arg in &command.args {
+                schema::reject_os_invalid_launch_text("command.args entry", arg, false)
+                    .map_err(launch_text)?;
+            }
+        }
+    }
+    if let Some(directory) = plan
+        .working_directory
+        .as_ref()
+        .and_then(|path| path.to_str())
+    {
+        schema::reject_os_invalid_launch_text("working directory", directory, false)
+            .map_err(launch_text)?;
+    }
     if matches!(plan.spawn, LocalSpawnKind::DefaultShell) {
         // Apply the profile's bounded env overrides even when it customizes no
         // shell/command (the common "env-only profile" case): without this the
@@ -109,7 +141,8 @@ pub fn spawn_local_plan(
             &plan.env,
         );
     }
-    let command = build_local_command(plan);
+    let command = build_local_command(plan)
+        .ok_or_else(|| anyhow::anyhow!("profile launch has no command to spawn"))?;
     PtySession::spawn_command(grid, command)
 }
 
@@ -237,18 +270,24 @@ mod tests {
         assert_eq!(plan.spawn, LocalSpawnKind::DefaultShell);
     }
 
-    /// Round-3 acceptance regression: an env-only profile (no shell/command)
-    /// must still deliver its bounded env overrides to the spawned child. The
-    /// DefaultShell arm previously dropped `plan.env` entirely, so the common
-    /// case (a profile that only customizes environment/appearance) launched
-    /// with no overrides. Spawn a default-shell plan carrying `ODY_TEST=alpha`,
-    /// run `printf` in the shell, and assert the value reaches the child. Unix
-    /// backend; the Windows twin routes the same overrides through the ConPTY
-    /// environment block (`build_env_block`, covered by its own unit tests).
+    /// An env-only profile (no shell or command) must still deliver its bounded
+    /// env overrides to the spawned child; the default-shell arm once dropped
+    /// `plan.env` entirely. Spawn a default-shell plan carrying `ODY_TEST=alpha`,
+    /// run `printf` in the shell, and assert the value reaches the child. The
+    /// read is bounded by a byte cap and a deadline, and the child is killed on
+    /// every exit, so a slow shell startup or a missing EOF fails the test
+    /// instead of hanging it. Unix backend; the Windows twin routes the same
+    /// overrides through the ConPTY environment block (`build_env_block`,
+    /// covered by its own unit tests).
     #[cfg(unix)]
     #[test]
     fn env_only_default_shell_plan_delivers_env_to_child() {
-        use std::io::Write;
+        use std::io::{Read, Write};
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        const CAPTURE_CAP: usize = 64 * 1024;
+        const DEADLINE: Duration = Duration::from_secs(30);
         let grid = crate::core::Dimensions {
             columns: 80,
             rows: 24,
@@ -261,18 +300,57 @@ mod tests {
             env,
             spawn: LocalSpawnKind::DefaultShell,
         };
-        let session = spawn_local_plan(grid, &plan).expect("spawn env-only default shell");
+        let mut session = spawn_local_plan(grid, &plan).expect("spawn env-only default shell");
         let mut writer = session.take_writer().expect("writer");
+        let mut reader = session.try_clone_reader().expect("reader");
+        let (sender, receiver) = mpsc::channel::<Vec<u8>>();
+        let pump = std::thread::spawn(move || {
+            let mut chunk = [0u8; 4096];
+            while let Ok(read) = reader.read(&mut chunk) {
+                if read == 0 || sender.send(chunk[..read].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
         writer
             .write_all(b"printf 'ENVCHECK=%s\\n' \"$ODY_TEST\"; exit\n")
             .expect("write probe");
         writer.flush().expect("flush");
-        let output = session.read_to_end().expect("read child output");
-        let text = String::from_utf8_lossy(&output);
+
+        let started = Instant::now();
+        let mut captured = Vec::new();
+        let mut delivered = false;
+        while let Some(left) = DEADLINE.checked_sub(started.elapsed()) {
+            let Ok(chunk) = receiver.recv_timeout(left) else {
+                break;
+            };
+            captured.extend_from_slice(&chunk);
+            captured.truncate(CAPTURE_CAP);
+            if String::from_utf8_lossy(&captured).contains("ENVCHECK=alpha") {
+                delivered = true;
+                break;
+            }
+        }
+        let _ = session.kill();
+        session.force_reader_eof();
+        let _ = pump.join();
         assert!(
-            text.contains("ENVCHECK=alpha"),
-            "env-only profile must deliver ODY_TEST to the child; got: {text:?}"
+            delivered,
+            "env-only profile must deliver ODY_TEST to the child within {DEADLINE:?}; got: {:?}",
+            String::from_utf8_lossy(&captured)
         );
+    }
+
+    #[test]
+    fn a_default_shell_plan_has_no_explicit_command_and_does_not_panic() {
+        let plan = LocalLaunchPlan {
+            settings: Settings::default(),
+            working_directory: None,
+            env: BTreeMap::new(),
+            spawn: LocalSpawnKind::DefaultShell,
+        };
+        let built = std::panic::catch_unwind(|| build_local_command(&plan).is_none());
+        assert_eq!(built.ok(), Some(true));
     }
 
     #[test]
@@ -286,7 +364,7 @@ mod tests {
                 args: vec!["-d".to_owned(), "Ubuntu".to_owned()],
             },
         };
-        let command = build_local_command(&plan);
+        let command = build_local_command(&plan).expect("an explicit command");
         assert_eq!(
             command
                 .args_for_test()
@@ -315,7 +393,7 @@ mod tests {
                 preserved: BTreeMap::new(),
             }),
         };
-        let command = build_local_command(&plan);
+        let command = build_local_command(&plan).expect("an explicit command");
         assert!(
             command.env_for_test().iter().any(|(key, value)| {
                 key.to_string_lossy() == "A B" && value.to_string_lossy() == "spaced"

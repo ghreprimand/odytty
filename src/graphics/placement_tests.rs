@@ -360,3 +360,119 @@ fn a_hard_reset_clears_prototypes() {
     scene.hard_reset();
     assert!(!scene.has_virtual_placements());
 }
+
+/// Two full scrolls move a placement two rows into history: it is visible only
+/// when the viewport has been scrolled back far enough, and a placement made
+/// between the scrolls sits one row less deep.
+#[test]
+fn repeated_full_scrolls_keep_moving_placements_into_history() {
+    let (mut scene, image_id) = scene_with_image();
+    let place = |scene: &mut ImageScene, row: usize| {
+        scene
+            .place(PlacementRequest::new(
+                image_id,
+                GraphicsProtocol::Sixel,
+                row,
+                0,
+                2,
+                1,
+            ))
+            .unwrap();
+    };
+    place(&mut scene, 0);
+    scene.scroll_full_up(1, 1);
+    place(&mut scene, 0);
+    scene.scroll_full_up(1, 2);
+
+    // Screen of 3 rows: nothing remains on it.
+    assert!(scene.visible_placements(0, 3, 8, 16).is_empty());
+    // One row back only the second placement (scrolled once) shows, at row 0.
+    let one_back = scene.visible_placements(1, 3, 8, 16);
+    assert_eq!(one_back.len(), 1);
+    assert_eq!(one_back[0].row, 0);
+    // Two rows back both show: the first at row 0, the second one row lower.
+    let two_back = scene.visible_placements(2, 3, 8, 16);
+    let mut rows: Vec<_> = two_back.iter().map(|placement| placement.row).collect();
+    rows.sort_unstable();
+    assert_eq!(rows, vec![0, 1]);
+}
+
+/// ED0 and ED1 erase only the placements that overlap their half of the
+/// screen, ED3 clears everything, an unknown mode changes nothing, and the
+/// stored image data survives each.
+#[test]
+fn erase_display_modes_remove_only_what_they_cover() {
+    let place_rows = |scene: &mut ImageScene, image_id, rows: &[usize]| {
+        for &row in rows {
+            scene
+                .place(PlacementRequest::new(
+                    image_id,
+                    GraphicsProtocol::Kitty,
+                    row,
+                    0,
+                    2,
+                    1,
+                ))
+                .unwrap();
+        }
+    };
+    let rows_left = |scene: &ImageScene| {
+        let mut rows: Vec<isize> = scene
+            .placements()
+            .iter()
+            .map(|placement| placement.anchor.row)
+            .collect();
+        rows.sort_unstable();
+        rows
+    };
+    // Placements on rows 0, 2 and 4 of a 6x8 screen; the cursor is at (2, 1).
+    for (mode, kept) in [
+        (0, vec![0]),
+        (1, vec![4]),
+        (2, Vec::new()),
+        (3, Vec::new()),
+        (9, vec![0, 2, 4]),
+    ] {
+        let (mut scene, image_id) = scene_with_image();
+        place_rows(&mut scene, image_id, &[0, 2, 4]);
+        scene.erase_display(mode, 2, 1, 6, 8);
+        assert_eq!(rows_left(&scene), kept, "ED{mode}");
+        assert!(scene.store().contains(image_id), "ED{mode} keeps the data");
+    }
+}
+
+/// RIS drops every placement on both screens and the virtual placements, and
+/// returns to the primary screen, but keeps the stored image data.
+#[test]
+fn hard_reset_clears_placements_on_both_screens_and_keeps_image_data() {
+    let (mut scene, image_id) = scene_with_image();
+    let place = |scene: &mut ImageScene| {
+        scene
+            .place(PlacementRequest::new(
+                image_id,
+                GraphicsProtocol::Kitty,
+                1,
+                1,
+                2,
+                2,
+            ))
+            .unwrap();
+    };
+    place(&mut scene);
+    scene.enter_alternate(true);
+    place(&mut scene);
+    scene.place_virtual(image_id, 7, None, 2, 2, 0);
+    assert_eq!(scene.placements().len(), 2, "one placement per screen");
+
+    scene.hard_reset();
+    assert!(scene.placements().is_empty());
+    assert!(!scene.has_virtual_placements());
+    assert!(scene.store().contains(image_id));
+    // Back on the primary screen: a new placement is a primary one again.
+    place(&mut scene);
+    scene.enter_alternate(true);
+    assert!(
+        scene.visible_placements(0, 4, 8, 16).is_empty(),
+        "the alternate screen starts empty"
+    );
+}
