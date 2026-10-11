@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! S3b: input-facing surfaces under the test-only bidi display gate, through
+//! Input-facing surfaces under the test-only bidi display gate, through
 //! the real pointer path of a headless App. Mouse reports, hyperlink hover,
 //! and split-pane hit testing address the logical cell drawn under the
 //! pointer; the gate off keeps every answer unchanged.

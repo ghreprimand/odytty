@@ -37,7 +37,7 @@ fn wheel_step(lines: isize) -> Option<OverlayInput> {
 }
 
 impl OverlayUi {
-    /// Deliver a raw captured chord to the key-remap modal (KB-REMAP). Only
+    /// Deliver a raw captured chord to the key-remap modal. Only
     /// called by the App while [`Self::is_capturing_chord`] is `true`.
     pub(in crate::native) fn deliver_chord(&mut self, chord: Option<KeyChord>) -> OverlayOutcome {
         let outcome = self.key_remap.deliver_chord(chord);
@@ -98,7 +98,7 @@ impl OverlayUi {
         self.map_settings_outcome(outcome)
     }
 
-    /// Pointer entry point (UX4-P1), the mouse analogue of [`Self::handle_input`].
+    /// Pointer entry point, the mouse analogue of [`Self::handle_input`].
     /// `rect` is the live overlay geometry from [`overlay_rect`]. A press outside
     /// the panel dismisses exactly like Esc (per-mode: the theme picker restores
     /// its original theme). Inside the Settings panel a press is hit-tested to a
@@ -270,10 +270,10 @@ impl OverlayUi {
                                 OverlayOutcome::Consumed
                             }
                         }
-                        // ODP-2C: a right-click on a saved-host row opens the
+                        // A right-click on a saved-host row opens the
                         // connection-row menu over the still-loaded manager. Off
                         // a real host row (prompt / hint / ad-hoc / past end) it
-                        // is inert — no menu, selection untouched.
+                        // is inert - no menu, selection untouched.
                         PointerButton::Right => {
                             match self.connections.host_at_row(row_in_body, rect.body_height) {
                                 Some((row_index, host)) => {
@@ -450,7 +450,7 @@ impl OverlayUi {
                         self.apply_builder_outcome(outcome)
                     }
                     OverlayMode::ContextMenu => {
-                        // Hover-to-focus (D-IN2-6): move focus to the item under
+                        // Hover-to-focus: move focus to the item under
                         // the pointer; off-item (border) hovers leave it as is.
                         // The hovered item is visible, so the sticky window
                         // never moves on hover.
@@ -688,10 +688,10 @@ impl OverlayUi {
         self.mode == OverlayMode::Settings
             // Both drilled-in levels draw the `← … (Esc = back)` title, so both
             // must accept a click on the arrow. About was a late addition and
-            // was missed here (NF15): only SectionDetail matched, so the About
+            // was missed here: only SectionDetail matched, so the About
             // back-arrow was click-dead while Esc still worked (the panel's own
             // input path pops About). Close routing through `handle_input` pops
-            // either level to the section list — the same path Esc takes.
+            // either level to the section list - the same path Esc takes.
             && matches!(
                 self.panel.current_level(),
                 SettingsLevel::SectionDetail { .. } | SettingsLevel::About
@@ -713,8 +713,8 @@ impl OverlayUi {
 
     /// True if `cell` is in the `\u{2190}` back-arrow hit zone of a picker-style
     /// title row. Covers EVERY non-Settings mode whose title starts with the
-    /// arrow — theme/font picker, theme builder, key bindings, replay,
-    /// connections, session-attach, open-with, and the image viewer — by reading
+    /// arrow - theme/font picker, theme builder, key bindings, replay,
+    /// connections, session-attach, open-with, and the image viewer - by reading
     /// the affordance off the title text itself (Settings has its own
     /// level-aware [`Self::settings_title_back_hit`]). A future `\u{2190}`-titled
     /// mode is covered automatically.
@@ -729,7 +729,7 @@ impl OverlayUi {
             && cell.column < rect.body_left + 3
     }
 
-    /// Test seam (UX4-P2): absolute grid cells for the first visible numeric
+    /// Test seam: absolute grid cells for the first visible numeric
     /// stepper's down/up buttons for a `columns`×`rows` grid, so a test can
     /// drive real clicks through the App layer without reaching into private
     /// panel geometry.
@@ -823,7 +823,7 @@ impl OverlayUi {
             FontPickerOutcome::Persist(changes) => OverlayOutcome::SaveSettings(changes),
             FontPickerOutcome::Cancel(_original) => {
                 // Font was never changed in-memory (no live preview), so just
-                // close the picker — no ApplySettings needed.
+                // close the picker - no ApplySettings needed.
                 if self.picker_return.is_some() {
                     self.return_to_settings_panel();
                     OverlayOutcome::Consumed
@@ -836,7 +836,7 @@ impl OverlayUi {
     }
 
     /// Lift a [`ThemeBuilderOutcome`] (from the keyboard or the pointer path)
-    /// into an [`OverlayOutcome`] — the single mapping shared by
+    /// into an [`OverlayOutcome`] - the single mapping shared by
     /// `handle_theme_builder_input` and the builder branch of `handle_pointer`,
     /// so the two entry points can never diverge.
     pub(super) fn apply_builder_outcome(&mut self, outcome: ThemeBuilderOutcome) -> OverlayOutcome {
@@ -877,7 +877,7 @@ impl OverlayUi {
     }
 
     /// Lift a [`KeyRemapOutcome`] (from the browsing keyboard path or the
-    /// chord-capture path) into an [`OverlayOutcome`] — the single mapping
+    /// chord-capture path) into an [`OverlayOutcome`] - the single mapping
     /// shared by `handle_key_remap_input` and `deliver_chord` so the two entry
     /// points can never diverge.
     pub(super) fn apply_key_remap_outcome(&mut self, outcome: KeyRemapOutcome) -> OverlayOutcome {
@@ -909,7 +909,7 @@ impl OverlayUi {
     /// Handle a key in the first-run onboarding card (ONBOARD). The card is a
     /// static info panel: Enter / Esc / Space dismiss it (close the overlay);
     /// every other key is swallowed so nothing leaks to the PTY behind it. The
-    /// terminal stays live throughout — dismissal is the only state change.
+    /// terminal stays live throughout - dismissal is the only state change.
     pub(super) fn handle_onboarding_input(&mut self, input: OverlayInput) -> OverlayOutcome {
         match input {
             OverlayInput::Close | OverlayInput::Activate | OverlayInput::Char(' ') => {
@@ -935,8 +935,8 @@ impl OverlayUi {
         }
     }
 
-    /// Route a key to the replay overlay (Phase 2). Replay is presentation-only,
-    /// so it can only scrub (Consumed) or request Close — it never emits an
+    /// Route a key to the replay overlay. Replay is presentation-only,
+    /// so it can only scrub (Consumed) or request Close - it never emits an
     /// App-side action.
     pub(super) fn handle_replay_input(&mut self, input: OverlayInput) -> OverlayOutcome {
         match self.replay.handle_input(input) {
@@ -945,15 +945,15 @@ impl OverlayUi {
         }
     }
 
-    /// Route a key to the connection-manager overlay (Phase 4). The overlay
+    /// Route a key to the connection-manager overlay. The overlay
     /// type-filters and selects (Consumed), requests Close, or accepts a host
-    /// (Connect) which the App turns into a new connection — the overlay never
+    /// (Connect) which the App turns into a new connection - the overlay never
     /// spawns anything itself.
     pub(super) fn handle_connections_input(&mut self, input: OverlayInput) -> OverlayOutcome {
         match self.connections.handle_input(input) {
             ConnectionOverlayOutcome::Consumed => OverlayOutcome::Consumed,
             ConnectionOverlayOutcome::Close => OverlayOutcome::Close,
-            // C12: close the overlay before emitting Connect — otherwise it
+            // Close the overlay before emitting Connect - otherwise it
             // stays open on top of the freshly-spawned SSH tab and eats every
             // keystroke (possibly a password) into its type-to-filter box until
             // Esc. Mirrors the OpenWith / command-palette arms below.
@@ -979,11 +979,11 @@ impl OverlayUi {
                     ConnectionPickerPurpose::BindWorkspace => {
                         OverlayOutcome::BindWorkspaceToHost(host.alias)
                     }
-                    // RAIL-BIND: bind the clicked rail slot to the picked host.
+                    // Bind the clicked rail slot to the picked host.
                     ConnectionPickerPurpose::BindWorkspaceAt(identity) => {
                         OverlayOutcome::BindWorkspaceAtToHost(identity, host.alias)
                     }
-                    // ODP-5D: open the picked host in a new tab adjacent to the
+                    // Open the picked host in a new tab adjacent to the
                     // clicked tab, or replace that tab (App gates the destructive
                     // close behind a confirm when a foreground child runs).
                     ConnectionPickerPurpose::ConnectTabAfter(token) => {
@@ -998,7 +998,7 @@ impl OverlayUi {
                     ConnectionPickerPurpose::Connect => OverlayOutcome::Close,
                 }
             }
-            // REMOTE-UX P4: Tab / \u{2192} in the connection manager switch this
+            // Tab / Right in the connection manager switch this
             // overlay into the Add / Edit form. The list's frozen OdyTTY-owned
             // aliases supply the collision guard; the form is a sibling overlay
             // mode, so no App round-trip is needed to open it.
@@ -1022,9 +1022,9 @@ impl OverlayUi {
         }
     }
 
-    /// Route a key to the Add / Edit connection form (REMOTE-UX P4). The form
-    /// edits presentation state (Consumed), cancels (Close), or accepts (Save)
-    /// \u{2014} the App persists the built host; the form never writes.
+    /// Route a key to the Add / Edit connection form. The form
+    /// edits presentation state (Consumed), cancels (Close), or accepts (Save) -
+    /// the App persists the built host; the form never writes.
     pub(super) fn handle_connection_form_input(&mut self, input: OverlayInput) -> OverlayOutcome {
         let outcome = self.connection_form.handle_input(input);
         self.apply_connection_form_outcome(outcome)
@@ -1062,14 +1062,14 @@ impl OverlayUi {
             // when the App's background probe lands.
             ConnectionFormOutcome::Test(host) => OverlayOutcome::TestConnection(host),
             // The form stays open; the App scans ~/.ssh (names only) and seeds
-            // the browser back through `open_identity_key_browse` (FORM-UX).
+            // the browser back through `open_identity_key_browse`.
             ConnectionFormOutcome::BrowseIdentityKeys => OverlayOutcome::BrowseIdentityKeys,
         }
     }
 
-    /// Route a key to the session-attach summon overlay (Phase 5 / B2). The
+    /// Route a key to the session-attach summon overlay. The
     /// overlay type-filters and selects (Consumed), requests Close, or accepts a
-    /// session (Attach) which the App attaches into a new tab — the overlay
+    /// session (Attach) which the App attaches into a new tab - the overlay
     /// never attaches anything itself.
     pub(super) fn handle_session_attach_input(&mut self, input: OverlayInput) -> OverlayOutcome {
         match self.session_attach.handle_input(input) {
@@ -1095,9 +1095,9 @@ impl OverlayUi {
         }
     }
 
-    /// Route a key to the "Open With…" app-picker overlay (C3b). The overlay
+    /// Route a key to the "Open With…" app-picker overlay. The overlay
     /// type-filters and selects (Consumed), requests Close, or accepts an app
-    /// (Open) whose pre-built argv the App hands to `spawn_detached` — the
+    /// (Open) whose pre-built argv the App hands to `spawn_detached` - the
     /// overlay never spawns anything itself.
     pub(super) fn handle_open_with_input(&mut self, input: OverlayInput) -> OverlayOutcome {
         match self.open_with.handle_input(input) {
@@ -1110,7 +1110,7 @@ impl OverlayUi {
         }
     }
 
-    /// Route a key to the "Move to Workspace" destination picker (W4-v2). The
+    /// Route a key to the "Move to Workspace" destination picker. The
     /// overlay type-filters and selects (Consumed), requests Close, or accepts a
     /// destination (Move), whose token + chosen workspace identity the App splices
     /// -- the overlay never mutates the model itself.

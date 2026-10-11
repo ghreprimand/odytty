@@ -116,7 +116,7 @@ impl ContextMenuUi {
         self.pane_broadcast = false;
         self.broadcast_active = false;
         self.window_actions = WindowMenuActions::default();
-        // RAIL-REORDER: reset to 0 on every open; the App sets the real count
+        // Reset to 0 on every open; the App sets the real count
         // via `set_workspace_count` only for a rail-slot menu.
         self.workspace_count = 0;
         self.surface = surface;
@@ -128,8 +128,8 @@ impl ContextMenuUi {
         // it explicitly. Keeps the target from leaking across surfaces.
         self.navigator_target = None;
         self.navigator_detached_available = false;
-        // Reset on every open; the App sets it only for a WorkspaceSlot menu
-        // (RAIL-REVALIDATE), so a stale identity never leaks across surfaces.
+        // Reset on every open; the App sets it only for a WorkspaceSlot menu,
+        // so a stale identity never leaks across surfaces.
         self.workspace_slot_identity = None;
         self.focused = 0;
         self.reset_scroll_input();
@@ -144,10 +144,10 @@ impl ContextMenuUi {
         self.accelerators = std::array::from_fn(|_| None);
     }
 
-    /// Arm the menu for a right-clicked connection-manager row (ODP-2C). Unlike
+    /// Arm the menu for a right-clicked connection-manager row. Unlike
     /// the grid/tab opens this is spawned from WITHIN the connection overlay, so
     /// it takes only the spawn cell, the row's filtered-list index, and the
-    /// clicked host — the selection/clipboard/pane snapshots are irrelevant to
+    /// clicked host - the selection/clipboard/pane snapshots are irrelevant to
     /// the five connection-row actions and are left at their inert defaults. The
     /// connection-row items carry no chord, so the accelerator array stays
     /// all-`None` (label-only rendering).
@@ -237,8 +237,8 @@ impl ContextMenuUi {
         self.accelerators = std::array::from_fn(|_| None);
     }
 
-    /// Reserve `left`/`right` columns the menu box must stay clear of
-    /// (MENU-Z-ORDER). Applied by the App immediately after opening a
+    /// Reserve `left`/`right` columns the menu box must stay clear of.
+    /// Applied by the App immediately after opening a
     /// rail-anchored menu while the auto-hide rail is revealed, so the box lands
     /// beside the floating rail band rather than under it. A no-op reserve
     /// (`0`, `0`) leaves the layout byte-identical.
@@ -247,7 +247,7 @@ impl ContextMenuUi {
         self.reserved_cols_right = right;
     }
 
-    /// Snapshot the total workspace count for a rail-slot menu (RAIL-REORDER).
+    /// Snapshot the total workspace count for a rail-slot menu.
     /// Applied by the App immediately after opening a `WorkspaceSlot` menu so
     /// the Move Up/Down rows can gate on the clicked slot's position (Move Down
     /// hides on the last slot; Move Up hides on the first). Every non-rail menu
@@ -256,8 +256,8 @@ impl ContextMenuUi {
         self.recompose(|menu| menu.workspace_count = count);
     }
 
-    /// Snapshot the identity of the workspace under a right-clicked rail slot
-    /// (RAIL-REVALIDATE). The App applies this right after opening a
+    /// Snapshot the identity of the workspace under a right-clicked rail slot.
+    /// The App applies this right after opening a
     /// `WorkspaceSlot` menu so each workspace action resolves the workspace
     /// that was clicked, wherever it now sits in the rail.
     pub(in crate::native) fn set_workspace_slot_identity(
@@ -318,14 +318,14 @@ impl ContextMenuUi {
             .unwrap_or_else(|| self.focused.min(items.len().saturating_sub(1)));
     }
 
-    /// The saved host snapshotted for a `ConnectionRow` menu (ODP-2C), if any.
+    /// The saved host snapshotted for a `ConnectionRow` menu, if any.
     /// Read by the overlay when a connection-row item activates so each outcome
     /// carries the clicked host without re-reading any file.
     pub(in crate::native) fn connection_target(&self) -> Option<&ConnectionHost> {
         self.connection_target.as_deref()
     }
 
-    /// Whether the connection-row target is an OdyTTY-owned host (ODP-2C). Gates
+    /// Whether the connection-row target is an OdyTTY-owned host. Gates
     /// Edit/Remove visibility: an ssh-config-imported row is read-only (OdyTTY
     /// never writes `~/.ssh/config`), so those two items are hidden for it.
     pub(super) fn connection_is_odytty(&self) -> bool {
@@ -425,10 +425,10 @@ impl ContextMenuUi {
             | ContextMenuItem::CopyFile
             | ContextMenuItem::RevealPath => self.path_target.is_some(),
             // "Open in OdyTTY" is enabled only when the resolved path is an
-            // image file — the same condition that makes it visible.
+            // image file - the same condition that makes it visible.
             ContextMenuItem::OpenInOdytty => self.is_image_target(),
             // "Open With…" is enabled only when the resolved path is a regular
-            // file — the same condition that makes it visible.
+            // file - the same condition that makes it visible.
             ContextMenuItem::OpenWith => self.is_file_target(),
             // Workspace actions are always available on their surfaces.
             ContextMenuItem::NewWorkspace
@@ -444,15 +444,15 @@ impl ContextMenuUi {
             // are enabled whenever shown.
             | ContextMenuItem::BindWorkspaceToHost
             | ContextMenuItem::UnbindWorkspace
-            // LAYOUT-SURFACE: Save/Open Layout are always available on their
-            // surfaces (Open Layout stays enabled even with no saved layouts —
+            // Save/Open Layout are always available on their
+            // surfaces (Open Layout stays enabled even with no saved layouts -
             // the picker teaches the feature).
             | ContextMenuItem::SaveAllLayout
             | ContextMenuItem::SaveAsLayout
             | ContextMenuItem::OpenLayout => true,
             // Only shown on a bound-workspace tab menu; always enabled there.
             ContextMenuItem::NewLocalTab => true,
-            // ODP-5D: always available on the tab surface (the destructive
+            // Always available on the tab surface (the destructive
             // replace is consent-gated at activation, not by disabling here).
             ContextMenuItem::ConnectToHost | ContextMenuItem::ReplaceTabWithHost => true,
             // The v0.16 window, layout, and export rows are shown only when they
@@ -469,7 +469,7 @@ impl ContextMenuUi {
             | ContextMenuItem::MoveTabToWindow
             | ContextMenuItem::MergeWindowInto
             | ContextMenuItem::PullWindowIntoThis => true,
-            // ODP-2C: connection-row actions are enabled whenever shown; Edit
+            // Connection-row actions are enabled whenever shown; Edit
             // and Remove are gated by visibility (OdyTTY-owned only), not here,
             // and the destructive Remove is consent-gated at activation.
             ContextMenuItem::ConnRowOpenInTab
@@ -477,7 +477,7 @@ impl ContextMenuUi {
             | ContextMenuItem::ConnRowBindWorkspace
             | ContextMenuItem::ConnRowEdit
             | ContextMenuItem::ConnRowRemove => true,
-            // NAVIGATOR-ROW: Attach is enabled only when the detached target is
+            // Attach is enabled only when the detached target is
             // still available (a stale registry row cannot be attached); every
             // other navigator action is enabled whenever it is shown (the
             // per-class visibility gate lives in `visible_items`).
@@ -551,20 +551,20 @@ impl ContextMenuUi {
             },
             ContextMenuSurface::WorkspaceSlot(_) => match item {
                 // New/Rename group; Close in its own destructive group (one
-                // separator before it) — the TabSlot pattern one level up.
+                // separator before it) - the TabSlot pattern one level up.
                 ContextMenuItem::NewWorkspace
                 | ContextMenuItem::NewWorkspaceWithProfile
                 | ContextMenuItem::DuplicateWorkspace
                 | ContextMenuItem::RenameWorkspace
-                // RAIL-REORDER: the reorder actions are non-destructive edits to
+                // The reorder actions are non-destructive edits to
                 // the slot, so they group with New/Rename above the Close separator.
                 | ContextMenuItem::MoveWorkspaceUp
                 | ContextMenuItem::MoveWorkspaceDown => 0,
                 ContextMenuItem::CloseWorkspace => 1,
-                // RAIL-BIND: the host bind/unbind action sits in its own group
+                // The host bind/unbind action sits in its own group
                 // below the destructive Close.
                 ContextMenuItem::BindWorkspaceToHost | ContextMenuItem::UnbindWorkspace => 2,
-                // LAYOUT-SURFACE + RAIL-SAVE-ALL: both save actions share a
+                // Both save actions share a
                 // trailing group of their own (one separator above them).
                 ContextMenuItem::SaveAllLayout | ContextMenuItem::SaveAsLayout => 3,
                 ContextMenuItem::Settings => 4,
@@ -572,14 +572,14 @@ impl ContextMenuUi {
             },
             ContextMenuSurface::ConnectionRow(_) => match item {
                 // Open/Bind group; Edit/Remove in their own group (a separator
-                // before the mutating actions) — same shape as WorkspaceSlot.
+                // before the mutating actions) - same shape as WorkspaceSlot.
                 ContextMenuItem::ConnRowOpenInTab
                 | ContextMenuItem::ConnRowOpenInWorkspace
                 | ContextMenuItem::ConnRowBindWorkspace => 0,
                 ContextMenuItem::ConnRowEdit | ContextMenuItem::ConnRowRemove => 1,
                 _ => 1,
             },
-            // NAVIGATOR-ROW: the activation group (Focus / Attach) leads; the
+            // The activation group (Focus / Attach) leads; the
             // non-destructive edits (Rename / Duplicate / Move) sit in their own
             // group; the destructive Close sits alone below its own separator -
             // the WorkspaceSlot shape.
@@ -591,7 +591,7 @@ impl ContextMenuUi {
                 ContextMenuItem::NavClose => 2,
                 _ => 2,
             },
-            // LAYOUT-SURFACE: the empty rail offers New Workspace, then Open
+            // The empty rail offers New Workspace, then Open
             // Layout below a separator.
             ContextMenuSurface::WorkspaceRailEmpty => match item {
                 ContextMenuItem::NewWorkspace | ContextMenuItem::NewWorkspaceWithProfile => 0,
@@ -603,7 +603,7 @@ impl ContextMenuUi {
         }
     }
 
-    /// The right-clicked surface this menu was opened on (F7).
+    /// The right-clicked surface this menu was opened on.
     pub(in crate::native) fn surface(&self) -> ContextMenuSurface {
         self.surface
     }

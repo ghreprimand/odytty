@@ -129,8 +129,8 @@ pub(in crate::native) fn append_cursor_layer_vertices(
     );
 }
 
-/// PANE-SUBCELL-CLIP: the number of background quads the snapshot's FIRST row
-/// contributes — the non-continuation cells in row 0. Background quads are
+/// The number of background quads the snapshot's FIRST row
+/// contributes - the non-continuation cells in row 0. Background quads are
 /// emitted in row-major order, so these lead the background segment, and
 /// [`grid::extend_first_row_bg_to_top`] uses the count to flush exactly the top
 /// row's backgrounds into the sub-cell gap a downward glide opens. Wide
@@ -155,7 +155,7 @@ fn linear_rgba(color: RgbColor, alpha: f32) -> [f32; 4] {
     ]
 }
 
-/// CHROME-GAP: test-only legacy entry — the production wash routes through
+/// Test-only legacy entry - the production wash routes through
 /// [`wallpaper_edge_wash_quads_with_pin`]; a `ChromePin::NONE` pin reproduces
 /// this four-strip wash byte-for-byte (pinned by the gpu tests).
 #[cfg(test)]
@@ -180,8 +180,8 @@ pub(in crate::native) fn wallpaper_edge_wash_quads(
 /// four-strip wash (byte-identical). With a chrome-facing gap in play the
 /// decorated frame's true pixel extent grows by the gap on each affected axis
 /// (so the outer strips cannot overlap the shifted cells), and the interior gap
-/// strips — the rail↔content column and the below-bar row that now read as
-/// padding — are washed too, so a translucent window shows the themed wash
+/// strips - the rail↔content column and the below-bar row that now read as
+/// padding - are washed too, so a translucent window shows the themed wash
 /// there instead of raw wallpaper.
 pub(in crate::native) fn wallpaper_edge_wash_quads_with_pin(
     snapshot: &Snapshot,
@@ -258,7 +258,7 @@ pub(in crate::native) fn wallpaper_edge_wash_quads_with_pin(
     quads
 }
 
-/// NF11: wash quads for a multi-pane composite. Every surface pixel NOT
+/// Wash quads for a multi-pane composite. Every surface pixel NOT
 /// covered by a pane's cell grid gets a wash quad in the snapshot background
 /// color, exactly like the single-pane [`wallpaper_edge_wash_quads`]: with a
 /// background image and translucent cell backgrounds, the window-padding band
@@ -267,7 +267,7 @@ pub(in crate::native) fn wallpaper_edge_wash_quads_with_pin(
 /// insetting the washed region from the tile edge. Grids must be disjoint
 /// (pane rects tile the content area); wash quads never overlap a grid, so
 /// translucent cell backgrounds are never double-tinted. Divider gaps are
-/// washed too — themed divider quads draw opaquely on top in a later segment.
+/// washed too - themed divider quads draw opaquely on top in a later segment.
 ///
 /// Horizontal band sweep: the surface is split at every grid edge, and each
 /// band emits quads for its x-gaps. For a single grid this degenerates to the
@@ -345,7 +345,7 @@ impl GpuState {
         content_build_opacity(self.window_bg_alpha, self.cell_bg_opacity)
     }
 
-    /// COLORED-BG-FLOOR: the effective surface alpha for content cells with a
+    /// The effective surface alpha for content cells with a
     /// resolved non-default background this frame. Equals
     /// [`Self::content_build_opacity`] exactly when the knob is `0.0` or the
     /// window is opaque (both inert identities); otherwise `>=` it.
@@ -357,7 +357,7 @@ impl GpuState {
         )
     }
 
-    /// SELECTION-OPACITY: the independent selection strength fed to the cell
+    /// The independent selection strength fed to the cell
     /// builder for selected cells, unaffected by window transparency or
     /// `cell_bg_opacity`. Carries the full `0.0..=1.5` knob range; the builder
     /// saturates the surface ALPHA at `1.0` and shapes only COLOR above `1.0`,
@@ -375,7 +375,7 @@ impl GpuState {
     }
 
     /// Whether the window-padding / pane-gap edge wash must be emitted this
-    /// frame: either a background image with translucent cells (NF11) or a
+    /// frame: either a background image with translucent cells or a
     /// translucent window (TRANSPARENCY, where the scene clear is transparent
     /// so padding would otherwise show raw desktop instead of the themed
     /// background at the window alpha). Neither → no wash (byte-identical).
@@ -384,10 +384,10 @@ impl GpuState {
     }
 
     fn content_origin(&self) -> [f32; 2] {
-        // RV4: the vertical origin is shifted by the smooth-scroll sub-row
+        // The vertical origin is shifted by the smooth-scroll sub-row
         // offset (`0.0` at rest / on the off path, so this is byte-identical to
         // `[pad, pad]` unless a glide is in flight). Shifting the origin glides
-        // the whole rendered viewport — cells, cursor, and overlays — uniformly.
+        // the whole rendered viewport - cells, cursor, and overlays - uniformly.
         [
             self.window_padding.as_f32(),
             self.window_padding.as_f32() + self.scroll_frac_offset,
@@ -416,7 +416,7 @@ impl GpuState {
         }
     }
 
-    /// CHROME-GAP: the origin for CONTENT-anchored cursor geometry — the
+    /// The origin for CONTENT-anchored cursor geometry - the
     /// content origin plus the chrome-facing gap shifts the content cells carry
     /// in the composited single-pane frame. The decorated snapshot's cursor is
     /// always a content cell, so one uniform offset (no per-cell dispatch)
@@ -435,7 +435,7 @@ impl GpuState {
     /// refilled, not reallocated) and the GPU vertex buffer only grows when
     /// the rebuilt data exceeds its current capacity, so a coalesced update
     /// never recreates the buffer. The caller must already hold the snapshot
-    /// by value — the terminal mutex is dropped before this runs so the lock
+    /// by value - the terminal mutex is dropped before this runs so the lock
     /// is never held across GPU calls.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::native) fn update_from_snapshot(
@@ -481,7 +481,7 @@ impl GpuState {
     /// `overlay_top` is an open window-level overlay (context menu / settings /
     /// palette / connections / replay) painted in window space. Its full cell
     /// vertices (background **and** glyphs) are appended last so the panel draws
-    /// opaquely over every pane — a `PaneRender` could not, since its background
+    /// opaquely over every pane - a `PaneRender` could not, since its background
     /// quads would land in the shared background segment behind other panes'
     /// glyphs. `None` leaves the multi-pane frame unchanged.
     ///
@@ -491,7 +491,7 @@ impl GpuState {
     /// gets this for free with one snapshot; multi-pane must order it
     /// explicitly).
     ///
-    /// Called by the Phase 1c-3 App render dispatch (`app::panes`); the
+    /// Called by the multi-pane render dispatch in `app::panes`; the
     /// single-pane path keeps using `update_from_snapshot*`.
     pub(in crate::native) fn update_from_panes(
         &mut self,
@@ -534,7 +534,7 @@ impl GpuState {
                 &[],
             );
         }
-        // F4-P3: the revealed rail overlay strip's mono glyphs join the atlas in
+        // The revealed rail overlay strip's mono glyphs join the atlas in
         // the same ensure pass.
         if let Some(rail) = rail_overlay.as_ref() {
             self.ensure_rail_overlay_glyphs(rail);
@@ -557,7 +557,7 @@ impl GpuState {
         // Per-pane color-glyph scratch. `build_color_glyph_vertices_with_origin_into`
         // clears its `out` (the single-pane callers rebuild the whole buffer), so
         // the multi-pane loop must build into a scratch buffer and *extend* the
-        // shared accumulator — mirroring the `pane_buf` -> `glyph_segment` pattern
+        // shared accumulator - mirroring the `pane_buf` -> `glyph_segment` pattern
         // below. Building straight into `self.color_glyph_vertices` would wipe
         // earlier panes' emoji and desync the `color_start` offset (a slice
         // `[color_start..]` on the now-empty buffer panicked in multi-pane render).
@@ -583,16 +583,16 @@ impl GpuState {
                 pane.origin,
                 pane.treatment,
                 self.content_build_opacity(),
-                // COLORED-BG-FLOOR: content panes float colored backgrounds to
-                // the knob's alpha; chrome strips pass the plain content alpha —
-                // the exact inert path — so band fills stay under
+                // Content panes float colored backgrounds to
+                // the knob's alpha; chrome strips pass the plain content alpha -
+                // the exact inert path - so band fills stay under
                 // `tab_panel_strength`'s contract.
                 if pane.chrome {
                     self.content_build_opacity()
                 } else {
                     self.colored_content_build_opacity()
                 },
-                // TEXT-BRIGHTNESS: uniform lift across content panes and chrome
+                // Uniform lift across content panes and chrome
                 // strip labels alike (`1.0` = identity).
                 self.text_brightness,
                 // Multi-pane panes never carry an overlay panel: it is composited
@@ -604,13 +604,13 @@ impl GpuState {
                 // (0.0 on every content pane, so this is `ChromePin::NONE` for
                 // them and the split content frame is byte-identical).
                 pane_chrome_pin(pane),
-                // SELECTION-OPACITY: this pane's selected cells draw at the
+                // This pane's selected cells draw at the
                 // independent selection strength (`1.0` = fully opaque default).
                 self.selection_build_opacity(),
                 pane.bidi,
             );
             let bg = background_vertex_count(pane.snapshot).min(pane_buf.len() as u32) as usize;
-            // PANE-SUBCELL-CLIP: when this pane is mid sub-cell glide, its origin
+            // When this pane is mid sub-cell glide, its origin
             // is shifted down by a fractional row. Fill the thin gap that opens
             // at the pane's content top with the first row's own backgrounds
             // (mirrors the single-pane chrome-seam first-row flush), then clamp
@@ -697,7 +697,7 @@ impl GpuState {
                 );
             }
             // The pane's own overlays (selection / search) and cursor ride its
-            // glide, so they clamp to the same band — a selection highlight or
+            // glide, so they clamp to the same band - a selection highlight or
             // cursor on the partial edge row cannot bleed past the divider.
             grid::clip_quads_vertical(&mut tail[tail_start..], pane.clip);
             if let Some(clip) = pane.content_clip {
@@ -711,14 +711,14 @@ impl GpuState {
         self.retained_cursor_glow = retained_cursor_glow;
         self.retained_cursor_streak = retained_cursor_streak;
 
-        // NF11: wash the wallpaper wherever no pane grid covers it (padding
-        // band, sub-cell remainder strips, divider gaps) — same gate, color
+        // Wash the wallpaper wherever no pane grid covers it (padding
+        // band, sub-cell remainder strips, divider gaps) - same gate, color
         // source, and opacity as the single-pane splice in
         // `update_from_snapshot_with_overlays`. Appended at the end of the
         // background segment: wash quads never overlap a grid (no double-tint
         // under translucent cell backgrounds), and glyphs / dividers /
         // overlays draw in later segments on top. Without a background image
-        // or with opaque cells, nothing is emitted — byte-identical frames.
+        // or with opaque cells, nothing is emitted - byte-identical frames.
         if self.needs_edge_wash()
             && let Some(first) = panes.first()
         {
@@ -736,7 +736,7 @@ impl GpuState {
                 })
                 .collect();
             // COLORED-BG-FLOOR EXEMPT: the edge wash paints the theme DEFAULT
-            // background into padding/gaps — by definition never a colored cell,
+            // background into padding/gaps - by definition never a colored cell,
             // so it stays on the plain content product.
             let color = linear_rgba(
                 first.snapshot.colors.background,
@@ -759,8 +759,8 @@ impl GpuState {
             grid::push_solid_quad(&mut self.vertices, quad);
         }
 
-        // F4-P1: tab-panel wash + seam quads close out the background segment,
-        // after the NF11 edge wash — same layer as the single-pane splice in
+        // Tab-panel wash + seam quads close out the background segment,
+        // after the NF11 edge wash - same layer as the single-pane splice in
         // `update_from_snapshot_with_overlays`. Empty when no chrome / panel off
         // / seam off, so the multi-pane frame stays byte-identical.
         if !panel.overlays.is_empty() {
@@ -807,7 +807,7 @@ impl GpuState {
                 // path; `1.0` restores single/multi parity while the surrounding
                 // panes keep their own translucency.
                 1.0,
-                // TEXT-BRIGHTNESS: overlay panel text lifts with the rest of
+                // Overlay panel text lifts with the rest of
                 // the window's ink (`1.0` = identity).
                 self.text_brightness,
                 // The overlay-top snapshot IS the panel; its own opaque layer is
@@ -817,8 +817,8 @@ impl GpuState {
             );
             self.vertices.extend_from_slice(&overlay_buf);
         }
-        // F4-P3: the revealed rail overlay strip is the very last thing drawn —
-        // over the panes, dividers, per-pane overlays, and any window overlay —
+        // The revealed rail overlay strip is the very last thing drawn -
+        // over the panes, dividers, per-pane overlays, and any window overlay -
         // so the floating rail sits atop the live multi-pane content.
         if let Some(rail) = rail_overlay.as_ref() {
             self.push_rail_overlay(rail);
@@ -877,9 +877,9 @@ impl GpuState {
         row_offset: usize,
         col_offset: usize,
     ) {
-        // CHROME-GAP: single-pane inline graphics anchor at CONTENT cells, so
+        // Single-pane inline graphics anchor at CONTENT cells, so
         // their quads carry the same content gap shifts the cell vertices do
-        // ([0.0, 0.0] with no gap — byte-identical). The pin geometry is set
+        // ([0.0, 0.0] with no gap - byte-identical). The pin geometry is set
         // before the image layer updates on every Full rebuild.
         let pin = self.chrome_pin();
         let content_gap_px = [pin.content_dx(), pin.content_dy()];
@@ -927,11 +927,11 @@ impl GpuState {
         );
     }
 
-    /// Set (or clear) the C4 in-terminal image-viewer overlay (Phase 9). The
+    /// Set (or clear) the C4 in-terminal image-viewer overlay. The
     /// image is `(rgba, width, height)` of a decoded, tightly-packed RGBA8
     /// buffer; `None` clears it. The fit-rect is computed for the current
     /// surface size, so the image stays centered across resizes. Drawn as the
-    /// final scene step — presentation-only, byte-identical when cleared.
+    /// final scene step - presentation-only, byte-identical when cleared.
     pub(in crate::native) fn set_overlay_image(&mut self, image: Option<(&[u8], u32, u32)>) {
         let viewport_w = self.config.width as f32;
         let viewport_h = self.config.height as f32;
@@ -947,8 +947,8 @@ impl GpuState {
 
     /// The centered fit-rect (surface PIXELS, `[x0,y0,x1,y1]`) of the current C4
     /// viewer image, or `None` when no overlay image is set. Delegates to the
-    /// image layer — the rect is the one actually drawn, so the App's
-    /// click-outside-to-dismiss hit-test (Phase 13d) is pixel-exact.
+    /// image layer - the rect is the one actually drawn, so the App's
+    /// click-outside-to-dismiss hit-test is pixel-exact.
     pub(in crate::native) fn overlay_image_fit_rect(&self) -> Option<[f32; 4]> {
         self.image_layer.overlay_image_fit_rect()
     }
@@ -988,7 +988,7 @@ impl GpuState {
         );
         self.ensure_ligature_glyphs(&mut ligature_runs);
         self.add_complex_runs(snapshot, &color_glyph_runs, &mut ligature_runs);
-        // F4-P3: the revealed rail overlay strip's mono glyphs must join the
+        // The revealed rail overlay strip's mono glyphs must join the
         // atlas before any texture refresh, alongside the terminal snapshot's.
         if let Some(rail) = rail_overlay.as_ref() {
             self.ensure_rail_overlay_glyphs(rail);
@@ -999,7 +999,7 @@ impl GpuState {
         self.rebuild_color_glyph_segment(snapshot, &color_glyph_runs);
         let origin = self.content_origin();
         let content_opacity = self.content_build_opacity();
-        // COLORED-BG-FLOOR: composited chrome cells in this decorated snapshot
+        // Composited chrome cells in this decorated snapshot
         // (tab-bar rows / rail columns) are exempted per-cell inside the builder
         // via the chrome pin, which preserves its geometry even at rest.
         let colored_opacity = self.colored_content_build_opacity();
@@ -1007,7 +1007,7 @@ impl GpuState {
         // VE4 new-output fade: cheap Option clone (None off-path / settled) so
         // the borrow is scoped to a local, away from `&mut self.vertices`.
         let row_fade_spec = self.row_fade.clone();
-        // SCROLL-CHROME-BOUNCE: hold composited chrome still while content glides.
+        // Hold composited chrome still while content glides.
         let chrome_pin = self.chrome_pin();
         grid::build_cell_vertices_with_ligatures_selection_and_row_fade_into(
             &mut self.vertices,
@@ -1020,17 +1020,17 @@ impl GpuState {
             treatment,
             content_opacity,
             colored_opacity,
-            // TEXT-BRIGHTNESS: uniform lift across content and composited
+            // Uniform lift across content and composited
             // chrome ink (`1.0` = identity).
             self.text_brightness,
-            // TRANSPARENCY (MENU-OPACITY): while the window is translucent an open
+            // TRANSPARENCY: while the window is translucent an open
             // overlay panel is painted into this very snapshot; its cell span is
             // forced opaque so the panel stays readable while the terminal cells
             // around it keep the window opacity. `None` on the opaque window path
             // (set by the caller) is byte-identical.
             self.overlay_opaque_region,
             chrome_pin,
-            // SELECTION-OPACITY: selected cells in this content snapshot draw at
+            // Selected cells in this content snapshot draw at
             // the independent selection strength (`1.0` = fully opaque default).
             selection_opacity,
             // VE4 new-output fade: freshly arrived rows ramp their text ink in;
@@ -1041,7 +1041,7 @@ impl GpuState {
         self.color_glyph_runs = color_glyph_runs;
         let background_vertices = background_vertex_count(snapshot).min(self.vertices.len() as u32);
         if self.needs_edge_wash() {
-            // CHROME-GAP: the pin-aware wash covers the gap strips between the
+            // The pin-aware wash covers the gap strips between the
             // chrome bands and the shifted content, and widens the washed frame
             // extent to match; a zero-gap pin is byte-identical to the legacy
             // four-strip wash.
@@ -1083,9 +1083,9 @@ impl GpuState {
             self.vertices.splice(insert_at..insert_at, base_vertices);
             self.background_vertex_count = self.background_vertex_count.saturating_add(added);
         }
-        // F4-P1: tab-panel wash + seam quads land at the END of the background
+        // Tab-panel wash + seam quads land at the END of the background
         // segment (after the NF11 edge wash), so the panel re-tints the padding
-        // strips + veils the fills and the seam draws over the panel — both
+        // strips + veils the fills and the seam draws over the panel - both
         // still under every glyph. Empty when no chrome / panel off / seam off,
         // leaving the frame byte-identical.
         if !panel.overlays.is_empty() {
@@ -1103,7 +1103,7 @@ impl GpuState {
         // Cursor-layer solid overlays (including the motion trail) are appended
         // before the cursor block. The analytic aura uses its dedicated
         // below-glyph pass and is rebuilt from the same cursor inputs below.
-        // CHROME-GAP: the cursor anchors at a CONTENT cell of the decorated
+        // The cursor anchors at a CONTENT cell of the decorated
         // snapshot, so its origin carries the content gap shifts (identity with
         // no gap). Overlay quads arrive pre-shifted in absolute pixels and are
         // unaffected by this origin.
@@ -1131,8 +1131,8 @@ impl GpuState {
         self.retained_cursor_overlays.extend_from_slice(overlays);
         self.retained_cursor_glow = cursor_glow;
         self.retained_cursor_streak = cursor_streak;
-        // F4-P3: the revealed rail overlay strip draws topmost — after the
-        // cursor and every overlay — so the floating band sits over the live
+        // The revealed rail overlay strip draws topmost - after the
+        // cursor and every overlay - so the floating band sits over the live
         // content it reveals atop. `None` leaves the frame byte-identical.
         if let Some(rail) = rail_overlay.as_ref() {
             self.push_rail_overlay(rail);
@@ -1236,16 +1236,16 @@ impl GpuState {
             0.0,
             rail.origin,
             rail.treatment,
-            // CHROME-ALPHA: the strip's cell backgrounds compose the window's
+            // The strip's cell backgrounds compose the window's
             // translucency exactly like the pinned band cells (and every other
             // chrome/content cell), so toggling auto-hide cannot change the
             // band's effective opacity. The raw `cell_bg_opacity` here made the
             // floating rail ignore window transparency entirely.
-            // COLORED-BG-FLOOR EXEMPT: chrome strip — this entry point passes
+            // COLORED-BG-FLOOR EXEMPT: chrome strip - this entry point passes
             // the plain alpha for colored cells too, keeping the floating rail
             // identical to the pinned rail band under `tab_panel_strength`.
             self.content_build_opacity(),
-            // TEXT-BRIGHTNESS: the floating rail's labels lift with every other
+            // The floating rail's labels lift with every other
             // glyph so autohide cannot change label ink (`1.0` = identity).
             self.text_brightness,
             // The rail strip is its own floating overlay; no merged panel to
@@ -1277,7 +1277,7 @@ impl GpuState {
             self.refresh_color_glyph_atlas_texture();
         }
         let origin = self.content_origin();
-        // SCROLL-CHROME-BOUNCE: crop content color glyphs at the tab-bar seam.
+        // Crop content color glyphs at the tab-bar seam.
         let chrome_pin = self.chrome_pin();
         // VE4 new-output fade: cheap Option clone, borrow scoped to the local.
         let row_fade_spec = self.row_fade.clone();
@@ -1368,7 +1368,7 @@ impl GpuState {
         params: CursorRenderParams,
     ) {
         self.cursor_vertices.clear();
-        // CHROME-GAP: same content-anchored cursor origin as the Full rebuild
+        // Same content-anchored cursor origin as the Full rebuild
         // (identity with no gap), so a CursorOnly blink frame cannot desync the
         // cursor from the gap-shifted content cells.
         let origin = self.cursor_content_origin();

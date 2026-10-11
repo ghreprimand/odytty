@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! `GpuState`, the single UI-thread owner of the renderer's device, surface,
-//! pipelines, bindings, buffers, atlases, and fonts — together with its
+//! pipelines, bindings, buffers, atlases, and fonts - together with its
 //! initialization and its resource-rebuild seams.
 //!
 //! Window resources are reached only from the UI thread through `&mut GpuState`.
@@ -262,7 +262,7 @@ pub(in crate::native) fn grow_vertex_buffer_capacity(current: u64, needed: u64) 
 /// downscale output) would rasterize glyphs *below* their logical size and
 /// harm legibility, so the atlas is never built under 1x. The surface still
 /// maps to the display's real pixels via [`GpuState::resize`]; only the glyph
-/// rasterization density is floored. This is the documented HiDPI clamp (H1):
+/// rasterization density is floored. This is the documented HiDPI clamp:
 /// keep-and-document was chosen over honoring sub-1.0 scales. The result is
 /// also floored at 1.0 px so a degenerate font size never yields a zero atlas.
 pub(in crate::native) fn physical_font_px(font_size_px: f32, scale: f32) -> f32 {
@@ -398,9 +398,9 @@ pub(in crate::native) struct GpuState {
     /// no-image path. Built/refreshed via [`Self::set_background_image`].
     pub(super) bg_image: Option<BgImageGpu>,
     /// ID3/U5 cell background opacity multiplier fed to the cell-vertex builder.
-    /// `1.0` (the default) keeps cells fully opaque — byte-identical output.
+    /// `1.0` (the default) keeps cells fully opaque - byte-identical output.
     pub(super) cell_bg_opacity: f32,
-    /// COLORED-BG-FLOOR: the `colored_bg_opacity` knob — minimum window-alpha
+    /// The `colored_bg_opacity` knob - minimum window-alpha
     /// contribution for content cells whose resolved background differs from
     /// the theme default. `0.0` disables the floor (inert); an opaque window is
     /// byte-identical at any value. See [`colored_content_build_opacity`].
@@ -412,8 +412,8 @@ pub(in crate::native) struct GpuState {
     /// selection fully opaque; frames with no selected cell are byte-identical
     /// regardless of this value.
     pub(super) selection_opacity: f32,
-    /// TEXT-BRIGHTNESS: glyph-foreground lift toward white fed to the
-    /// cell-vertex builder. `1.0` (the default) is an exact identity —
+    /// Glyph-foreground lift toward white fed to the
+    /// cell-vertex builder. `1.0` (the default) is an exact identity -
     /// byte-identical vertex output. Applied uniformly to all mono-glyph ink
     /// (content and chrome labels alike); color emoji are exempt by pipeline.
     pub(super) text_brightness: f32,
@@ -423,10 +423,10 @@ pub(in crate::native) struct GpuState {
     /// byte-identical. Below `1.0` the scene clears to fully transparent and the
     /// terminal background is drawn at this alpha so the desktop shows through;
     /// text/cursor/overlays stay opaque. An open overlay panel no longer forces
-    /// this to `1.0` — the window stays translucent and only the panel's own
+    /// this to `1.0` - the window stays translucent and only the panel's own
     /// cell span is held opaque (see `overlay_opaque_region`).
     pub(super) window_bg_alpha: f32,
-    /// TRANSPARENCY (MENU-OPACITY): while content cells draw below full
+    /// TRANSPARENCY: while content cells draw below full
     /// opacity AND an overlay panel, rename band, or HUD chip is merged into the
     /// single-pane snapshot, that surface's cell span (in the built snapshot's
     /// coordinates, after tab-chrome decoration). The cell-vertex builder forces
@@ -530,7 +530,7 @@ pub(in crate::native) struct GpuState {
     /// Last-applied effective explicit fallback path, after env override
     /// precedence. A change requires re-resolving and rebuilding the atlas.
     pub(super) symbol_font_path: Option<PathBuf>,
-    /// Symbol / Nerd-font fallback **chain** for PUA prompt icons (RV6),
+    /// Symbol / Nerd-font fallback **chain** for PUA prompt icons,
     /// resolved when the effective switch is enabled (order explicit > bundled
     /// v3,v2 > host); empty otherwise. The atlas walks it per glyph so coverage
     /// is the union of all faces. Reinstalled whenever the glyph atlas is rebuilt.
@@ -554,7 +554,7 @@ pub(in crate::native) struct GpuState {
     /// origin byte-identical. Updated each animating frame via
     /// [`Self::set_scroll_frac_offset`].
     pub(super) scroll_frac_offset: f32,
-    /// SCROLL-CHROME-BOUNCE: the composited-chrome geometry (top-bar rows + rail
+    /// The composited-chrome geometry (top-bar rows + rail
     /// column band) to pin against `scroll_frac_offset` this frame. `None` (no
     /// chrome, or the multi-pane path) leaves the pin inert / byte-identical.
     pub(super) chrome_pin_geom: Option<ChromePinGeom>,
@@ -601,8 +601,8 @@ impl GpuState {
     /// business, and folding it into a resident-set figure would make the
     /// resident figure incomparable across backends.
     ///
-    /// A subsystem that is not currently instantiated — no background image, no
-    /// post-process stack — contributes a measured zero. That is deliberately
+    /// A subsystem that is not currently instantiated - no background image, no
+    /// post-process stack - contributes a measured zero. That is deliberately
     /// different from omitting it: a zero says the cost was looked for and found
     /// absent.
     pub(in crate::native) fn fill_memory_report(
@@ -698,11 +698,11 @@ impl GpuState {
         // redirected to /dev/null (the scenario `logging.rs` was built for),
         // and on Windows the GUI subsystem has no visible stderr at all, so the
         // log is the only place the adapter identity survives. Emitted at WARN
-        // because the log's default floor is WARN — an INFO line would be
+        // because the log's default floor is WARN - an INFO line would be
         // dropped by default, leaving "diagnosed from the log alone" untrue.
         // The summary is device metadata only (backend/name/limits), never
-        // terminal content. A software rasterizer — a silent
-        // llvmpipe/lavapipe/SwiftShader or Windows WARP fallback — is the usual
+        // terminal content. A software rasterizer - a silent
+        // llvmpipe/lavapipe/SwiftShader or Windows WARP fallback - is the usual
         // cause of a "very slow even with effects off" report, so it earns a
         // louder warning pointing at the docs.
         tracing::warn!("odytty: GPU adapter: {}", adapter_diagnostics.summary());
@@ -1149,7 +1149,7 @@ impl GpuState {
             background_vertex_count,
             color_glyph_vertex_count,
             image_layer,
-            // ID3/U5: no image until the App pushes settings via
+            // No image until the App pushes settings via
             // `set_background_image`; cells start fully opaque (identity).
             bg_image: None,
             cell_bg_opacity: crate::settings::DEFAULT_CELL_BG_OPACITY,
@@ -1279,7 +1279,7 @@ impl GpuState {
         self.window_padding
     }
 
-    /// Physical surface size in pixels `(width, height)` — the basis the
+    /// Physical surface size in pixels `(width, height)` - the basis the
     /// multi-pane render dispatch lays pane rects out within.
     pub(in crate::native) fn surface_size(&self) -> (u32, u32) {
         (self.config.width, self.config.height)
@@ -1303,12 +1303,12 @@ impl GpuState {
     /// frames. `1.0` restores the fully-opaque path; values below `1.0` (only
     /// meaningful when the compositor offers a transparent alpha mode) draw the
     /// terminal background translucent. The App recomputes this each frame from
-    /// the settings, so the mutation is a cheap store — geometry is rebuilt from
+    /// the settings, so the mutation is a cheap store - geometry is rebuilt from
     /// it on the next update.
     pub(in crate::native) fn set_window_bg_alpha(&mut self, alpha: f32) {
         self.window_bg_alpha = alpha.clamp(0.0, 1.0);
         // TRANSPARENCY: the wallpaper pass is a separate GPU layer, so the
-        // window alpha must reach its uniform too — otherwise the image draws
+        // window alpha must reach its uniform too - otherwise the image draws
         // fully opaque over the transparent clear and no desktop shows through.
         // `set_window_alpha` is a no-op when the value is unchanged, so the
         // opaque path issues no extra GPU write (command stream unchanged).
@@ -1317,12 +1317,12 @@ impl GpuState {
         }
     }
 
-    /// TRANSPARENCY (MENU-OPACITY): set the single-pane surface's opaque cell
+    /// TRANSPARENCY: set the single-pane surface's opaque cell
     /// span for the upcoming frame, or `None` to force no cells. Only meaningful
     /// while content cells draw below full opacity and a surface is merged into
     /// the snapshot; the App passes `None` on the fully opaque path and on every
     /// multi-pane frame (there the overlay is a separate opaque layer), keeping
-    /// those paths byte-identical. A cheap store — the builder reads it on the
+    /// those paths byte-identical. A cheap store - the builder reads it on the
     /// next update.
     pub(in crate::native) fn set_overlay_opaque_region(
         &mut self,
@@ -1333,8 +1333,8 @@ impl GpuState {
 
     /// VE4 new-output fade: set the per-row foreground alpha ramp for the
     /// upcoming single-pane frame, or `None` when no row is mid-fade (the off
-    /// path and every settled frame — the builders then take the exact inert
-    /// `RowFade::NONE` path). A cheap store — read on the next update.
+    /// path and every settled frame - the builders then take the exact inert
+    /// `RowFade::NONE` path). A cheap store - read on the next update.
     pub(in crate::native) fn set_row_fade(&mut self, fade: Option<RowFadeSpec>) {
         self.row_fade = fade;
     }
@@ -1353,21 +1353,21 @@ impl GpuState {
         self.config.alpha_mode != wgpu::CompositeAlphaMode::Opaque
     }
 
-    /// COLORED-BG-FLOOR: live-update the colored-background opacity floor
+    /// Live-update the colored-background opacity floor
     /// (settings panel / config reload). Clamped to `[0,1]`; the next rebuild
     /// repaints colored blocks at the new floor.
     pub(in crate::native) fn set_colored_bg_opacity(&mut self, opacity: f32) {
         self.colored_bg_opacity = opacity.clamp(0.0, 1.0);
     }
 
-    /// TEXT-BRIGHTNESS: live-update the glyph-foreground lift (settings panel /
+    /// Live-update the glyph-foreground lift (settings panel /
     /// config reload). Clamped to `[1.0, 1.5]`; the next rebuild repaints ink
     /// at the new lift. `1.0` is the exact-identity plain path.
     pub(in crate::native) fn set_text_brightness(&mut self, brightness: f32) {
         self.text_brightness = brightness.clamp(1.0, 1.5);
     }
 
-    /// SELECTION-OPACITY: live-update the selection highlight strength (settings
+    /// Live-update the selection highlight strength (settings
     /// panel / config reload). Clamped to `[0, MAX_SELECTION_OPACITY]` (the
     /// `1.5` strength ceiling); a change re-keys the frame so an on-screen
     /// selection repaints at the new strength.
@@ -1375,14 +1375,14 @@ impl GpuState {
         self.selection_opacity = opacity.clamp(0.0, crate::settings::MAX_SELECTION_OPACITY);
     }
 
-    /// RV4: set the smooth-scroll sub-row vertical offset (pixels) applied to
+    /// Set the smooth-scroll sub-row vertical offset (pixels) applied to
     /// [`Self::content_origin`]. `0.0` (the default / settled / off-path value)
     /// leaves the origin byte-identical to before this feature existed.
     pub(in crate::native) fn set_scroll_frac_offset(&mut self, offset_px: f32) {
         self.scroll_frac_offset = offset_px;
     }
 
-    /// SCROLL-CHROME-BOUNCE: the composited-chrome geometry to pin against the
+    /// The composited-chrome geometry to pin against the
     /// sub-row scroll offset this frame (top-bar rows + rail column band). `None`
     /// (no chrome, or the multi-pane path) leaves the pin inert.
     pub(in crate::native) fn set_chrome_pin_geom(&mut self, geom: Option<ChromePinGeom>) {
@@ -1428,7 +1428,7 @@ impl GpuState {
     /// Re-rasterize the glyph atlas at a new physical pixel size and recreate the
     /// atlas texture + bind group, republishing [`Self::cell`].
     ///
-    /// Scale-agnostic by design — the caller folds window scale into `px` (via
+    /// Scale-agnostic by design - the caller folds window scale into `px` (via
     /// [`physical_font_px`]). Built deliberately reusable for a future live
     /// `ODYTTY_FONT_SIZE` reload, which would update `font_size_px` and call this
     /// directly. Idempotent on an unchanged size (returns `false`).
@@ -1473,7 +1473,7 @@ impl GpuState {
         // The synthetic-styles kill switch is published process-wide (it cannot
         // ride `NativeOptions`, whose construction literals live in fenced
         // files). A live toggle reuses this font-change rebuild seam: the synth
-        // mask is baked into atlas slots, so a redraw alone cannot un-bake it —
+        // mask is baked into atlas slots, so a redraw alone cannot un-bake it -
         // the atlas must rebuild.
         let synthetic_now = crate::settings::synthetic_styles_enabled();
         let synthetic_changed = synthetic_now != self.synthetic_enabled;
@@ -1594,19 +1594,19 @@ impl GpuState {
 
     pub(in crate::native) fn set_theme(&mut self, theme: Theme) {
         self.clear_color = theme_clear_color(&theme);
-        // T10: a theme change moves `l_bg` and may flip the scrim polarity, so
+        // A theme change moves `l_bg` and may flip the scrim polarity, so
         // recompute the background-image scrim against the new theme (reusing
-        // the stored explicit override). No re-decode — a cheap uniform write.
+        // the stored explicit override). No re-decode - a cheap uniform write.
         if let Some(bg) = self.bg_image.as_mut() {
             bg.refresh_for_theme(&self.queue, &theme, self.cell_bg_opacity);
         }
     }
 
-    /// ID3/U5: apply the background-image settings. The `treatment_is_image`
+    /// Apply the background-image settings. The `treatment_is_image`
     /// gate AND a configured `path` are both required for an image to exist;
     /// otherwise the pass is cleared (off-path identity). A path/blur change
     /// re-decodes; a theme/opacity/scrim-only change just refreshes the scrim
-    /// uniform (T6). `cell_bg_opacity` is stored for the cell-vertex builder.
+    /// uniform. `cell_bg_opacity` is stored for the cell-vertex builder.
     pub(in crate::native) fn set_background_image(
         &mut self,
         treatment_is_image: bool,
@@ -1649,7 +1649,7 @@ impl GpuState {
             bg.refresh_scrim(&self.queue, &theme, cell_bg_opacity, scrim_override);
         }
         // TRANSPARENCY: a freshly-loaded image starts opaque, so re-seed the
-        // live window alpha (a no-op when already opaque) — the wallpaper must
+        // live window alpha (a no-op when already opaque) - the wallpaper must
         // pick up an in-effect translucent window on load, not only on the next
         // opacity change.
         if let Some(bg) = self.bg_image.as_mut() {
@@ -1657,7 +1657,7 @@ impl GpuState {
         }
     }
 
-    /// Retired (UX5): the legacy ambient scanline path is folded into the
+    /// Retired: the legacy ambient scanline path is folded into the
     /// unified CRT post-process, so the cell shader no longer reads a scanline
     /// term from the `effect` uniform. `visual=ambient` now aliases to `crt=on`
     /// in settings and the scanline look is produced by the CRT post-process.

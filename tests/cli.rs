@@ -242,7 +242,7 @@ fn live_attach_id_is_none_for_list_and_new_detached() {
 #[test]
 fn native_attach_options_set_attach_session_and_nothing_else() {
     // The CLI arg must flow into NativeOptions.attach_session, and every other
-    // field must equal the normal settings-derived launch — so the attach
+    // field must equal the normal settings-derived launch - so the attach
     // launch differs from a normal launch only by the attach target.
     let settings = odytty::settings::Settings::default();
     let baseline = odytty::native::NativeOptions::from_settings(&settings);
@@ -442,7 +442,7 @@ fn new_detached_prints_session_id_without_spawning_in_tests() {
 #[cfg(unix)]
 #[test]
 fn new_detached_spawn_failure_cleans_up_orphaned_metadata() {
-    // audit C27: the `.meta` file is written BEFORE the host is spawned; when
+    // The `.meta` file is written BEFORE the host is spawned; when
     // the spawn fails, the metadata for a session that never existed must not
     // be left behind in the runtime dir.
     let temp = TempDir::new("cli-nf");

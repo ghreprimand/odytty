@@ -1,26 +1,26 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! OVERLAY-SMALL-WINDOW end-to-end tests: on a window too short to show an
-//! overlay's whole body, the overlay must stay *functional* — keyboard and
+//! overlay's whole body, the overlay must stay *functional* - keyboard and
 //! mouse-wheel both scroll, the focus/selection stays in view, and a ▲/▼
 //! affordance marks hidden content. These drive a real `App` through the
 //! production input handlers (`handle_overlay_key` / `handle_mouse_wheel`) and
-//! assert against the *composited* overlay snapshot, not geometry alone — the
+//! assert against the *composited* overlay snapshot, not geometry alone - the
 //! gap that let an earlier geometry-only pass regress live.
 //!
 //! Two distinct staleness classes are guarded:
 //!   1. The rendered rows actually shift (proves the paint path), via
 //!      `render_overlay_rows_for_test`.
 //!   2. The render *signature* changes (proves the GPU cache reclassifies to a
-//!      repaint), via `overlay_signature_for_test` — this is what a wheel that
+//!      repaint), via `overlay_signature_for_test` - this is what a wheel that
 //!      moved only the view (not the selection) needs, and whose absence froze
 //!      the Level-1 settings list live.
 
 use super::*;
 
-/// A tiny grid that cannot fit any overlay body — forces the scroll path.
+/// A tiny grid that cannot fit any overlay body - forces the scroll path.
 const TINY_COLS: usize = 44;
 const TINY_ROWS: usize = 8;
-/// A grid tall enough to show every body row — the byte-identity baseline.
+/// A grid tall enough to show every body row - the byte-identity baseline.
 const TALL_ROWS: usize = 200;
 
 fn app_for_test() -> Option<App> {

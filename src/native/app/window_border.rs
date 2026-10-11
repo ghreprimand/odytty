@@ -4,19 +4,18 @@
 //!
 //! The frame is painted as four [`SolidQuad`]s forming a ring whose inner edge
 //! is flush with the content rect and which extends OUTWARD into the existing
-//! window-padding band (D-ID4-1): it never overlaps cell area, so the grid text
+//! window-padding band: it never overlaps cell area, so the grid text
 //! is untouched and the plain/fast path is unaffected. The border thickness is
 //! authored in logical pixels and multiplied by the surface scale factor
 //! (`ctx.scale`) so it is a consistent visual weight across displays (T-ID4-2,
 //! DPI), and it is clamped to the available padding so a thick border on a
 //! narrow padding band can never bleed past the surface edge. Because the ring
 //! is derived entirely from the live content rect (padding + columns·cell_w /
-//! rows·cell_h), it tracks the viewport on every resize with no stored rect
-//! (T-ID4-3).
+//! rows·cell_h), it tracks the viewport on every resize with no stored rect.
 //!
 //! Cache invalidation needs no dedicated signature fragment: the border is a
 //! pure function of the `window_border` knob, the theme `border` color, the grid
-//! geometry, and the scale factor — and every one of those forces a Full rebuild
+//! geometry, and the scale factor - and every one of those forces a Full rebuild
 //! through an existing signature input (a settings/theme change bumps
 //! `presentation_epoch`; a resize or DPI change moves the grid/cell signature),
 //! so the border quad is always recomputed when any input that affects it
@@ -172,7 +171,7 @@ mod tests {
         ctx
     }
 
-    // --- T-ID4-1: off-path identity -----------------------------------------
+    // --- off-path identity -----------------------------------------
 
     #[test]
     fn off_path_emits_nothing() {
@@ -245,7 +244,7 @@ mod tests {
         }
     }
 
-    // --- T-ID4-3: tracks geometry on resize (no stored rect) ----------------
+    // --- tracks geometry on resize (no stored rect) ----------------
 
     #[test]
     fn border_tracks_content_rect_after_resize() {

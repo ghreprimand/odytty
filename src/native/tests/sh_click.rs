@@ -5,7 +5,7 @@
 //! is a recording buffer, so the cursor-positioning arrow burst it emits can be
 //! asserted byte-for-byte. The click is driven through the production
 //! `handle_mouse_input` press/release routing (via `left_button_outcome_for_test`)
-//! so the full precedence — overlay → selection → TUI report → local — is
+//! so the full precedence - overlay → selection → TUI report → local - is
 //! exercised, not reimplemented. Skipped when no PTY is available (CI sandboxes),
 //! mirroring the other App-level suites.
 
@@ -115,7 +115,7 @@ fn bash_snippet_live_prompt() -> Vec<u8> {
         .into_bytes();
     // F2: the input-region model needs the `B` input-start mark; the snippet
     // emits one at the end of PS1 (asserted here so a snippet regression that
-    // drops `B` — silently disabling click-to-position — fails this test).
+    // drops `B` - silently disabling click-to-position - fails this test).
     assert!(
         snippet.contains(r"133;B"),
         "bash snippet must emit the OSC 133 B input-start mark"
@@ -129,7 +129,7 @@ fn bundled_snippet_repositions_only_when_setting_on() {
     // The bundled snippet now advertises click_events=1, so its prompt-start
     // enables the core flag. With sh_click ON, a click on the live prompt
     // repositions (the feature can finally turn on). With sh_click OFF (the
-    // default), the SAME snippet output is inert — proving the producer change
+    // default), the SAME snippet output is inert - proving the producer change
     // does NOT alter default behavior: the consumer stays gated on the setting.
     let content = bash_snippet_live_prompt();
 
@@ -174,7 +174,7 @@ fn click_left_of_cursor_emits_left_arrows_on_live_prompt() {
 #[test]
 fn click_right_of_cursor_emits_right_arrows() {
     // "$ hello" with the cursor moved back to column 4 (CUB 3): a click right
-    // of the cursor, inside the typed input, yields Right arrows — one per
+    // of the cursor, inside the typed input, yields Right arrows - one per
     // glyph between the cursor and the clicked cell.
     let Some((mut app, bytes)) =
         build_app(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07hello\x1b[3D")
@@ -189,8 +189,8 @@ fn click_right_of_cursor_emits_right_arrows() {
 
 #[test]
 fn click_with_no_typed_input_is_inert() {
-    // F2 G1: a bare prompt with the `B` mark but nothing typed has no input
-    // region (core returns None for empty input) — a click emits nothing. The
+    // F2 a bare prompt with the `B` mark but nothing typed has no input
+    // region (core returns None for empty input) - a click emits nothing. The
     // pre-F2 code sent Right arrows the shell then ignored (caret clamped at
     // an empty buffer); the new no-op is the same user-visible outcome with
     // zero bytes on the wire.
@@ -232,8 +232,8 @@ fn click_on_cursor_cell_emits_nothing() {
 
 #[test]
 fn click_off_path_is_inert_when_setting_off() {
-    // T1: with sh_click off (the default), the click path is byte-identical to
-    // today — no arrows, even though the shell advertised click-events.
+    // With sh_click off (the default), the click path is byte-identical to
+    // today - no arrows, even though the shell advertised click-events.
     let Some((mut app, bytes)) = build_app_with(live_prompt_click_enabled(), false) else {
         return;
     };
@@ -254,7 +254,7 @@ fn click_without_advertised_click_events_is_inert() {
 
 #[test]
 fn shift_click_does_not_reposition() {
-    // T2: Shift is the selection/passthrough seam; SH-CLICK never reads it and
+    // Shift is the selection/passthrough seam; SH-CLICK never reads it and
     // never fires under Shift.
     let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
         return;
@@ -266,7 +266,7 @@ fn shift_click_does_not_reposition() {
 
 #[test]
 fn tui_mouse_reporting_wins_over_click_to_position() {
-    // T3 (highest risk): a TUI with mouse reporting active owns the click — the
+    // T3 (highest risk): a TUI with mouse reporting active owns the click - the
     // report gate returns before the local click-to-position path is reached.
     let Some((mut app, _bytes)) = build_app(live_prompt_click_enabled()) else {
         return;
@@ -302,8 +302,8 @@ fn click_during_running_command_does_not_reposition() {
 
 #[test]
 fn click_on_a_different_row_than_the_cursor_is_inert() {
-    // F2 G2: a click off the input region's rows (here: an output row far below
-    // a single-row prompt) never repositions — no wrong jump.
+    // F2 a click off the input region's rows (here: an output row far below
+    // a single-row prompt) never repositions - no wrong jump.
     let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
         return;
     };
@@ -355,7 +355,7 @@ fn wide_glyph_line_counts_glyphs_not_cells() {
 fn exact_signal_clamps_decoration_click_to_input_end() {
     // F2 Exact tier (fails-before): with a fresh private edit-region signal the
     // input's right edge is authoritative. A click on a right-aligned
-    // decoration ("23.1s"-style) clamps the target to the true input end — the
+    // decoration ("23.1s"-style) clamps the target to the true input end - the
     // shipped code sent Right×(click−cursor), overshooting by the decoration
     // distance and relying on the shell's clamp.
     let mut content = Vec::new();
@@ -383,7 +383,7 @@ fn exact_soft_wrap_multi_row_click_travels_horizontally() {
     // F2 multi-row Exact (fails-before): the shipped code bailed whenever the
     // click was not on the cursor's own row. A soft-wrapped logical line is one
     // buffer; a click on the FIRST row with the cursor on the SECOND travels
-    // horizontally (Left only — never Up, which would recall history).
+    // horizontally (Left only - never Up, which would recall history).
     let mut content = Vec::new();
     content.extend_from_slice(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07");
     content.extend_from_slice(&[b'a'; 78]); // fills row 0 columns 2..79
@@ -428,8 +428,8 @@ fn heuristic_soft_wrap_multi_row_click_travels() {
 #[test]
 fn hard_newline_buffer_click_is_a_noop() {
     // F2 R-None (fails-before): a multi-logical-line buffer (the signal carries
-    // an `nl=` offset — begin…end / PS2 continuation) has unmodeled
-    // continuation-prompt geometry, so v1 never synthesizes travel — even for a
+    // an `nl=` offset - begin…end / PS2 continuation) has unmodeled
+    // continuation-prompt geometry, so v1 never synthesizes travel - even for a
     // same-row click the shipped code would have acted on.
     let mut content = Vec::new();
     content.extend_from_slice(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07for i in 1");
@@ -484,7 +484,7 @@ fn alt_screen_click_is_inert() {
 fn half_cell_left_and_right_half_straddle_a_glyph_boundary() {
     // "$ hello", cursor at col 7 (5 glyphs in). A click on the 'l' at col 4:
     // the LEFT half lands the caret before it (delta -3), the RIGHT half after
-    // it (delta -2) — exactly one column apart.
+    // it (delta -2) - exactly one column apart.
     let lefts = 3;
     let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
         return; // no PTY in this environment
@@ -559,7 +559,7 @@ fn half_cell_last_glyph_right_half_clamps_to_the_append_origin() {
 fn half_cell_prompt_side_right_half_is_a_noop() {
     // "$ " is the prompt (cols 0-1); the input starts at col 2. A right-half
     // click on the last prompt cell (col 1) must NOT round up across the input
-    // start into a bogus travel — the guard tests the floored cell.
+    // start into a bogus travel - the guard tests the floored cell.
     let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
         return;
     };

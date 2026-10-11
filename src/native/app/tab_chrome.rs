@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Shared tab-chrome treatment: the **"Phosphor Flat"** visual language
-//! (F4-RESKIN) used by BOTH the horizontal
+//! used by BOTH the horizontal
 //! [`super::tab_bar`] and the vertical [`super::tab_rail`] widgets.
 //!
 //! This module owns **color**; the widgets own **layout**. Every function here
@@ -16,7 +16,7 @@
 //! invisible; only the active tab is a drawn object.** Hierarchy comes from
 //! luminance, not geometry.
 //!
-//! - **ACTIVE** — a warm `selection` fill (the *bloom-off fallback*, always
+//! - **ACTIVE** - a warm `selection` fill (the *bloom-off fallback*, always
 //!   emitted so the active tab is identifiable even with CRT/bloom disabled)
 //!   plus a bright, bold `foreground` label brightened **above the bloom
 //!   threshold** ([`ACTIVE_LABEL_TARGET_LUMA`]) so the existing `bloom.wgsl`
@@ -24,18 +24,18 @@
 //!   applies when the fill is dark (the phosphor/dark-theme case); on a light
 //!   theme the plain (dark) foreground is kept for contrast and bloom correctly
 //!   no-ops.
-//! - **INACTIVE** — bare `inactive`-role labels on the wallpaper-through
+//! - **INACTIVE** - bare `inactive`-role labels on the wallpaper-through
 //!   background (no fill), dimmed along a **phosphor-persistence luminance
 //!   ramp**: tabs nearer the active one glow slightly brighter, distant ones
 //!   fade toward [`RAMP_FLOOR`] (a per-slot foreground multiplier).
-//! - **HOVER** — the label warms one tier toward the active label
+//! - **HOVER** - the label warms one tier toward the active label
 //!   ([`HOVER_LABEL_LIFT`]) and gains a whisper of the selection fill
 //!   ([`HOVER_FILL_BLEND`]), always subordinate to the full active treatment.
 //!
 //! The wallpaper-through background is painted as an explicit `Color::Rgb` of the
 //! theme `background` (alpha 1.0, so `cell_bg_opacity` composites it exactly like
 //! an empty terminal cell) rather than `Color::Default`, so the multi-pane strip
-//! path — which builds its snapshot with `DynamicColors::default()` — resolves
+//! path - which builds its snapshot with `DynamicColors::default()` - resolves
 //! it identically to the single-pane path.
 
 use super::tab_bar::TabBarColors;
@@ -47,8 +47,8 @@ use crate::theme::{Srgb, relative_luminance};
 
 /// Target WCAG relative luminance the ACTIVE label is brightened to (on dark
 /// fills) so it clears the default bloom threshold (`DEFAULT_BLOOM_THRESHOLD =
-/// 0.7`) with real headroom — the bright-pass factor `(y - 0.7)/y` at `0.85` is
-/// `≈0.18`, a visible halo — and auto-blooms through `bloom.wgsl` with no new
+/// 0.7`) with real headroom - the bright-pass factor `(y - 0.7)/y` at `0.85` is
+/// `≈0.18`, a visible halo - and auto-blooms through `bloom.wgsl` with no new
 /// geometry. Above the threshold, not merely at it, so the glow reads.
 pub(super) const ACTIVE_LABEL_TARGET_LUMA: f64 = 0.85;
 
@@ -57,21 +57,21 @@ pub(super) const ACTIVE_LABEL_TARGET_LUMA: f64 = 0.85;
 /// by this much (the nearest inactive tab, distance 1, is at full brightness).
 pub(super) const RAMP_STEP: f32 = 0.14;
 
-/// Floor for the inactive ramp multiplier so distant tabs fade but never vanish
-/// — a phosphor ghost persists.
+/// Floor for the inactive ramp multiplier so distant tabs fade but never vanish -
+/// a phosphor ghost persists.
 pub(super) const RAMP_FLOOR: f32 = 0.55;
 
 /// How far a hovered tab's fill is blended from the wallpaper-through background
-/// toward the `selection` role — a whisper of the active fill, never as strong.
+/// toward the `selection` role - a whisper of the active fill, never as strong.
 pub(super) const HOVER_FILL_BLEND: f32 = 0.35;
 
 /// How far a hovered inactive label is warmed from the `inactive` role toward
-/// the active label color — "one tier" of lift, subordinate to the active label.
+/// the active label color - "one tier" of lift, subordinate to the active label.
 pub(super) const HOVER_LABEL_LIFT: f32 = 0.40;
 
 /// How far the resting new-slot `+` affordance is lifted from the `inactive`
 /// role toward the active label so it reads as a deliberate "add" control at
-/// rest (F4-PLUS). A touch stronger than [`HOVER_LABEL_LIFT`] so the `+` clears
+/// rest. A touch stronger than [`HOVER_LABEL_LIFT`] so the `+` clears
 /// the dim inactive-label floor it used to share; still well below the full
 /// active label, which the `+` reaches only on hover.
 pub(super) const NEW_SLOT_PLUS_REST_LIFT: f32 = 0.55;
@@ -91,11 +91,11 @@ pub(super) const MAX_PANEL_TINT_LIFT: f32 = 0.10;
 pub(super) const SEAM_ALPHA: f32 = 0.45;
 
 /// F4-P1 seam: the seam color's own relative luminance is capped here so it can
-/// never cross the default bloom threshold (0.7) — the seam never haloes.
+/// never cross the default bloom threshold (0.7) - the seam never haloes.
 pub(super) const SEAM_MAX_LUMA: f64 = 0.60;
 
 /// F4-P1 seam: minimum composited-seam-vs-panel luminance delta the treatment
-/// guarantees (and the §7 guard asserts) so the seam survives every theme — the
+/// guarantees (and the §7 guard asserts) so the seam survives every theme - the
 /// guard the old `border`-role incident lacked.
 pub(super) const SEAM_MIN_PANEL_DELTA: f64 = 0.02;
 
@@ -103,7 +103,7 @@ pub(super) const SEAM_MIN_PANEL_DELTA: f64 = 0.02;
 /// fill guarantees against the panel surface it rests on. The raw `selection`
 /// role is often only ~1.05:1 against the panel tint on a dark theme (the fill
 /// reads as invisible; only the bold label signals active), so the fill is
-/// lifted until it clears this ratio — a clearly visible warm slab that still
+/// lifted until it clears this ratio - a clearly visible warm slab that still
 /// keeps the theme hue. Kept modest (a slab, not a glow) and capped at
 /// [`SEAM_MAX_LUMA`] so the fill never crosses the bloom threshold.
 pub(super) const ACTIVE_FILL_MIN_PANEL_RATIO: f64 = 1.55;
@@ -121,7 +121,7 @@ pub(super) fn wallpaper_background(colors: TabBarColors) -> Srgb {
     colors.background
 }
 
-/// The ACTIVE-slot fill — the `selection` role, LIFTED away from the panel
+/// The ACTIVE-slot fill - the `selection` role, LIFTED away from the panel
 /// surface until it clears [`ACTIVE_FILL_MIN_PANEL_RATIO`] (WCAG contrast). This
 /// is the **bloom-off fallback**: always emitted, so the active tab reads as a
 /// warm anchor even when CRT/bloom is disabled. The raw `selection` role is often
@@ -130,7 +130,7 @@ pub(super) fn wallpaper_background(colors: TabBarColors) -> Srgb {
 /// slab. Mirrors [`seam_color`]'s guaranteed-delta bisection, but toward a WCAG
 /// RATIO floor: start from `selection` (its own luma first capped so the slab
 /// never blooms), and if it is too close to the panel, bisect toward a
-/// bloom-capped `foreground` (direction-correct on every theme — lighter on dark,
+/// bloom-capped `foreground` (direction-correct on every theme - lighter on dark,
 /// darker on light) for the minimal lift that clears the floor. The result luma
 /// is capped at [`SEAM_MAX_LUMA`], so the fill never haloes.
 pub(super) fn active_fill(colors: TabBarColors, panel_surface: Srgb) -> Srgb {
@@ -143,7 +143,7 @@ pub(super) fn active_fill(colors: TabBarColors, panel_surface: Srgb) -> Srgb {
     if ratio(fill) >= ACTIVE_FILL_MIN_PANEL_RATIO {
         return fill;
     }
-    // Too close to the panel — lift toward the (bloom-capped) foreground until
+    // Too close to the panel - lift toward the (bloom-capped) foreground until
     // the ratio clears the floor. Bisection on the blend fraction; the predicate
     // is a clean false->true step (the blended luma moves monotonically away
     // from the panel toward the higher-contrast target), so this converges to the
@@ -170,7 +170,7 @@ pub(super) fn active_fill(colors: TabBarColors, panel_surface: Srgb) -> Srgb {
 /// the `foreground` role is brightened toward white until it clears the bloom
 /// threshold ([`ACTIVE_LABEL_TARGET_LUMA`]), so it auto-halos through
 /// `bloom.wgsl`. On a light fill the plain (dark) `foreground` is kept for
-/// contrast — bloom is a bright-on-dark effect and correctly no-ops there.
+/// contrast - bloom is a bright-on-dark effect and correctly no-ops there.
 pub(super) fn active_label(colors: TabBarColors) -> Srgb {
     if relative_luminance(colors.active_bg) < 0.5 {
         brighten_to_luma(colors.foreground, ACTIVE_LABEL_TARGET_LUMA)
@@ -201,7 +201,7 @@ pub(super) fn hover_label(colors: TabBarColors) -> Srgb {
     blend_srgb(colors.inactive, active_label(colors), HOVER_LABEL_LIFT)
 }
 
-/// The resting new-slot `+` affordance color (F4-PLUS): the `inactive` role
+/// The resting new-slot `+` affordance color: the `inactive` role
 /// lifted toward the active label by [`NEW_SLOT_PLUS_REST_LIFT`], so the `+`
 /// reads as an intentional "add" button at rest -- brighter than any inactive
 /// tab/slot label, still subordinate to the active label (and to its own hover
@@ -216,7 +216,7 @@ pub(super) fn new_slot_plus_rest(colors: TabBarColors) -> Srgb {
 }
 
 /// The HOVER fill color: the PANEL surface blended a whisper toward the
-/// guaranteed active fill — subordinate to the active fill, above the resting
+/// guaranteed active fill - subordinate to the active fill, above the resting
 /// panel. Re-basing on the panel (not the raw `background`) fixes the inversion
 /// where a hovered slot dimmed BELOW its resting panel surface: because the
 /// resting cell IS the panel, blending from the panel toward the (lifted) active
@@ -259,7 +259,7 @@ pub(super) fn panel_tint(colors: TabBarColors, strength: f32) -> Srgb {
 pub(super) const PANEL_MAX_ALPHA: f32 = 0.92;
 
 /// The alpha of the F4-P1 panel **wash** quad (Layer 2 of ODP-1), given the
-/// alpha the band's CELL BACKGROUNDS already compose (`band_cell_alpha` — the
+/// alpha the band's CELL BACKGROUNDS already compose (`band_cell_alpha` - the
 /// window translucency × wallpaper softening product, the same value content
 /// cells draw at).
 ///
@@ -268,10 +268,10 @@ pub(super) const PANEL_MAX_ALPHA: f32 = 0.92;
 /// `band_cell_alpha + strength × (PANEL_MAX_ALPHA − band_cell_alpha)`, so
 /// `1.0` reaches [`PANEL_MAX_ALPHA`] regardless of the window opacity (the old
 /// `strength × (1 − opacity)` cap collapsed exactly when a translucent window
-/// left the panel nothing to work with), `0.0` adds nothing (panel off — the
+/// left the panel nothing to work with), `0.0` adds nothing (panel off - the
 /// band shows its bare cell fill, byte-identical), and the ramp between is
 /// linear with no dead zone. Cells already at or above the target keep their
-/// own coverage — the wash only ever adds, so the panel is never *less* opaque
+/// own coverage - the wash only ever adds, so the panel is never *less* opaque
 /// than the body.
 pub(super) fn panel_wash_alpha(strength: f32, band_cell_alpha: f32) -> f32 {
     let strength = strength.clamp(0.0, 1.0);
@@ -282,10 +282,10 @@ pub(super) fn panel_wash_alpha(strength: f32, band_cell_alpha: f32) -> f32 {
     (strength * (PANEL_MAX_ALPHA - alpha) / (1.0 - alpha)).clamp(0.0, 1.0)
 }
 
-/// The F4-P1 seam color (ODP-2): derived from the **inactive TEXT role only**
-/// (never the `border` role — the v1.3 dark-on-dark lesson), dimmed if needed so
+/// The F4-P1 seam color: derived from the **inactive TEXT role only**
+/// (never the `border` role - the v1.3 dark-on-dark lesson), dimmed if needed so
 /// its own luminance never exceeds [`SEAM_MAX_LUMA`] (bloom guard), then lifted
-/// toward `foreground` — still capped at [`SEAM_MAX_LUMA`] — until the composited
+/// toward `foreground` - still capped at [`SEAM_MAX_LUMA`] - until the composited
 /// seam-vs-`panel_surface` luminance delta clears [`SEAM_MIN_PANEL_DELTA`]. The
 /// seam quad is drawn at [`SEAM_ALPHA`] and the GPU blends it in scene-linear
 /// light, so the composite is [`composited_luminance`] of the seam over the
@@ -302,7 +302,7 @@ pub(super) fn seam_color(colors: TabBarColors, panel_surface: Srgb) -> Srgb {
     if delta(seam) >= SEAM_MIN_PANEL_DELTA {
         return seam;
     }
-    // Too close to the panel — lift toward foreground, but never above the bloom
+    // Too close to the panel - lift toward foreground, but never above the bloom
     // cap. Bisection on the blend fraction toward a capped-luma foreground.
     let target = if relative_luminance(colors.foreground) > SEAM_MAX_LUMA {
         dim_to_luma(colors.foreground, SEAM_MAX_LUMA)
@@ -371,7 +371,7 @@ pub(super) fn composited_luminance(base: Srgb, layers: &[(Srgb, f32)]) -> f64 {
 }
 
 /// Blend two sRGB colors: `a*(1-t) + b*t` per channel, `t` clamped to `[0,1]`.
-/// A gamma-naive sRGB mix — fine for subtle chrome tints (not a color-managed
+/// A gamma-naive sRGB mix - fine for subtle chrome tints (not a color-managed
 /// image op).
 pub(super) fn blend_srgb(a: Srgb, b: Srgb, t: f32) -> Srgb {
     let t = t.clamp(0.0, 1.0);
@@ -586,14 +586,14 @@ mod tests {
             1.0 - (1.0 - a) * (1.0 - w)
         };
         // Strength 1: the band reaches the near-opaque target at ANY cell
-        // alpha — a fully translucent window no longer collapses the ceiling.
+        // alpha - a fully translucent window no longer collapses the ceiling.
         for a in [0.0f32, 0.16, 0.24, 0.5, 0.8] {
             assert!(
                 (coverage(1.0, a) - PANEL_MAX_ALPHA).abs() < 1e-6,
                 "strength 1 at cell alpha {a} must compose {PANEL_MAX_ALPHA}"
             );
         }
-        // Strength 0: no wash — the panel-off band keeps its bare cell fill.
+        // Strength 0: no wash - the panel-off band keeps its bare cell fill.
         for a in [0.16f32, 0.5, 0.8] {
             assert_eq!(panel_wash_alpha(0.0, a), 0.0, "strength 0 → no wash");
         }
@@ -636,8 +636,8 @@ mod tests {
                 theme.name
             );
             // The seam is derived from the `inactive` TEXT role, NEVER the
-            // `border` role (the v1.3 dark-on-dark incident). That is structural
-            // — `seam_color` reads `colors.inactive`/`colors.foreground` only.
+            // `border` role (the v1.3 dark-on-dark incident). That is structural -
+            // `seam_color` reads `colors.inactive`/`colors.foreground` only.
             // The clearing-the-floor assertion above is what the naive
             // near-black `border` approach failed; on a theme whose `border` is
             // near-black the seam is unaffected because it never touches it.
@@ -694,15 +694,15 @@ mod tests {
     /// tier trips a named assertion.
     // Accepted deviation from the spec's 0.003: on a pure-black CRT monochrome
     // theme (ibm-5151) the 5%-toward-foreground tint yields only a 0.0026 luma
-    // delta — the panel is genuinely a whisper there (and the wash layer carries
+    // delta - the panel is genuinely a whisper there (and the wash layer carries
     // it when a wallpaper is present; the seam always separates it). 0.002 is a
     // real non-zero guard that a zeroed tint (strength 0 with the panel forced
     // on, or a broken blend) trips.
     const MIN_PANEL_BG_DELTA: f64 = 0.002;
     // Accepted deviation from the spec's 0.004: retargeting the active-fill floor
     // from the *background* (v1) to the *panel tint* reference shifts the
-    // measured delta — the smallest across all built-in themes is 0.0034
-    // (odyssey-orchid) — so the floor sits at 0.003, still a real non-zero guard
+    // measured delta - the smallest across all built-in themes is 0.0034
+    // (odyssey-orchid) - so the floor sits at 0.003, still a real non-zero guard
     // that a flattened active fill (delta → 0) trips. The active tab also carries
     // the bold bright label + bloom, so bloom-off locatability never rests on the
     // fill delta alone.
@@ -810,7 +810,7 @@ mod tests {
             // expressed theme-agnostically as distance from the panel luminance
             // (|luma − panel|): each interactive tier is at least as prominent as
             // the previous one. On a dark theme prominence == brighter; on a
-            // light theme == darker — the distance metric captures both without
+            // light theme == darker - the distance metric captures both without
             // asserting a direction the light-theme treatment inverts.
             let dist = |l: f64| (l - panel_luma).abs();
             assert!(
@@ -838,8 +838,8 @@ mod tests {
 
     #[test]
     fn revealed_autohide_panel_keeps_fills_and_labels_identifiable() {
-        // ODP-6 extra case (F4-P3): the auto-hide reveal draws the SHARED
-        // panel wash (CHROME-ALPHA: one wash for every chrome surface — the
+        // ODP-6 extra case: the auto-hide reveal draws the SHARED
+        // panel wash (one wash for every chrome surface - the
         // old dedicated 0.85 reveal floor is gone) over live content. The
         // worst-case backing for readability is mid-gray content (neither dark
         // nor light). At the veil the SHIPPED DEFAULT actually composes under

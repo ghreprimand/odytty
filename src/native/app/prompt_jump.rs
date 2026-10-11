@@ -10,7 +10,7 @@
 //! Each returns whether it consumed the key. When no prompt exists in the
 //! requested direction (the first prompt for a backward jump, the last for a
 //! forward jump) the handler returns `false`, so the bound chord falls through
-//! to the PTY encode path exactly as an unbound key would — at the ends of the
+//! to the PTY encode path exactly as an unbound key would - at the ends of the
 //! transcript the plain path stays byte-identical.
 
 use super::*;
@@ -36,14 +36,14 @@ impl App {
 
     /// Resolve and perform a prompt jump in `direction`, scrolling the viewport
     /// so the target prompt lands at the top of the screen ([`Align::Top`], the
-    /// SH2 default — output reads downward below the prompt).
+    /// SH2 default - output reads downward below the prompt).
     ///
     /// The reference is the absolute row at the *top* of the current viewport
     /// (`scrollback_len - offset`), so repeated jumps step monotonically through
     /// the prompt list: each jump lands a prompt at the top, which becomes the
     /// reference for the next jump. Pure-core [`core_prompt_jump`] owns the
     /// target/offset math; this is thin wiring (gather marks, read the geometry,
-    /// scroll). Returns whether a jump occurred — `false` clamps at the ends
+    /// scroll). Returns whether a jump occurred - `false` clamps at the ends
     /// without wrapping and falls through to the PTY.
     fn jump_to_prompt(&mut self, direction: JumpDirection) -> bool {
         let scrollback_len = self.scrollback_len();

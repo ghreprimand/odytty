@@ -2,7 +2,7 @@
 //! FONT-SAVE-CORRECTNESS BUG 2 native-wiring: an overlay Save must apply the
 //! just-written config LIVE, not only at the next restart. `save_overlay_settings`
 //! re-reads the config and routes it through the shared `OverlayEdit` reload
-//! seam; this exercises that apply step over a real `App` (no GPU needed — the
+//! seam; this exercises that apply step over a real `App` (no GPU needed - the
 //! applied settings are observable before any surface exists). Skipped when no
 //! PTY is available (CI sandboxes).
 
@@ -58,7 +58,7 @@ fn applying_unchanged_settings_is_an_idempotent_no_op() {
 
     let before = app.font_size_px_for_test();
     // Re-applying the current settings (as a no-op Save, or the background poll
-    // re-observing the same file, would) must not perturb live state — proving
+    // re-observing the same file, would) must not perturb live state - proving
     // the idempotency that prevents double-apply and a live-preview regression.
     app.apply_saved_settings_live_for_test(Settings::default());
     assert_eq!(

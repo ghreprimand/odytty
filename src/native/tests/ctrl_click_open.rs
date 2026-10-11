@@ -3,13 +3,13 @@
 //! on Linux/Windows, Cmd on macOS) over a resolved span opens it even while a
 //! mouse-tracking TUI has reporting enabled, matching the kitty/iTerm2/GNOME
 //! Terminal convention. Driven through the production `handle_mouse_input` press
-//! route so the report-gate-vs-open precedence is exercised, not reimplemented —
+//! route so the report-gate-vs-open precedence is exercised, not reimplemented -
 //! the shipped policy unit tests drive the predicate directly and so could pass
 //! while the real winit press route stayed broken.
 //!
 //! Headless (no GPU/window): the App runs over a one-shot PTY whose writer is a
 //! recording buffer, so the SGR mouse report the app WOULD receive is observable
-//! byte-for-byte — an empty buffer proves the press was intercepted and opened
+//! byte-for-byte - an empty buffer proves the press was intercepted and opened
 //! instead of reported. The open dispatch is proven WITHOUT launching a real
 //! opener by pointing the editor override at a sentinel program that cannot
 //! exist (`odytty_ci_selftest_editor`): the argv-only spawn fails cleanly with
@@ -29,7 +29,7 @@ const CELL_H: u32 = 16;
 
 /// A resolved interactive path carrying a `:line:col` suffix. The `:line` forces
 /// the editor branch of the open ladder (not the platform default opener), so
-/// the sentinel editor override is what would be spawned — a clean ENOENT
+/// the sentinel editor override is what would be spawned - a clean ENOENT
 /// failure rather than a real `xdg-open`/`open` launch.
 const PATH_LINE: &[u8] = b"/proj/src/main.rs:42:7";
 
@@ -79,8 +79,8 @@ fn arm_path_open(app: &mut App) {
     app.set_interactive_paths_editor_for_test("odytty_ci_selftest_editor");
 }
 
-/// Hold/release the host's open modifier — Cmd (super) on macOS, Ctrl on Linux
-/// and Windows — the same per-OS chord `OpenerOs::host()` resolves inside the
+/// Hold/release the host's open modifier - Cmd (super) on macOS, Ctrl on Linux
+/// and Windows - the same per-OS chord `OpenerOs::host()` resolves inside the
 /// press route. The live route reads the host OS internally, so the test drives
 /// whichever modifier is the open chord on the runner.
 fn hold_open_modifier(app: &mut App, held: bool) {
@@ -158,7 +158,7 @@ fn ctrl_click_off_a_span_under_mouse_reporting_still_reports_to_the_app() {
     left_press_release(&mut app);
 
     // No span was hovered, so the open interception is skipped and the Ctrl+click
-    // reports to the app exactly as before — the mouse-tracking app still gets
+    // reports to the app exactly as before - the mouse-tracking app still gets
     // its clicks.
     assert!(
         app.open_notice_message_for_test().is_none(),
@@ -183,7 +183,7 @@ fn plain_click_over_path_under_mouse_reporting_reports_as_before() {
     pty_bytes.lock().expect("bytes").clear();
 
     // No open modifier held: the report gate wins (control), so the app receives
-    // the click and nothing opens — byte-identical to today.
+    // the click and nothing opens - byte-identical to today.
     left_press_release(&mut app);
 
     assert!(

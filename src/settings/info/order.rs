@@ -29,7 +29,7 @@ pub(super) fn setting_group_rank(group: &str) -> usize {
 }
 
 /// Derive the human-readable range hint for a numeric row from its
-/// [`NumericSpec`] (UX4-P2, Q4), keeping the optional unit suffix so the
+/// [`NumericSpec`], keeping the optional unit suffix so the
 /// display string can never drift from the clamp bounds.
 pub(super) fn numeric_range_label(spec: NumericSpec) -> String {
     let lo = format_bound(spec.min);

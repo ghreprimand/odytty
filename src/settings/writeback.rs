@@ -461,7 +461,7 @@ fn append_panel_section(output: &mut String, appended: &[(&'static str, String)]
     for (key, value) in appended {
         output.push_str(key);
         output.push_str(" = ");
-        // C36: quote a value that would break the line format on read-back
+        // Quote a value that would break the line format on read-back
         // (contains `#`, a quote, or edge whitespace); ordinary values are
         // written verbatim, so the file stays byte-identical for them.
         output.push_str(&quote_config_value(value));
@@ -480,7 +480,7 @@ fn line_env(line: &str) -> Option<&'static str> {
 }
 
 fn replace_line_value(line: &str, value: &str) -> String {
-    // C36: locate the comment quote-aware, so a `#` inside the existing quoted
+    // Locate the comment quote-aware, so a `#` inside the existing quoted
     // value is not mistaken for a comment start.
     let content = strip_inline_comment(line);
     let comment_start = (content.len() < line.len()).then_some(content.len());
@@ -505,7 +505,7 @@ fn replace_line_value(line: &str, value: &str) -> String {
 
     let mut out = String::new();
     out.push_str(&line[..prefix_end]);
-    // C36: quote the replacement value when it would otherwise break the format.
+    // Quote the replacement value when it would otherwise break the format.
     out.push_str(&quote_config_value(value));
     out.push_str(&line[suffix_start..]);
     out
@@ -628,7 +628,7 @@ mod tests {
     fn value_with_hash_round_trips_through_write_and_read() {
         use super::super::config::ConfigValues;
         // A path value containing '#' must survive a write then a config read
-        // without being truncated at the '#' (C36).
+        // without being truncated at the '#'.
         let path_value = "/photos/#1 best/wall.png";
         let changes = canonical_changes(&[SettingEdit {
             key: "background_image",

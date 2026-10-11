@@ -9,7 +9,7 @@
 //! The adapted palette is derived through the **public** [`odytty::cvd`] core
 //! the native wiring uses (`from_theme` → fix appearance from the background →
 //! `adapt_palette` → `to_theme`), then the two confusable colours are painted
-//! as explicit cells — so this exercises the shared adaptation maths without
+//! as explicit cells - so this exercises the shared adaptation maths without
 //! mutating process-global palette state (keeping the suite parallel-safe).
 
 use odytty::core::{Attrs, Cell, Color, CursorStyle, Dimensions, Position, Snapshot};

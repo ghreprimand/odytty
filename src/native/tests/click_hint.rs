@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! UX-A (Phase 11): click-to-open discoverability — App-level wiring tests for
+//! Click-to-open discoverability - App-level wiring tests for
 //! the Ctrl+hover armed underline and the bottom-left mis-click hint.
 //!
 //! The timing rules of the mis-click trigger (the ≥2-in-window, cooldown, and
@@ -51,7 +51,7 @@ fn plain_left_click(app: &mut App) {
     app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
 }
 
-/// Hold/release the host's open modifier — Cmd (super) on macOS, Ctrl on Linux —
+/// Hold/release the host's open modifier - Cmd (super) on macOS, Ctrl on Linux -
 /// the same per-OS chord `OpenerOs::host()` resolves inside
 /// `armed_path_underline_cells`. The live App method reads the host OS
 /// internally (unlike the `gpu_render.rs` value-seam tests), so the test must
@@ -104,7 +104,7 @@ fn armed_underline_is_inert_when_feature_off() {
         return;
     };
     // Feature OFF (default): even with the open modifier held over the path
-    // text, nothing is hovered (the scanner never runs) so nothing is armed —
+    // text, nothing is hovered (the scanner never runs) so nothing is armed -
     // byte-identical.
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
     hold_open_modifier(&mut app, true);
@@ -226,7 +226,7 @@ fn misclick_off_a_path_does_not_raise_the_hint() {
     };
     app.set_interactive_paths_for_test(true);
     app.set_test_path_probe_for_test(MapProbe::default());
-    // Hover over plain text — no resolved path.
+    // Hover over plain text - no resolved path.
     app.pointer_move_for_test(f64::from(CELL_W) * 2.5, f64::from(CELL_H) * 0.5);
     assert!(app.hovered_path_for_test().is_none());
     plain_left_click(&mut app);

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Bounded arithmetic tests for the memory-attribution diagnostic.
 //!
-//! Pins the instrument's own invariants — identity, signed remainder, saturating
+//! Pins the instrument's own invariants - identity, signed remainder, saturating
 //! sums, gate grammar, `/proc/status` parse, closed `rss_source` set, and the
-//! report-line column set — so a future field addition cannot drift silently.
+//! report-line column set - so a future field addition cannot drift silently.
 //! Constructs reports in memory; never opens a GPU device and never reads the
 //! process environment (the gate parse is a pure function of its argument).
 
@@ -145,7 +145,7 @@ fn remainder_is_signed_when_attributed_exceeds_resident() {
 }
 
 /// `resident_bytes == None` yields `unaccounted == None`, which formats as the
-/// literal token `unmeasured` — never 0. Same for peak.
+/// literal token `unmeasured` - never 0. Same for peak.
 #[test]
 fn unmeasured_resident_and_peak_format_as_unmeasured_never_zero() {
     let r = report(

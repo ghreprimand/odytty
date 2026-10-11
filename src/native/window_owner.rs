@@ -225,17 +225,17 @@ pub(in crate::native) fn execute_window_merge(
     target: &mut App,
     source: &mut App,
 ) -> Result<MergePlan, MergeError> {
-    // Phase 1: validate without mutating either side.
+    // Validate without mutating either side.
     let plan = target
         .workspace_set()
         .preflight_merge_from(source.workspace_set())?;
 
-    // Phase 2: retire in-flight, unconfirmed input on both windows before either
+    // Retire in-flight, unconfirmed input on both windows before either
     // arena changes, so nothing writes to a transferring session.
     target.cancel_pending_input_for_merge();
     source.cancel_pending_input_for_merge();
 
-    // Phase 3: the move. `target` and `source` are distinct `App`s, so the two
+    // The move. `target` and `source` are distinct `App`s, so the two
     // arena borrows are disjoint. Commit revalidates both arenas and reserves
     // capacity before mutating, so a stale plan or allocation failure is refused
     // with both windows still untouched (input was already cancelled, which is
@@ -244,7 +244,7 @@ pub(in crate::native) fn execute_window_merge(
         .workspace_set_mut()
         .commit_merge_from(source.workspace_set_mut(), plan)?;
 
-    // Phase 4: the survivor now holds every merged workspace, so it inherits
+    // The survivor now holds every merged workspace, so it inherits
     // shape-persistence ownership when the retiring source was the primary,
     // and the `--hold` state of the sessions it received. Runs before the
     // caller retires the source; both merge directions reach this point with

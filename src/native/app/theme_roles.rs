@@ -3,7 +3,7 @@
 //!
 //! These `App` methods turn a pane's presentation theme roles (`selection`,
 //! `search`, and the scroll-indicator foreground) into the concrete colors the
-//! renderer draws, flooring foregrounds over their fills through the RV1
+//! renderer draws, flooring foregrounds over their fills through the
 //! minimum-contrast machinery. Callers pass the owning pane's theme from
 //! [`App::session_presentation_theme`], so a profile pane paints its own roles
 //! and each pane of a split keeps its own colors.
@@ -22,13 +22,14 @@ impl App {
         color
     }
 
-    /// ID1: themed selection treatment, or `None` (today's inverse) when the
-    /// operator opts out. The stored `fill` is the theme `selection` role
+    /// Themed selection treatment, or `None` (today's inverse) when the
+    /// user opts out. The stored `fill` is the theme `selection` role
     /// COMPOSITED over the theme background at `selection_opacity` (design §3),
     /// so the painted selection background already carries the tint strength;
     /// the foreground is the theme foreground floored over that same effective
-    /// fill through the RV1 minimum-contrast machinery, so it stays legible at
-    /// the active `min_contrast` (identity at the default 1.0) even as the fill
+    /// fill through the minimum-contrast machinery, so it stays legible at
+    /// the active `min_contrast` (at a floor of 1.0 the foreground is unchanged; the
+    /// native default is 17.0 and plain rendering uses 1.0) even as the fill
     /// goes translucent.
     ///
     /// Baking the composite here (rather than as a surface-alpha scale in the
@@ -39,8 +40,8 @@ impl App {
     /// reference and the painted color are now the identical effective fill, so
     /// legibility is judged against the exact pixels drawn. At
     /// `selection_opacity == 1.0` the effective fill equals the opaque role
-    /// color (the `composite_over` endpoint is exact), so the whole style — fill
-    /// and floored fg alike — is byte-identical to a fully-opaque selection.
+    /// color (the `composite_over` endpoint is exact), so the whole style - fill
+    /// and floored fg alike - is byte-identical to a fully-opaque selection.
     pub(super) fn themed_selection_style(&self, theme: &Theme) -> Option<SelectionStyle> {
         if !self.themed_ui_roles {
             return None;
@@ -56,10 +57,10 @@ impl App {
         Some(SelectionStyle { fill, fg })
     }
 
-    /// ID1: themed search-highlight treatment, or `None` (today's inverse /
-    /// black-on-yellow) when the operator opts out. Non-active matches use the
+    /// Themed search-highlight treatment, or `None` (today's inverse /
+    /// black-on-yellow) when the user opts out. Non-active matches use the
     /// theme `search` role; the active match uses a brightened OKLab derivative
-    /// of it. Both foregrounds are RV1-floored over their fills.
+    /// of it. Both foregrounds are contrast-floored over their fills.
     pub(super) fn themed_search_style(&self, theme: &Theme) -> Option<SearchStyle> {
         if !self.themed_ui_roles {
             return None;
@@ -89,7 +90,7 @@ impl App {
 
     /// HINTS label-badge treatment: a brightened `search`-role derivative so the
     /// badge reads as distinct from a passive search highlight, with the label
-    /// foreground RV1-floored over the badge fill (trap #4). Returns `None` when
+    /// foreground contrast-floored over the badge fill (trap #4). Returns `None` when
     /// themed UI roles are off, preserving the high-contrast default badge.
     pub(super) fn themed_hint_style(&self, theme: &Theme) -> Option<super::hints_ui::HintStyle> {
         if !self.themed_ui_roles {
@@ -124,9 +125,9 @@ fn linear_to_srgb_tuple(linear: crate::color::LinearRgb) -> [u8; 3] {
     ]
 }
 
-/// SELECTION-OPACITY: the effective color a translucent selection fill presents
-/// to the eye — the opaque `fill` composited over the theme `backdrop` at
-/// `selection_opacity`, in linear light (design §3). The RV1 floor references
+/// The effective color a translucent selection fill presents
+/// to the eye - the opaque `fill` composited over the theme `backdrop` at
+/// `selection_opacity`, in linear light (design §3). The minimum-contrast floor references
 /// this so foreground legibility holds as the fill goes translucent. The theme
 /// background is the deterministic, worst-case-for-legibility backdrop; under
 /// window transparency the true backdrop is the desktop and is unknowable, so
@@ -140,7 +141,7 @@ fn effective_selection_fill(
 ) -> [u8; 3] {
     let fill_lin = srgb_tuple_to_linear((fill[0], fill[1], fill[2]));
     let backdrop_lin = srgb_tuple_to_linear(backdrop);
-    // SELECTION-STRENGTH: below 1.0 the fill composites toward the backdrop
+    // Below 1.0 the fill composites toward the backdrop
     // (translucent tint); at 1.0 this is the authored fill bit-exactly; above
     // 1.0 the fill is pushed further along the backdrop-to-fill vector so the
     // highlight reads stronger (surface alpha stays saturated at 1.0 in the cell
@@ -153,7 +154,7 @@ fn effective_selection_fill(
     linear_to_srgb_tuple(blended)
 }
 
-/// Floor a foreground over a fill so it meets `ratio` WCAG contrast (RV1).
+/// Floor a foreground over a fill so it meets `ratio` WCAG contrast.
 /// Identity at `ratio <= 1.0` (the default `min_contrast`).
 fn floor_fg_over(fg: (u8, u8, u8), bg: [u8; 3], ratio: f32) -> [u8; 3] {
     let fg_lin = srgb_tuple_to_linear(fg);

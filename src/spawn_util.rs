@@ -4,14 +4,14 @@
 //! Background threads are created in many places (PTY writer + stall monitor,
 //! freeze watchdog, image-upload and connection-probe workers, opener and
 //! upload-cleanup child reapers, the ConPTY child waiter). Thread creation is
-//! fallible — it only fails under resource exhaustion (the thread ceiling or
-//! address-space limits) — and each site historically decided ad hoc whether
+//! fallible - it only fails under resource exhaustion (the thread ceiling or
+//! address-space limits) - and each site historically decided ad hoc whether
 //! that was fatal or degradable, and whether to log. These two helpers unify
 //! the pattern into one diagnostic convention:
 //!
-//! * [`spawn_named`] — "spawn a task or return the error". The caller decides
+//! * [`spawn_named`] - "spawn a task or return the error". The caller decides
 //!   whether a failure is fatal (propagate the `io::Result`) or degradable.
-//! * [`spawn_child_reaper`] — "spawn a detached reaper for a child process".
+//! * [`spawn_child_reaper`] - "spawn a detached reaper for a child process".
 //!   Fire-and-forget with a fixed degrade-to-drop policy on reaper-spawn
 //!   failure, so a fire-and-forget child is not left a zombie on Unix.
 //!
@@ -25,7 +25,7 @@ use std::thread::{Builder, JoinHandle};
 ///
 /// This is the single "spawn a task or surface the error" seam. Thread creation
 /// only fails under resource exhaustion; the caller chooses whether that is
-/// fatal (propagate) or degradable (log and continue) — this helper never
+/// fatal (propagate) or degradable (log and continue) - this helper never
 /// swallows the error.
 pub fn spawn_named<F, T>(name: impl Into<String>, f: F) -> io::Result<JoinHandle<T>>
 where
@@ -40,8 +40,8 @@ where
 ///
 /// The reaper is never joined and never delays process exit (teardown does not
 /// join detached threads). If the reaper thread itself cannot be created
-/// (resource exhaustion) the child is dropped un-reaped — the pre-reaper
-/// behavior — and a warning naming the reaper is logged; the caller's own path
+/// (resource exhaustion) the child is dropped un-reaped - the pre-reaper
+/// behavior - and a warning naming the reaper is logged; the caller's own path
 /// is never failed. On Windows there is no zombie concept (dropping a `Child`
 /// closes the handle), but the reaper is harmless and keeps one behavior on both
 /// platforms.

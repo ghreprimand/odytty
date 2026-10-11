@@ -11,9 +11,9 @@ use super::*;
 const FADE_FRAME: Duration = Duration::from_millis(16);
 
 /// The foreground alpha a freshly arrived row starts at. The ramp runs
-/// `floor -> 1.0` on the ease-out curve — never from 0 — so new text is
+/// `floor -> 1.0` on the ease-out curve - never from 0 - so new text is
 /// visible from its very first frame and the fade reads as ink developing,
-/// not content blinking into existence (RV1 interaction, module docs).
+/// not content blinking into existence.
 pub(in crate::native) const NEW_ROW_FADE_MIN_ALPHA: f32 = 0.25;
 
 /// Ease-out cubic: fast departure, gentle arrival. Maps `0.0..=1.0` to itself.
@@ -25,9 +25,9 @@ fn ease_out_cubic(p: f32) -> f32 {
 }
 
 impl App {
-    /// Fade ramp length from the live `new_output_fade_ms` setting (D-VE4F-5): a
+    /// Fade ramp length from the live `new_output_fade_ms` setting: a
     /// freshly arrived row is fully revealed this long after it appears. Single
-    /// source for the settle test, the wake deadline, and the quad alpha math.
+    /// source for the settle test, the wake deadline, and the alpha multiplier math.
     /// Changing the slider mid-fade retimes any in-flight fades on the next
     /// rebuild, which is accepted: the ramp is short and the retime is harmless.
     fn new_output_fade_duration(&self) -> Duration {
@@ -37,7 +37,7 @@ impl App {
     /// Refresh foreground fade starts from the snapshot's push count. Layout
     /// changes snap; active ramps advance the render signature and wake timer.
     pub(in crate::native) fn update_row_fade(&mut self, now: Instant, pushed_rows: u64) {
-        // Off path or scrolled back into history (D-VE4F-3): never populate;
+        // Off path or scrolled back into history: never populate;
         // snap to the live content and record the baseline push count.
         if self.settings.reduced_motion
             || !self.settings.new_output_fade
@@ -100,7 +100,7 @@ impl App {
 
     /// Next fade wake, or `None` once every row settles (and always `None` on
     /// the off path, where `row_fade_starts` is empty). Folded into
-    /// [`App::animation_deadline`] as the fourth contributor — it joins the
+    /// [`App::animation_deadline`] as the fourth contributor - it joins the
     /// existing single control-flow timer rather than adding a second.
     pub(super) fn new_row_fade_deadline(&self) -> Option<Instant> {
         if self.settings.reduced_motion || self.row_fade_starts.is_empty() {
@@ -114,7 +114,7 @@ impl App {
 
     /// Render-cache fragment. `NewRowFade { epoch }` while any row is mid-fade
     /// (the per-rebuild epoch bump makes every animation frame reclassify),
-    /// `Inert` otherwise — so the off path is a frame-to-frame constant and the
+    /// `Inert` otherwise - so the off path is a frame-to-frame constant and the
     /// geometry-update decision is unchanged from before this field existed.
     pub(super) fn new_row_fade_overlay_signature(&self) -> OverlayFragment {
         if !self.settings.reduced_motion && self.row_fade_starts.iter().any(Option::is_some) {
@@ -128,11 +128,11 @@ impl App {
 
     /// Per-content-row FOREGROUND alpha multipliers for this frame, or `None`
     /// when no row is mid-fade (the off path, reduced motion, and every
-    /// settled frame — the vertex builders then take their exact inert path).
+    /// settled frame - the vertex builders then take their exact inert path).
     ///
     /// A fading row's multiplier ramps [`NEW_ROW_FADE_MIN_ALPHA`]` -> 1.0` on
     /// the ease-out cubic over the `new_output_fade_ms` ramp; non-fading rows
-    /// answer `1.0`. The cursor's row is never faded (D-VE4F-9) so the live
+    /// answer `1.0`. The cursor's row is never faded so the live
     /// prompt renders at full strength. Index = viewport content row; the
     /// render dispatch maps it into decorated-snapshot coordinates via the
     /// chrome row/column offsets.
@@ -149,7 +149,7 @@ impl App {
         let mut any_active = false;
         for (row, &start_opt) in self.row_fade_starts.iter().enumerate() {
             let Some(start) = start_opt else { continue };
-            // Cursor-row exception (D-VE4F-9).
+            // Cursor-row exception.
             if row == cursor_row {
                 continue;
             }
@@ -227,7 +227,7 @@ mod tests {
         )
     }
 
-    // --- T1: off-path identity ----------------------------------------------
+    // --- off-path identity ----------------------------------------------
 
     #[test]
     fn off_path_never_populates_and_is_inert() {
@@ -398,7 +398,7 @@ mod tests {
         assert!(app.settings.cursor_easing);
     }
 
-    // --- T5: scrollback-delta tracking correctness --------------------------
+    // --- scrollback-delta tracking correctness --------------------------
 
     #[test]
     fn delta_marks_exactly_bottom_rows_and_rotates() {
@@ -568,7 +568,7 @@ mod tests {
         );
     }
 
-    // --- T3: viewport-offset + resize snap ----------------------------------
+    // --- viewport-offset + resize snap ----------------------------------
 
     #[test]
     fn scrolled_back_clears_fade() {
@@ -580,7 +580,7 @@ mod tests {
         app.update_row_fade(t0, 0);
         app.update_row_fade(t0 + Duration::from_millis(1), 3);
         assert!(app.row_fade_starts.iter().any(Option::is_some));
-        // Scroll back into history: the next update must snap (clear) — no fade
+        // Scroll back into history: the next update must snap (clear) - no fade
         // painted over historical scrollback.
         app.viewport.scroll_up(5, 100);
         assert!(app.viewport.offset() > 0);
@@ -612,7 +612,7 @@ mod tests {
         );
     }
 
-    // --- T4: cursor-row exception -------------------------------------------
+    // --- cursor-row exception -------------------------------------------
 
     #[test]
     fn cursor_row_is_never_faded() {
@@ -638,7 +638,7 @@ mod tests {
         }
     }
 
-    // --- T2/T7: floor-start + monotonic ramp (RV1 interaction) --------------
+    // --- floor-start + monotonic ramp --------------
 
     #[test]
     fn text_ramp_starts_at_floor_and_rises_monotonically() {
@@ -650,7 +650,7 @@ mod tests {
         app.update_row_fade(t0, 0);
         app.update_row_fade(t0, 1); // one fresh row at the bottom, stamped t0
         let row = ROWS - 1;
-        // Fresh (t == now): the multiplier starts AT the floor — never 0, so
+        // Fresh (t == now): the multiplier starts AT the floor - never 0, so
         // new text is visible from its very first frame.
         let m0 = app
             .new_row_fade_text_multipliers(t0, 0)
@@ -676,9 +676,9 @@ mod tests {
         }
     }
 
-    // --- NF21-P4: switch-back / multipane viewport bookkeeping --------------
+    // --- switch-back / multipane viewport bookkeeping --------------
 
-    // NF21-10: the shared per-pane render helper anchors a scrolled-back pane
+    // The shared per-pane render helper anchors a scrolled-back pane
     // across output growth and keeps its growth baseline current, so a split /
     // background pane stays pinned to its rows (the single-pane and multipane
     // paths now share this exact bookkeeping). Fails before the helper wired the
@@ -710,8 +710,8 @@ mod tests {
         assert_eq!(app.last_scrollback_len, 130);
     }
 
-    // NF21-12: switching to a session that grew while backgrounded must not fade
-    // in a whole viewport — an activation snaps the new-output fade tracker like
+    // Switching to a session that grew while backgrounded must not fade
+    // in a whole viewport - an activation snaps the new-output fade tracker like
     // a resize does. Fails before `on_active_session_changed` cleared the fade.
     #[test]
     fn activation_snaps_new_output_fade() {

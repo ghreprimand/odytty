@@ -75,7 +75,7 @@ fn enforce_contrast_rgba_seam_gates_on_the_global_floor() {
     set_min_contrast(1.0);
 }
 
-// TEXT-BRIGHTNESS: contract tests for the soft-knee lift.
+// Contract tests for the soft-knee lift.
 
 #[test]
 fn lift_brightness_identity_at_one_is_exact() {
@@ -160,7 +160,7 @@ fn default_ansi_palette_pins_historical_xterm_table() {
     // Byte-identity regression guard: the baseline ANSI palette must equal
     // the historical xterm 0–15 values exactly, so selecting `plain` (or no
     // theme) is pixel-identical to the pre-theme renderer. These literals
-    // are the source of truth — duplicated here on purpose so a careless
+    // are the source of truth - duplicated here on purpose so a careless
     // edit to DEFAULT_ANSI_SRGB is caught.
     let historical: [(u8, u8, u8); 16] = [
         (0x00, 0x00, 0x00),
@@ -371,7 +371,7 @@ fn bundled_default_and_jetbrains_faces_are_parseable_and_monospace() {
 }
 
 /// The default family (Victor Mono) must map each SGR style to its OWN
-/// face — Regular/Bold/Oblique/BoldOblique — and never collapse a style to
+/// face - Regular/Bold/Oblique/BoldOblique - and never collapse a style to
 /// the regular face (which would happen if a style row were dropped or the
 /// `load_bundled_style_for` arm regressed). Asserts both the filename
 /// routing and that the four LOADED faces are pairwise distinct embedded
@@ -415,7 +415,7 @@ fn victor_styles_map_to_distinct_oblique_faces_not_synthetic_regular() {
     }
 
     // And the public style loader returns the same distinct faces, parsed
-    // and monospace, for every SGR style — the live render path.
+    // and monospace, for every SGR style - the live render path.
     for style in [
         FontStyle::Regular,
         FontStyle::Bold,
@@ -516,7 +516,7 @@ fn bundled_symbol_font_is_parseable_and_covers_representative_pua_icons() {
 
 /// The bundled **v2** face must cover the legacy codepoints Nerd Fonts v3
 /// relocated (emptying their old slots), so the bundled chain renders both
-/// eras. These are exactly the glyphs that tofu'd under the v3-only bundle —
+/// eras. These are exactly the glyphs that tofu'd under the v3-only bundle -
 /// the archway `U+F557` and python `U+F81F` a real fish prompt emits.
 #[cfg(feature = "bundled-symbols-font")]
 #[test]
@@ -545,8 +545,8 @@ fn bundled_symbol_chain_unions_v2_and_v3_coverage() {
     for ch in [
         '\u{E0B0}',  // Powerline (both eras)
         '\u{F0001}', // Material Design Icons (v3 layout)
-        '\u{F557}',  // archway — v2-only slot
-        '\u{F81F}',  // python — v2-only slot
+        '\u{F557}',  // archway - v2-only slot
+        '\u{F81F}',  // python - v2-only slot
     ] {
         assert!(
             chain.iter().any(|f| f.glyph_id(ch).0 != 0),
@@ -572,7 +572,7 @@ fn a_real_monospace_family() -> Option<(String, Vec<PathBuf>)> {
 }
 
 /// Trap (a)+(b) over REAL fonts: a family installed on this host resolves to
-/// a real, loadable monospace regular face — never "did not resolve", never
+/// a real, loadable monospace regular face - never "did not resolve", never
 /// a thin/italic face. Family identity comes from the `name` table, so the
 /// resolved regular is the one whose metadata is upright (the regular slot).
 #[test]
@@ -654,7 +654,7 @@ fn weight_fixture(tag: &str, faces: &[&str]) -> (TempDir, Vec<PathBuf>) {
 
 #[test]
 fn weight_face_finds_bold_within_a_family() {
-    // FONT-WEIGHT-FIX: the weight resolver selects the requested weight's
+    // The weight resolver selects the requested weight's
     // FILE by stem within the family (the old `"{family} {weight}"` concat
     // path could not). This path is unchanged by the metadata rework: the
     // real family name the picker writes (e.g. "Cascadia Code") still
@@ -685,7 +685,7 @@ fn weight_face_empty_inputs_return_none() {
 #[test]
 fn weight_face_missing_weight_returns_none_for_fallback() {
     // T-weight-not-found: a weight with no matching face returns None so the
-    // caller warns and falls back to the regular face — never a crash.
+    // caller warns and falls back to the regular face - never a crash.
     let (_fixture_dir, dirs) = weight_fixture(
         "weight_missing",
         &["CascadiaMono-Regular.ttf", "CascadiaMono-Bold.ttf"],
@@ -893,7 +893,7 @@ fn latin_coverage_accepts_text_font_rejects_emoji() {
 }
 
 // Trap (b): the regular face is chosen by metadata (400, upright), NOT by
-// shortest stem / first-seen — Thin must never win. Order puts Thin first so
+// shortest stem / first-seen - Thin must never win. Order puts Thin first so
 // a first-wins bug would surface.
 #[test]
 fn pick_regular_prefers_400_upright_over_thin_and_italic() {
@@ -1014,7 +1014,7 @@ fn resolve_symbol_font_prefers_the_dedicated_symbols_face() {
     let bytes = fixture_mono_bytes();
     let dir = unique_tmp_dir("symbolfont");
     // A plain body font, a patched family font, and the dedicated symbols
-    // face — same bytes; the *names* drive selection. The dedicated
+    // face - same bytes; the *names* drive selection. The dedicated
     // "Symbols Nerd Font" must win over the general "* Nerd Font" face, and
     // a non-Nerd font must be ignored entirely.
     std::fs::write(dir.join("DejaVuSansMono.ttf"), &bytes).expect("write body font");
@@ -1105,7 +1105,7 @@ fn symbol_source_describe_is_stable() {
 #[test]
 fn symbolmap_empty_is_identity() {
     // The off / default path: an empty map returns None for every probe,
-    // including the codepoint extremes — i.e. font resolution is untouched.
+    // including the codepoint extremes - i.e. font resolution is untouched.
     let map = SymbolMap::new();
     assert!(map.is_empty());
     assert_eq!(map.len(), 0);
@@ -1175,7 +1175,7 @@ fn symbolmap_disjoint_ranges_resolve_independently() {
     assert!(map.push(0xE000, 0xF8FF, "Nerd")); // private use area
     assert_eq!(map.lookup(0x2550), Some("BoxDrawing"));
     assert_eq!(map.lookup(0xE700), Some("Nerd"));
-    assert_eq!(map.lookup(0x0041), None); // 'A' — unmapped, normal family
+    assert_eq!(map.lookup(0x0041), None); // 'A' - unmapped, normal family
     assert_eq!(map.len(), 2);
 }
 
@@ -1319,8 +1319,8 @@ fn windows_symbol_fallback_faces_picks_up_a_hint_named_file() {
 
 /// Authoritative on the windows-latest runner (`seguisym.ttf` is present):
 /// the composed symbol-fallback chain must resolve a monochrome outline for
-/// the codepoints previously reported blank — the check `U+2714` and the
-/// result-branch `U+23BF` — from *some* face in the chain (the bundled Nerd
+/// the codepoints previously reported blank - the check `U+2714` and the
+/// result-branch `U+23BF` - from *some* face in the chain (the bundled Nerd
 /// faces are icon-only and lack them, so this exercises the new Windows
 /// tail). Before the Windows fallback, the chain was the
 /// icon-only bundled faces only, and neither codepoint resolved.

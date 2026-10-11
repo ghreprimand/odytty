@@ -92,7 +92,7 @@ fn integration_off_argv_is_byte_identical_to_plain_connect() {
     let off = ssh_command_for_host_with_integration(&entry, false).expect("off");
     assert_eq!(plain, off);
     // Requesting reuse can never resurrect control options on the
-    // integration-off path , it stays byte-identical to a plain connect.
+    // integration-off path: it stays byte-identical to a plain connect.
     let off_but_reuse = ssh_command_for_host_with_options(
         &entry,
         &RemoteSshOptions {
@@ -414,7 +414,7 @@ fn integration_off_argv_ignores_tmux_and_stays_byte_identical() {
     let entry = remote_host("web1", "deploy", "web1.example.invalid");
     let plain = ssh_command_for_host(&entry).expect("plain");
     // tmux is a bootstrap-only wrap, so with integration off (no bootstrap)
-    // it can never alter the argv , it stays byte-identical to a plain ssh.
+    // it can never alter the argv: it stays byte-identical to a plain ssh.
     let off_but_tmux = ssh_command_for_host_with_options(
         &entry,
         &RemoteSshOptions {
@@ -587,7 +587,7 @@ fn parse_control_persist_maps_off_tokens_and_durations() {
 }
 
 // Windows client: OpenSSH has no ControlMaster, so the reuse control options
-// (including ControlPersist) are compiled out , the knob is inert. This test
+// (including ControlPersist) are compiled out and the knob is inert. This test
 // pins that a Windows argv carries NO ControlPersist regardless of the token.
 #[cfg(windows)]
 #[test]

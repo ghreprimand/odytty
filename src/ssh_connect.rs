@@ -89,7 +89,7 @@ pub enum ProbeClass {
     Unreachable,
 }
 
-/// Build the argv for a Test Connection probe (ODP-8): a non-interactive,
+/// Build the argv for a Test Connection probe: a non-interactive,
 /// no-shell, one-shot `exit`. `BatchMode=yes` disables every prompt so the probe
 /// can never hang on a password; `-v` surfaces the offered auth methods on
 /// stderr for the amber discriminator; `ConnectTimeout=5` bounds the TCP wait.
@@ -161,7 +161,7 @@ pub fn ssh_port_override(host: &ConnectionHost) -> Option<u16> {
     }
 }
 
-/// Push `-i <path>` for a host's `IdentityFile`, when set (ODP-9 Tier 1). The
+/// Push `-i <path>` for a host's `IdentityFile`, when set. The
 /// path is a separate argv element (never merged into `-i<path>`) so a path is
 /// always read as the identity filename, never an ssh option. An empty path is
 /// ignored. OdyTTY stores only the path; no key material is ever handled.
@@ -222,7 +222,7 @@ pub struct RemoteSshOptions {
     /// (unresolvable state dir, or a Windows client where OpenSSH has no
     /// socket-multiplexing support).
     pub control_dir: Option<PathBuf>,
-    /// The `ControlPersist=` token for the reuse master (ODP-9 Tier 2): `no` to
+    /// The `ControlPersist=` token for the reuse master: `no` to
     /// tear the master down with its last connection, or a window in whole
     /// seconds. `None` uses the built-in default window
     /// ([`SSH_CONTROL_PERSIST_SECS`]), so callers that do not resolve the
@@ -232,10 +232,10 @@ pub struct RemoteSshOptions {
 }
 
 /// Build the system-ssh argv for a saved connection entry, optionally injecting
-/// OdyTTY's shell integration on the remote (bash-only, i1).
+/// OdyTTY's shell integration on the remote (bash only).
 ///
-/// This is the i1 entry point retained for direct integration-only callers and
-/// its tests; connection reuse is off. See
+/// This entry point is retained for direct integration-only callers and its
+/// tests; connection reuse is off. See
 /// [`ssh_command_for_host_with_options`] for the full knob surface.
 pub fn ssh_command_for_host_with_integration(
     host: &ConnectionHost,
@@ -257,7 +257,7 @@ pub fn ssh_command_for_host_with_integration(
 /// options.
 ///
 /// When `opts.integration` is `false` the argv is byte-identical to
-/// [`ssh_command_for_host`] , no remote command, no PTY-forcing `-t`, no control
+/// [`ssh_command_for_host`]: no remote command, no PTY-forcing `-t`, no control
 /// options, nothing added. This is the exact guarantee callers rely on when
 /// integration is turned off globally or opted out for a host.
 ///
@@ -275,7 +275,7 @@ pub fn ssh_command_for_host_with_integration(
 ///
 /// `[CONTROL-OPTS]` (`-o ControlMaster=auto -o ControlPersist=… -o
 /// ControlPath=…`) are added only when `opts.reuse` is set and a `control_dir`
-/// resolved , so the first tab to a host establishes a shared master and later
+/// resolved. The first tab to a host establishes a shared master and later
 /// tabs multiplex over it with no fresh handshake. OpenSSH for Windows has no
 /// socket multiplexing, so the control options are compiled out on Windows
 /// entirely and reuse is a silent no-op there.
@@ -331,7 +331,7 @@ pub fn ssh_command_for_host_with_options(
 const REMOTE_UPLOAD_DIR: &str = "/tmp";
 
 /// Compose the remote temp path a pasted image is uploaded to: an unguessable
-/// random name under `/tmp` (F6-i7). The random component is drawn from
+/// random name under `/tmp`. The random component is drawn from
 /// OS cryptographic entropy. The remote command uses noclobber as a second
 /// boundary: a pre-existing path or symlink fails rather than being followed.
 /// The name uses only `[/tmp/a-z0-9.-]`, so it is safe to single-quote into the
@@ -388,10 +388,10 @@ fn random_hex_token_with(
 /// Connect timeout for one-shot upload and cleanup commands.
 const REMOTE_EXEC_CONNECT_TIMEOUT: &str = "ConnectTimeout=10";
 
-/// Build the argv that uploads a pasted image to a remote temp path (F6-i7).
+/// Build the argv that uploads a pasted image to a remote temp path.
 ///
-/// The upload runs the system `ssh` binary , the same credential-delegating
-/// transport as the connect path, never an embedded ssh , with a remote command
+/// The upload runs the system `ssh` binary (the same credential-delegating
+/// transport as the connect path, never an embedded ssh), with a remote command
 /// that creates the file `0600` (`umask 077`) and streams the bytes from the
 /// upload process's stdin:
 ///
@@ -406,7 +406,7 @@ const REMOTE_EXEC_CONNECT_TIMEOUT: &str = "ConnectTimeout=10";
 /// `[/tmp/a-z0-9.-]`), single-quoted with no escaping needed. On Windows the
 /// program is still `ssh` (`ssh.exe`) and no `ControlPath` option is emitted
 /// (OpenSSH there has no socket multiplexing), so the upload does its own
-/// connect , functional, just not multiplexed.
+/// connect: functional, just not multiplexed.
 pub fn remote_upload_command(
     destination: &str,
     port: Option<u16>,
@@ -421,10 +421,10 @@ pub fn remote_upload_command(
 }
 
 /// Build the best-effort cleanup argv that removes uploaded paste files from the
-/// remote on tab close/disconnect (F6-i7). `None` when there is nothing to
+/// remote on tab close/disconnect. `None` when there is nothing to
 /// remove. Best-effort by nature: if the link has already dropped the command
 /// cannot run, and the file persists until the remote's own `/tmp` reaper
-/// removes it , a caveat documented honestly rather than a guaranteed deletion.
+/// removes it. This is a documented caveat, not a guaranteed deletion.
 pub fn remote_cleanup_command(
     destination: &str,
     port: Option<u16>,
@@ -514,7 +514,7 @@ pub fn remote_tmux_enabled(host_tmux: Option<bool>, global_default: bool) -> boo
 /// the window in whole seconds. Accepts an off token (`off`/`0`/`no`/`none`),
 /// bare seconds (`600`), and `<n>h`/`<n>m`/`<n>s` combinations (`2h`, `1h30m`,
 /// `90s`). Returns `None` for an unrecognized value so the caller can fall back
-/// to the global default. Pure string handling , no shell, no I/O; the value is
+/// to the global default. Pure string handling with no shell and no I/O; the value is
 /// only ever placed as a single `-o ControlPersist=<token>` argv element.
 pub fn parse_control_persist(raw: &str) -> Option<String> {
     let trimmed = raw.trim().to_ascii_lowercase();
@@ -619,7 +619,7 @@ pub fn short_control_dir() -> PathBuf {
 /// resolves a final-component symlink, the leaf is then validated via
 /// `symlink_metadata` (real directory, owned by the effective UID), and any
 /// permission repair happens through an `O_NOFOLLOW | O_DIRECTORY` handle with
-/// `fchmod` semantics , so a planted symlink, a foreign-owned directory, or a
+/// `fchmod` semantics. A planted symlink, a foreign-owned directory, or a
 /// non-directory object at the leaf fails closed and its target is never
 /// touched. Parent components keep the prior `create_dir_all` behavior; the
 /// state parent is prepared and validated separately by the caller.
@@ -758,14 +758,14 @@ fn remote_posix_command(script: &str) -> String {
 fn remote_bash_bootstrap(tmux: bool) -> String {
     let blob = base64_encode(remote_bash_rc().as_bytes());
     // The interactive launch, once the rcfile is materialized. With tmux off the
-    // bootstrap `exec`s bash directly (the i1 path). With tmux on it `exec`s a
+    // bootstrap `exec`s bash directly. With tmux on it `exec`s a
     // persistent `tmux new-session -A -s odytty` (create-or-attach) running the
     // integrated bash, so a dropped-and-reconnected link reattaches the same
-    // remote session , degrading to plain bash when the remote has no `tmux`, so
+    // remote session. It degrades to plain bash when the remote has no `tmux`, so
     // opting in never yields a broken session. `new -A` applies the command only
     // on CREATE; a reattach keeps the original shell (the integration is already
     // live), which also means the freshly written rcfile is only consumed on
-    // create , a reattach leaves that small temp file for the OS to reap.
+    // create; a reattach leaves that small temp file for the OS to reap.
     let launch = if tmux {
         "if command -v tmux >/dev/null 2>&1; then \
          exec tmux new-session -A -s odytty bash --rcfile \"$__odytty_rc\" -i; \
@@ -816,7 +816,7 @@ fn base64_encode(input: &[u8]) -> String {
 
 /// Build a detached session-host config whose child is the system `ssh` binary.
 ///
-/// This is the Phase-2 pairing point: an SSH connection is a normal hosted
+/// An SSH connection is a normal hosted
 /// child command, so reattach and bounded scrollback use the same local
 /// session-host protocol as shell sessions. Unix-only (the session-host
 /// transport is `#[cfg(unix)]`).
@@ -837,7 +837,7 @@ pub fn detached_ssh_host_config(
 
 /// The SSH operand: imported OpenSSH alias, or OdyTTY-owned `[USER@]HOST`. Validated to reject credential-like or shell-unsafe
 /// fields. Exposed so the connect path can capture the destination for the
-/// image paste-through upload descriptor (F6-i7) without rebuilding the argv.
+/// image paste-through upload descriptor without rebuilding the argv.
 pub fn ssh_destination(host: &ConnectionHost) -> Result<String, SshConnectError> {
     if host.source == ConnectionHostSource::SshConfig {
         validate_target_field("alias", &host.alias)?;

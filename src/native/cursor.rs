@@ -2,7 +2,7 @@
 use std::time::{Duration, Instant};
 
 /// Half-period of the cursor blink, i.e. the interval between on/off toggles.
-/// ~530ms matches the long-standing xterm/VT default cadence.
+/// 530 ms is a chosen cadence.
 pub(super) const CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(530);
 
 /// Quiet interval after keyboard activity before a blinking cursor may first
@@ -112,11 +112,11 @@ impl CursorBlinkState {
         .min()
     }
 
-    /// Park the blink to solid-on with no scheduled wake — the same rest state as
+    /// Park the blink to solid-on with no scheduled wake - the same rest state as
     /// focus loss, but reached without a `now`/`blinking`/`focused` sample.
     /// Used to settle a session's blink when it is deactivated (a background tab
     /// is never rendered, so its cursor must not keep a live toggle deadline that
-    /// nothing consumes — see NF20-B fan-out fix). Re-arms naturally on the next
+    /// nothing consumes). Re-arms naturally on the next
     /// [`Self::poll`] once the session is active and focused again.
     pub(super) fn park(&mut self) {
         self.on = true;

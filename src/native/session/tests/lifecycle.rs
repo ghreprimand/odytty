@@ -207,8 +207,8 @@ fn close_active_tab_reaps_the_whole_multi_pane_tab() {
     // The active tab (tab0) is multi-pane.
     assert!(!set.active_is_single_pane());
 
-    // "Close Tab" removes the ENTIRE active tab — both leaf sessions reaped,
-    // the tab gone — not just the focused pane.
+    // "Close Tab" removes the ENTIRE active tab - both leaf sessions reaped,
+    // the tab gone - not just the focused pane.
     let last = set.close_active_tab();
     assert!(!last, "another tab remains, so not the last tab");
     assert_eq!(set.tab_count(), 1, "the whole multi-pane tab was removed");
@@ -265,7 +265,7 @@ fn close_active_tab_on_the_last_tab_signals_exit_even_when_multi_pane() {
 #[test]
 fn close_active_tab_on_a_single_pane_tab_matches_close_active_id() {
     // Single-pane byte-identical proof: Close Tab on a single-pane tab does
-    // exactly what the old `close(active_id())` path did — same surviving
+    // exactly what the old `close(active_id())` path did - same surviving
     // session, same active token, same tab count.
     let mut via_close_tab = WorkspaceSet::new(build_session(), None);
     via_close_tab.push(build_session_with_id(SessionToken(1)));
@@ -284,7 +284,7 @@ fn close_active_tab_on_a_single_pane_tab_matches_close_active_id() {
 fn close_tab_at_reaps_a_non_active_multi_pane_tab_and_leaves_active_untouched() {
     // tab0 = single pane (session 0, active); tab1 = two panes (sessions 2
     // + 1), NON-active. The tab-strip `×` can target tab1 while tab0 is
-    // active — it must reap the WHOLE tab1 and leave tab0 (and the active
+    // active - it must reap the WHOLE tab1 and leave tab0 (and the active
     // index) untouched.
     let mut set = WorkspaceSet::new(build_session(), None);
     set.push(build_session_with_id(SessionToken(2))); // tab1, single
@@ -503,7 +503,7 @@ fn move_workspace_guards_the_ends_and_bad_indices() {
 
 #[test]
 fn shell_exit_closes_workspace_only_for_a_sole_pane_sole_tab() {
-    // SHELL-EXIT-CLOSES: the predicate is true only when the exiting session
+    // The predicate is true only when the exiting session
     // is the sole pane of the sole tab of its workspace (reaping it empties
     // the workspace). Sibling panes or tabs make it false -- those exits
     // close only a pane or tab, never the workspace.
@@ -539,7 +539,7 @@ fn shell_exit_closes_workspace_only_for_a_sole_pane_sole_tab() {
 
 #[test]
 fn any_foreground_job_running_except_excludes_the_named_session() {
-    // SHELL-EXIT-CLOSES: the "except" scan skips the exiting session. With a
+    // The "except" scan skips the exiting session. With a
     // lone workspace, excluding its only session leaves nothing to scan, so
     // the result is false regardless of that session's (already-ended) job.
     let set = WorkspaceSet::new(build_session(), None);
@@ -557,8 +557,8 @@ fn closing_a_workspaces_last_tab_closes_the_workspace_and_switches_out() {
     assert!(set.switch_workspace(1));
     assert_eq!(set.workspace_count(), 2);
 
-    // Closing ws1's only tab removes ws1 entirely — not app exit, because
-    // ws0 survives — and clamps the active workspace back onto ws0.
+    // Closing ws1's only tab removes ws1 entirely - not app exit, because
+    // ws0 survives - and clamps the active workspace back onto ws0.
     let exit = set.close_active_tab();
     assert!(!exit, "another workspace survives, so not app exit");
     assert_eq!(set.workspace_count(), 1);
@@ -821,7 +821,7 @@ fn moving_the_last_tab_out_closes_the_source_workspace() {
 
 #[test]
 fn move_tab_destinations_excludes_the_source_and_is_empty_alone() {
-    // Single workspace: no destinations, so the picker never opens (W4-v2).
+    // Single workspace: no destinations, so the picker never opens.
     let mut set = WorkspaceSet::new(build_session(), None);
     assert!(
         set.move_tab_destinations(SessionToken(0)).is_empty(),
@@ -847,7 +847,7 @@ fn move_tab_destinations_excludes_the_source_and_is_empty_alone() {
 
 #[test]
 fn reposition_active_tab_after_slides_new_tab_next_to_a_non_active_anchor() {
-    // ODP-5D: the connect flow appends the remote tab last + switches to it;
+    // The connect flow appends the remote tab last + switches to it;
     // reposition then slides it to sit right after the CLICKED (anchor) tab,
     // even when the anchor is neither the active nor the last tab.
     let mut set = WorkspaceSet::new(build_session(), None);
@@ -997,7 +997,7 @@ fn move_tab_rejects_unknown_token_out_of_range_and_same_workspace() {
     assert_eq!(set.tab_count(), 2);
 }
 
-/// F6-W5: binding the active workspace to a host alias is observable through
+/// Binding the active workspace to a host alias is observable through
 /// the accessor, idempotent, and unbinding returns the previous alias.
 #[test]
 fn workspace_host_binding_set_and_clear() {
@@ -1017,7 +1017,7 @@ fn workspace_host_binding_set_and_clear() {
     assert_eq!(set.active_workspace_default_profile(), None);
 }
 
-/// RAIL-BIND: the by-index bind/query pair targets a specific slot and is a
+/// The by-index bind/query pair targets a specific slot and is a
 /// safe no-op out of range.
 #[test]
 fn workspace_host_binding_by_index() {

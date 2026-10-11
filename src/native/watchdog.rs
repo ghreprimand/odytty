@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Freeze watchdog (FREEZE-HARDEN item b).
+//! Freeze watchdog.
 //!
 //! The v0.7.0 freeze presented as a live event loop that serviced compositor
 //! events mechanically while the render/input path was dead: pending input
@@ -8,18 +8,18 @@
 //! logging the app's state machine so the next freeze names its latch instead
 //! of requiring a live debugger session.
 //!
-//! Design: [`WatchdogApp`] wraps the real [`App`] as the winit
-//! [`ApplicationHandler`], noting "work-implying" events (input, IME, redraw
-//! requests, PTY pump wakes) before delegating and mirroring a small state
-//! snapshot into shared atomics after delegating. A detached monitor thread
+//! Design: the native host owns a [`WatchdogShared`] value, noting
+//! "work-implying" events (input, IME, redraw requests, PTY pump wakes) through
+//! `note_activity` and mirroring a small [`WatchdogAppState`] snapshot into
+//! shared atomics after each event. A detached monitor thread
 //! wakes every couple of seconds and, when work has been pending for
 //! [`STALL_AFTER`] with no frame presented since, emits ONE `warn!` record
 //! with the mirrored state (re-emitted at most every [`RELOG_EVERY`] while
 //! the stall persists; re-armed by the next presented frame). On the healthy
 //! path the per-event cost is a handful of relaxed atomic stores and the
-//! monitor thread sleeps — no locks, no allocation.
+//! monitor thread sleeps - no locks, no allocation.
 //!
-//! PRIVACY (hard release rule): the stall record is STATE ONLY — booleans,
+//! PRIVACY (hard release rule): the stall record is STATE ONLY - booleans,
 //! counters, and enum names baked into this file. No PTY bytes, no grid
 //! text, no window titles. The seam tests below pin the charset of all three
 //! records (stall, slow retry, callback outstanding) so a future edit cannot
@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 const STALL_AFTER: Duration = Duration::from_secs(10);
 /// While a stall persists, re-log at most this often.
 const RELOG_EVERY: Duration = Duration::from_secs(60);
-/// Monitor thread poll cadence. Coarse on purpose — the watchdog trades
+/// Monitor thread poll cadence. Coarse on purpose - the watchdog trades
 /// detection latency for near-zero idle cost.
 const POLL_EVERY: Duration = Duration::from_secs(2);
 /// A window in the renderer's skipped-frame slow retry is only classified as
@@ -50,7 +50,7 @@ pub(super) const SLOW_RETRY_RECORD_PREFIX: &str =
 
 /// State snapshot the probe (`App::watchdog_state`, see
 /// `app/watchdog_probe.rs`) hands the wrapper after every delegated event.
-/// Everything is a bool / counter / C-like enum by construction — the type
+/// Everything is a bool / counter / C-like enum by construction - the type
 /// itself enforces that no terminal content can flow into the stall record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct WatchdogAppState {
@@ -490,7 +490,7 @@ impl WatchdogShared {
         // stall either. When an output sleeps (DPMS-off), a surface is
         // occluded, or redraws are throttled to a compositor frame callback
         // that legitimately stops arriving, zero presented frames is the
-        // correct steady state — the app is simply not being asked to draw.
+        // correct steady state - the app is simply not being asked to draw.
         // The freeze this module exists to catch has the opposite shape:
         // `RedrawRequested` keeps being delivered and no frame comes out.
         // Requiring at least one delivery inside the episode separates them
@@ -719,8 +719,8 @@ mod tests {
     }
 
     /// PRIVACY SEAM (hard release rule): the stall record must be state-only.
-    /// Pin the full charset — lowercase key names, digits, `=`/`_`/spaces and
-    /// the fixed prefix — so no future edit can interpolate terminal content
+    /// Pin the full charset - lowercase key names, digits, `=`/`_`/spaces and
+    /// the fixed prefix - so no future edit can interpolate terminal content
     /// (PTY bytes, grid text, window titles) without failing this test.
     #[test]
     fn stall_record_is_state_only() {
@@ -927,7 +927,7 @@ mod tests {
     /// REGRESSION GUARD for the observed false positive: an idle or background
     /// window latches pending work (a redraw request, a PTY wake) but owes no
     /// frame. Even well past STALL_AFTER, `evaluate` must stay silent when
-    /// `render_owed` is false — this is the ~33-minute unfocused/no-owed noise
+    /// `render_owed` is false - this is the ~33-minute unfocused/no-owed noise
     /// series from the real log that the gate removes.
     #[test]
     fn idle_window_with_no_owed_frame_never_stalls() {
@@ -973,7 +973,7 @@ mod tests {
         assert_eq!(shared.evaluate(since + 9_999), None);
     }
 
-    /// REGRESSION GUARD — asleep/hidden output. The observed false positive:
+    /// REGRESSION GUARD - asleep/hidden output. The observed false positive:
     /// terminal output keeps arriving (pending work, a rebuild genuinely owed)
     /// while the display is DPMS-off, so the compositor stops asking for
     /// frames and nothing presents. `render_owed` is TRUE here, so the older

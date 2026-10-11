@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! THEME-CAPTURE: "Create theme from current colors".
+//! "Create theme from current colors".
 //!
-//! The flow snapshots the focused pane's *effective* dynamic-color state — what
-//! the pane is actually displaying — into a theme draft and hands it to the
+//! The flow snapshots the focused pane's *effective* dynamic-color state - what
+//! the pane is actually displaying - into a theme draft and hands it to the
 //! theme editor. These tests pin the two properties that make it trustworthy:
 //!
 //! 1. The captured spec matches the live state, with live `OSC 4`/`10`/`11`/`12`
@@ -89,7 +89,7 @@ fn live_palette_overrides_win_per_slot() {
     let mut app = app_with_theme(theme);
 
     // OSC 4: override two slots, leave the other fourteen theme-seeded. This is
-    // the precedence rule the whole feature rests on — a partial override must
+    // the precedence rule the whole feature rests on - a partial override must
     // produce a partially-overridden capture, never all-or-nothing.
     app.advance_primary_terminal_for_test(b"\x1b]4;1;rgb:ff/00/00\x07");
     app.advance_primary_terminal_for_test(b"\x1b]4;9;rgb:00/ff/00\x07");

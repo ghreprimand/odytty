@@ -25,11 +25,11 @@ pub(super) struct ThemeBuilder {
     editing: Option<EditMode>,
     message: Option<String>,
     /// Which OKLCH channel the Left/Right arrows currently drive, and which
-    /// channel token a pointer slider drag targets (U2). View state, but it
+    /// channel token a pointer slider drag targets. View state, but it
     /// changes the rendered readout/slider highlight independently of `message`,
     /// so it is carried in [`ThemeBuilderSignature`] to drive repaint.
     channel: OklchChannel,
-    /// How many floored roles the last save auto-snapped to AA (D-U2-2), carried
+    /// How many floored roles the last save auto-snapped to AA, carried
     /// from [`ThemeBuilder::save_request`] into [`ThemeBuilder::save_succeeded`]
     /// so the saved-confirmation message can report the backstop.
     save_snap_count: usize,
@@ -39,18 +39,18 @@ pub(super) struct ThemeBuilder {
     /// the settings-panel slider.
     dragging_channel: bool,
     /// How many role rows the last [`ThemeBuilder::build_rows`] render actually
-    /// fit below the fixed header/preview block (OVERLAY-SMALL-WINDOW). The role
+    /// fit below the fixed header/preview block. The role
     /// list is the only windowed region, and the header count is variable (the
     /// hint/message wrap, the conditional preview rows), so this capacity cannot
     /// be re-derived from `body_height` alone. Interior-mutable because only the
     /// render pass knows it, yet `clamp` (keyboard nav, `&mut self`) must follow
-    /// the selection through the *real* visible window — replacing the old
+    /// the selection through the *real* visible window - replacing the old
     /// hardcoded `slack = 8` that over-scrolled on short overlays. `0` until the
     /// first render; the render pass always runs before `scroll_indicator`.
     last_role_capacity: Cell<usize>,
 }
 
-/// The OKLCH channel the keyboard editor is focused on (U2). Lightness and
+/// The OKLCH channel the keyboard editor is focused on. Lightness and
 /// chroma are delta-driven (±step per keypress, gamut-stable); hue is rotated by
 /// a fixed step per keypress (the keyboard analog of the absolute hue dial,
 /// D-U2-1). Cycled with `[` / `]` (the in-app channel-focus control).
@@ -83,7 +83,7 @@ const MAX_SLIDER_TRACK: usize = 24;
 /// A fixed readout budget reserved to the right of the track so the track does
 /// not jump as the channel value's text width changes during a drag.
 const CHANNEL_READOUT_W: usize = 7;
-/// Track groove and thumb glyphs — the same family the settings slider uses, so
+/// Track groove and thumb glyphs - the same family the settings slider uses, so
 /// they render reliably in the overlay.
 const SLIDER_GROOVE: char = '─';
 const SLIDER_THUMB: char = '█';
@@ -137,8 +137,8 @@ impl OklchChannel {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum ThemeBuilderOutcome {
     Consumed,
-    /// The editor asked for a fresh capture of the focused pane's live colors
-    /// (THEME-CAPTURE). The builder has no access to terminal state, so the App
+    /// The editor asked for a fresh capture of the focused pane's live colors.
+    /// The builder has no access to terminal state, so the App
     /// resolves the capture and feeds it back via
     /// [`ThemeBuilder::apply_capture`].
     CaptureLiveColors,
@@ -162,7 +162,7 @@ pub(super) struct ThemeBuilderSignature {
     pub(super) message: Option<String>,
     /// The focused OKLCH channel's label (U2 Step 2/3). In the signature so the
     /// channel picker and slider repaint when the focus changes even if the
-    /// message did not — the keyboard path's repaint no longer rides on always
+    /// message did not - the keyboard path's repaint no longer rides on always
     /// mutating `message`.
     pub(super) channel: &'static str,
     /// The currently-selected role's color (U2 Step 2/3). In the signature so the
@@ -174,10 +174,10 @@ pub(super) struct ThemeBuilderSignature {
 /// The role of one rendered builder body line, used to dispatch a pointer press
 /// (U2 Step 2/3). Produced in lockstep with the rendered text by
 /// [`ThemeBuilder::build_rows`] so the drawn geometry and the hit-test geometry
-/// can never drift — the same pattern the settings panel uses.
+/// can never drift - the same pattern the settings panel uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BuilderZone {
-    /// A header / message / preview line — no pointer action.
+    /// A header / message / preview line - no pointer action.
     Inert,
     /// A role row: a click focuses that `FIELDS` index. Clicking at or after
     /// `value_x0` also opens direct hexadecimal entry for the displayed value.
@@ -222,7 +222,7 @@ enum EditMode {
     Name {
         buffer: String,
     },
-    /// Seed entry for contrast-aware generation (U3): the user types a single
+    /// Seed entry for contrast-aware generation: the user types a single
     /// accent hex, and Enter feeds it to [`palette_gen::generate`] to author a
     /// complete, AA-by-construction [`ThemeSpec`] loaded as the live editing
     /// target. Shares the hex-entry keystroke handling with [`EditMode::Color`].
@@ -281,10 +281,10 @@ impl ThemeBuilder {
         self.message = Some("Cloned the active theme into a new draft.".to_owned());
     }
 
-    /// Load a captured draft (THEME-CAPTURE): the editor opens on the pane's
+    /// Load a captured draft: the editor opens on the pane's
     /// live colors instead of a clone of the active theme. `original` stays the
     /// theme that is actually applied, so cancelling still restores what the
-    /// user had — the capture is a draft, not an applied change.
+    /// user had - the capture is a draft, not an applied change.
     pub(super) fn open_captured(&mut self, settings: &Settings, spec: ThemeSpec) {
         *self = Self::from_theme(settings.theme);
         let name = spec.name.clone();
@@ -313,7 +313,7 @@ impl ThemeBuilder {
         self.message = Some("Captured this pane's live colors into the draft.".to_owned());
     }
 
-    /// Test seam (THEME-CAPTURE): the working draft, before any save-time AA
+    /// Test seam: the working draft, before any save-time AA
     /// backstop is applied.
     #[cfg(test)]
     pub(super) fn draft_for_test(&self) -> ThemeSpec {
@@ -348,7 +348,7 @@ impl ThemeBuilder {
             OverlayInput::Tab => self.cycle_channel(true),
             OverlayInput::Char('f') | OverlayInput::Char('F') => return self.snap_selected(),
             OverlayInput::Char('g') | OverlayInput::Char('G') => self.begin_seed_edit(),
-            // THEME-CAPTURE: re-snapshot the pane's live colors into the draft.
+            // Re-snapshot the pane's live colors into the draft.
             // The builder cannot read terminal state itself, so it asks; the
             // App resolves the capture and calls `apply_capture`.
             OverlayInput::Char('c') | OverlayInput::Char('C') => {
@@ -790,7 +790,7 @@ impl ThemeBuilder {
         self.message = self.editing_prompt();
     }
 
-    /// Begin seed-entry for contrast-aware generation (U3): pre-fill the buffer
+    /// Begin seed-entry for contrast-aware generation: pre-fill the buffer
     /// with the current cursor accent as a sensible default so Enter alone
     /// regenerates around the existing accent.
     fn begin_seed_edit(&mut self) {
@@ -800,9 +800,9 @@ impl ThemeBuilder {
         self.message = self.editing_prompt();
     }
 
-    /// Author a complete theme from a single seed accent (U3): hand the seed,
+    /// Author a complete theme from a single seed accent: hand the seed,
     /// the current appearance polarity, and the authoring floor to
-    /// [`palette_gen::generate`], then load the RV1-validated result as the live
+    /// [`palette_gen::generate`], then load the validated result as the live
     /// editing target. The generated spec clears the AA floor for every floored
     /// role by construction, so the contrast readout reads PASS (or "not
     /// floored") on every role immediately after; the user then tweaks it with
@@ -840,7 +840,7 @@ impl ThemeBuilder {
         } else {
             Appearance::Dark
         };
-        // D-U2-2: mandatory save-time backstop — snap every floored role to AA so
+        // Mandatory save-time backstop - snap every floored role to AA so
         // the written .theme clears the authoring floor by construction, even if
         // F was never pressed. The count is reported in save_succeeded.
         self.save_snap_count = self.auto_snap_floored();
@@ -864,7 +864,7 @@ impl ThemeBuilder {
         ThemeBuilderOutcome::Preview(self.preview_theme())
     }
 
-    /// `Tab` / `[` / `]` — move the keyboard editor's focus to the previous /
+    /// `Tab` / `[` / `]` - move the keyboard editor's focus to the previous /
     /// next OKLCH channel.
     fn cycle_channel(&mut self, forward: bool) {
         let next = if forward {
@@ -882,7 +882,7 @@ impl ThemeBuilder {
     fn set_channel(&mut self, channel: OklchChannel) {
         self.channel = channel;
         self.message = Some(format!(
-            "Edit channel: {} — Left/Right or drag adjust.",
+            "Edit channel: {} - Left/Right or drag adjust.",
             channel.label()
         ));
     }
@@ -912,9 +912,9 @@ impl ThemeBuilder {
     }
 
     /// Hidden role rows above / below the visible window, for the shared ▲/▼
-    /// scroll affordance (OVERLAY-SMALL-WINDOW). The role list is the only
+    /// scroll affordance. The role list is the only
     /// windowed region; its capacity is whatever [`ThemeBuilder::build_rows`]
-    /// recorded for the current geometry — the render pass always runs before
+    /// recorded for the current geometry - the render pass always runs before
     /// this, so the memoized value is fresh. `body_height` is unused because the
     /// header block above the list is variable; the recorded capacity already
     /// accounts for it. `(false, false)` whenever every role fits, so a tall
@@ -1003,7 +1003,7 @@ impl ThemeBuilder {
 
     /// Set the selected role's focused OKLCH channel to `fraction` of its range
     /// (`0..=1`), via a delta through [`theme_author::nudge`] so the gamut map and
-    /// quantization match the keyboard editor exactly — the slider and the arrows
+    /// quantization match the keyboard editor exactly - the slider and the arrows
     /// share one math path.
     fn set_channel_fraction(&mut self, fraction: f32) -> ThemeBuilderOutcome {
         let field = FIELDS[self.selected];
@@ -1029,7 +1029,7 @@ impl ThemeBuilder {
         ThemeBuilderOutcome::Preview(self.preview_theme())
     }
 
-    /// `F` — snap the selected role up to the authoring floor (AA 4.5) against
+    /// `F` - snap the selected role up to the authoring floor (AA 4.5) against
     /// its [`theme_author::floor_partner`]-resolved surface. Inert (and says so)
     /// for roles that are not floored (background, chrome, the background-side
     /// neutral ramp pair); idempotent on roles already clearing the floor.
@@ -1063,7 +1063,7 @@ impl ThemeBuilder {
     /// D-U2-2 save-time backstop), returning how many roles actually moved.
     /// Partners are resolved fresh from the in-progress spec each iteration, so a
     /// foreground-floored fill (selection/search) snaps against the already
-    /// floored foreground — `FIELDS` lists foreground before the fills, so the
+    /// floored foreground - `FIELDS` lists foreground before the fills, so the
     /// dependency resolves in one pass.
     fn auto_snap_floored(&mut self) -> usize {
         let mut changed = 0;
@@ -1148,7 +1148,7 @@ impl ThemeBuilder {
     }
 
     /// The selected role's live authoring contrast against its floor partner
-    /// (PASS/FAIL vs the AA 4.5 authoring floor — explicitly NOT the render-time
+    /// (PASS/FAIL vs the AA 4.5 authoring floor - explicitly NOT the render-time
     /// `min_contrast`), or a "not floored" note for unfloored roles.
     fn contrast_readout_line(&self) -> String {
         let field = FIELDS[self.selected];
@@ -1446,7 +1446,7 @@ fn floor_surface_label(role: AuthorRole, appearance: Appearance) -> Option<&'sta
     })
 }
 
-/// The lowercase polarity word used in the generate-confirmation message (U3).
+/// The lowercase polarity word used in the generate-confirmation message.
 fn appearance_label(appearance: Appearance) -> &'static str {
     match appearance {
         Appearance::Dark => "dark",
@@ -1456,7 +1456,7 @@ fn appearance_label(appearance: Appearance) -> &'static str {
 
 /// Decode an sRGB byte triple to OKLCH for the readout: lightness `[0,1]`,
 /// chroma, and hue in degrees `[0,360)`. Read-only display helper over the
-/// shared `color` conversions — the editing math always routes through
+/// shared `color` conversions - the editing math always routes through
 /// [`theme_author::nudge`], never this.
 fn oklch_of((r, g, b): Srgb) -> (f32, f32, f32) {
     let lch = oklab_to_oklch(linear_to_oklab([

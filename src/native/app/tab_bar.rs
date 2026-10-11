@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Tab bar widget — presentation-only, decoupled from the session model.
+//! Tab bar widget - presentation-only, decoupled from the session model.
 //!
 //! Renders a one-row tab strip across the top of the window. The widget is
 //! purely geometrical: it reads layout from a [`TabBarSource`] trait object
@@ -18,22 +18,22 @@
 //! [`super::chrome_geometry`] on move and press, storing the result through
 //! [`TabBar::set_hover`].
 //!
-//! ## Visual treatment: "Phosphor Flat" (F4-RESKIN)
+//! ## Visual treatment: "Phosphor Flat"
 //! All color comes from the shared [`super::tab_chrome`] module (theme roles
-//! only — no hardcoded colors, so every theme and the CVD modes stay correct);
+//! only - no hardcoded colors, so every theme and the CVD modes stay correct);
 //! this widget owns layout, `tab_chrome` owns the treatment. The old
 //! outlined-box language (per-slot rings, the band↔body separator, the accent
 //! underline) was **deleted, not bypassed** because it read as hacked-together
 //! and cheap. The container is now invisible; only the active
 //! tab is a drawn object, and hierarchy comes from luminance:
 //!
-//! - **ACTIVE** — a warm `selection` fill (the bloom-off fallback) plus a bright,
+//! - **ACTIVE** - a warm `selection` fill (the bloom-off fallback) plus a bright,
 //!   bold `foreground` label brightened above the bloom threshold so it
 //!   auto-halos through `bloom.wgsl` with no new geometry.
-//! - **INACTIVE** — bare `inactive`-role labels on the wallpaper-through
+//! - **INACTIVE** - bare `inactive`-role labels on the wallpaper-through
 //!   background (no fill), dimmed along a phosphor-persistence luminance ramp
 //!   keyed on the tab's distance from the active one.
-//! - **HOVER** — the label warms one tier toward the active label and gains a
+//! - **HOVER** - the label warms one tier toward the active label and gains a
 //!   whisper of the selection fill.
 //! - `×` shows on the active/hovered tab only; `+` is a dim glyph that brightens
 //!   on hover.
@@ -59,9 +59,9 @@ use crate::theme::Srgb;
 // Public constants
 // ---------------------------------------------------------------------------
 
-/// Physical-pixel row count of the classic single-row tab bar. Retained for
-/// the reservation/geometry tests that assert the one-row baseline; the live
-/// height is resolved from `tab_bar_height` (`App::tab_bar_rows`).
+/// Cell-row count of the classic single-row tab bar. Retained for the
+/// reservation/geometry tests that assert the one-row baseline; the live height
+/// is resolved from `tab_bar_height` (`App::tab_bar_rows`).
 #[cfg(test)]
 pub(in crate::native) const TAB_BAR_ROWS: u32 = 1;
 
@@ -90,8 +90,8 @@ pub(super) const ACTIVITY_BADGE: char = '\u{25cf}'; // ●
 // Public types
 // ---------------------------------------------------------------------------
 
-/// Read-only interface to the session model.  GPT will `impl TabBarSource for
-/// WorkspaceSet`; unit tests use an inline mock.
+/// Read-only chrome source, implemented by `WorkspaceSet` and
+/// `WorkspaceRailSource`; unit tests use an inline mock.
 pub(in crate::native) trait TabBarSource {
     /// Number of open tabs (0 means the bar renders empty).
     fn tab_count(&self) -> usize;
@@ -132,8 +132,8 @@ pub(in crate::native) enum TabHit {
     NewTab,
     /// The pointer is over the adjacent profile-chooser chevron beside `+`.
     NewTabProfilePicker,
-    /// The pointer is over the workspace rail's bottom-edge auto-hide toggle
-    /// (RAIL-AUTOHIDE-CTL). Only the vertical rail ever produces this; the top
+    /// The pointer is over the workspace rail's bottom-edge auto-hide toggle.
+    /// Only the vertical rail ever produces this; the top
     /// bar has no such control.
     AutohideToggle,
     /// The pointer is outside all interactive tab-bar regions.
@@ -180,22 +180,22 @@ pub(super) struct TabBarOutput {
     pub(super) glyphs: Vec<TabBarGlyph>,
 }
 
-/// Theme-role colors the tab bar paints with (F4). Grouped into a struct so the
+/// Theme-role colors the tab bar paints with. Grouped into a struct so the
 /// render signature stays readable as visual treatments are added, and so every
-/// color demonstrably originates from a theme role (nothing hardcoded — CVD
+/// color demonstrably originates from a theme role (nothing hardcoded - CVD
 /// modes stay correct).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct TabBarColors {
-    /// Active-tab label text (brightened above the bloom threshold) — theme
+    /// Active-tab label text (brightened above the bloom threshold) - theme
     /// `foreground`.
     pub(super) foreground: Srgb,
-    /// Terminal body background — theme `background`. Inactive slots and gaps
+    /// Terminal body background - theme `background`. Inactive slots and gaps
     /// paint this as their wallpaper-through fill.
     pub(super) background: Srgb,
-    /// Dimmed color for inactive tab labels (base of the phosphor ramp) — theme
+    /// Dimmed color for inactive tab labels (base of the phosphor ramp) - theme
     /// `inactive`.
     pub(super) inactive: Srgb,
-    /// Active slot fill (and the base a hover fill is blended toward) — theme
+    /// Active slot fill (and the base a hover fill is blended toward) - theme
     /// `selection`.
     pub(super) active_bg: Srgb,
 }
@@ -242,13 +242,13 @@ impl TabBar {
 
     /// Render the tab bar for the current frame.
     ///
-    /// - `source` — session model accessor (mock or real `WorkspaceSet`).
-    /// - `grid_cols` — number of terminal columns in the window.
-    /// - `y_offset_px` / `cell` / `padding` — pixel geometry for chrome quads;
+    /// - `source` - session model accessor (mock or real `WorkspaceSet`).
+    /// - `grid_cols` - number of terminal columns in the window.
+    /// - `y_offset_px` / `cell` / `padding` - pixel geometry for chrome quads;
     ///   Phosphor Flat emits none, so they are currently unused (retained in the
     ///   signature so a future bar↔body divider can be added back without
     ///   touching the two call sites).
-    /// - `colors` — the theme-role colors (see [`TabBarColors`]).
+    /// - `colors` - the theme-role colors (see [`TabBarColors`]).
     ///
     /// Returns [`TabBarOutput`] with one explicit-background glyph per column and
     /// an **empty** quad list. Every cell's background + label attributes carry
@@ -299,26 +299,26 @@ impl TabBar {
         let layout = compute_layout(source, grid_cols);
         let active_idx = source.active_tab();
 
-        // Phosphor Flat palette (shared treatment; theme roles only). F4-P1: the
+        // Phosphor Flat palette (shared treatment; theme roles only). the
         // resting-cell surface is the panel tint (Layer 1 of ODP-1) rather than
         // the raw background, so the bar reads as one quiet surface even at
         // `cell_bg_opacity = 1`; `panel_strength = 0` collapses it to the theme
         // background (the pre-panel bare-labels look).
         let panel_srgb = tab_chrome::panel_tint(colors, panel_strength);
         let panel_surface = rgb(panel_srgb);
-        // ACTIVE-FILL: lift the `selection` slab against THIS panel surface so it
+        // Lift the `selection` slab against THIS panel surface so it
         // clears the legibility ratio floor; hover re-bases on the panel toward
         // that guaranteed fill (rest < hover < active).
         let active_fill = rgb(tab_chrome::active_fill(colors, panel_srgb));
         let active_lbl = rgb(tab_chrome::active_label(colors));
         let hover_fill = rgb(tab_chrome::hover_fill(colors, panel_srgb));
         let hover_lbl = rgb(tab_chrome::hover_label(colors));
-        // RAIL-PLUS-GAP / F4-PLUS: the resting `+` lifts out of the dim inactive
+        // The resting `+` lifts out of the dim inactive
         // floor so it reads as a deliberate "add" control; hover still goes full
         // active-label bright on top of that.
         let rest_plus = rgb(tab_chrome::new_slot_plus_rest(colors));
 
-        // The whole row starts as the panel surface — inactive tabs and
+        // The whole row starts as the panel surface - inactive tabs and
         // inter-slot gaps recede into it (no per-tab geometry).
         let mut row = vec![blank_glyph(0, panel_surface, panel_surface); grid_cols];
         for (col, glyph) in row.iter_mut().enumerate() {
@@ -379,7 +379,7 @@ impl TabBar {
                 col += w;
             }
 
-            // Close `×` glyph — rendered only for the active or hovered tab.
+            // Close `×` glyph - rendered only for the active or hovered tab.
             if let Some(close_col) = slot.close_col.filter(|_| is_active || is_hovered)
                 && let Some(glyph) = row.get_mut(close_col)
             {
@@ -446,7 +446,7 @@ impl TabBar {
             }
         }
 
-        // Phosphor Flat draws no chrome quads — the treatment is entirely cell
+        // Phosphor Flat draws no chrome quads - the treatment is entirely cell
         // backgrounds + label attributes (see the module docs).
         TabBarOutput {
             quads: Vec::new(),
@@ -747,14 +747,14 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Phosphor Flat — no chrome quads (fails-before: the outline era emitted
+    // Phosphor Flat - no chrome quads (fails-before: the outline era emitted
     // rings + a band separator)
     // -----------------------------------------------------------------------
 
     #[test]
     fn render_emits_no_chrome_quads_on_any_tab_count() {
         // The whole treatment is cell backgrounds + label attributes; no rings,
-        // no underline, no separator — so the quad list is always empty.
+        // no underline, no separator - so the quad list is always empty.
         for src in [
             MockSource::empty(),
             MockSource::new(&["a"], 0),
@@ -820,8 +820,8 @@ mod tests {
 
     #[test]
     fn resting_cells_paint_the_panel_tint_at_strength() {
-        // F4-P1: at a live strength the resting bar cells paint the panel tint
-        // (Layer 1), not the raw background — and that tint differs from the
+        // At a live strength the resting bar cells paint the panel tint
+        // (Layer 1), not the raw background - and that tint differs from the
         // background on the dark palette. At strength 0 they collapse back to
         // the background (the pre-panel look).
         let src = MockSource::new(&["a", "b"], 0);
@@ -944,7 +944,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Three tabs — active = middle
+    // Three tabs - active = middle
     // -----------------------------------------------------------------------
 
     #[test]
@@ -1092,7 +1092,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Hit test — bodies, close, new-tab, out of bounds
+    // Hit test - bodies, close, new-tab, out of bounds
     // -----------------------------------------------------------------------
 
     #[test]
@@ -1230,7 +1230,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Phosphor Flat — fill / label / ramp / hover treatment
+    // Phosphor Flat - fill / label / ramp / hover treatment
     // -----------------------------------------------------------------------
 
     #[test]
@@ -1260,7 +1260,7 @@ mod tests {
     #[test]
     fn active_label_is_bright_bold_and_clears_the_bloom_threshold() {
         // The active label is painted bright above the bloom threshold (0.7) on
-        // this dark palette so bloom.wgsl auto-halos it — and it is bold.
+        // this dark palette so bloom.wgsl auto-halos it - and it is bold.
         let src = MockSource::new(&["zsh", "bash"], 0);
         let out = render_default(&src);
         let g = out.glyphs.iter().find(|g| g.ch == 'z').expect("'z' glyph");
@@ -1307,7 +1307,7 @@ mod tests {
     #[test]
     fn hovered_inactive_gets_a_whisper_fill_and_a_lifted_label() {
         // A hovered inactive tab gains a subordinate fill and a label warmed one
-        // tier toward the active label — brighter than its resting dim label but
+        // tier toward the active label - brighter than its resting dim label but
         // never as strong as the active tab.
         let src = MockSource::new(&["a", "b", "c"], 0);
         let layout = compute_layout(&src, GRID_COLS);
@@ -1344,7 +1344,7 @@ mod tests {
 
     #[test]
     fn new_tab_plus_is_visible_at_rest_and_brighter_on_hover() {
-        // RAIL-PLUS-GAP / F4-PLUS: the resting `+` is lifted above the dim
+        // The resting `+` is lifted above the dim
         // inactive-label floor so it reads as a deliberate add control, yet
         // stays subordinate to the active label; hover brightens it further.
         let src = MockSource::new(&["a"], 0);
@@ -1397,8 +1397,8 @@ mod tests {
     #[test]
     fn bloom_off_fallback_active_tab_is_identifiable_without_glow() {
         // With bloom disabled there is no halo, so the active tab must still be
-        // identifiable from the fill + bold bright label alone (F4R-NF3). Both
-        // are emitted unconditionally — this asserts the fallback signals exist,
+        // identifiable from the fill + bold bright label alone. Both
+        // are emitted unconditionally - this asserts the fallback signals exist,
         // independent of any post-process.
         let src = MockSource::new(&["one", "two", "three"], 1);
         let out = render_default(&src);

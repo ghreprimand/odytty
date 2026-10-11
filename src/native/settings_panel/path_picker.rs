@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Inline path-picker sub-state for `SettingsPanel` (SETTINGS-REDESIGN).
+//! Inline path-picker sub-state for `SettingsPanel`.
 //!
 //! Activated when Enter is pressed on a `SettingKind::Path` row at Level 2.
 //! Renders a minimal file browser inside the settings panel body (no new
@@ -78,7 +78,7 @@ impl std::fmt::Debug for PendingRead {
 pub(super) enum PathPickerOutcome {
     /// Input consumed; keep the picker open.
     Consumed,
-    /// A file was selected — commit this path string.
+    /// A file was selected - commit this path string.
     Selected(String),
     /// Picker was cancelled; restore the original value.
     Cancelled,
@@ -86,7 +86,7 @@ pub(super) enum PathPickerOutcome {
 
 impl PathPickerState {
     /// Create a new picker for `key`, starting in `start_dir`. `original` is
-    /// the setting's current value — restored if the user presses Esc.
+    /// the setting's current value - restored if the user presses Esc.
     pub(super) fn new(key: &'static str, start_dir: PathBuf, original: String) -> Self {
         let mut picker = Self {
             key,
@@ -430,7 +430,7 @@ fn spawn_read_dir(dir: PathBuf, ext_filter: &'static [&'static str]) -> PendingR
     if spawn_result.is_err() {
         // No worker thread was created, so read synchronously into the same
         // channel. `poll_pending` then resolves it identically on the next
-        // tick — the picker fills in one frame later instead of asynchronously,
+        // tick - the picker fills in one frame later instead of asynchronously,
         // never crashing. Exactly one message reaches the channel either way.
         let _ = tx.send((dir.clone(), read_dir_entries(&dir, ext_filter)));
     }
@@ -642,13 +642,13 @@ mod tests {
         assert_eq!(action_entries("background_image").len(), 2);
     }
 
-    // C9/C29: narrow bodies with multibyte paths must never panic on a
+    // Narrow bodies with multibyte paths must never panic on a
     // mid-codepoint byte slice or a `max_name - 1` underflow.
     #[test]
     fn narrow_terminal_multibyte_paths_render_without_panic() {
         let mut picker = PathPickerState::new("font", PathBuf::from("/tmp"), String::new());
         // A deep multibyte breadcrumb plus multibyte entry names exercise both
-        // the breadcrumb tail slice (C9) and the entry-name truncation (C29).
+        // the breadcrumb tail slice and the entry-name truncation.
         picker.current_dir = PathBuf::from("/köln/über/naïve/文档/résumé");
         picker.entries = vec![
             PathEntry {
@@ -664,7 +664,7 @@ mod tests {
                 commit_override: None,
             },
         ];
-        // Sweep the pathological narrow widths (and 0) — the test passing is the
+        // Sweep the pathological narrow widths (and 0) - the test passing is the
         // no-panic assertion; also every rendered line honors the char budget.
         for w in 0..=7usize {
             // Byte-indexing or an unchecked subtraction would panic here; a clean
@@ -689,8 +689,8 @@ mod tests {
 
     #[test]
     fn spawn_read_dir_delivers_entries_through_the_channel() {
-        // Whichever mechanism runs — the spawned worker on the success path or
-        // the synchronous fallback when a thread cannot be created — the
+        // Whichever mechanism runs - the spawned worker on the success path or
+        // the synchronous fallback when a thread cannot be created - the
         // directory's entries must reach the channel exactly once, so
         // `poll_pending` always resolves the picker. This pins that contract
         // against a regression in the spawn/fallback seam.
@@ -704,7 +704,7 @@ mod tests {
             .recv_timeout(std::time::Duration::from_secs(5))
             .expect("the channel yields the read result");
         assert_eq!(got_dir, dir);
-        // Same result the direct read produces — the async path adds nothing.
+        // Same result the direct read produces - the async path adds nothing.
         let direct = read_dir_entries(&dir, extension_filter("background_image"));
         let got_names = entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>();
         let direct_names = direct.iter().map(|e| e.name.as_str()).collect::<Vec<_>>();

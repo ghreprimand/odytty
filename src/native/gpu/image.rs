@@ -5,8 +5,8 @@
 //! decoded once, optionally CPU box-blurred at load time, and scanned for its
 //! worst-case luminance so a [readability scrim] can be computed that keeps the
 //! composited luminance behind text on the safe side of the theme background
-//! `l_bg`. The per-cell RV1 floor therefore stays a valid lower bound at any
-//! `cell_bg_opacity` — see [`crate::color::readability_scrim_for`].
+//! `l_bg`. The per-cell minimum-contrast floor therefore stays a valid lower bound at any
+//! `cell_bg_opacity` - see [`crate::color::readability_scrim_for`].
 //!
 //! Off-path: this module is only ever instantiated when `background_treatment =
 //! image` AND a `background_image` path is configured. With no image the
@@ -25,15 +25,13 @@ use crate::theme::Theme;
 /// Maximum image edge (px) for CPU blur. Larger buffers skip the blur with a
 /// warning.
 ///
-/// The check now runs on the SURFACE-SIZED buffer, not the decoded source, so
-/// it is no longer reachable by simply configuring a large wallpaper: a
+/// The check runs on the surface-sized buffer, not the decoded source: the
+/// texture target is `min(source, surface * 3/2, device limit)` per axis, so a
 /// 3840x2160 image on a 1920x1080 window is resampled to at most 2880x1620
-/// before the blur is considered. It stays as a cost bound for the case the
-/// resample cannot reduce — a drawable surface that is itself near or beyond
-/// this size, which a multi-monitor 8K desktop can produce — because the blur
-/// is an O(W*H) CPU pass on the render thread's load path and an unbounded one
-/// would stall startup. Kept rather than removed: the resample changed how
-/// often the guard fires, not whether the cost it bounds still exists.
+/// before the blur is considered. Large windows can still exceed this edge
+/// (a window wider than about 2,731 px with a source wider than 4,096 px), and
+/// then the configured blur is skipped with a warning. The bound exists because
+/// the blur is an O(W*H) CPU pass on the render thread's load path.
 const MAX_BG_IMAGE_DIM: u32 = 4096;
 
 /// Linear headroom the background texture carries beyond the drawable surface,
@@ -76,7 +74,7 @@ fn background_target_dimensions(source: (u32, u32), surface: (u32, u32)) -> (u32
 /// Whether a texture of `texture` size, decoded from a `source` sized image,
 /// still has enough texels for a `surface` sized drawable.
 ///
-/// The trigger is one texel per window pixel — NOT the headroom target. The
+/// The trigger is one texel per window pixel - NOT the headroom target. The
 /// headroom is what a reload sizes *to*; comparing against it here would make
 /// every one-pixel resize event look like a miss and re-decode the image on
 /// each frame of a drag. Comparing against the plain surface is what turns the
@@ -89,7 +87,7 @@ fn background_target_dimensions(source: (u32, u32), surface: (u32, u32)) -> (u32
 /// also what bounds the reload count: each reload multiplies the trigger size
 /// by the headroom factor, so a drag across the whole range of window sizes a
 /// display can hold reloads O(log(range)) times, and stops entirely once the
-/// texture reaches the source's own resolution — at which point there are no
+/// texture reaches the source's own resolution - at which point there are no
 /// more texels to be had and the answer is permanently no.
 fn background_needs_resample(texture: (u32, u32), source: (u32, u32), surface: (u32, u32)) -> bool {
     texture.0 < source.0.min(surface.0) || texture.1 < source.1.min(surface.1)
@@ -136,12 +134,12 @@ struct PreparedBackground {
 /// Ordering is load-bearing. The luminance scan runs LAST, on the exact bytes
 /// that reach the texture, so the scrim is computed from what will actually be
 /// sampled. (It previously ran before the device-limit downscale, which could
-/// only move the extremes inward — conservative, but computed from a buffer
+/// only move the extremes inward - conservative, but computed from a buffer
 /// that was not the one uploaded.) Sampling the texture can never leave those
 /// bounds: hardware filtering returns a convex combination of texel values,
 /// sRGB-decoded before the blend, and WCAG relative luminance is linear in
-/// linear-light RGB — so every rendered pixel's luminance lies between the
-/// measured min and max, and the RV1 floor the scrim protects stays valid.
+/// linear-light RGB - so every rendered pixel's luminance lies between the
+/// measured min and max, and the minimum-contrast floor the scrim protects stays valid.
 fn prepare_background(
     path: &Path,
     blur_radius: u32,
@@ -167,7 +165,7 @@ fn prepare_background(
     };
 
     // The bundled default background is compiled into the binary, so it
-    // decodes from memory rather than a file — this is what makes the default
+    // decodes from memory rather than a file - this is what makes the default
     // resolve identically on every target (dev build, source build,
     // relocatable AppImage, distro package) with no path lookup. A real user
     // path still takes the normal on-disk decode below.
@@ -221,7 +219,7 @@ pub(in crate::native) struct BgImageGpu {
     /// Color-target format `pipeline` was built against. The scene-target
     /// format flips between the surface format and the HDR offscreen format
     /// when CRT/bloom toggle at runtime, and wgpu requires the pipeline's
-    /// color target to match the render pass it draws into — so the format is
+    /// color target to match the render pass it draws into - so the format is
     /// tracked here and the pipeline rebuilt via [`Self::rebuild_pipeline`].
     target_format: wgpu::TextureFormat,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -231,7 +229,7 @@ pub(in crate::native) struct BgImageGpu {
     _texture: wgpu::Texture,
     /// Path + blur radius the current GPU texture was decoded from. Lets the
     /// caller skip a re-decode when only the theme / opacity / scrim override
-    /// changed (T6 / T10). The radius stored here is the REQUESTED one, not the
+    /// changed. The radius stored here is the REQUESTED one, not the
     /// resample-scaled one actually applied, so the cache key keeps comparing
     /// like with like against the settings value.
     source: (PathBuf, u32),
@@ -246,16 +244,16 @@ pub(in crate::native) struct BgImageGpu {
     /// not repeat the open, decode and warning on every event; loading the
     /// image again from settings starts over.
     resample_failed: bool,
-    /// WCAG relative luminance of the active theme background — the `l_bg` the
+    /// WCAG relative luminance of the active theme background - the `l_bg` the
     /// scrim is computed against, and the only thing the scrim needs from the
     /// theme. Stored as the derived scalar rather than the whole theme so a
     /// surface-driven reload can rebuild the uniform on its own, without the
     /// resize path having to carry a theme it otherwise has no use for.
     theme_l_bg: f32,
-    /// Worst-case (max) post-blur luminance — the `l_treat` used for a Dark
+    /// Worst-case (max) post-blur luminance - the `l_treat` used for a Dark
     /// theme (a black scrim caps a too-bright image).
     l_treat_max: f32,
-    /// Worst-case (min) post-blur luminance — the `l_treat` used for a Light
+    /// Worst-case (min) post-blur luminance - the `l_treat` used for a Light
     /// theme (a white scrim lifts a too-dark image).
     l_treat_min: f32,
     /// Explicit scrim override (`None` ⇒ auto-compute the floor-safe scrim).
@@ -302,7 +300,7 @@ impl BgImageGpu {
 
     /// Load + blur + scan an image and build the GPU pipeline/texture/uniform.
     /// Returns `None` (with a warning) when the file is missing, unreadable, or
-    /// not decodable — the caller then falls back to the no-image path.
+    /// not decodable - the caller then falls back to the no-image path.
     //
     // The 9 inputs are all distinct load-time parameters (GPU handles, the
     // source path, blur, the surface size, and the three scrim inputs); a
@@ -442,7 +440,7 @@ impl BgImageGpu {
     }
 
     /// Whether the current texture still carries enough texels for a `surface`
-    /// sized drawable. Pure — no GPU work, no file access — so the resize path
+    /// sized drawable. Pure - no GPU work, no file access - so the resize path
     /// can ask it on every resize event and pay a decode only when the answer
     /// is yes.
     pub(in crate::native) fn needs_resample_for(&self, surface: (u32, u32)) -> bool {
@@ -515,7 +513,7 @@ impl BgImageGpu {
         self.texture_dimensions = (prepared.width, prepared.height);
         self.source_dimensions = prepared.source;
         // The luminance bounds belong to the buffer that was uploaded, so a new
-        // buffer means a new scrim — resampling moves the extremes inward, and
+        // buffer means a new scrim - resampling moves the extremes inward, and
         // leaving the old bounds in place would scrim for pixels that are no
         // longer there.
         self.l_treat_max = prepared.l_treat_max;
@@ -525,7 +523,7 @@ impl BgImageGpu {
     }
 
     /// Recompute the scrim and re-upload the uniform after a `cell_bg_opacity`
-    /// or scrim-override change — WITHOUT re-decoding the image (T6). Cheap: a
+    /// or scrim-override change - WITHOUT re-decoding the image. Cheap: a
     /// luminance blend and one tiny buffer write.
     pub(in crate::native) fn refresh_scrim(
         &mut self,
@@ -559,7 +557,7 @@ impl BgImageGpu {
     /// pre-transparency output); a value below `1.0` scales the image so the
     /// desktop shows through it instead of the wallpaper repainting the
     /// transparent scene clear opaque. Only the uniform's third slot changes, so
-    /// the scrim result is untouched — a targeted one-`f32` buffer write, and a
+    /// the scrim result is untouched - a targeted one-`f32` buffer write, and a
     /// no-op (no GPU write at all) when the value is unchanged, which keeps the
     /// opaque path's command stream identical to today.
     pub(in crate::native) fn set_window_alpha(&mut self, queue: &wgpu::Queue, alpha: f32) {
@@ -568,12 +566,12 @@ impl BgImageGpu {
             return;
         }
         self.window_alpha = alpha;
-        // Overwrite ONLY `window_alpha` (index 2) of the `[f32; 4]` uniform —
-        // byte offset 8, one f32 — leaving the scrim slots intact.
+        // Overwrite ONLY `window_alpha` (index 2) of the `[f32; 4]` uniform -
+        // byte offset 8, one f32 - leaving the scrim slots intact.
         queue.write_buffer(&self.uniform_buf, 8, bytemuck::bytes_of(&alpha));
     }
 
-    /// Recompute the scrim on a theme change (T10), reusing the stored explicit
+    /// Recompute the scrim on a theme change, reusing the stored explicit
     /// override. The new `l_bg` + polarity come from `theme`; no re-decode.
     pub(in crate::native) fn refresh_for_theme(
         &mut self,
@@ -607,7 +605,7 @@ impl BgImageGpu {
     }
 
     /// Draw the full-window image quad. Bound first in `draw_scene` so it sits
-    /// behind every cell quad. No vertex buffer — the quad is hardcoded in the
+    /// behind every cell quad. No vertex buffer - the quad is hardcoded in the
     /// vertex shader from `@builtin(vertex_index)`.
     pub(in crate::native) fn draw<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
         pass.set_pipeline(&self.pipeline);
@@ -639,7 +637,7 @@ fn scrim_uniform(
     [alpha, if is_white { 1.0 } else { 0.0 }, window_alpha, 0.0]
 }
 
-/// WCAG relative luminance of a theme's background colour — the `l_bg` the
+/// WCAG relative luminance of a theme's background colour - the `l_bg` the
 /// scrim is computed against, and the only value the scrim needs from a theme.
 fn theme_background_luminance(theme: &Theme) -> f32 {
     let (br, bg, bb) = theme.background;
@@ -653,11 +651,11 @@ fn theme_background_luminance(theme: &Theme) -> f32 {
 /// Compute `(scrim_alpha, scrim_is_white)` for the active theme.
 ///
 /// `l_bg` is the WCAG relative luminance of the *effective* theme background
-/// (the same reference the per-cell RV1 floor uses, since the caller passes the
+/// (the same reference the per-cell minimum-contrast floor uses, since the caller passes the
 /// CVD-adapted/OS-resolved theme). Polarity follows the 0.18 luminance boundary
 /// shared across the codebase. The auto scrim is [`readability_scrim_for`],
 /// which returns `0.0` whenever the floor is disabled (`min_contrast <= 1.0`)
-/// or the cell layer is opaque (`opacity >= 1.0`) — so the no-scrim identity
+/// or the cell layer is opaque (`opacity >= 1.0`) - so the no-scrim identity
 /// paths hold. An explicit override is clamped and bypasses the computation.
 fn compute_scrim(
     l_treat_max: f32,
@@ -684,7 +682,7 @@ fn compute_scrim(
 }
 
 /// Worst-case post-blur luminances over the whole image: `(max, min)` WCAG
-/// relative luminance. The alpha channel is ignored — the bound treats the
+/// relative luminance. The alpha channel is ignored - the bound treats the
 /// image as fully opaque, which is conservative (any transparency only lets the
 /// already-theme-safe clear colour show, never something less safe).
 fn worst_case_luminances(rgba: &[u8]) -> (f32, f32) {
@@ -766,18 +764,19 @@ fn background_sampler(device: &wgpu::Device) -> wgpu::Sampler {
     })
 }
 
-/// In-place separable box blur on an RGBA8 buffer. Two O(W·H) sliding-window
-/// passes (horizontal then vertical), each channel summed independently. Pure
-/// Rust, no deps. Each pass clamps the radius to its OWN dimension (T5) so a
-/// large radius stays well-defined on small images — and a thin image (e.g. one
-/// row tall) still blurs along its long axis rather than being skipped wholesale.
-/// Window reads are edge-clamped, so any clamped radius is in-bounds.
+/// Isotropic box blur used by tests: one radius on both axes.
 #[cfg(test)]
 fn box_blur_rgba(rgba: &mut [u8], width: u32, height: u32, radius: u32) {
     box_blur_rgba_axes(rgba, width, height, radius, radius);
 }
 
-/// Box blur with independent horizontal and vertical radii.
+/// In-place separable box blur on an RGBA8 buffer with independent horizontal
+/// and vertical radii. Two O(W*H) sliding-window passes (horizontal then
+/// vertical), each channel summed independently. Each pass clamps the radius to
+/// its OWN dimension so a large radius stays well-defined on small images, and
+/// a thin image (e.g. one row tall) still blurs along its long axis rather than
+/// being skipped wholesale. Window reads are edge-clamped, so any clamped
+/// radius is in-bounds.
 ///
 /// The axes are separate because the wallpaper is resampled per axis: the
 /// image is stretched over the window with no aspect correction, so the two
@@ -1123,7 +1122,7 @@ mod tests {
 
         // A drag from the smallest to the largest window the source can serve.
         // Reloads must be few and must stop once the texture reaches source
-        // resolution — the property that keeps a resize drag from thrashing.
+        // resolution - the property that keeps a resize drag from thrashing.
         let mut reloads = 0;
         let mut width = 640;
         while width <= 3840 {
@@ -1255,7 +1254,7 @@ mod tests {
 
     #[test]
     fn oversized_user_image_loads_and_is_sized_to_the_window() {
-        // A user-supplied file takes the same path as the bundled default —
+        // A user-supplied file takes the same path as the bundled default -
         // one function, no special case for the shipped asset.
         let path = write_png("bg-oversized", 2_000, 1_200, &checkerboard(2_000, 1_200));
         let prepared =
@@ -1360,7 +1359,7 @@ mod tests {
         };
         let device = &gpu.device;
         let queue = &gpu.queue;
-        // The bundled default background decodes from memory — no file needed.
+        // The bundled default background decodes from memory - no file needed.
         let path = std::path::Path::new(crate::settings::BUNDLED_BACKGROUND_SENTINEL);
         let surface_format = wgpu::TextureFormat::Bgra8UnormSrgb;
         let hdr_format = wgpu::TextureFormat::Rgba16Float;
@@ -1523,7 +1522,7 @@ mod tests {
         assert_eq!(
             small,
             (1_200, 900),
-            "an 800x600 window takes an 800x600 window's worth of texels"
+            "an 800x600 window takes its 3/2 headroom box"
         );
         let small_bytes = bg.gpu_texture_bytes();
 
@@ -1552,7 +1551,7 @@ mod tests {
         assert_eq!(bg.texture_dimensions(), grown);
 
         // The pass still draws cleanly against the replaced texture and bind
-        // group — a resample must not strand the pipeline.
+        // group - a resample must not strand the pipeline.
         assert!(
             draw_into(device, queue, &bg, wgpu::TextureFormat::Bgra8UnormSrgb).is_none(),
             "the resampled texture must draw without validation errors"

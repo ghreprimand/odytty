@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Native "Open With…" app-picker overlay (C3b).
+//! Native "Open With…" app-picker overlay.
 //!
 //! A near-1:1 clone of the session-attach summon overlay
 //! (`session_attach_overlay.rs`), specialized over [`DesktopApp`] rows: a
@@ -182,7 +182,7 @@ impl OpenWithOverlay {
         self.follow_selection_for_known_body_height();
     }
 
-    /// Map a clicked body row to the selection cursor it represents — the
+    /// Map a clicked body row to the selection cursor it represents - the
     /// inverse of the [`Self::visible_lines`] windowing (UX4-P1 click→Activate).
     /// Row 0 is the `> query` prompt; app rows follow from the live
     /// `scroll_offset`. Returns `None` for the prompt row, the empty/"No

@@ -6,10 +6,10 @@
 
 use super::*;
 
-/// Pure hit-test for the lightbox click-outside-to-dismiss (Phase 13d): is the
+/// Pure hit-test for the lightbox click-outside-to-dismiss: is the
 /// pointer pixel `(px, py)` OUTSIDE the image fit-rect `[x0, y0, x1, y1]`?
 ///
-/// Boundary convention: edges are INCLUSIVE — a point exactly on the rect border
+/// Boundary convention: edges are INCLUSIVE - a point exactly on the rect border
 /// counts as ON the image (inside), so it is inert rather than dismissing; only
 /// a point strictly beyond an edge returns `true`. Kept a free, pure fn so it is
 /// unit-testable headless, with no GPU/window state. The pointer pixel and the
@@ -32,7 +32,7 @@ impl App {
         }
     }
 
-    /// Open the right-click context menu (IN2) at the cached pointer cell, with
+    /// Open the right-click context menu at the cached pointer cell, with
     /// Copy enabled iff a selection exists and Paste enabled iff the active
     /// pane accepts input: the per-item gating snapshot the menu renders.
     /// Deliberately does NOT call `reset_pointer_state_for_overlay`: that would
@@ -40,7 +40,7 @@ impl App {
     /// the first move) means no menu.
     pub(super) fn open_context_menu(&mut self, surface: ContextMenuSurface) {
         // The rename/close target token rides on the surface: a `TabSlot`
-        // right-click targets THAT tab (NF-F7-1); every other surface has no
+        // right-click targets THAT tab; every other surface has no
         // tab target.
         let rename_target = match surface {
             ContextMenuSurface::TabSlot(token) => Some(token),
@@ -64,7 +64,7 @@ impl App {
         let editable_selection = self.editable_input_selection_for_context_menu();
         let prompt_editing_hint =
             editable_selection.is_none() && self.prompt_input_mark_missing_for_context_menu();
-        // PASTE-GATE: do NOT probe the clipboard synchronously here. On Wayland
+        // Do NOT probe the clipboard synchronously here. On Wayland
         // `get_text` reads a pipe served by the clipboard OWNER with no timeout,
         // so a slow or unresponsive owner blocks the winit event-loop thread --
         // and this ran on EVERY menu open, freezing the whole UI for seconds. The
@@ -91,14 +91,14 @@ impl App {
                 })
         });
         // Close Pane is shown only in a multi-pane tab, and its chord lives in
-        // the multiplexer prefix table (`Ctrl-b x`), not the flat global table —
+        // the multiplexer prefix table (`Ctrl-b x`), not the flat global table -
         // so its accelerator is composed here from the prefix engine rather than
         // the generic `bindable_action` → `chord_for_action` path above.
         let multi_pane = !self.sessions.active_is_single_pane();
         let multi_tab = self.sessions.tab_count() > 1;
         let multi_workspace = self.sessions.workspace_count() > 1;
-        // F6-W5: the tab menu offers a "New Local Tab" escape only when the
-        // active workspace routes New Tab through a bound host. RAIL-BIND: a
+        // The tab menu offers a "New Local Tab" escape only when the
+        // active workspace routes New Tab through a bound host. a
         // WorkspaceSlot menu targets the CLICKED slot, so its bind/unbind
         // conditional reads THAT workspace's binding, not the active one.
         let bound_workspace = match surface {
@@ -117,11 +117,11 @@ impl App {
         {
             accelerators[slot] = Some(label);
         }
-        // C3: re-detect the interactive path at the click cell (do NOT reuse the
-        // hover snapshot — a right-click may not pass through the hover path).
+        // Re-detect the interactive path at the click cell (do NOT reuse the
+        // hover snapshot - a right-click may not pass through the hover path).
         // Gated on the setting so the default (feature-off) menu never scans and
         // is byte-identical. `None` hides the file section entirely.
-        // PATH-GATE: `resolved_hovered_path` stat-probes candidate path spans,
+        // `resolved_hovered_path` stat-probes candidate path spans,
         // which can block arbitrarily on a hung mount. A right-click on chrome (a
         // tab slot, the workspace rail, an empty strip) can never sit over a
         // content path, so restrict the scan to the terminal content surface --
@@ -183,25 +183,25 @@ impl App {
                 self.broadcast_active(),
             );
         }
-        // MENU-DEBOUNCE: stamp the open instant so a stale queued press flushed
+        // Stamp the open instant so a stale queued press flushed
         // into the just-opened menu is swallowed rather than activating an item
         // (the "phantom New Workspace" replay). Cleared implicitly -- the check
         // in `handle_overlay_pointer_button` also requires the menu to be open.
         self.context_menu_opened_at = Some(Instant::now());
-        // RAIL-REORDER: a WorkspaceSlot menu needs the total workspace count to
+        // A WorkspaceSlot menu needs the total workspace count to
         // gate its Move Up/Down rows (Move Down hides on the last slot). Set it
         // only for that surface; every other menu leaves the count at 0.
         if let ContextMenuSurface::WorkspaceSlot(idx) = surface {
             self.overlay
                 .set_context_menu_workspace_count(self.sessions.workspace_count());
-            // RAIL-REVALIDATE: snapshot the clicked workspace's identity so a
+            // Snapshot the clicked workspace's identity so a
             // later rail mutation (a background workspace auto-closing) that
             // shifts indices never lands an action on another workspace.
             self.overlay
                 .set_context_menu_workspace_slot_identity(self.sessions.workspace_identity(idx));
         }
-        // MENU-Z-ORDER: a rail-anchored menu keeps the auto-hide rail revealed
-        // (RAIL-PIN), and the rail composites topmost — so without clearance the
+        // A rail-anchored menu keeps the auto-hide rail revealed,
+        // and the rail composites topmost - so without clearance the
         // menu box paints UNDER the floating rail band and its edge is occluded.
         // Reserve the rail band's columns (plus a one-column gap) on the rail's
         // side so the box lands beside the rail, fully visible and clickable.
@@ -230,7 +230,7 @@ impl App {
     /// item: the multiplexer prefix chord followed by the prefix-table key bound
     /// to `ClosePane` (e.g. `Ctrl+B X` for the tmux `Ctrl-b x` default). `None`
     /// when the prefix is disabled (`ODYTTY_PANE_PREFIX=off`) or `ClosePane` has
-    /// no prefix binding — the menu then renders the item with a blank
+    /// no prefix binding - the menu then renders the item with a blank
     /// accelerator. Reuses the same `format_key_chord` + `humanize_chord` pair
     /// the flat-table accelerators use, so the styling matches.
     pub(super) fn close_pane_accelerator(&self) -> Option<String> {
@@ -247,7 +247,7 @@ impl App {
         Some(format!("{prefix_label} {second_label}"))
     }
 
-    /// RAIL-REVALIDATE: resolve a `WorkspaceSlot` context-menu action to the
+    /// Resolve a `WorkspaceSlot` context-menu action to the
     /// workspace that was right-clicked. The menu carries a bare rail index
     /// frozen at open time, and a background workspace closing while the menu
     /// or its host picker is open shifts later indices; names are renameable
@@ -264,7 +264,7 @@ impl App {
 
     /// Route an overlay [`OverlayOutcome`] (from either the keyboard or the
     /// pointer path) through the shared App-side handlers, so the two entry
-    /// points stay in lockstep (UX4-P1).
+    /// points stay in lockstep.
     pub(super) fn apply_overlay_outcome(&mut self, outcome: OverlayOutcome) {
         self.apply_overlay_outcome_with_policy(outcome, false);
     }
@@ -366,7 +366,7 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.set_global_default_launch_profile(&name);
             }
-            // IN2: the menu closed itself before emitting these; run the action.
+            // The menu closed itself before emitting these; run the action.
             OverlayOutcome::ContextMenuCopy => {
                 self.flush_pending_overlay_settings();
                 self.handle_copy_shortcut();
@@ -475,12 +475,12 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.handle_new_tab();
             }
-            // F6-W5: the bound-workspace escape hatch — always a local shell.
+            // The bound-workspace escape hatch - always a local shell.
             OverlayOutcome::ContextMenuNewLocalTab => {
                 self.flush_pending_overlay_settings();
                 self.handle_new_local_tab();
             }
-            // Duplicate Tab: same cwd-aware local-tab spawn as New Local Tab —
+            // Duplicate Tab: same cwd-aware local-tab spawn as New Local Tab -
             // a fresh shell in the active pane's directory (not a process fork).
             OverlayOutcome::ContextMenuDuplicateTab => {
                 self.flush_pending_overlay_settings();
@@ -519,7 +519,7 @@ impl App {
             }
             // Duplicate Workspace: a fresh workspace whose first shell opens in
             // the active pane's cwd (F1 cwd inheritance), mirroring Duplicate Tab
-            // one level up — not a process fork.
+            // one level up - not a process fork.
             OverlayOutcome::ContextMenuDuplicateWorkspace => {
                 self.flush_pending_overlay_settings();
                 self.handle_duplicate_workspace();
@@ -536,7 +536,7 @@ impl App {
                     self.close_workspace_at(idx);
                 }
             }
-            // RAIL-REORDER: move the clicked workspace one slot in the rail.
+            // Move the clicked workspace one slot in the rail.
             OverlayOutcome::ContextMenuMoveWorkspaceUp(idx) => {
                 self.flush_pending_overlay_settings();
                 if let Some(idx) = self.revalidated_workspace_slot(idx) {
@@ -559,13 +559,13 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.close_workspace_at(self.sessions.active_workspace_index());
             }
-            // ODP-6B: bind the active workspace to a host. The menu closed
-            // itself; open the shared host picker (ODP-1B) seeded for binding.
+            // Bind the active workspace to a host. The menu closed
+            // itself; open the shared host picker seeded for binding.
             OverlayOutcome::ContextMenuBindWorkspace => {
                 self.flush_pending_overlay_settings();
                 self.open_bind_workspace_picker();
             }
-            // ODP-6B: unbind the active workspace directly (no host choice).
+            // Unbind the active workspace directly (no host choice).
             OverlayOutcome::ContextMenuUnbindWorkspace => {
                 self.flush_pending_overlay_settings();
                 self.unbind_active_workspace();
@@ -576,7 +576,7 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.bind_active_workspace_to_host_alias(alias);
             }
-            // RAIL-BIND: bind the CLICKED rail workspace to a host. The menu
+            // Bind the CLICKED rail workspace to a host. The menu
             // closed itself; open the shared host picker seeded for the slot.
             OverlayOutcome::ContextMenuBindWorkspaceAt(idx) => {
                 self.flush_pending_overlay_settings();
@@ -587,14 +587,14 @@ impl App {
                     self.open_bind_workspace_at_picker(identity);
                 }
             }
-            // RAIL-BIND: unbind the CLICKED rail workspace directly.
+            // Unbind the CLICKED rail workspace directly.
             OverlayOutcome::ContextMenuUnbindWorkspaceAt(idx) => {
                 self.flush_pending_overlay_settings();
                 if let Some(idx) = self.revalidated_workspace_slot(idx) {
                     self.unbind_workspace_at(idx);
                 }
             }
-            // RAIL-BIND: the shared host picker closed itself; bind the clicked
+            // The shared host picker closed itself; bind the clicked
             // rail slot to the chosen saved-host alias.
             // The picker carries the clicked workspace's identity: it binds
             // that workspace wherever it now sits, or nothing once it closed.
@@ -604,7 +604,7 @@ impl App {
                     self.bind_workspace_at_to_host_alias(idx, alias);
                 }
             }
-            // ODP-5D: a tab-menu host action closed the menu; open the shared
+            // A tab-menu host action closed the menu; open the shared
             // host picker seeded for the clicked tab so the pick routes back.
             OverlayOutcome::ContextMenuConnectToHost(token) => {
                 self.flush_pending_overlay_settings();
@@ -614,31 +614,31 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.open_replace_tab_picker(token);
             }
-            // ODP-5D: the picker closed itself; open the host in a new tab right
+            // The picker closed itself; open the host in a new tab right
             // after the clicked tab (leaves the clicked shell untouched).
             OverlayOutcome::ConnectHostInTabAfter(host, token) => {
                 self.flush_pending_overlay_settings();
                 self.connect_host_in_tab_after(&host, token);
             }
-            // ODP-5D: replace the clicked tab with the picked host — gated behind
+            // Replace the clicked tab with the picked host - gated behind
             // a confirm when that tab holds a running foreground child.
             OverlayOutcome::ReplaceTabWithHostPicked(host, token) => {
                 self.flush_pending_overlay_settings();
                 self.replace_tab_with_host(host, token);
             }
-            // ODP-5D: the replace confirm was accepted; run the destructive
+            // The replace confirm was accepted; run the destructive
             // close+connect now.
             OverlayOutcome::ReplaceTabWithHostConfirmed(host, token) => {
                 self.flush_pending_overlay_settings();
                 self.do_replace_tab_with_host(&host, token);
             }
-            // ODP-2C: a connection-row menu chose "Open in New Workspace"; create
+            // A connection-row menu chose "Open in New Workspace"; create
             // a fresh workspace pre-bound to the host and connect its first tab.
             OverlayOutcome::ConnectHostInNewWorkspace(host) => {
                 self.flush_pending_overlay_settings();
                 self.open_host_in_new_workspace(&host);
             }
-            // ODP-2C: the remove-host confirm was accepted; delete the host's
+            // The remove-host confirm was accepted; delete the host's
             // hosts.conf block and reopen the manager so the row disappears.
             OverlayOutcome::RemoveConnectionConfirmed(host) => {
                 self.flush_pending_overlay_settings();
@@ -648,7 +648,7 @@ impl App {
                 self.flush_pending_overlay_settings();
                 let _ = self.close_active_tab();
             }
-            // NF-F7-1: close the right-clicked tab (by token), not the active one.
+            // Close the right-clicked tab (by token), not the active one.
             OverlayOutcome::ContextMenuCloseTabToken(token) => {
                 self.flush_pending_overlay_settings();
                 self.close_tab_by_token(token);
@@ -658,20 +658,20 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.close_other_tabs(token);
             }
-            // W4-v2: open the "Move to Workspace" destination picker for the
+            // Open the "Move to Workspace" destination picker for the
             // right-clicked tab.
             OverlayOutcome::ContextMenuMoveToWorkspace(token) => {
                 self.flush_pending_overlay_settings();
                 self.open_move_tab_workspace_picker(token);
             }
-            // W4-v2: the picker chose a destination workspace; splice the tab.
+            // The picker chose a destination workspace; splice the tab.
             OverlayOutcome::MoveTabToWorkspacePicked(token, destination) => {
                 self.flush_pending_overlay_settings();
                 if let Some(dest_ws) = self.sessions.workspace_index_of(destination) {
                     self.move_tab_to_workspace(token, dest_ws);
                 }
             }
-            // LAYOUT-SURFACE: a WorkspaceSlot menu chose Save as Layout; open the
+            // A WorkspaceSlot menu chose Save as Layout; open the
             // name prompt seeded from the CLICKED workspace.
             OverlayOutcome::ContextMenuSaveLayoutAt(idx) => {
                 self.flush_pending_overlay_settings();
@@ -679,50 +679,50 @@ impl App {
                     self.enter_save_layout_prompt(idx);
                 }
             }
-            // LAYOUT-SURFACE: the content-grid workspace section chose Save as
+            // The content-grid workspace section chose Save as
             // Layout; open the name prompt seeded from the ACTIVE workspace.
             OverlayOutcome::ContextMenuSaveActiveLayout => {
                 self.flush_pending_overlay_settings();
                 self.enter_save_layout_prompt(self.sessions.active_workspace_index());
             }
-            // SAVE-ALL-LAYOUT: the content-grid section or the empty rail chose the
+            // The content-grid section or the empty rail chose the
             // whole-app Save as Layout; open the name prompt (captures every
             // workspace on Enter).
             OverlayOutcome::ContextMenuSaveAllLayout => {
                 self.flush_pending_overlay_settings();
                 self.enter_save_all_layout_prompt();
             }
-            // OVERWRITE-WARN: the collision dialog's Replace arm — force-write the
+            // The collision dialog's Replace arm - force-write the
             // layout, clobbering the existing file, routed by the carried kind.
             OverlayOutcome::OverwriteLayoutConfirmed { name, kind } => {
                 self.flush_pending_overlay_settings();
                 self.overwrite_layout_confirmed(&name, kind);
             }
-            // OVERWRITE-WARN: the collision dialog's "different name" arm — reopen
+            // The collision dialog's "different name" arm - reopen
             // the "Layout name:" prompt seeded with the colliding name.
             OverlayOutcome::RenameLayoutInstead { name, kind } => {
                 self.flush_pending_overlay_settings();
                 self.reopen_layout_name_prompt(kind, name);
             }
-            // LAYOUT-SURFACE: open the saved-layout picker (seeded App-side).
+            // Open the saved-layout picker (seeded App-side).
             OverlayOutcome::ContextMenuOpenLayoutPicker => {
                 self.flush_pending_overlay_settings();
                 self.open_saved_layout_picker();
             }
-            // LAYOUT-SURFACE: the picker chose a layout; open it — onto real
-            // state this raises the Replace/Add/Cancel prompt (LAYOUT-OPEN-MODE),
+            // The picker chose a layout; open it - onto real
+            // state this raises the Replace/Add/Cancel prompt,
             // onto a bare launch it opens directly (pristine-consume).
             OverlayOutcome::ContextMenuOpenLayout(name) => {
                 self.flush_pending_overlay_settings();
                 self.open_layout(&name);
             }
-            // LAYOUT-OPEN-MODE: the open-layout dialog's Replace arm — tear down
+            // The open-layout dialog's Replace arm - tear down
             // the current workspaces and install the saved set as the whole app.
             OverlayOutcome::OpenLayoutReplace(name) => {
                 self.flush_pending_overlay_settings();
                 self.instantiate_layout(&name, LayoutPlacement::Replace);
             }
-            // LAYOUT-OPEN-MODE: the open-layout dialog's Add arm — append the
+            // The open-layout dialog's Add arm - append the
             // saved set beside the current workspaces (the prior behavior).
             OverlayOutcome::OpenLayoutAdd(name) => {
                 self.flush_pending_overlay_settings();
@@ -789,29 +789,29 @@ impl App {
             // C3 file section: the menu closed itself before emitting these.
             // Open dispatches through the same argv-only path the Ctrl+click
             // open uses; copy items write text to the clipboard; reveal opens
-            // the parent directory. All best-effort — a spawn/clipboard failure
+            // the parent directory. All best-effort - a spawn/clipboard failure
             // never panics the UI.
             OverlayOutcome::ContextMenuOpenPath(resolved) => {
                 self.flush_pending_overlay_settings();
                 let argv = self.path_open_argv_for(&resolved);
                 self.spawn_open_or_notice(&argv);
             }
-            // C4: open the resolved image span in the in-terminal viewer.
+            // Open the resolved image span in the in-terminal viewer.
             OverlayOutcome::ContextMenuOpenInOdytty(resolved) => {
                 self.flush_pending_overlay_settings();
                 self.open_image_view(&resolved);
             }
-            // C3b: enumerate the apps that can open the resolved file and open
+            // Enumerate the apps that can open the resolved file and open
             // the "Open With…" picker overlay. Enumeration is read-only; a file
             // with no handlers opens the overlay with its empty-state hint.
             OverlayOutcome::ContextMenuOpenWith(resolved) => {
                 self.flush_pending_overlay_settings();
                 self.open_open_with_overlay(&resolved);
             }
-            // C3b: launch the app chosen in the picker. The overlay closed
+            // Launch the app chosen in the picker. The overlay closed
             // itself before emitting this; the argv was built argv-only by
             // `exec_to_argv` (path already one inert element). A spawn failure
-            // never panics the UI — it surfaces a transient notice (P0-2).
+            // never panics the UI - it surfaces a transient notice.
             OverlayOutcome::OpenWithApp(argv) => {
                 self.flush_pending_overlay_settings();
                 self.spawn_open_or_notice(&argv);
@@ -822,7 +822,7 @@ impl App {
             }
             // ABOUT: open a project link from the About view. The overlay stays
             // open. Routed through the SAME scheme allowlist + argv-only opener
-            // the bare-URL / OSC 8 click paths use — never a shell string. The
+            // the bare-URL / OSC 8 click paths use - never a shell string. The
             // URLs are hardcoded https project links, but the allowlist guard is
             // kept for defense in depth.
             OverlayOutcome::SettingsOpenUrl(url) => {
@@ -865,7 +865,7 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.handle_palette_action(id);
             }
-            // Phase 4: the connection-manager overlay closed itself before
+            // The connection-manager overlay closed itself before
             // emitting this; spawn the chosen host through the connect action
             // (system `ssh`, name-only argv). A spawn failure must never panic
             // the UI; it raises a one-line notice (a missing `ssh` or PTY
@@ -874,8 +874,8 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.connect_or_notice(&host);
             }
-            // ADHOC-CONNECT: connect to a typed host AND append it to hosts.conf.
-            // The connect and the save are independent — a save failure never
+            // Connect to a typed host AND append it to hosts.conf.
+            // The connect and the save are independent - a save failure never
             // blocks the connection, and vice versa.
             OverlayOutcome::ConnectAndSave(host) => {
                 self.flush_pending_overlay_settings();
@@ -886,22 +886,22 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.handle_new_tab_with_profile(&name);
             }
-            // REMOTE-UX P4: the Add / Edit connection form closed itself before
-            // emitting this; persist the built host — append a new block for Add,
+            // REMOTE-UX the Add / Edit connection form closed itself before
+            // emitting this; persist the built host - append a new block for Add,
             // byte-splice over the named block for Edit. A write failure surfaces
             // a one-line notice and never panics.
             OverlayOutcome::SaveConnection { host, edit_target } => {
                 self.flush_pending_overlay_settings();
                 self.persist_connection_form(&host, edit_target);
             }
-            // REMOTE-UX P4 / ODP-8: run the Test Connection probe on a
+            // REMOTE-UX run the Test Connection probe on a
             // background thread; the overlay stays open and shows the tri-state
             // result when it lands.
             OverlayOutcome::TestConnection(host) => {
                 self.run_connection_probe(&host);
             }
-            // FORM-UX: the IdentityFile field asked to browse. Scan ~/.ssh for
-            // candidate private keys (filename heuristics only — never key
+            // The IdentityFile field asked to browse. Scan ~/.ssh for
+            // candidate private keys (filename heuristics only - never key
             // contents) and seed the in-form browser. An empty scan still opens
             // the browser, which shows a "type a path manually" hint; a scan cut
             // short by its bounds also raises a notice.
@@ -909,16 +909,16 @@ impl App {
                 let candidates = self.gather_identity_key_candidates();
                 self.overlay.open_identity_key_browse(candidates);
             }
-            // Phase 5 / B2: the session-attach overlay closed itself before
+            // The session-attach overlay closed itself before
             // emitting this; attach the chosen session into a new tab. A stale
             // id (the session ended between list and accept) returns Err from
-            // the attach path; swallow it like the connect arm — the overlay is
+            // the attach path; swallow it like the connect arm - the overlay is
             // already closed and the user can retry. Never panics.
             OverlayOutcome::AttachSession(id) => {
                 self.flush_pending_overlay_settings();
                 self.route_attach_session(id);
             }
-            // Phase 14: the attach-choice dialog closed itself before emitting
+            // The attach-choice dialog closed itself before emitting
             // these; run the chosen attach. New tab = today's path. Replace =
             // attach + close the tab that was active when the manager opened.
             OverlayOutcome::AttachChoiceNewTab(id) => {
@@ -980,9 +980,9 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.detach_switch_keep_both(cwd);
             }
-            // CLOSE-CONFIRM: the dialog closed itself before emitting this; flag
+            // The dialog closed itself before emitting this; flag
             // the exit so `window_event` exits the loop on this same turn (the
-            // outcome cannot reach `ActiveEventLoop` from here — `&mut self`).
+            // outcome cannot reach `ActiveEventLoop` from here - `&mut self`).
             OverlayOutcome::ForceClose => {
                 self.flush_pending_overlay_settings();
                 self.pending_exit = true;
@@ -996,7 +996,7 @@ impl App {
     }
 
     /// Translate a winit mouse button edge over an open overlay into an
-    /// [`OverlayPointer::Press`]/`Release` and apply the outcome (UX4-P1/P2).
+    /// [`OverlayPointer::Press`]/`Release` and apply the outcome.
     /// Press drives clicks and may arm an overlay drag in modes that still
     /// capture motion (theme builder). Release ends any such drag. Middle/other
     /// buttons are dropped so no PRIMARY paste fires while the overlay is up and
@@ -1011,7 +1011,7 @@ impl App {
             WinitMouseButton::Right => PointerButton::Right,
             _ => return,
         };
-        // SLIDER-GUARD (D-SLIDER-GUARD): track whether the left button is held so
+        // Track whether the left button is held so
         // `handle_overlay_pointer_move` can gate drag updates in modes that
         // still capture motion. Clear BEFORE Release is processed so the
         // Release handler never sees a stale held flag, and set AFTER Press
@@ -1025,14 +1025,14 @@ impl App {
                 ElementState::Pressed => {} // set below, after overlay confirms a drag
             }
         }
-        // Phase 13d — lightbox click-outside-to-dismiss. A left PRESS while the
+        // Lightbox click-outside-to-dismiss. A left PRESS while the
         // C4 image viewer is open intercepts before the generic cell/rect
         // dispatch: outside the drawn image fit-rect closes the viewer exactly
         // like Esc (overlay `Close` → the per-frame sync clears the GPU image →
         // byte-identical next frame); a press ON the image is inert (a
         // conventional lightbox has nothing to interact with, and we avoid a
         // surprise-close on a direct hit). Only when BOTH the fit-rect and the
-        // pointer pixel are known — otherwise fall through so there is no
+        // pointer pixel are known - otherwise fall through so there is no
         // regression on the normal overlay path.
         if state == ElementState::Pressed
             && pointer_button == PointerButton::Left
@@ -1067,7 +1067,7 @@ impl App {
             }
             return;
         };
-        // MENU-DEBOUNCE: swallow a press that lands on a freshly-opened workspace
+        // Swallow a press that lands on a freshly-opened workspace
         // RAIL menu within `CONTEXT_MENU_INPUT_DEBOUNCE` of it opening. Such a
         // press can only be a stale queued click replaying into the just-opened
         // menu -- a human needs longer to see the menu, move to an item, and
@@ -1112,15 +1112,16 @@ impl App {
         self.request_selection_redraw();
     }
 
-    /// Drive an in-progress overlay drag from the cached pointer cell (UX4-P2).
+    /// Drive an in-progress overlay drag from the cached pointer cell.
     /// Gated on an active drag AND the left-button-held flag so cursor movements
-    /// after the button is released can never advance an armed drag
-    /// (D-SLIDER-GUARD). Ordinary hover over the open overlay stays a cheap
-    /// no-op (no redraw, no PTY/selection work).
+    /// after the button is released can never advance an armed drag. Hover
+    /// over the open overlay is routed only for an active drag or for
+    /// context-menu hover focus; otherwise it stays a cheap no-op (no redraw,
+    /// no PTY/selection work).
     pub(in crate::native) fn handle_overlay_pointer_move(&mut self) {
         // A bare hover is forwarded only to advance an active overlay drag
-        // (UX4-P2, only when the left button IS held — D-SLIDER-GUARD) or to
-        // drive context-menu hover-to-focus (IN2); otherwise it is a cheap no-op.
+        // (only when the left button IS held) or to drive context-menu
+        // hover-to-focus; otherwise it is a cheap no-op.
         let should_route = if self.overlay.is_settings_dragging() {
             // Slider move: require the left button to be held. If the drag state
             // is somehow stale (lost Release event), cancel it and return.
@@ -1168,7 +1169,7 @@ impl App {
     }
 
     /// Translate a winit wheel event over an open overlay into an
-    /// [`OverlayPointer::Wheel`] free-scroll of the panel list (UX4-P1).
+    /// [`OverlayPointer::Wheel`] free-scroll of the panel list.
     pub(in crate::native) fn handle_overlay_pointer_wheel(&mut self, delta: MouseScrollDelta) {
         let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.cell().height);
         // Context menu: the wheel scrolls the menu window one row per row of
@@ -1198,7 +1199,7 @@ impl App {
             self.request_selection_redraw();
             return;
         }
-        // P1-8: macOS trackpad / Magic-Mouse inertial scroll arrives as a
+        // MacOS trackpad / Magic-Mouse inertial scroll arrives as a
         // `PixelDelta` burst with a decaying momentum tail that winit does not
         // phase-tag, so the shared cell-height coalescer would fire many list
         // steps per flick (and the ×3 `WHEEL_STEP_LINES` multiplier multiplies
@@ -1206,11 +1207,11 @@ impl App {
         // exactly one item per detent and absorbs the tail. Every OTHER target
         // keeps the historical `coalesce_scroll` → `wheel_lines` path verbatim,
         // so Linux (including hi-res `PixelDelta` mice) stays byte-identical by
-        // construction — no feature flag, the `cfg!` gate is the only seam.
+        // construction - no feature flag, the `cfg!` gate is the only seam.
         let lines = if cfg!(target_os = "macos") {
             // One row/item per detent: the damper returns ±1, dropping the ×3
             // multiplier so the `scroll_lines` overlays move one row and the
-            // `handle_input` overlays move one focus-step — unified across both
+            // `handle_input` overlays move one focus-step - unified across both
             // overlay routing groups.
             let Some(step) = self.overlay_wheel.step(delta, cell_height) else {
                 return;

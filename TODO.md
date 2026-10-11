@@ -1507,8 +1507,10 @@ feature validates against.
 - [x] Perceptual color foundation (OKLab/OKLCH pipeline + readability floor).
   - [x] Universal legibility: the contrast floor provably covers every
         text color type (ANSI, 256-color, truecolor, explicit underline color),
-        lifting foregrounds in OKLab while preserving hue and chroma. The
-        shipped floor is `17.0`; the `1.0` opt-out is exact passthrough.
+        lifting foregrounds in OKLab while preserving hue and chroma. A
+        saturated colour whose lightness alone cannot reach the floor keeps
+        its hue-preserving lift and may display below it. The shipped floor
+        is `17.0`; the `1.0` opt-out is exact passthrough.
   - [x] Perceptual-safe theme builder: OKLCH lightness/chroma/hue editing
         with a live contrast readout and snap-to-floor against a dedicated
         authoring floor, so the builder cannot author an unreadable theme;

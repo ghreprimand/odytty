@@ -9,8 +9,8 @@
 //! malformed URI. This module is the single encoder both route through.
 //!
 //! It lives under `src/paths/` (std-only, no windowing/GPU/native imports) so
-//! `src/desktop/` — which by the SPEC layering rule must not reach into
-//! `native/` — can use it without crossing that boundary.
+//! `src/desktop/` - which by the SPEC layering rule must not reach into
+//! `native/` - can use it without crossing that boundary.
 
 /// Which path convention the absolute input follows. Unix paths are already
 /// rooted at `/`; Windows paths use `\` separators and a `C:` drive prefix.

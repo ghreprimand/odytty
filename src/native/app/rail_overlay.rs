@@ -23,7 +23,7 @@ pub(super) struct RailOverlayData {
 }
 
 impl App {
-    /// RAIL-AUTOHIDE-CTL: flip `tab_rail_autohide` from the rail's bottom-edge
+    /// Flip `tab_rail_autohide` from the rail's bottom-edge
     /// toggle control. Routes the change through the full reload seam (as an
     /// [`SettingsApplySource::ExternalChrome`] mutation) so the panel row, the
     /// rail visibility reconciliation, and the grid reflow all stay coherent,
@@ -69,12 +69,12 @@ impl App {
     }
 
     // -----------------------------------------------------------------------
-    // F4-P3 rail auto-hide (ODP-4)
+    // F4-P3 rail auto-hide
     // -----------------------------------------------------------------------
 
     /// Whether rail auto-hide is active this frame: the knob is on, the tab
     /// chrome is shown, AND the placement is a side rail (the top bar keeps
-    /// `always_show_tab_bar` semantics — a hidden top bar is already expressible
+    /// `always_show_tab_bar` semantics - a hidden top bar is already expressible
     /// by turning that off). When active, `tab_reserve` returns `NONE` and the
     /// rail is a floating overlay.
     pub(super) fn rail_autohide_active(&self) -> bool {
@@ -106,7 +106,7 @@ impl App {
         }
     }
 
-    /// The width (cells) of the auto-hidden rail overlay band — the same width
+    /// The width (cells) of the auto-hidden rail overlay band - the same width
     /// the rail would resolve to if pinned (`Manual` clamp or `Auto` from the
     /// longest title), computed independently of the (now zero) reservation.
     pub(super) fn rail_overlay_cols(&self) -> usize {
@@ -117,7 +117,7 @@ impl App {
     /// hugs the left padding (`[pad, pad]`); a right rail hugs the right window
     /// edge (`surface_w − pad − band_w`). Unlike the pinned right rail (which is
     /// grid-embedded after the full-width content), the overlay floats at the
-    /// window edge — content underneath is already full-width. Surface + padding
+    /// window edge - content underneath is already full-width. Surface + padding
     /// come from [`Self::resolved_surface`] so the drawn band, its seam, and the
     /// reveal-zone geometry all read the SAME basis (and are test-injectable).
     pub(super) fn rail_overlay_origin_px(&self, cell: CellSize, side: RailSide) -> [f32; 2] {
@@ -143,7 +143,7 @@ impl App {
     }
 
     /// `(surface_w, window_pad)` in **physical** px for the reveal-zone geometry,
-    /// via [`Self::resolved_surface`] — the same basis the drawn rail band uses,
+    /// via [`Self::resolved_surface`] - the same basis the drawn rail band uses,
     /// and test-injectable through `set_test_surface_for_test` so the reveal
     /// wiring can be exercised at a real scale + padding headlessly. `(0, 0)`
     /// before the GPU / a test surface exists.
@@ -157,7 +157,7 @@ impl App {
     /// The reveal trigger-zone reach (physical px) inward from the rail's window
     /// edge: the window padding plus the scaled `tab_rail_reveal_px`. Both terms
     /// are physical: the padding is stored physical, and `tab_rail_reveal_px` is
-    /// logical so it is scaled by [`Self::effective_scale`] — winit reports the
+    /// logical so it is scaled by [`Self::effective_scale`] - winit reports the
     /// pointer in physical px, so the whole comparison stays in one space.
     pub(super) fn reveal_reach_px(&self) -> f64 {
         let reveal_px = self.settings.tab_rail_reveal_px as f64 * self.effective_scale() as f64;
@@ -165,7 +165,7 @@ impl App {
         pad + reveal_px
     }
 
-    /// Whether a raw pointer x is inside the reveal **trigger** zone — an
+    /// Whether a raw pointer x is inside the reveal **trigger** zone - an
     /// **interior** band measured from the rail's window edge inward by the
     /// window padding PLUS `tab_rail_reveal_px` (see [`reveal_edge_contains`]).
     pub(super) fn pointer_in_reveal_edge(&self, px_x: f64, side: RailSide) -> bool {
@@ -173,7 +173,7 @@ impl App {
         reveal_edge_contains(side, px_x, self.reveal_reach_px(), surface_w)
     }
 
-    /// Whether a raw pointer x is inside the reveal **keep-alive** region — the
+    /// Whether a raw pointer x is inside the reveal **keep-alive** region - the
     /// UNION of the trigger zone and the drawn overlay band, so the rail holds
     /// while the pointer is anywhere over either (see [`reveal_band_contains`]).
     pub(super) fn pointer_in_reveal_band(&self, px_x: f64, cell: CellSize, side: RailSide) -> bool {
@@ -206,9 +206,9 @@ impl App {
         let Some(side) = self.rail_autohide_side() else {
             return;
         };
-        // Popup-tracking rule (ODP-4): hold the rail up while an overlay (its
-        // right-click context menu) is open — the hide timer is suspended until
-        // the menu closes. RAIL-PIN: also suspend while a rail-anchored menu or a
+        // Popup-tracking rule: hold the rail up while an overlay (its
+        // right-click context menu) is open - the hide timer is suspended until
+        // the menu closes. also suspend while a rail-anchored menu or a
         // workspace rename prompt is up so the grace never elapses under it.
         self.rail_autohide
             .set_suspend(self.overlay.is_open() || self.rail_pinned_open());
@@ -225,7 +225,7 @@ impl App {
             // gate (`build_rail_overlay`), and that gate reads `needs_rebuild`.
             // Requesting a redraw without marking the frame dirty lets the
             // RedrawRequested skip the rebuild and re-present the previous
-            // (rail-less) frame — the reveal then only paints when some unrelated
+            // (rail-less) frame - the reveal then only paints when some unrelated
             // event happens to set `needs_rebuild`, which over a quiescent
             // terminal is "not until the pointer crosses off the window edge".
             self.needs_rebuild = true;
@@ -237,14 +237,14 @@ impl App {
 
     /// The `(in_edge, in_band)` reveal contact the machine is fed for a raw
     /// pointer x, given the previous sample `prev_px_x` (`None` on the first
-    /// sample after entry). Yields to an active scrollbar-thumb drag (ODP-5): a
-    /// drag near the edge — the right rail's scrollbar sits just inside the seam —
+    /// sample after entry). Yields to an active scrollbar-thumb drag: a
+    /// drag near the edge - the right rail's scrollbar sits just inside the seam -
     /// must not trigger or hold a reveal, so a drag-in-progress reports no
     /// contact.
     ///
     /// `in_edge` is **motion-aware**: the current point in the trigger zone OR
     /// the segment from the previous sample crossing it (see
-    /// [`reveal_edge_segment_crosses`]) — natural mouse motion delivers samples
+    /// [`reveal_edge_segment_crosses`]) - natural mouse motion delivers samples
     /// 30–200 px apart, so a fast approach can jump clean over a static point
     /// zone. `in_band` stays a **point** test: the keep-alive / hide-grace logic
     /// needs "is the pointer *now* over the band", not "did the path ever touch
@@ -276,7 +276,7 @@ impl App {
     /// window overlay is open.
     ///
     /// The last clause is the fix for the "can't right-click Settings" report:
-    /// the revealed rail strip is composited *topmost* — over the panes AND over
+    /// the revealed rail strip is composited *topmost* - over the panes AND over
     /// the `overlay_top` window overlay (context menu / Settings / palette). If
     /// the rail were drawn while a menu is open it would paint over the menu,
     /// hiding items the pointer is trying to click. An open window overlay owns
@@ -289,8 +289,8 @@ impl App {
         if !self.rail_autohide_active() {
             return false;
         }
-        // RAIL-PIN: a context menu opened FROM the rail, or a workspace rename
-        // prompt, is anchored to the rail — the rail must stay revealed under it
+        // A context menu opened FROM the rail, or a workspace rename
+        // prompt, is anchored to the rail - the rail must stay revealed under it
         // rather than stepping aside like an unrelated window overlay does.
         // `set_suspend` alone was insufficient: the draw was gated on
         // `!overlay.is_open()`, so the rail vanished the moment its own context
@@ -303,14 +303,14 @@ impl App {
     }
 
     /// Whether an open menu/prompt is anchored to the workspace rail and so
-    /// should keep the auto-hide rail revealed (RAIL-PIN): a rail context menu
+    /// should keep the auto-hide rail revealed: a rail context menu
     /// (workspace slot or empty rail), a workspace rename prompt, or a
     /// "Save as Layout" name prompt (which a rail slot can spawn). Tab renames
-    /// and non-rail overlays are excluded — only surfaces that target the rail
+    /// and non-rail overlays are excluded - only surfaces that target the rail
     /// pin it open.
     pub(super) fn rail_pinned_open(&self) -> bool {
-        // RAIL-DRAG: in-flight workspace reorder and seam-resize drags are
-        // rail-anchored gestures — hold the floating overlay open for their
+        // In-flight workspace reorder and seam-resize drags are
+        // rail-anchored gestures - hold the floating overlay open for their
         // whole lifetime so the drop target or resize edge never vanishes.
         self.rail_ws_drag.is_some()
             || self.rail_seam_drag
@@ -353,7 +353,7 @@ impl App {
         self.apply_cursor_icon(CursorIcon::Default);
         if redraw {
             // Rail hover highlight lives in the overlay signature, which is only
-            // recomputed inside the `should_rebuild_frame` gate — mark the frame
+            // recomputed inside the `should_rebuild_frame` gate - mark the frame
             // dirty so the hover repaints over an otherwise-idle terminal.
             self.needs_rebuild = true;
             if let Some(window) = self.window.as_ref() {
@@ -438,8 +438,8 @@ impl App {
     }
 
     /// The revealed rail overlay's wash and its content-facing seam, in surface
-    /// pixels. CHROME-ALPHA: the wash takes the SAME panel-wash alpha as the
-    /// pinned bands (via [`Self::chrome_panel_paint`]) — the floating rail is
+    /// pixels. the wash takes the SAME panel-wash alpha as the
+    /// pinned bands (via [`Self::chrome_panel_paint`]) - the floating rail is
     /// the same chrome surface, so toggling auto-hide can no longer change the
     /// band's effective translucency. The old dedicated near-opaque reveal
     /// floor (`max(p, 0.85)`) made the revealed band ignore the window's
@@ -475,7 +475,7 @@ impl App {
         )
     }
 
-    /// The single-pane render-cache key for the revealed rail overlay (F4-P3).
+    /// The single-pane render-cache key for the revealed rail overlay.
     /// `default()` (not revealed) is a frame-to-frame constant, so the pinned /
     /// no-autohide path keeps its byte-identical cache behavior; when revealed,
     /// the visibility + geometry + a hash of the rail's visual state (active
@@ -530,13 +530,13 @@ impl App {
 }
 
 /// F4-P3 reveal-zone regression: whether a raw physical pointer x is inside the
-/// auto-hide reveal **trigger** zone — an interior band from the rail's window
+/// auto-hide reveal **trigger** zone - an interior band from the rail's window
 /// edge inward by `reach` (= window padding + the scaled `tab_rail_reveal_px`).
 /// Left: `x ≤ reach`; right: `x ≥ surface_w − reach`.
 ///
 /// Padding-aware by construction: a zone that stopped at the bare surface edge
 /// (`[0, reveal_px]`) sat *behind* the window's empty padding margin, so it was
-/// only reachable by shoving the pointer into the extreme corner — the reported
+/// only reachable by shoving the pointer into the extreme corner - the reported
 /// "only reveals when the pointer leaves the window". Including the padding in
 /// `reach` extends the zone through the margin and `reveal_px` into visible
 /// content, reachable well before the pointer leaves. Pure so the geometry is
@@ -557,7 +557,7 @@ pub(super) fn reveal_edge_contains(side: RailSide, px_x: f64, reach: f64, surfac
 /// of in-zone samples): at real cursor speed consecutive samples jump 30–200 px
 /// and hop clean over a static point zone, so aiming *at* the edge frequently
 /// registered nothing. Testing the whole segment arms a deliberate approach
-/// regardless of speed — a move from `px_x = 60` to `px_x = −5` has neither
+/// regardless of speed - a move from `px_x = 60` to `px_x = −5` has neither
 /// endpoint in `[0, reach]` yet its path crosses the band. The current point is
 /// folded in by the caller as the first-sample fallback (no `prev`). Pure so the
 /// geometry is unit-tested without a GPU/window.
@@ -579,8 +579,8 @@ pub(super) fn reveal_edge_segment_crosses(
     }
 }
 
-/// F4-P3: whether a raw physical pointer x is inside the reveal **keep-alive**
-/// region — the UNION of the trigger zone ([`reveal_edge_contains`]) and the
+/// Whether a raw physical pointer x is inside the reveal **keep-alive**
+/// region - the UNION of the trigger zone ([`reveal_edge_contains`]) and the
 /// drawn overlay band (window edge → content-facing `seam_x`). Hide grace
 /// begins only on leaving this union. Unioning the two explicitly (rather than
 /// assuming the band always contains the trigger zone) keeps the keep-alive

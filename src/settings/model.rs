@@ -14,7 +14,7 @@ pub enum CursorBlink {
     On,
     /// Cursor is steady by default.
     Off,
-    /// Conventional terminal default. Resolves to **blinking** — the historical
+    /// Conventional terminal default. Resolves to **blinking** - the historical
     /// VT default a fresh terminal powers on with. Linux (Wayland and X11)
     /// exposes no OS-level caret-blink *preference* to winit, so `Auto` honestly
     /// defers to that conventional default rather than to a system setting that
@@ -270,10 +270,10 @@ impl RenderQuality {
 /// grid with a scrim. `Off` is the opt-out that leaves the cell background
 /// exactly as resolved (the plain/fast path, pixel-identical to no treatment).
 /// `Gradient`/`Vignette` apply a readability-safe per-cell luminance modulation
-/// in the grid cell-vertex path, before the RV1 minimum-contrast floor.
+/// in the grid cell-vertex path, before the minimum-contrast floor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BackgroundTreatment {
-    /// No treatment — background drawn unchanged.
+    /// No treatment - background drawn unchanged.
     Off,
     /// Vertical gradient: darkens toward the bottom rows.
     Gradient,
@@ -282,8 +282,8 @@ pub enum BackgroundTreatment {
     /// PNG/WebP background image drawn behind the grid, with a readability scrim
     /// and `cell_bg_opacity` controlling how much shows through behind text.
     /// Unlike `Gradient`/`Vignette`, this treatment does **not** modulate
-    /// per-cell background colours — the image lives on its own GPU pass and the
-    /// RV1 floor stays valid via the scrim (see [`Settings::cell_bg_opacity`]).
+    /// per-cell background colours - the image lives on its own GPU pass and the
+    /// minimum-contrast floor stays valid via the scrim (see [`Settings::cell_bg_opacity`]).
     /// The shipped default (v0.6.0): paired with the bundled default background.
     #[default]
     Image,
@@ -316,11 +316,11 @@ impl BackgroundTreatment {
     }
 }
 
-/// Drag-edge autoscroll speed profile (MOUSE-AUTOSCROLL-VEL).
+/// Drag-edge autoscroll speed profile.
 ///
 /// `Ramp` (default) makes the autoscroll step grow with how far the pointer is
 /// dragged past the edge band, up to [`MAX_AUTOSCROLL_ROWS`] rows per tick.
-/// `Legacy` pins the step to exactly one row per tick — byte-identical to the
+/// `Legacy` pins the step to exactly one row per tick - byte-identical to the
 /// pre-feature behavior, and the opt-out for anyone who preferred the fixed
 /// rate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -347,12 +347,12 @@ impl ScrollDragSpeed {
     }
 }
 
-/// What plain `Ctrl+C` does in the focused terminal (SMART-CTRLC).
+/// What plain `Ctrl+C` does in the focused terminal.
 ///
 /// `Off` is the historical, byte-identical opt-out: plain `Ctrl+C` is never
 /// intercepted and always encodes the interrupt byte (`0x03`) to the PTY.
 /// `CopyOrInterrupt` is the shipped default and overloads it on a single
-/// unambiguous signal — the
+/// unambiguous signal - the
 /// presence of a local OdyTTY selection: with text selected, `Ctrl+C` copies
 /// the selection to the clipboard and clears it; with no selection, it sends
 /// `0x03` exactly as before. The interrupt is always reachable (no selection,
@@ -397,15 +397,15 @@ impl SmartCtrlC {
     }
 }
 
-/// Colour-vision-deficiency (colour-blindness) adaptation mode (U4).
+/// Colour-vision-deficiency (colour-blindness) adaptation mode.
 ///
 /// `Off` (default) is the pixel-identical baseline: the palette is published
 /// exactly as authored. The three deficiency modes daltonise the palette so
-/// confusable colours separate for that viewer — `Protan`/`Deutan` target the
+/// confusable colours separate for that viewer - `Protan`/`Deutan` target the
 /// red–green confusion (the common deficiencies), `Tritan` the blue–yellow. The
 /// native theme-wiring layer maps each mode to its colour-vision model and
 /// re-floors the result so the adapted palette stays readable; the strength of
-/// the correction is [`Settings::cvd_strength`]. Presentation-only — it remaps
+/// the correction is [`Settings::cvd_strength`]. Presentation-only - it remaps
 /// only how colours are painted, never the terminal model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CvdMode {
@@ -448,7 +448,7 @@ impl CvdMode {
 }
 
 /// Whether a clipboard image pasted into a remote *integrated* ssh tab is
-/// offered for upload (F6-i7). `Ask` (default) prompts before every upload —
+/// offered for upload. `Ask` (default) prompts before every upload -
 /// image bytes never leave the machine on a keystroke without confirmation;
 /// `Off` disables image paste-through entirely, so such a paste is a no-op.
 /// There is deliberately no silent `Always`: confirm-first is the only enabled
@@ -458,7 +458,7 @@ pub enum RemoteImagePaste {
     /// Prompt before uploading; the safe default.
     #[default]
     Ask,
-    /// Image paste-through disabled — a clipboard-image paste does nothing.
+    /// Image paste-through disabled - a clipboard-image paste does nothing.
     Off,
 }
 
@@ -519,7 +519,7 @@ impl RemoteImagePaste {
     }
 }
 
-/// Where the tab bar/rail sits relative to the terminal content (F4-V2).
+/// Where the tab bar/rail sits relative to the terminal content.
 /// `Top` (default) is the shipped horizontal strip; `Left`/`Right` are the
 /// vertical rails on either side. All three placements render (F4-P2 landed the
 /// `Right` arm), so [`TabBarPlacement::effective`] is now an identity.
@@ -530,7 +530,7 @@ pub enum TabBarPlacement {
     Top,
     /// Vertical rail down the left side (F4-V2 R1).
     Left,
-    /// Vertical rail down the right side (F4-P2). Mirror of the left rail: the
+    /// Vertical rail down the right side. Mirror of the left rail: the
     /// content stays at column 0 and the rail band sits at the far right; the
     /// panel seam flips to the band's left (content-facing) edge.
     Right,
@@ -566,7 +566,7 @@ impl TabBarPlacement {
     /// placements now render (F4-P2 landed the `Right` rail), so this is an
     /// identity. It is retained as the single choke point the render/reserve
     /// paths read, so a future placement that needs a fallback has one seam to
-    /// add it — callers keep going through `effective()` rather than the raw
+    /// add it - callers keep going through `effective()` rather than the raw
     /// setting.
     pub fn effective(self) -> Self {
         self
@@ -583,7 +583,7 @@ impl TabBarPlacement {
 }
 
 /// Workspace-rail visibility and side (design doc ODP-2). The rail lists
-/// WORKSPACES (never tabs — tabs are the top bar, always). `Auto` (default)
+/// WORKSPACES (never tabs - tabs are the top bar, always). `Auto` (default)
 /// reveals the rail only once a second workspace exists, so a single-workspace
 /// launch is a zero-chrome change from a top-only tab bar. `Always` pins it even
 /// with one workspace. `Left`/`Right` pin it AND force the side. For
@@ -646,7 +646,7 @@ impl WorkspaceRail {
 /// to a host closes, so a daily-driver host is authenticated roughly once per
 /// boot rather than once per tab. This knob sets how long that master lingers.
 ///
-/// `Min10` (the default) maps to `ControlPersist=600` — byte-identical to the
+/// `Min10` (the default) maps to `ControlPersist=600` - byte-identical to the
 /// historical fixed 10-minute window, so default behavior is unchanged. `Off`
 /// maps to `ControlPersist=no`, tearing the master down with its last
 /// connection (the pre-persist security posture). The remaining variants extend
@@ -711,16 +711,16 @@ impl RemotePersist {
     }
 }
 
-/// Vertical tab-rail width mode (F4-P4): `Auto` sizes the rail to the longest
+/// Vertical tab-rail width mode: `Auto` sizes the rail to the longest
 /// tab title (clamped to `[MIN_TAB_RAIL_WIDTH, tab_rail_max_width]`); `Manual`
-/// pins an operator-chosen width in cells (clamped to `[MIN_TAB_RAIL_WIDTH,
-/// MAX_TAB_RAIL_WIDTH]`). `Auto` is the new default — the rail behaves like a
+/// pins an user-chosen width in cells (clamped to `[MIN_TAB_RAIL_WIDTH,
+/// MAX_TAB_RAIL_WIDTH]`). `Auto` is the new default - the rail behaves like a
 /// Finder column, growing to fit titles and truncating with an ellipsis past
 /// the cap. A `Manual` width is what the seam drag and a numeric config value
 /// produce; the double-click-seam gesture resets back to `Auto`.
 ///
 /// Persisted as `auto` or a plain integer, so an existing numeric config
-/// (`tab_rail_width = 20`) round-trips as `Manual(20)` — old configs keep their
+/// (`tab_rail_width = 20`) round-trips as `Manual(20)` - old configs keep their
 /// exact behavior (F4-P4 migration rule).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TabRailWidth {
@@ -740,7 +740,7 @@ impl TabRailWidth {
         }
     }
 
-    /// `Some(cols)` for a manual width, `None` for auto — the payload the width
+    /// `Some(cols)` for a manual width, `None` for auto - the payload the width
     /// resolver clamps in manual mode.
     pub fn manual_cols(self) -> Option<u16> {
         match self {
@@ -751,7 +751,7 @@ impl TabRailWidth {
 }
 
 /// Top tab-bar height mode: `Auto` is the classic single text row (the default);
-/// `Manual(rows)` pins an operator-chosen band height in text rows (clamped to
+/// `Manual(rows)` pins an user-chosen band height in text rows (clamped to
 /// `[MIN_TAB_BAR_ROWS, MAX_TAB_BAR_ROWS]`). A taller band is chrome around the
 /// one row of labels, which are centered vertically in it. Mirrors
 /// [`TabRailWidth`] one axis over: the draggable bottom seam and a numeric config
@@ -789,7 +789,7 @@ impl TabBarHeight {
 }
 
 /// How the terminal responds when the host writes BEL (`0x07`). Presentation-
-/// only — the core merely latches that a bell was requested (see
+/// only - the core merely latches that a bell was requested (see
 /// [`crate::core::Terminal::take_bell`]); this setting decides what the native
 /// layer does with that signal. OdyTTY has no audio backend, so there is no
 /// audible mode; the bell is conveyed visually and/or via window urgency.
@@ -934,32 +934,32 @@ pub struct Settings {
     pub theme_config: Option<String>,
     pub visual: VisualEffect,
     /// The EFFECTIVE regular-face path the renderer loads: either the explicit
-    /// `font` key, or — when only `font_family` is set — the regular face
+    /// `font` key, or - when only `font_family` is set - the regular face
     /// resolved from that family. Internal/derived; not the raw config value.
     pub font_path: Option<PathBuf>,
     /// The RAW explicit `font` config key (an advanced one-file override), or
     /// `None` when unset. Kept distinct from [`Settings::font_path`] so the UI
     /// and writeback reflect what the user actually set: picking a `font_family`
     /// populates `font_path` with the resolved face but must NOT make the
-    /// advanced `font` row look set (RC4). This is the value the `font` row
+    /// advanced `font` row look set. This is the value the `font` row
     /// displays and the writeback persists for the `font` key.
     pub explicit_font_path: Option<PathBuf>,
     pub font_family: Option<String>,
     /// Optional weight-variant suffix appended to [`Settings::font_family`] to
-    /// select a lighter or heavier base face (RV7), e.g. `"Light"`, `"Medium"`,
+    /// select a lighter or heavier base face, e.g. `"Light"`, `"Medium"`,
     /// `"SemiBold"`. Empty (the default) uses the family's regular face exactly
-    /// as before — the off path loads the identical face and is byte-identical.
+    /// as before - the off path loads the identical face and is byte-identical.
     /// Distinct from the SGR bold attribute: bold/italic discovery always uses
     /// the plain `font_family`, so SGR bold stays visually distinct from the
-    /// chosen base weight. Real faces only — a missing weight face warns and
+    /// chosen base weight. Real faces only - a missing weight face warns and
     /// falls back to the regular face (never synthetic emboldening/thinning).
     pub font_weight: String,
     pub font_size_px: f32,
     pub text_gamma: f32,
-    /// Stem-darkening strength in `0.0..=1.0` (RV5). `0.0` disables the
+    /// Stem-darkening strength in `0.0..=1.0`. `0.0` disables the
     /// raster-time coverage boost and is pixel-identical to before.
     pub stem_darken: f32,
-    /// Minimum fg/bg WCAG contrast floor in `1.0..=21.0` (RV1). `1.0`
+    /// Minimum fg/bg WCAG contrast floor in `1.0..=21.0`. `1.0`
     /// disables enforcement and is pixel-identical to before.
     pub min_contrast: f32,
     pub focus_dim: f32,
@@ -987,14 +987,14 @@ pub struct Settings {
     /// image. The shipped default is `Some(DEFAULT_BACKGROUND_IMAGE_SCRIM)`
     /// (`Some(0.5)`), a fixed scrim. Setting `background_image_scrim = auto`
     /// (`None`) auto-computes the scrim from the image's worst-case luminance +
-    /// the theme so the RV1 floor is guaranteed; an explicit numeric value lets
+    /// the theme so the minimum-contrast floor is guaranteed; an explicit numeric value lets
     /// an expert dial it in.
     pub background_image_scrim: Option<f32>,
-    /// Cell background opacity in `0.0..=1.0`. `1.0` (the default) keeps cells
-    /// fully opaque — the background image shows only in the window padding, and
-    /// the cell-vertex output is byte-identical to before. Values `< 1.0` make
-    /// cells translucent so the image shows through behind text; the RV1 floor
-    /// stays safe at any opacity via the readability scrim.
+    /// Cell background opacity in `0.0..=1.0`. The default is `0.8`
+    /// ([`DEFAULT_CELL_BG_OPACITY`]); `1.0` keeps cells fully opaque, so the
+    /// background image shows only in the window padding. Values `< 1.0` make
+    /// cells translucent so the image shows through behind text; the readability
+    /// floor stays safe at any opacity via the readability scrim.
     pub cell_bg_opacity: f32,
     /// Colored-background opacity floor in `0.0..=1.0`: the minimum window-alpha
     /// contribution for cells whose resolved background differs from the theme
@@ -1005,10 +1005,10 @@ pub struct Settings {
     pub colored_bg_opacity: f32,
     /// Selection-highlight opacity in `0.0..=1.0`, independent of window opacity,
     /// theme colours, and the min-contrast floor. `1.0` (the default) keeps the
-    /// selection fully opaque — byte-identical to before in the opaque-window
+    /// selection fully opaque - byte-identical to before in the opaque-window
     /// path, and the documented "fully opaque" behaviour under window
     /// transparency. Values `< 1.0` make the selection translucent so a busy or
-    /// transparent backdrop shows through behind it; the RV1 floor still holds
+    /// transparent backdrop shows through behind it; the minimum-contrast floor still holds
     /// foreground legibility over the effective composited fill.
     pub selection_opacity: f32,
     /// Text-brightness lift in `1.0..=1.5`: glyph foregrounds are lifted toward
@@ -1034,8 +1034,8 @@ pub struct Settings {
     /// CRT screen curvature (`CRT_CURVATURE`, 0.0–0.12). `0.0` (default) is
     /// flat; higher values barrel-distort the composited frame toward the
     /// screen edges. Inert on the plain renderer profile and forced `0.0`
-    /// there; the retro preset overrides it to a subtle curve via
-    /// [`Self::effective_crt_curvature`].
+    /// there. The retro preset does not force a curve; it falls through to this
+    /// knob via [`Self::effective_crt_curvature`].
     pub crt_curvature: f32,
     pub subpixel: SubpixelMode,
     /// Line-height multiplier baked into the glyph cell (LINEHEIGHT). `1.0`
@@ -1077,7 +1077,7 @@ pub struct Settings {
     /// keyboard focus. Windows and Linux store the value and do not apply it.
     pub secure_keyboard_input: bool,
     pub key_bindings: Vec<KeyBindingOverride>,
-    /// Multiplexer prefix chord (§7). `Some(Ctrl-b)` by default — the single
+    /// Multiplexer prefix chord (§7). `Some(Ctrl-b)` by default - the single
     /// new globally-captured key that opens the transient pane-command mode.
     /// `None` (config value `off`/`none`/`disabled`) disables the prefix model
     /// entirely, making the input path byte-identical to the pre-§7 build.
@@ -1089,12 +1089,12 @@ pub struct Settings {
     /// East Asian Ambiguous width. Narrow is the historical one-column table.
     /// Wide reflows the panes that use it and does not resize the PTY.
     pub ambiguous_width: AmbiguousWidth,
-    /// Whether the cursor eases its opacity across the blink toggle (ID1). On
+    /// Whether the cursor eases its opacity across the blink toggle. On
     /// by default; the off path holds alpha at `1.0` and hard-hides on the blink
     /// off-phase. Purely presentational.
     pub cursor_easing: bool,
     /// Whether the cursor draws one shape-aware analytic aura behind its glyph,
-    /// matching Block, Bar, or Underline geometry (ID1). On by default; the
+    /// matching Block, Bar, or Underline geometry. On by default; the
     /// off path emits no aura geometry. Purely presentational; never affects
     /// cell semantics or the logical cursor position.
     pub cursor_glow: bool,
@@ -1105,8 +1105,8 @@ pub struct Settings {
     /// translucent backgrounds never receive an excessive alpha lift. Purely
     /// presentational; hot-reloadable.
     pub cursor_glow_intensity: f32,
-    /// Whether a short fading after-image trails the cursor along its slide path
-    /// (VE4). On by default; the off path emits no trail quads and arms no
+    /// Whether a short fading after-image trails the cursor along its slide path.
+    /// On by default; the off path emits no trail quads and arms no
     /// extra wake, byte-identical to before. Rides the cursor-slide animation,
     /// so it is visible only while `cursor_motion` is also on; purely
     /// presentational, never affects cell semantics or the logical cursor.
@@ -1114,7 +1114,7 @@ pub struct Settings {
     /// Linked response profile for the nearby echo and large-jump follower.
     pub cursor_trail_strength: CursorTrailStrength,
     /// Whether the cursor glides between adjacent positions instead of
-    /// teleporting (VE4). On by default; the off path sits at the exact cell
+    /// teleporting. On by default; the off path sits at the exact cell
     /// origin with zero offset. Discontinuities always snap. The logical cursor
     /// position is always the destination cell.
     pub cursor_motion: bool,
@@ -1163,16 +1163,16 @@ pub struct Settings {
     /// Whether the renderer synthesizes missing bold/italic faces from the
     /// regular outline (double-strike embolden + shear). On by default; turning
     /// it off makes styled cells render as plain regular glyphs when no real
-    /// face is loaded. Purely presentational — never affects cell semantics.
+    /// face is loaded. Purely presentational - never affects cell semantics.
     pub synthetic_styles: bool,
     /// Whether box-drawing, block-element and Powerline glyphs are rendered
     /// geometrically (cell-aligned rectangles/rails/arcs/triangles) instead of
-    /// from the font (RV2). On by default; turning it off restores the
-    /// byte-identical font path. Purely presentational — never affects cell
+    /// from the font. On by default; turning it off restores the
+    /// byte-identical font path. Purely presentational - never affects cell
     /// semantics.
     pub geometric_boxdraw: bool,
     /// Whether to install a symbol / Nerd-font fallback face for private-use
-    /// prompt icons (RV6). On by default so common PUA prompt icons render out
+    /// prompt icons. On by default so common PUA prompt icons render out
     /// of the box; set to `false` to force the plain missing-glyph path.
     pub symbol_fallback: bool,
     /// Optional explicit symbol / Nerd-font file path. `None` means auto-resolve
@@ -1184,61 +1184,60 @@ pub struct Settings {
     /// resolution is byte-identical to the no-override path. First-match-wins.
     pub symbol_map: crate::text::SymbolMap,
     /// Whether semantic theme roles drive native cursor, selection, and search
-    /// highlight colors. On by default by operator decision; turning it off
+    /// highlight colors. On by default; turning it off
     /// restores the historical foreground cursor, inverse selection, and
     /// black-on-yellow active search treatment.
     pub themed_ui_roles: bool,
-    /// Rows of local scrollback advanced per mouse-wheel notch (MOUSE-WHEEL-SPEED).
-    /// Default `3.0` is byte-identical to the historical fixed step. Stored as
+    /// Rows of local scrollback advanced per mouse-wheel notch.
+    /// The default is `6.0` ([`DEFAULT_SCROLL_WHEEL_LINES`]). Stored as
     /// `f32` to ride the shared numeric-setting model; [`Settings::scroll_wheel_step`]
     /// rounds it to a `usize >= 1` for the wheel path. Affects local viewport
-    /// scroll only — never the TUI mouse-reporting path.
+    /// scroll only - never the TUI mouse-reporting path.
     pub scroll_wheel_lines: f32,
-    /// Scrollback retention cap in logical lines (SCROLLBACK-CAP). Default
+    /// Scrollback retention cap in logical lines. Default
     /// `10000.0`. Bounds steady-state memory so unbounded output cannot OOM the
     /// process. Stored as `f32` to ride the shared numeric-setting model;
     /// [`Settings::scrollback_limit`] rounds it to a `usize` for the core. `0`
     /// means unbounded. Live-reloadable; lowering it trims history immediately.
     pub scrollback_lines: f32,
-    /// Drag-edge autoscroll speed profile (MOUSE-AUTOSCROLL-VEL). `Ramp` (the
+    /// Drag-edge autoscroll speed profile. `Ramp` (the
     /// default) accelerates the autoscroll step with overshoot past the edge
     /// band, capped at [`MAX_AUTOSCROLL_ROWS`]; `Legacy` pins it to a fixed one
     /// row per tick, byte-identical to the pre-feature behavior. Local selection
-    /// drag only — never the TUI mouse-reporting path.
+    /// drag only - never the TUI mouse-reporting path.
     pub scroll_drag_speed: ScrollDragSpeed,
     /// When on, finishing a local selection also writes the CLIPBOARD, not just
-    /// the PRIMARY selection (MOUSE-COPYSELECT). Off by default — the off path is
+    /// the PRIMARY selection. Off by default - the off path is
     /// byte-identical to before (PRIMARY + middle-click paste already work).
     pub copy_on_select: bool,
-    /// What plain `Ctrl+C` does in the focused terminal (SMART-CTRLC). `Off`
-    /// (default) always sends the interrupt byte, byte-identical to before;
-    /// `CopyOrInterrupt` copies and clears a local selection when one exists and
-    /// otherwise interrupts. Read live at keypress time; no rebuild on change.
+    /// What plain `Ctrl+C` does in the focused terminal. `Off` always sends the
+    /// interrupt byte; `CopyOrInterrupt` (the default) copies and clears a local
+    /// selection when one exists and otherwise interrupts. Read live at keypress time; no rebuild on change.
     pub smart_ctrl_c: SmartCtrlC,
     /// When on, hovering a bare (non-OSC-8) URL with an allowlisted scheme shows
     /// the hand cursor + Ctrl+hover armed underline and Ctrl+click opens it
-    /// through the same argv-only, scheme-allowlisted dispatch as OSC 8
-    /// (INTERACTIVE-URLS). On by default (operator decision); off makes the
+    /// through the same argv-only, scheme-allowlisted dispatch as OSC 8.
+    /// On by default; off makes the
     /// bare-URL hover scan never run, so the hover path is byte-identical to a
     /// build without the feature. Independent of `interactive_paths`.
     pub interactive_urls: bool,
     /// When on, a double-click-then-drag extends the selection by whole words, a
     /// triple-click-then-drag by whole lines, and Shift+click extends the
-    /// current selection (MOUSE-EXTEND). On by default (operator decision); off
+    /// current selection. On by default; off
     /// restores the historical click-to-finish behavior byte-identically.
     pub selection_drag_extend: bool,
     /// When on, the right-edge scroll indicator is a draggable thumb: a left
-    /// press grabs it and the drag scrubs scrollback (MOUSE-SCROLLBAR). On by
+    /// press grabs it and the drag scrubs scrollback. On by
     /// default; the thumb only renders while scrolled back, so the grab is inert
     /// at the live tail and the off path leaves press routing byte-identical.
     pub scrollbar_drag: bool,
     /// When on, Ctrl+wheel adjusts the font size (up = larger, down = smaller)
     /// while mouse reporting is off (MOUSE-WHEEL zoom). On by default; it only
-    /// fires on the explicit Ctrl+wheel gesture, so a plain wheel — and the
-    /// wheel inside a TUI mouse-reporting app — stays byte-identical. Off
+    /// fires on the explicit Ctrl+wheel gesture, so a plain wheel - and the
+    /// wheel inside a TUI mouse-reporting app - stays byte-identical. Off
     /// returns Ctrl+wheel to plain scrollback movement.
     pub wheel_zoom: bool,
-    /// Per-command success/fail gutter (SH2). When on, a thin coloured bar at
+    /// Per-command success/fail gutter. When on, a thin coloured bar at
     /// the left edge of each finished command's prompt row reads green for an
     /// explicit `exit 0` and red for a non-zero exit, sourced from the OSC 133
     /// command blocks and coloured from the active ANSI palette (so it
@@ -1248,7 +1247,7 @@ pub struct Settings {
     /// Always show the tab bar, even for a single tab (F4 ODP-7). Off by
     /// default; with one unnamed tab the bar stays hidden and the render path is
     /// byte-identical to today. A lone tab with a custom name shows the bar
-    /// regardless of this setting (F4-NF1).
+    /// regardless of this setting.
     pub always_show_tab_bar: bool,
     /// Follow the pointer with a reversible tab window where supported.
     pub live_tab_drag: bool,
@@ -1259,11 +1258,11 @@ pub struct Settings {
     /// `Top` keeps the single-workspace view byte-identical to the shipped
     /// top-only bar.
     pub tab_bar_placement: TabBarPlacement,
-    /// Workspace-rail visibility/side (ODP-2). `Auto` (default) shows the rail
+    /// Workspace-rail visibility/side. `Auto` (default) shows the rail
     /// only with two or more workspaces; a single-workspace session keeps the
     /// top-only tab bar unchanged. See [`WorkspaceRail`].
     pub workspace_rail: WorkspaceRail,
-    /// Vertical rail width mode (F4-P1/P4): `Auto` (default) sizes to the longest
+    /// Vertical rail width mode: `Auto` (default) sizes to the longest
     /// tab title; `Manual(cols)` pins a fixed width. Resolved to a `usize` by
     /// [`Settings::rail_width_cols`]. Rail-only; the top bar ignores it.
     pub tab_rail_width: TabRailWidth,
@@ -1271,37 +1270,37 @@ pub struct Settings {
     /// pins a taller band. Resolved to a `usize` by
     /// [`TabBarHeight::resolved_rows`]. Only affects the top bar.
     pub tab_bar_height: TabBarHeight,
-    /// Upper clamp (cells) for the `auto` rail width (F4-P4). Only consulted in
+    /// Upper clamp (cells) for the `auto` rail width. Only consulted in
     /// `Auto` mode; a manual width clamps to the absolute widget max instead.
     /// Stored as `f32` for the shared numeric-setting model;
     /// [`Settings::rail_max_width_cols`] rounds it to a `usize`.
     pub tab_rail_max_width: f32,
-    /// Inter-slot gap in rows for the vertical rail (F4-P1); the top margin
+    /// Inter-slot gap in rows for the vertical rail; the top margin
     /// follows it. Stored as `f32`; [`Settings::rail_slot_gap_rows`] rounds it to
     /// a `usize` in `[0, 3]`.
     pub tab_rail_gap: f32,
-    /// Rail slot height in rows (F4-P1): `1` = compact list, `2` = padded/wrapping
+    /// Rail slot height in rows: `1` = compact list, `2` = padded/wrapping
     /// default. Stored as `f32`; [`Settings::rail_slot_rows`] rounds and clamps
     /// it to `{1, 2}`.
     pub tab_rail_slot_rows: f32,
-    /// Unified tab-panel strength (F4-P1): `0.0` = panel off, `1.0` = strongest,
+    /// Unified tab-panel strength: `0.0` = panel off, `1.0` = strongest,
     /// and `0.8` is the default. Drives both the panel tint lift and the
     /// panel-wash quad alpha. Both axes.
     pub tab_panel_strength: f32,
-    /// Tab-panel seam line (F4-P1): one content-boundary hairline on both axes.
+    /// Tab-panel seam line: one content-boundary hairline on both axes.
     /// Off by default; off removes only the line (the panel stays).
     pub tab_seam: bool,
-    /// Rail auto-hide (F4-P1/P3): reveals a floating rail from the configured
+    /// Rail auto-hide: reveals a floating rail from the configured
     /// edge zone without content reflow. Off by default, rail-only.
     pub tab_rail_autohide: bool,
-    /// Rail auto-hide reveal-zone width in **logical** px (F4-P3): how close to
+    /// Rail auto-hide reveal-zone width in **logical** px: how close to
     /// the rail's window edge the pointer summons an auto-hidden rail. Scaled by
     /// the display scale factor at the comparison site so the zone is a
     /// consistent physical size across displays. Stored as `f32` in `[1, 32]`.
     pub tab_rail_reveal_px: f32,
-    /// Click-to-position-cursor on the live prompt (SH-CLICK). When on, a plain
+    /// Click-to-position-cursor on the live prompt. When on, a plain
     /// left click on the shell prompt line moves the shell's input cursor to the
-    /// clicked column by emitting Left/Right cursor keys — the click slice of
+    /// clicked column by emitting Left/Right cursor keys - the click slice of
     /// OSC 133 `click_events`. On by default and gated on the shell having
     /// advertised `click_events=1`, so a non-integrated shell emits nothing.
     pub sh_click: bool,
@@ -1328,7 +1327,9 @@ pub struct Settings {
     /// 0x1 (disambiguate only) while the prompt owns the line and pops it before
     /// each command, so modified keys like Ctrl+Enter become distinct CSI-u
     /// sequences the user can bind. Zero effect on programs the shell launches;
-    /// fish/PowerShell are unaffected. On by default.
+    /// fish/PowerShell are unaffected. Off by default
+    /// ([`DEFAULT_SHELL_KEY_ENHANCEMENT`]): while on, Ctrl+C stops raising
+    /// SIGINT in bash.
     pub shell_key_enhancement: bool,
     /// Restore the previous workspace/tab/pane shape at launch (WP2, sub-ODP
     /// 8a). Off by default; only a bare `odytty` launch restores, and any CLI
@@ -1344,38 +1345,38 @@ pub struct Settings {
     /// the active workspace has no `launch_profile` override. Never consulted on
     /// the startup path unless a spawn explicitly requests it.
     pub default_launch_profile: Option<String>,
-    /// Whether freshly arrived output rows fade their TEXT in at the live tail
-    /// (VE4). On by default; the off path schedules no extra wakes. The fade is
-    /// a per-row foreground alpha ramp —
+    /// Whether freshly arrived output rows fade their TEXT in at the live tail.
+    /// On by default; the off path schedules no extra wakes. The fade is
+    /// a per-row foreground alpha ramp -
     /// glyphs, decorations, and emoji rise from a visible floor to full
     /// strength while cell backgrounds render exactly as normal from the first
     /// frame (a background veil read as a dark flash on translucent windows).
     /// Only at the live tail of a single pane; split tabs, scrollback and
     /// resize snap; the cursor's row never fades. Purely presentational.
     pub new_output_fade: bool,
-    /// New-output fade ramp length in milliseconds (VE4). Only acts while
+    /// New-output fade ramp length in milliseconds. Only acts while
     /// [`Self::new_output_fade`] is on; a longer value makes the fade-in more
     /// perceptible, a shorter one restores the original quick ramp. Clamped to
     /// `[MIN_NEW_OUTPUT_FADE_MS, MAX_NEW_OUTPUT_FADE_MS]`. Purely presentational.
     pub new_output_fade_ms: f32,
-    /// Whether a thin themed border is drawn around the grid (ID4). Off by
+    /// Whether a thin themed border is drawn around the grid. Off by
     /// default; the off path emits no border quads and is byte-identical to
     /// before. The border is painted in the theme `border` role color within the
     /// existing padding band (it never eats cell area), its thickness scaled by
     /// the surface DPI factor, and it tracks the content rect on resize. Purely
     /// presentational; never affects cell semantics.
     pub window_border: bool,
-    /// Whether the window keeps its decorations — title bar and borders
-    /// (WIN-DECOR). On by default; `true` reproduces the historical
+    /// Whether the window keeps its decorations - title bar and borders.
+    /// On by default; `true` reproduces the historical
     /// window-attribute chain exactly (pixel-identical startup). When off,
     /// OdyTTY requests a borderless surface both at window creation and live on
     /// a settings change. Effect is environment-dependent: Wayland compositors
     /// remove the title bar reliably, while X11 window managers honor the
-    /// request on a best-effort basis — never a hard guarantee.
+    /// request on a best-effort basis - never a hard guarantee.
     pub window_decorations: bool,
-    /// Master toggle for whole-window transparency (TRANSPARENCY). Off by
-    /// default, so the opaque render path is byte-identical to the historical
-    /// presentation. When on (and the display server offers alpha
+    /// Master toggle for whole-window transparency. On by default
+    /// ([`DEFAULT_WINDOW_TRANSPARENCY`]); the opacity below defaults to 80.
+    /// When on (and the display server offers alpha
     /// compositing), the terminal background is drawn at `window_opacity` so
     /// the desktop shows through; text, cursor, selection, and overlays stay
     /// fully opaque. Requires a compositing window manager.
@@ -1396,7 +1397,7 @@ pub struct Settings {
     /// than the finger. Stored as `f32` to ride the shared numeric-setting model.
     /// Applies only to pixel-precise input, never the detented-wheel path.
     pub scroll_pixel_speed: f32,
-    /// Animated scrollback glide between discrete wheel notches (SCROLL-GLIDE).
+    /// Animated scrollback glide between discrete wheel notches.
     /// On by default; a notch moves the integer viewport offset instantly and
     /// the rendered viewport eases toward it with a forward-chase follower that
     /// only moves in the scroll direction (so a notch stream cannot
@@ -1404,12 +1405,12 @@ pub struct Settings {
     /// uses `pixel_scroll`. At rest the render path is byte-identical.
     pub scroll_glide: bool,
     /// Colour-vision-deficiency palette adaptation mode (U4, Accessibility).
-    /// `Off` by default — the off path publishes the authored palette unchanged
+    /// `Off` by default - the off path publishes the authored palette unchanged
     /// and is pixel-identical to before. The deficiency modes daltonise the
     /// palette (16 ANSI + cursor/selection/search roles) so confusable colours
     /// separate, re-floored to stay readable.
     pub cvd_mode: CvdMode,
-    /// Strength of the CVD adaptation in `0.0..=1.0` (U4). `1.0` (default) is
+    /// Strength of the CVD adaptation in `0.0..=1.0`. `1.0` (default) is
     /// the full correction; `0.0` is an exact passthrough. Inert while
     /// [`Settings::cvd_mode`] is `Off`.
     pub cvd_strength: f32,
@@ -1430,7 +1431,7 @@ pub struct Settings {
     /// value, and the OS signal maps to [`crate::settings::DEFAULT_OS_THEME_DARK`]
     /// / [`crate::settings::DEFAULT_OS_THEME_LIGHT`] unless the user set an
     /// explicit `os_theme_dark`/`os_theme_light` override. This is a config
-    /// alias only — it never extracts the desktop palette.
+    /// alias only - it never extracts the desktop palette.
     pub theme_is_system: bool,
     /// Follow the OS dark/light appearance preference (OS-THEME). Off by
     /// default; while off the OS signal is ignored and the authored
@@ -1456,7 +1457,7 @@ pub struct Settings {
     /// Theme name applied when the OS reports a light color scheme (OS-THEME).
     /// `None` (the default) means a light signal keeps the authored theme.
     pub os_theme_light: Option<String>,
-    /// Confirm before closing while a foreground job is running (CLOSE-CONFIRM).
+    /// Confirm before closing while a foreground job is running.
     /// On by default; the dialog only appears when a program is actively running
     /// in the terminal, so the common idle-shell close path is unaffected.
     pub confirm_close: bool,
@@ -1492,19 +1493,19 @@ pub struct Settings {
     /// with `remote_integration` on (the bootstrap is the injection point).
     pub remote_tmux: bool,
     /// How long a reuse master lingers after the last tab to a host closes
-    /// (ODP-9 Tier 2). `Min10` (default) is the historical fixed 10-minute
+    ///. `Min10` (default) is the historical fixed 10-minute
     /// window (`ControlPersist=600`), so default behavior is byte-identical;
     /// `Off` tears the master down with its last connection. A per-host `Persist`
     /// line in `hosts.conf` overrides this. Unix-only: never emitted on a Windows
     /// client (no ControlMaster there). Only meaningful with `remote_reuse` on.
     pub remote_persist: RemotePersist,
-    /// Image paste-through for remote integrated ssh tabs (F6-i7). `Ask`
+    /// Image paste-through for remote integrated ssh tabs. `Ask`
     /// (default) prompts before uploading a pasted clipboard image to the remote
     /// host; `Off` disables it. Only engages on a remote integrated tab; a local
     /// or plain-ssh tab's paste path is unaffected.
     pub remote_image_paste: RemoteImagePaste,
-    /// Opt-in per-session output recording for the scrubbable replay overlay
-    /// (Phase 2). Off by default; while off the PTY pump records nothing and the
+    /// Opt-in per-session output recording for the scrubbable replay overlay.
+    /// Off by default; while off the PTY pump records nothing and the
     /// plain path is byte-identical. When on, each session keeps a bounded
     /// in-memory ring of recent screen frames the replay overlay can scrub.
     /// Recording is local-only: frames never leave memory (no disk, no network).
@@ -1529,23 +1530,23 @@ pub struct Settings {
     /// behind the global `interactive_paths` gate; resolution is still
     /// stat-gated, so non-existent barewords stay inert.
     pub interactive_paths_barewords: bool,
-    /// UX-A (Phase 11): show the transient "Ctrl+click to open" discoverability
+    /// Show the transient "Ctrl+click to open" discoverability
     /// hint after two plain mis-clicks on a resolved path within a short window.
     /// On by default behind the global `interactive_paths` gate; off silences
     /// only the hint (hand cursor, Ctrl+hover underline, and Ctrl+click open all
     /// still work).
     pub interactive_paths_click_hint: bool,
-    /// UX-C (Phase 13): when interactive paths are enabled, Ctrl+clicking an
+    /// When interactive paths are enabled, Ctrl+clicking an
     /// image path opens the in-OdyTTY viewer by default. On by default behind
     /// the global `interactive_paths` gate; off restores the external opener
     /// behavior for images while keeping the right-click "Open in OdyTTY" item.
     pub interactive_paths_image_inline: bool,
-    /// Optional editor override for opening `path:line:col` spans (Phase 8 / C3).
+    /// Optional editor override for opening `path:line:col` spans.
     /// Empty (the default) means "detect from `$EDITOR`/`$VISUAL` via the
     /// invocation matrix". A non-empty value pins the editor: either a known
     /// editor name (keys into the matrix) or an argv template with `{file}`,
     /// `{line}`, `{col}` placeholders. Always tokenized on whitespace and passed
-    /// as an argv vector — never evaluated by a shell.
+    /// as an argv vector - never evaluated by a shell.
     pub interactive_paths_editor: String,
     pub native_autoclose: Option<Duration>,
 }

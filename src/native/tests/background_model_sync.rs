@@ -2,10 +2,10 @@
 //! NF21-P3 App-level tests: background sessions must track terminal-model state
 //! that was previously applied only to the focused session through `Deref`.
 //!
-//! - NF21-4: an OS light/dark flip (and, by the same seam, a settings reload)
+//! - an OS light/dark flip (and, by the same seam, a settings reload)
 //!   fans the theme colors/palette over every session, so a background tab
 //!   answers OSC 4/10/11 with the CURRENT theme rather than the pre-flip one.
-//! - NF21-5: OSC 52 is drained for every session each pass. A WRITE emitted by a
+//! - OSC 52 is drained for every session each pass. A WRITE emitted by a
 //!   non-focused session is DISCARDED (a backgrounded program must not hijack the
 //!   clipboard) and, being drained, cannot resurface on switch-back; a write from
 //!   the focused session still reaches the clipboard.
@@ -323,7 +323,7 @@ fn background_osc52_read_never_reaches_clipboard() {
 
     // Positive control: the same request from the focused session reaches the
     // clipboard policy after the opt-in gate -- but only once the window itself
-    // holds OS focus (C41). Grant that authority, then drive the read.
+    // holds OS focus. Grant that authority, then drive the read.
     app.set_window_focus_for_test(true);
     app.advance_tab_bytes_at_position_for_test(1, OSC52_READ);
     app.drain_clipboard_requests_for_test();
@@ -332,7 +332,7 @@ fn background_osc52_read_never_reaches_clipboard() {
 
 #[test]
 fn active_session_osc52_read_denied_while_window_unfocused() {
-    // C41: even the active session must not read the clipboard while the OdyTTY
+    // Even the active session must not read the clipboard while the OdyTTY
     // window itself is unfocused -- otherwise a foreground program in the active
     // tab could exfiltrate the clipboard while the user works elsewhere.
     let mut app = headless_app();

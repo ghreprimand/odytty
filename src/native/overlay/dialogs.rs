@@ -17,10 +17,10 @@ use super::layout::*;
 use super::state::OverlayUi;
 
 impl OverlayUi {
-    /// Open the right-click context menu (IN2) at `spawn` (a grid cell), with
+    /// Open the right-click context menu at `spawn` (a grid cell), with
     /// the item-enabled snapshot the App computed from the live selection /
-    /// clipboard. Unlike the other openers this does NOT clear the selection —
-    /// the Copy item needs it — so the App must not route through
+    /// clipboard. Unlike the other openers this does NOT clear the selection -
+    /// the Copy item needs it - so the App must not route through
     /// `reset_pointer_state_for_overlay` here.
     // A thin forwarding shim retained for the existing overlay tests, which call
     // the pre-hint 9-arg form. Production opens via
@@ -97,7 +97,7 @@ impl OverlayUi {
     }
 
     /// Reserve `left`/`right` columns the open context menu box must stay clear
-    /// of (MENU-Z-ORDER). The App calls this immediately after opening a
+    /// of. The App calls this immediately after opening a
     /// rail-anchored menu while the auto-hide rail is revealed, so the box lands
     /// beside the floating rail band rather than under it (the rail composites
     /// topmost). A no-op reserve leaves the layout byte-identical.
@@ -105,7 +105,7 @@ impl OverlayUi {
         self.context_menu.set_rail_clearance(left, right);
     }
 
-    /// Snapshot the total workspace count on the open context menu (RAIL-REORDER)
+    /// Snapshot the total workspace count on the open context menu
     /// so a `WorkspaceSlot` menu can gate its Move Up/Down rows on the clicked
     /// slot's position. The App calls this right after opening a rail-slot menu.
     pub(in crate::native) fn set_context_menu_workspace_count(&mut self, count: usize) {
@@ -113,8 +113,7 @@ impl OverlayUi {
     }
 
     /// Snapshot the clicked workspace's identity on the open `WorkspaceSlot`
-    /// menu so the App can resolve it to a live rail index before acting
-    /// (RAIL-REVALIDATE).
+    /// menu so the App can resolve it to a live rail index before acting.
     pub(in crate::native) fn set_context_menu_workspace_slot_identity(
         &mut self,
         identity: Option<crate::native::session::SessionToken>,
@@ -162,11 +161,11 @@ impl OverlayUi {
         self.context_menu.set_broadcast(pane_receiver, active);
     }
 
-    /// Open the connection-row context menu (ODP-2C) at `spawn` for the row at
+    /// Open the connection-row context menu at `spawn` for the row at
     /// filtered index `row_index`, snapshotting `host` so the menu can gate
     /// Edit/Remove (OdyTTY-owned only) and route each of the five actions. This
     /// is the one menu-over-overlay surface: it is spawned from WITHIN the
-    /// connection manager, so it does NOT `close()` — only the context-menu
+    /// connection manager, so it does NOT `close()` - only the context-menu
     /// state and the mode change, leaving the `connections` overlay loaded
     /// underneath so dismissing the menu returns to it with selection intact.
     pub(super) fn open_connection_row_menu(
@@ -202,10 +201,10 @@ impl OverlayUi {
         self.open = true;
     }
 
-    /// Open the close-confirmation dialog (CLOSE-CONFIRM). Called from the App's
+    /// Open the close-confirmation dialog. Called from the App's
     /// `CloseRequested` handler when `confirm_close` is on and a foreground job
     /// is running. Idempotent: starts with `close()` so a repeated close request
-    /// (some window managers fire it twice) cannot stack dialogs (TRAP-3).
+    /// (some window managers fire it twice) cannot stack dialogs.
     pub(in crate::native) fn open_confirm_close(&mut self) {
         self.close();
         self.mode = OverlayMode::ConfirmClose;
@@ -272,7 +271,7 @@ impl OverlayUi {
         }
     }
 
-    /// Keyboard contract for the image viewer (C4): Esc / Enter dismisses; every
+    /// Keyboard contract for the image viewer: Esc / Enter dismisses; every
     /// other key is swallowed so nothing leaks to the PTY behind the overlay.
     /// Dismissal emits `Close`; the App's per-frame sync clears the GPU overlay
     /// image so the next frame is byte-identical.
@@ -283,11 +282,11 @@ impl OverlayUi {
         }
     }
 
-    /// Keyboard contract for the close-confirmation dialog (CLOSE-CONFIRM).
+    /// Keyboard contract for the close-confirmation dialog.
     /// Enter or Y confirms the close (`ForceClose`); Esc or N cancels (closes the
     /// dialog, the window stays open); every other key is swallowed so nothing
     /// leaks to the PTY behind the modal. The `Close` arm must emit `Close`, not
-    /// `ForceClose`, so dismissing never exits (TRAP-2).
+    /// `ForceClose`, so dismissing never exits.
     pub(super) fn handle_confirm_close_input(&mut self, input: OverlayInput) -> OverlayOutcome {
         match input {
             OverlayInput::Activate | OverlayInput::Char('y') | OverlayInput::Char('Y') => {
@@ -304,9 +303,9 @@ impl OverlayUi {
     /// Hit-test a left-click in the close-confirmation dialog body (UX4-P1
     /// click→Activate parity). The action line ([`CONFIRM_CLOSE_ACTION_LINE`])
     /// is the 3rd body row (index 2); a click on the "Yes" region confirms
-    /// (`ForceClose`), the "No" region cancels (`Close`), and anywhere else —
-    /// including the leading prompt text and the other two rows — is inert so a
-    /// stray click never destroys a running job (TRAP-2: the dismiss path never
+    /// (`ForceClose`), the "No" region cancels (`Close`), and anywhere else -
+    /// including the leading prompt text and the other two rows - is inert so a
+    /// stray click never destroys a running job (the dismiss path never
     /// emits `ForceClose`). `col_in_body` indexes the left-aligned body line; the
     /// line is ASCII, so byte offsets equal columns.
     pub(super) fn confirm_close_click(
@@ -333,7 +332,7 @@ impl OverlayUi {
         }
     }
 
-    /// Open the attach-choice dialog (Phase 14) for host `session_id`. Called by
+    /// Open the attach-choice dialog for host `session_id`. Called by
     /// the App when the selected session is NOT already open in a tab (the
     /// already-open case dedups by switching, never reaching here). Idempotent:
     /// starts with `close()` so a repeated open cannot stack dialogs. The id is
@@ -345,7 +344,7 @@ impl OverlayUi {
         self.open = true;
     }
 
-    /// Keyboard contract for the attach-choice dialog (Phase 14). `N`/Enter
+    /// Keyboard contract for the attach-choice dialog. `N`/Enter
     /// attaches in a new tab; `R` replaces the current tab; Esc/`Close` cancels;
     /// every other key is swallowed so nothing leaks to the PTY behind the modal.
     /// Both action arms close the dialog before emitting, mirroring
@@ -371,8 +370,8 @@ impl OverlayUi {
     /// click→key parity, mirroring `confirm_close_click`). The action line
     /// ([`ATTACH_CHOICE_ACTION_LINE`]) is the 3rd body row (index 2); a click on
     /// the "New tab" region attaches in a new tab, the "Replace" region replaces
-    /// the current tab, and anywhere else — including the leading prompt text and
-    /// the other rows — is inert so a stray click never attaches. ASCII line, so
+    /// the current tab, and anywhere else - including the leading prompt text and
+    /// the other rows - is inert so a stray click never attaches. ASCII line, so
     /// byte offsets equal columns.
     pub(super) fn attach_choice_click(
         &mut self,
@@ -440,7 +439,7 @@ impl OverlayUi {
     /// parity, mirroring `confirm_close_click`). The action line
     /// ([`CONFIRM_KILL_SESSION_ACTION_LINE`]) is the 3rd body row (index 2); a
     /// click on the "Kill" region confirms, the "Cancel" region cancels, and
-    /// anywhere else — including the leading prompt text and the other rows — is
+    /// anywhere else - including the leading prompt text and the other rows - is
     /// inert so a stray click never kills a session. ASCII line, so byte offsets
     /// equal columns.
     pub(super) fn confirm_kill_session_click(
@@ -530,7 +529,7 @@ impl OverlayUi {
         }
     }
 
-    /// Open the replace-tab confirm dialog (ODP-5D) for the picked `host` and
+    /// Open the replace-tab confirm dialog for the picked `host` and
     /// the `target` tab it will replace. Called by the App only when that tab
     /// holds a running foreground child (an idle tab replaces directly, no
     /// prompt). Idempotent: starts with `close()` so a repeated open cannot
@@ -547,7 +546,7 @@ impl OverlayUi {
         self.open = true;
     }
 
-    /// Keyboard contract for the replace-tab confirm dialog (ODP-5D). Enter or Y
+    /// Keyboard contract for the replace-tab confirm dialog. Enter or Y
     /// confirms (emits [`OverlayOutcome::ReplaceTabWithHostConfirmed`] with the
     /// stashed host + token); Esc or N cancels (closes the dialog, replaces
     /// nothing); every other key is swallowed so nothing leaks to the PTY behind
@@ -578,7 +577,7 @@ impl OverlayUi {
     /// parity, mirroring `confirm_kill_session_click`). The action line
     /// ([`CONFIRM_REPLACE_TAB_ACTION_LINE`]) is the 3rd body row (index 2); a
     /// click on the "Replace" region confirms, the "Cancel" region cancels, and
-    /// anywhere else — including the leading prompt text and the other rows — is
+    /// anywhere else - including the leading prompt text and the other rows - is
     /// inert so a stray click never destroys a running shell. ASCII line, so
     /// byte offsets equal columns.
     pub(super) fn confirm_replace_tab_click(
@@ -610,11 +609,11 @@ impl OverlayUi {
         }
     }
 
-    /// Open the remove-host confirm dialog (ODP-2C) for the connection-manager
+    /// Open the remove-host confirm dialog for the connection-manager
     /// row `host`. Called when "Remove…" is chosen; the confirm arm emits the
     /// host back so the App deletes its `hosts.conf` block. The dialog is opened
     /// FROM the connection-row context menu, which lives over the still-loaded
-    /// connection manager — so this does NOT call `close()` (that would reset
+    /// connection manager - so this does NOT call `close()` (that would reset
     /// the return path); it flips the mode and stashes the host directly, and
     /// the retained `connections` state backs the cancel-returns-to-manager arm.
     pub(in crate::native) fn open_confirm_remove_host(&mut self, host: Box<ConnectionHost>) {
@@ -623,12 +622,12 @@ impl OverlayUi {
         self.open = true;
     }
 
-    /// Keyboard contract for the remove-host confirm dialog (ODP-2C). Enter or Y
+    /// Keyboard contract for the remove-host confirm dialog. Enter or Y
     /// confirms (emits [`OverlayOutcome::RemoveConnectionConfirmed`] with the
     /// stashed host; the App deletes the block and reopens the manager); Esc or
     /// N cancels back to the connection manager with its selection intact (the
     /// manager state was never torn down). Every other key is swallowed. The
-    /// confirm arm does NOT `close()` — the App reopens the manager fresh — so
+    /// confirm arm does NOT `close()` - the App reopens the manager fresh - so
     /// nothing leaks to the PTY.
     pub(super) fn handle_confirm_remove_host_input(
         &mut self,
@@ -681,7 +680,7 @@ impl OverlayUi {
     }
 
     /// Return to the connection manager from a connection-row menu or its
-    /// remove-confirm dialog (ODP-2C) without reloading — the `connections`
+    /// remove-confirm dialog without reloading - the `connections`
     /// overlay state (entries, query, selection) survived the mode switch, so
     /// flipping the mode back restores the manager exactly as it was left.
     pub(super) fn return_to_connection_manager(&mut self) -> OverlayOutcome {
@@ -703,7 +702,7 @@ impl OverlayUi {
         OverlayOutcome::Consumed
     }
 
-    /// Open the overwrite-layout confirm dialog (OVERWRITE-WARN) for the resolved
+    /// Open the overwrite-layout confirm dialog for the resolved
     /// layout `name` that already exists on disk. `kind` records which save it
     /// was so the confirm arm re-drives the right path. Idempotent: starts with
     /// `close()` so a repeated open cannot stack dialogs.
@@ -718,7 +717,7 @@ impl OverlayUi {
         self.open = true;
     }
 
-    /// Keyboard contract for the overwrite-layout confirm dialog (OVERWRITE-WARN).
+    /// Keyboard contract for the overwrite-layout confirm dialog.
     /// Enter replaces the existing layout (emits
     /// [`OverlayOutcome::OverwriteLayoutConfirmed`]); `R` reopens the name prompt
     /// for a different name (emits [`OverlayOutcome::RenameLayoutInstead`]); Esc
@@ -754,7 +753,7 @@ impl OverlayUi {
     /// (click→key parity, mirroring `confirm_replace_tab_click`). The action line
     /// ([`CONFIRM_OVERWRITE_LAYOUT_ACTION_LINE`]) is the 3rd body row (index 2);
     /// the three bracket regions map, left-to-right, to Replace / Rename / Cancel,
-    /// and anywhere before the first bracket — the leading prompt — is inert. ASCII
+    /// and anywhere before the first bracket - the leading prompt - is inert. ASCII
     /// line, so byte offsets equal columns.
     pub(super) fn confirm_overwrite_layout_click(
         &mut self,
@@ -794,7 +793,7 @@ impl OverlayUi {
         }
     }
 
-    /// Open the open-layout mode dialog (LAYOUT-OPEN-MODE) for the saved layout
+    /// Open the open-layout mode dialog for the saved layout
     /// `name`, shown when a layout is opened onto a window that already holds
     /// real state (more than a single pristine workspace). Idempotent: starts
     /// with `close()` so a repeated open cannot stack dialogs.
@@ -805,7 +804,7 @@ impl OverlayUi {
         self.open = true;
     }
 
-    /// Keyboard contract for the open-layout mode dialog (LAYOUT-OPEN-MODE).
+    /// Keyboard contract for the open-layout mode dialog.
     /// Enter replaces the current workspaces with the saved set (emits
     /// [`OverlayOutcome::OpenLayoutReplace`]); `A` appends the saved set beside
     /// the current one (emits [`OverlayOutcome::OpenLayoutAdd`]); Esc cancels the
@@ -841,7 +840,7 @@ impl OverlayUi {
     /// parity, mirroring `confirm_overwrite_layout_click`). The action line
     /// ([`CONFIRM_OPEN_LAYOUT_ACTION_LINE`]) is the 3rd body row (index 2); the
     /// three bracket regions map, left-to-right, to Replace / Add / Cancel, and
-    /// anywhere before the first bracket — the leading prompt — is inert. ASCII
+    /// anywhere before the first bracket - the leading prompt - is inert. ASCII
     /// line, so byte offsets equal columns.
     pub(super) fn confirm_open_layout_click(
         &mut self,
@@ -896,7 +895,7 @@ impl OverlayUi {
 
     /// Keyboard contract for the Detach & switch dialog. `S` swaps
     /// (spawn + close this pane); `K` keeps both (spawn + leave this pane); Esc
-    /// cancels; every other key — INCLUDING Enter — is swallowed. There is no
+    /// cancels; every other key - INCLUDING Enter - is swallowed. There is no
     /// Enter default on purpose: Swap is destructive (it closes the focused
     /// pane), so the user must explicitly choose S or K. Both action arms close
     /// the dialog before emitting, mirroring `ConfirmClose`, and carry the
@@ -922,8 +921,8 @@ impl OverlayUi {
     /// parity, mirroring `attach_choice_click`). The action line
     /// ([`DETACH_SWITCH_ACTION_LINE`]) is the 4th body row (index 3); a click on
     /// the "Swap" region swaps, the "Keep both" region keeps both, the "Cancel"
-    /// region cancels, and anywhere else — including the leading prompt text and
-    /// the other rows — is inert so a stray click never spawns or closes a pane.
+    /// region cancels, and anywhere else - including the leading prompt text and
+    /// the other rows - is inert so a stray click never spawns or closes a pane.
     /// ASCII line, so byte offsets equal columns. Regions are tested right-to-
     /// left (Cancel, then Keep, then Swap) since their anchors are ordered S < K
     /// < Esc in the line.
@@ -957,7 +956,7 @@ impl OverlayUi {
         }
     }
 
-    /// Lift a [`ContextMenuOutcome`] into an [`OverlayOutcome`] (IN2). An
+    /// Lift a [`ContextMenuOutcome`] into an [`OverlayOutcome`]. An
     /// `Activate` closes the menu and emits the matching App-side action; the
     /// App runs it after the overlay has closed.
     pub(super) fn apply_context_menu_outcome(
@@ -966,7 +965,7 @@ impl OverlayUi {
     ) -> OverlayOutcome {
         match outcome {
             ContextMenuOutcome::Consumed => OverlayOutcome::Consumed,
-            // ODP-2C: dismissing a connection-row menu returns to the still-
+            // Dismissing a connection-row menu returns to the still-
             // loaded manager (selection intact), not to the grid.
             ContextMenuOutcome::Close => {
                 if matches!(
@@ -1114,7 +1113,7 @@ impl OverlayUi {
                         }
                         _ => OverlayOutcome::Consumed,
                     },
-                    // RAIL-REORDER: the move rows are WorkspaceSlot-only; they
+                    // The move rows are WorkspaceSlot-only; they
                     // carry the clicked slot's rail index.
                     ContextMenuItem::MoveWorkspaceUp => match self.context_menu.surface() {
                         crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(idx) => {
@@ -1128,12 +1127,12 @@ impl OverlayUi {
                         }
                         _ => OverlayOutcome::Consumed,
                     },
-                    // ODP-6B: bind the active workspace to a host. The menu
+                    // Bind the active workspace to a host. The menu
                     // closed itself; the App opens the shared host picker seeded
-                    // for the BindWorkspace purpose (ODP-1B). Unbind is direct —
+                    // for the BindWorkspace purpose. Unbind is direct -
                     // no host choice needed.
                     ContextMenuItem::BindWorkspaceToHost => match self.context_menu.surface() {
-                        // RAIL-BIND: a rail slot binds the CLICKED workspace; the
+                        // A rail slot binds the CLICKED workspace; the
                         // content-grid menu binds the active one.
                         crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(idx) => {
                             OverlayOutcome::ContextMenuBindWorkspaceAt(idx)
@@ -1146,11 +1145,11 @@ impl OverlayUi {
                         }
                         _ => OverlayOutcome::ContextMenuUnbindWorkspace,
                     },
-                    // SAVE-ALL-LAYOUT: the whole-app save is surface-independent —
+                    // The whole-app save is surface-independent -
                     // it captures every workspace regardless of where the menu was
                     // opened. The App opens the "Layout name:" prompt.
                     ContextMenuItem::SaveAllLayout => OverlayOutcome::ContextMenuSaveAllLayout,
-                    // LAYOUT-SURFACE: a rail slot saves the CLICKED workspace;
+                    // A rail slot saves the CLICKED workspace;
                     // the content-grid section saves the active one. Either way
                     // the App opens the "Layout name:" prompt.
                     ContextMenuItem::SaveAsLayout => match self.context_menu.surface() {
@@ -1159,10 +1158,10 @@ impl OverlayUi {
                         }
                         _ => OverlayOutcome::ContextMenuSaveActiveLayout,
                     },
-                    // LAYOUT-SURFACE: open the saved-layout picker (surface-
-                    // independent — the App seeds it from the saved layout names).
+                    // Open the saved-layout picker (surface-
+                    // independent - the App seeds it from the saved layout names).
                     ContextMenuItem::OpenLayout => OverlayOutcome::ContextMenuOpenLayoutPicker,
-                    // NF-F7-1: a Close Tab chosen from a specific tab slot closes
+                    // A Close Tab chosen from a specific tab slot closes
                     // THAT tab, not the active one. The Content surface (no
                     // TabSlot token) keeps the active-tab close.
                     ContextMenuItem::CloseTab => match self.context_menu.surface() {
@@ -1179,7 +1178,7 @@ impl OverlayUi {
                         }
                         _ => OverlayOutcome::Consumed,
                     },
-                    // W4-v2: open the "Move to Workspace" picker for the
+                    // Open the "Move to Workspace" picker for the
                     // right-clicked tab. Only ever visible on a TabSlot with >1
                     // workspace.
                     ContextMenuItem::MoveToWorkspace => match self.context_menu.surface() {
@@ -1188,7 +1187,7 @@ impl OverlayUi {
                         }
                         _ => OverlayOutcome::Consumed,
                     },
-                    // ODP-5D: open the shared host picker for the clicked tab.
+                    // Open the shared host picker for the clicked tab.
                     // The App seeds it for the ConnectTabAfter / ReplaceTab
                     // purpose so the pick routes back to the right tab. TabSlot-
                     // only, so a stray non-tab surface is inert.
@@ -1233,7 +1232,7 @@ impl OverlayUi {
                     ContextMenuItem::SessionAttach => OverlayOutcome::ContextMenuSessionAttach,
                     // C3 file section: build each outcome from the resolved path
                     // snapshotted at open time (survives the `close()` above, as
-                    // the rename-target read does). A missing target (defensive —
+                    // the rename-target read does). A missing target (defensive -
                     // these items are only visible with a target) is inert.
                     ContextMenuItem::OpenPath => match self.context_menu.path_target() {
                         Some(resolved) => {
@@ -1241,7 +1240,7 @@ impl OverlayUi {
                         }
                         None => OverlayOutcome::Consumed,
                     },
-                    // C4: only ever visible on a resolved image span; build the
+                    // Only ever visible on a resolved image span; build the
                     // viewer-open outcome from the snapshotted target.
                     ContextMenuItem::OpenInOdytty => match self.context_menu.path_target() {
                         Some(resolved) => {
@@ -1249,7 +1248,7 @@ impl OverlayUi {
                         }
                         None => OverlayOutcome::Consumed,
                     },
-                    // C3b: only ever visible on a resolved file span; the App
+                    // Only ever visible on a resolved file span; the App
                     // enumerates the handler apps and opens the picker overlay.
                     ContextMenuItem::OpenWith => match self.context_menu.path_target() {
                         Some(resolved) => {
@@ -1309,7 +1308,7 @@ impl OverlayUi {
     /// Workspace / Bind close the manager and hand the App the clicked host;
     /// Edit opens the P4 form in place (returning to the form, not the grid);
     /// Remove opens the confirm dialog over the still-loaded manager. A missing
-    /// target (defensive — the items are only visible with one) returns to the
+    /// target (defensive - the items are only visible with one) returns to the
     /// manager rather than acting.
     pub(super) fn apply_connection_row_menu_item(
         &mut self,
@@ -1342,7 +1341,7 @@ impl OverlayUi {
                     None => OverlayOutcome::Close,
                 }
             }
-            // Open the Edit form in place (the manager stays torn down behind the
+            // Open the Edit form in place (the manager stays loaded behind the
             // form, exactly like the keyboard → path). OdyTTY aliases minus this
             // one supply the collision guard.
             ContextMenuItem::ConnRowEdit => match host {

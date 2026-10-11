@@ -109,7 +109,7 @@ pub enum SettingsReloadOutcome {
     Deleted,
     /// The config was re-read and produced usable settings. `warnings` carries
     /// any non-fatal parse notices (unknown/typo'd keys, out-of-range values that
-    /// fell back) — surfaced but NOT a reason to discard the applied settings, so
+    /// fell back) - surfaced but NOT a reason to discard the applied settings, so
     /// live reload matches the startup path (which applies partial configs and
     /// prints the same notices).
     Reloaded {
@@ -177,7 +177,7 @@ impl SettingsReloader {
 
     /// Test seam: point the reloader at a hermetic temp config file so a live
     /// persistence path (e.g. the F4-P4 rail seam drag) writes there instead of
-    /// the operator's real `odytty.conf`.
+    /// the user's real `odytty.conf`.
     #[cfg(test)]
     pub fn set_config_path_for_test(&mut self, path: Option<PathBuf>) {
         self.path = path;
@@ -239,7 +239,7 @@ impl SettingsReloader {
 
         // Parsing is tolerant: unknown keys are skipped and out-of-range values
         // fall back, so a changed file always yields usable settings. Apply them
-        // and surface any warnings non-fatally, mirroring startup — a single
+        // and surface any warnings non-fatally, mirroring startup - a single
         // typo'd or future key must not silently block a live edit until restart.
         SettingsReloadOutcome::Reloaded { settings, warnings }
     }

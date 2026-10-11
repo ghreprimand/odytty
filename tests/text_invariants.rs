@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Project-authored Unicode fixtures for logical terminal ownership.
 //! These headless checks cover Linux, macOS, and Windows without fonts or PTYs.
-//! They preserve valid semantics, without asserting known-divergent widths.
+//! They preserve valid semantics; divergent widths are recorded in
+//! `width_conformance.rs`.
 
 use odytty::atlas::CellSize;
 use odytty::core::{
@@ -119,8 +120,8 @@ fn logical_search_crosses_soft_wrap_but_not_hard_break() {
 
 #[test]
 fn reflow_preserves_logical_search_and_attached_marks() {
-    // Wide owner first: this pins valid reflow without the known wide-edge
-    // padding provenance gap. That gap needs a failing-before fix separately.
+    // Wide owner first: this pins valid reflow of mixed wide, combining and
+    // joining text. Padding provenance is covered by the padding tests below.
     let text = "\u{754C}\u{0301}A\u{05D0}\u{05B0}\u{0628}\u{064E}Z";
     let mut terminal = Terminal::new(12, 8);
     terminal.advance(text.as_bytes());

@@ -1,44 +1,40 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Vertical tab rail widget (F4-V2 R1) — presentation-only, decoupled from the
+//! Vertical tab rail widget (F4-V2 R1) - presentation-only, decoupled from the
 //! session model, the vertical sibling of [`super::tab_bar::TabBar`].
 //!
 //! Where [`TabBar`](super::tab_bar::TabBar) packs variable-width slots along a
 //! single top row, the rail **stacks fixed-width slots down a fixed-width column
-//! band** on the left (R1) side of the window. It reads layout from the shared
+//! band** on the left side of the window. It reads layout from the shared
 //! [`TabBarSource`] trait (same one `WorkspaceSet` already implements), returns the
 //! shared [`TabHit`] enum (so pointer/action dispatch is reused verbatim), and
 //! paints with the shared [`TabBarColors`] theme roles. It never touches
-//! terminal state, PTY, or settings — the integration layer composites the
+//! terminal state, PTY, or settings - the integration layer composites the
 //! returned region + quads into the frame.
 //!
-//! ## Visual language: "Phosphor Flat" (F4-RESKIN)
+//! ## Visual language: "Phosphor Flat"
 //! Identical treatment to the horizontal [`super::tab_bar`], sharing the same
-//! [`super::tab_chrome`] color module (F4V2-NF2 — the "promote shared treatment
-//! fns to a shared chrome location" follow-up is now done). The old outlined-box
-//! language (per-slot rings, the rail↔content divider) was **deleted, not
-//! bypassed** because it read as hacked-together and cheap. The rail
-//! is now a continuous surface; the active slot is embedded in the rail, and
+//! [`super::tab_chrome`] color module. The rail is a continuous surface with no
+//! per-slot rings or rail/content divider; the active slot is embedded in the rail, and
 //! hierarchy comes from luminance:
-//! - **ACTIVE** — a warm full-width `selection` fill (the bloom-off fallback),
+//! - **ACTIVE** - a warm full-width `selection` fill (the bloom-off fallback),
 //!   plus a bright bold `foreground` label brightened above the
 //!   bloom threshold so it auto-halos through `bloom.wgsl`.
-//! - **INACTIVE** — bare `inactive`-role labels on the wallpaper-through
+//! - **INACTIVE** - bare `inactive`-role labels on the wallpaper-through
 //!   background (no fill), dimmed along a phosphor-persistence luminance ramp
 //!   keyed on distance from the active tab.
-//! - **HOVER** — the label warms one tier toward the active label and gains a
+//! - **HOVER** - the label warms one tier toward the active label and gains a
 //!   whisper of the selection fill.
 //!
 //! The whole `rail_cols × grid_rows` region paints the F4-P1 **panel tint**
-//! (Layer 1 of ODP-1) on every non-active cell — inactive slots and the
+//! (Layer 1 of ODP-1) on every non-active cell - inactive slots and the
 //! inter-slot gaps recede into the panel surface. There are **no chrome quads in
 //! this widget** ([`TabRailOutput::quads`] is emitted empty); the unified panel
 //! wash + seam are separate background-segment quads built by
 //! [`super::tab_panel`] and spliced in by the integration layer.
 //!
 //! ## Scope
-//! `left` placement is live; `right` is wired but gated behind
-//! [`crate::settings::TabBarPlacement::effective`] until right-side placement is wired. The
-//! band width, slot height, and inter-slot gap are the live
+//! Both side placements are live; the App resolves placement through
+//! [`crate::settings::TabBarPlacement::effective`]. The band width, slot height, and inter-slot gap are the live
 //! `ODYTTY_TAB_RAIL_WIDTH` / `ODYTTY_TAB_RAIL_SLOT_ROWS` / `ODYTTY_TAB_RAIL_GAP`
 //! knobs (resolved by the integration layer into [`RailGeom`] + `rail_cols`);
 //! auto-hide and drag-resize are handled in the interaction layer.
@@ -50,10 +46,10 @@ use crate::core::Attrs;
 use crate::theme::Srgb;
 
 // ---------------------------------------------------------------------------
-// Geometry constants (Option B — padded slots)
+// Geometry constants (Option B - padded slots)
 // ---------------------------------------------------------------------------
 
-/// Default rows each tab slot occupies (Option B: 2-cell-tall padded slots —
+/// Default rows each tab slot occupies (Option B: 2-cell-tall padded slots -
 /// label row plus a breathing row). F4-P1 lifts this to the
 /// `ODYTTY_TAB_RAIL_SLOT_ROWS` knob via [`RailGeom::slot_rows`]; this const is
 /// the default and the fixed value the unit tests express positions against.
@@ -63,11 +59,11 @@ const DEFAULT_SLOT_ROWS: usize = 2;
 /// before the first slot follows it.
 const DEFAULT_SLOT_GAP: usize = 1;
 /// Rows the bottom `+` new-tab slot occupies (R1.1: a lightweight 1-cell
-/// affordance — no ring at rest, so it never competes with a real tab slot).
+/// affordance - no ring at rest, so it never competes with a real tab slot).
 const NEW_TAB_ROWS: usize = 1;
 
 /// Rows the always-visible auto-hide toggle control occupies at the rail's
-/// bottom edge (RAIL-AUTOHIDE-CTL): a single glyph row. It is pinned below the
+/// bottom edge: a single glyph row. It is pinned below the
 /// workspace slots and the `+` affordance so the escape hatch for the rail lives
 /// on the rail itself.
 pub(super) const AUTOHIDE_CONTROL_ROWS: usize = 1;
@@ -80,7 +76,7 @@ const AUTOHIDE_SEPARATOR_ROWS: usize = 1;
 /// ABOVE this band, so overflow indicators and slots never collide with it.
 const AUTOHIDE_RESERVE_ROWS: usize = AUTOHIDE_CONTROL_ROWS + AUTOHIDE_SEPARATOR_ROWS;
 
-/// Solid horizontal-triangle glyphs pointing toward the rail edge — the "tuck
+/// Solid horizontal-triangle glyphs pointing toward the rail edge - the "tuck
 /// the rail away" affordance, mirrored by [`RailSide`]. A full-cell-height
 /// geometric glyph (same Geometric Shapes block as the `▲`/`▼` overflow marks,
 /// so font coverage is guaranteed) reads as a deliberate collapse control at the
@@ -89,7 +85,7 @@ const AUTOHIDE_RESERVE_ROWS: usize = AUTOHIDE_CONTROL_ROWS + AUTOHIDE_SEPARATOR_
 const AUTOHIDE_CHEVRON_LEFT: char = '\u{25c0}'; // ◀
 const AUTOHIDE_CHEVRON_RIGHT: char = '\u{25b6}'; // ▶
 
-/// Marker painted on a bound workspace's rail row (ODP-7B): a compact
+/// Marker painted on a bound workspace's rail row: a compact
 /// bidirectional-link glyph in a text-side accent role that reads as "everything
 /// opened here is remote". Placed in the rail-edge inset column (the outer,
 /// non-content margin) so it never crowds the label and stays width-robust.
@@ -122,7 +118,7 @@ impl RailGeom {
     fn stride(self) -> usize {
         self.slot_rows + self.slot_gap
     }
-    /// Top margin (rows) before the first slot — follows the inter-slot gap so
+    /// Top margin (rows) before the first slot - follows the inter-slot gap so
     /// the space above the first slot reads like the gaps between slots.
     fn top_margin(self) -> usize {
         self.slot_gap
@@ -131,7 +127,7 @@ impl RailGeom {
 /// Horizontal inset (in columns) of each slot's ring/fill from the rail band's
 /// left and right edges (R1.1), so slots read as bounded boxes with a margin
 /// rather than blocky edge-to-edge bands. The active slot's content-facing edge
-/// is exempt — it reaches the divider seam (connected-active). R2 lifts this as
+/// is exempt - it reaches the divider seam (connected-active). R2 lifts this as
 /// part of the `tab_rail_gap` knob work.
 const SLOT_INSET_COLS: usize = 1;
 /// Left/right in-slot padding (columns) between a slot's ring and the label
@@ -148,7 +144,7 @@ pub(super) const SLOT_LABEL_START_COL: usize = SLOT_INSET_COLS + RAIL_LABEL_PAD;
 /// region coincide (clamped to the last rail column when the rail is narrow).
 pub(super) const NEW_WORKSPACE_PICKER_COL: usize = SLOT_LABEL_START_COL + 2;
 
-/// Non-label columns a slot reserves around its title (F4-P4): the left label
+/// Non-label columns a slot reserves around its title: the left label
 /// start (`SLOT_LABEL_START_COL`) plus the right inset column and the close-`×`
 /// cell. The label's usable inner budget is therefore
 /// `rail_cols - RAIL_LABEL_CHROME_COLS`. The auto-width resolver adds this to
@@ -159,7 +155,7 @@ pub(super) const RAIL_LABEL_CHROME_COLS: usize = SLOT_LABEL_START_COL + SLOT_INS
 
 // The rail band width is now the live `ODYTTY_TAB_RAIL_WIDTH` knob
 // (`Settings::rail_width_cols`, default 16, clamp `[8, 32]`) resolved by the
-// integration layer and passed in as `rail_cols` — the widget owns no fixed
+// integration layer and passed in as `rail_cols` - the widget owns no fixed
 // width.
 
 // ---------------------------------------------------------------------------
@@ -219,7 +215,7 @@ pub(super) struct TabRailOutput {
     pub(super) glyphs: Vec<TabRailGlyph>,
 }
 
-/// Presentation-only rail state — only hover, mirroring [`TabBar`].
+/// Presentation-only rail state - only hover, mirroring [`TabBar`].
 #[derive(Debug, Default, Clone)]
 pub(super) struct TabRail {
     pub(super) hover: Option<TabHit>,
@@ -238,13 +234,13 @@ pub(super) struct RailSlot {
     pub(super) start_row: usize,
     /// One-past-last row of the slot (exclusive).
     pub(super) end_row: usize,
-    /// The row the single-line label (and its `×`) sits on — the slot's
-    /// vertically-centered row (F4-P4). For the default 2-row slot the centre
+    /// The row the single-line label (and its `×`) sits on - the slot's
+    /// vertically-centered row. For the default 2-row slot the centre
     /// rounds to the slot's first row, leaving the trailing row as breathing
     /// space; taller slots centre exactly.
     pub(super) label_row: usize,
     /// The single-line label, already truncated with `…` to the inner column
-    /// budget (F4-P4 — the rail never wraps to a second line).
+    /// budget (F4-P4 - the rail never wraps to a second line).
     pub(super) label: String,
     /// `(row, col)` of the `×` close glyph (on the label row, at the slot's
     /// inset top-right), or `None` when the rail is too narrow.
@@ -259,8 +255,8 @@ pub(super) struct RailLayout {
     /// `(start_row, end_row)` of the `+` new-tab slot, or `None` when it doesn't
     /// fit (overflow, or a degenerate rail).
     pub(super) new_tab_rows: Option<(usize, usize)>,
-    /// The dead spacer row between the last workspace slot and the `+`
-    /// (RAIL-PLUS-GAP), or `None` when there is nothing to separate (empty rail
+    /// The dead spacer row between the last workspace slot and the `+`,
+    /// or `None` when there is nothing to separate (empty rail
     /// or overflow). This blank row is non-interactive -- a click on it maps to
     /// [`TabHit::None`] -- so the `+` remains set apart from the workspace list.
     separator_row: Option<usize>,
@@ -272,10 +268,10 @@ pub(super) struct RailLayout {
     /// control band) and is informational-only in R1.
     overflow_below: Option<usize>,
     /// Row of the always-visible auto-hide toggle control at the rail's bottom
-    /// edge (RAIL-AUTOHIDE-CTL), or `None` on a degenerate (empty) region. The
+    /// edge, or `None` on a degenerate (empty) region. The
     /// slot/overflow region is bounded ABOVE this so nothing collides with it.
     pub(super) autohide_row: Option<usize>,
-    /// Height (rows) of the slot/overflow region — the window rows the rail
+    /// Height (rows) of the slot/overflow region - the window rows the rail
     /// spans MINUS the reserved control band. Slot placement and the `▼`
     /// overflow indicator are bounded by this, not by the full rail height.
     slot_region_rows: usize,
@@ -293,18 +289,18 @@ impl TabRail {
 
     /// Render the rail for the current frame.
     ///
-    /// - `source` — session model accessor (mock or real `WorkspaceSet`).
-    /// - `rail_cols` — rail band width in cells (the setting; R1 fixed).
-    /// - `grid_rows` — window content rows the rail spans.
-    /// - `origin_px` / `cell` — pixel geometry for chrome quads; Phosphor Flat
+    /// - `source` - session model accessor (mock or real `WorkspaceSet`).
+    /// - `rail_cols` - rail band width in cells (the setting; R1 fixed).
+    /// - `grid_rows` - window content rows the rail spans.
+    /// - `origin_px` / `cell` - pixel geometry for chrome quads; Phosphor Flat
     ///   emits none, so `origin_px` is unused and `cell` only feeds the degenerate
     ///   guard (retained in the signature so a future divider needs no call-site
     ///   change).
-    /// - `placement` — `Left` or `Right`; controls mirrored edge affordances.
-    /// - `colors` — the theme-role colors (see [`TabBarColors`]).
+    /// - `placement` - `Left` or `Right`; controls mirrored edge affordances.
+    /// - `colors` - the theme-role colors (see [`TabBarColors`]).
     ///
     /// Returns a fully-painted `rail_cols × grid_rows` region (`glyphs`) and an
-    /// empty quad list — the whole Phosphor Flat treatment is cell backgrounds +
+    /// empty quad list - the whole Phosphor Flat treatment is cell backgrounds +
     /// label attributes (shared [`super::tab_chrome`]).
     #[allow(clippy::too_many_arguments)]
     #[cfg(test)]
@@ -361,14 +357,14 @@ impl TabRail {
         let layout = compute_rail_layout(source, rail_cols, grid_rows, geom);
         let active_idx = source.active_tab();
 
-        // Phosphor Flat palette (shared treatment; theme roles only). F4-P1: the
+        // Phosphor Flat palette (shared treatment; theme roles only). the
         // resting-region surface is the panel tint (Layer 1 of ODP-1); the wash
         // + seam quads are added separately in the background segment by the
         // integration layer. `panel_strength = 0` collapses the tint to the raw
         // background (the pre-panel bare-labels look).
         let panel_srgb = tab_chrome::panel_tint(colors, panel_strength);
         let panel_surface = rgb(panel_srgb);
-        // ACTIVE-FILL: lift the `selection` slab against THIS panel surface (see
+        // Lift the `selection` slab against THIS panel surface (see
         // tab_bar) so the active workspace slot reads on every theme; hover
         // re-bases on the panel toward that guaranteed fill.
         let active_fill = rgb(tab_chrome::active_fill(colors, panel_srgb));
@@ -412,7 +408,7 @@ impl TabRail {
                     }
                 }
             }
-            // Label glyphs — a single line on the slot's vertically-centered row
+            // Label glyphs - a single line on the slot's vertically-centered row
             // (F4-P4; no wrapping).
             let mut la = Attrs::default();
             la.foreground = label_fg;
@@ -445,7 +441,7 @@ impl TabRail {
                     col += w;
                 }
             }
-            // Close `×` glyph — only for the active or hovered slot.
+            // Close `×` glyph - only for the active or hovered slot.
             if let Some((crow, ccol)) = slot
                 .close_cell
                 .filter(|_| is_active || is_hovered || is_pressed)
@@ -456,11 +452,11 @@ impl TabRail {
                 g.ch = '×';
                 g.attrs = la;
             }
-            // Bound-workspace marker (ODP-7B): a compact link glyph in the
+            // Bound-workspace marker: a compact link glyph in the
             // text-side accent role (never the theme border), painted in the
             // rail-edge inset column (the outer, non-content margin) so it
             // reads as "opens remote" without crowding the label. Unbound
-            // rows (the default) paint nothing here — byte-identical to today.
+            // rows (the default) paint nothing here - byte-identical to today.
             if source.tab_bound(slot.idx) {
                 let badge_col = match placement {
                     RailSide::Left => 0,
@@ -495,11 +491,11 @@ impl TabRail {
             }
         }
 
-        // New-tab `+` slot — a lightweight 1-cell affordance. The preceding
+        // New-tab `+` slot - a lightweight 1-cell affordance. The preceding
         // RAIL-PLUS-GAP row stays blank and non-interactive, leaving the control
         // set apart from the workspace list without a visible rule.
         // At rest the `+` reads as a deliberate "add" control: lifted out of the
-        // dim inactive floor via `new_slot_plus_rest` (RAIL-PLUS-GAP). It still
+        // dim inactive floor via `new_slot_plus_rest`. It still
         // brightens to the full active label (and gains a whisper fill) on hover,
         // so hover stays clearly stronger than the resting state.
         if let Some((nt_start, nt_end)) = layout.new_tab_rows {
@@ -563,7 +559,7 @@ impl TabRail {
             );
         }
 
-        // RAIL-AUTOHIDE-CTL: the always-visible auto-hide toggle at the rail's
+        // The always-visible auto-hide toggle at the rail's
         // bottom edge. A solid horizontal triangle pointing toward the rail edge;
         // the resting glyph recedes into the inactive floor, hover lifts it to
         // the panel's hover treatment, and an ACTIVE auto-hide state is held in
@@ -596,14 +592,14 @@ impl TabRail {
             a.background = ctl_bg;
             // Glyph-only control at the label column, matching the `+`
             // affordance's alignment. The on-state reads through the triangle
-            // flip and the active tint alone — no bold weight, no text label.
+            // flip and the active tint alone - no bold weight, no text label.
             let ccol = SLOT_LABEL_START_COL.min(rail_cols.saturating_sub(1));
             let g = &mut cells[ctl_row * rail_cols + ccol];
             g.ch = chevron;
             g.attrs = a;
         }
 
-        // Phosphor Flat draws no chrome quads — the treatment is entirely cell
+        // Phosphor Flat draws no chrome quads - the treatment is entirely cell
         // backgrounds + label attributes (see the module docs).
         TabRailOutput {
             quads: Vec::new(),
@@ -633,7 +629,7 @@ pub(super) fn compute_rail_layout(
     if rail_cols == 0 || grid_rows == 0 {
         return layout;
     }
-    // RAIL-AUTOHIDE-CTL: reserve the bottom band for the always-visible auto-hide
+    // Reserve the bottom band for the always-visible auto-hide
     // toggle, then place slots/overflow against the region ABOVE it. The control
     // pins to the true bottom row; the slot region loses the reserved rows so
     // overflow indicators and slots can never collide with the control.
@@ -676,7 +672,7 @@ pub(super) fn compute_rail_layout(
                 .slots
                 .push(build_slot(source, i, start, rail_cols, geom));
         }
-        // RAIL-PLUS-GAP: anchor the `+` a guaranteed dead gap below the last
+        // Anchor the `+` a guaranteed dead gap below the last
         // slot's END row (not its label row), so a 2-row padded slot no longer
         // leaves the `+` flush against its breathing row. The first row of that
         // gap is a blank spacer; the `+` sits `plus_gap` rows below the slot box.
@@ -733,12 +729,12 @@ pub(super) fn compute_rail_layout(
 
     layout.overflow_above = (first > 0).then_some(first);
     layout.overflow_below = (first + placed < tab_count).then_some(tab_count - first - placed);
-    // No `+` slot in overflow mode — the rail is full.
+    // No `+` slot in overflow mode - the rail is full.
     layout
 }
 
 /// Build one slot at `start_row` with a single-line, ellipsis-truncated label
-/// on the slot's vertically-centered row (F4-P4).
+/// on the slot's vertically-centered row.
 fn build_slot(
     source: &dyn TabBarSource,
     idx: usize,

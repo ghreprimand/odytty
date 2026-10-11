@@ -2,7 +2,7 @@
 //! Headless transcript smoke harness.
 //!
 //! Feeds captured/synthetic byte transcripts into the owned terminal core via
-//! the public `Terminal` API and asserts coarse invariants — the kind of
+//! the public `Terminal` API and asserts coarse invariants - the kind of
 //! checks that catch gross regressions in escape-sequence handling without
 //! being sensitive to exact cell-by-cell layout. All default fixtures are
 //! deterministic and host-independent (no external commands, no PTY), so
@@ -14,7 +14,7 @@
 use odytty::core::{Color, Terminal};
 
 /// Build a terminal of the given size and feed each transcript chunk in order.
-/// Chunking mirrors how bytes arrive from a PTY in arbitrary read boundaries —
+/// Chunking mirrors how bytes arrive from a PTY in arbitrary read boundaries -
 /// the parser must produce the same result regardless of how the stream is
 /// split.
 fn run_transcript(columns: usize, rows: usize, chunks: &[&[u8]]) -> Terminal {
@@ -45,14 +45,14 @@ fn clear_screen_resets_and_redraws() {
         4,
         &[
             b"first line\r\nsecond line\r\nthird line",
-            b"\x1b[2J\x1b[H", // ED 2 (erase all) + CUP home — the core of `clear`
+            b"\x1b[2J\x1b[H", // ED 2 (erase all) + CUP home - the core of `clear`
             b"fresh prompt$ ",
         ],
     );
 
     // `plain_text()` intentionally trims each row's trailing spaces, so the
     // invariant asserts the redrawn content without depending on the trailing
-    // space that `fresh prompt$ ` wrote — the cursor check below confirms the
+    // space that `fresh prompt$ ` wrote - the cursor check below confirms the
     // write position separately.
     let lines = visible_lines(&terminal);
     assert_eq!(lines[0], "fresh prompt$");
@@ -235,7 +235,7 @@ fn carriage_return_progress_bar_overwrites_in_place() {
 fn resize_transcript_keeps_core_coherent() {
     // Draw content, resize narrower then wider, and assert the model stays
     // coherent (dimensions track, no panic, cursor in bounds). Coarse invariant
-    // only — reflow semantics are intentionally not asserted here.
+    // only - reflow semantics are intentionally not asserted here.
     let mut terminal = run_transcript(20, 3, &[b"line one\r\nline two\r\nline three"]);
 
     terminal.resize(10, 3);
@@ -254,8 +254,8 @@ fn resize_transcript_keeps_core_coherent() {
 
 #[test]
 fn device_attributes_query_produces_host_reply() {
-    // A primary Device Attributes query (CSI c) must produce a host-bound reply
-    // — the kind of round-trip a real program relies on at startup.
+    // A primary Device Attributes query (CSI c) must produce a host-bound reply -
+    // the kind of round-trip a real program relies on at startup.
     let mut terminal = run_transcript(20, 2, &[b"\x1b[c"]);
     assert_eq!(terminal.take_host_output(), b"\x1b[?62;4;6;22;28c");
     // Reply is consumed once.
@@ -264,7 +264,7 @@ fn device_attributes_query_produces_host_reply() {
 
 /// Live-PTY smoke test. Ignored by default so the standard suite stays
 /// deterministic and host-independent; run with `cargo test -- --ignored`.
-/// Uses only `printf` (a POSIX shell builtin) — no less/vim/top/etc.
+/// Uses only `printf` (a POSIX shell builtin) - no less/vim/top/etc.
 #[test]
 #[cfg(unix)]
 #[ignore = "live PTY: run explicitly with --ignored"]

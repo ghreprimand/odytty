@@ -66,7 +66,7 @@ fn escape_requests_close_without_mutating_state() {
 
 #[test]
 fn confirm_close_open_is_idempotent() {
-    // TRAP-3: a repeated close request (some window managers fire twice)
+    // A repeated close request (some window managers fire twice)
     // must not stack dialogs: open_confirm_close starts with close(). After
     // two opens, one confirmation produces ForceClose and closes the overlay,
     // so no second card is waiting underneath.
@@ -87,7 +87,7 @@ fn confirm_close_open_is_idempotent() {
 
 #[test]
 fn escape_while_searching_does_not_close_overlay() {
-    // R7: the overlay-close Esc is gated on `!is_searching()`, so an Esc in
+    // The overlay-close Esc is gated on `!is_searching()`, so an Esc in
     // search mode runs the panel's two-step exit instead of closing.
     let mut overlay = OverlayUi::default();
     overlay.open_settings();
@@ -369,7 +369,7 @@ fn font_picker_cancel_returns_to_settings_when_launched_from_settings_panel() {
 
 #[test]
 fn font_picker_apply_stays_open_when_launched_from_settings_panel() {
-    // FONT-PICKER-STAY-OPEN: Enter applies+saves the font but KEEPS the
+    // Enter applies+saves the font but KEEPS the
     // picker open so the user can keep cycling. It must NOT return to the
     // settings panel after the save succeeds.
     let mut overlay = OverlayUi::default();
@@ -479,7 +479,7 @@ fn font_picker_apply_stays_open_then_esc_closes_standalone() {
     assert!(!overlay.is_open(), "standalone Esc closes the picker");
 }
 
-// --- Phase 14: attach-choice dialog (open / key route / click parity) ---
+// --- attach-choice dialog (open / key route / click parity) ---
 
 #[test]
 fn attach_choice_opens_in_attach_choice_mode() {
@@ -725,7 +725,7 @@ fn theme_builder_esc_from_settings_returns_to_settings_panel() {
     // never leaves the panel parked at a deep level for the next open.
     let mut overlay = OverlayUi::default();
     overlay.open_settings();
-    // Drill into Themes (the first section), then activate the last row —
+    // Drill into Themes (the first section), then activate the last row -
     // the synthetic "Open Theme Builder" action row.
     assert_eq!(
         overlay.handle_input(OverlayInput::Activate),

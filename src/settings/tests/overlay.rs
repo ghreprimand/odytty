@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Focused tests for settings overlay editing, themed UI roles, theme file
-//! resolution, and the `apply_reloadable_values` path — kept out of the large
+//! resolution, and the `apply_reloadable_values` path - kept out of the large
 //! `legacy` module so that file stays under the source-size cap.
 
 use super::*;
@@ -68,7 +68,7 @@ fn custom_theme_file_keeps_settings_editable() {
     // C4 regression: a theme loaded from a FILE projects to the placeholder
     // runtime name "custom", which resolves to no built-in and no file on a
     // later re-parse. Persisting that placeholder as the writeback baseline made
-    // the whole settings panel read-only for custom-theme users — the fallback
+    // the whole settings panel read-only for custom-theme users - the fallback
     // warning was promoted to a hard error on every edit. Preserving the raw
     // theme-config string keeps the writeback round-tripping the real file path,
     // and decoupling non-fatal parse warnings from edit validation keeps every
@@ -238,7 +238,7 @@ fn apply_reloadable_values_publishes_synthetic_styles_global() {
 fn settings_edit_overlay_tracks_edit_revert_and_clear_diff() {
     // The `font` config key tracks the RAW explicit override
     // (`explicit_font_path`), not the effective `font_path` that family
-    // resolution may populate (RC4). Seed the explicit field so the clear-diff
+    // resolution may populate. Seed the explicit field so the clear-diff
     // exercises the real `font`-key writeback path.
     let base = Settings {
         explicit_font_path: Some(PathBuf::from("/tmp/font-a.ttf")),
@@ -287,7 +287,7 @@ fn empty_cursor_settings_are_silent_defaults() {
     assert!(warnings.is_empty());
 }
 
-// --- ODYTTY_THEME file resolution (TH2) ---------------------------------
+// --- ODYTTY_THEME file resolution ---------------------------------
 
 #[test]
 fn builtin_theme_name_does_not_consult_theme_files() {

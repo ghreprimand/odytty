@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Focused tests for `NumericSpec` (slider math, derived range labels, folded
 //! keyboard steps) and the numeric settings that carry a slider spec
-//! (scroll_wheel_lines, copy_on_select, sh_click, selection_drag_extend) —
+//! (scroll_wheel_lines, copy_on_select, sh_click, selection_drag_extend) -
 //! kept out of the large `legacy` module so that file stays under the
 //! source-size cap.
 
@@ -201,7 +201,7 @@ fn scroll_wheel_lines_defaults_parses_and_clamps() {
     assert_eq!(settings.scroll_wheel_step(), 5);
     assert!(warnings.is_empty());
 
-    // Out-of-range values clamp to the spec bounds (no warning — clamp, not reject).
+    // Out-of-range values clamp to the spec bounds (no warning - clamp, not reject).
     let (high, _) = settings_from([(SCROLL_WHEEL_LINES_ENV, "999")]);
     assert_eq!(high.scroll_wheel_lines, MAX_SCROLL_WHEEL_LINES);
     let (low, _) = settings_from([(SCROLL_WHEEL_LINES_ENV, "0")]);
@@ -342,7 +342,7 @@ fn sh_click_defaults_on_and_round_trips_through_config_key() {
 
 #[test]
 fn buttons_gates_default_and_round_trip_through_config_keys() {
-    // BUTTONS-SETTINGS: the master gate and the iTerm2-compat spelling default
+    // The master gate and the iTerm2-compat spelling default
     // ON (click reports are terminal-composed from the parsed code, clicks are
     // suppressed under an active mouse app, same risk class as OSC 8 links);
     // sticky stays OFF because a button surviving a scroll-away is the one
@@ -418,7 +418,7 @@ fn buttons_gates_default_and_round_trip_through_config_keys() {
 
 #[test]
 fn always_show_tab_bar_defaults_off_and_round_trips_through_config_key() {
-    // Absent → off (F4 ODP-7: the tab bar stays hidden for a single unnamed
+    // Absent → off (F4 the tab bar stays hidden for a single unnamed
     // tab; the render path is byte-identical to today).
     let (settings, warnings) = settings_from([]);
     assert!(!settings.always_show_tab_bar);
@@ -542,7 +542,7 @@ fn scroll_wheel_lines_round_trips_through_config_key() {
     );
 }
 
-// --- F4-V2 / F4-P2: tab_bar_placement (enum: top | left | right, all real) ---
+// --- tab_bar_placement (enum: top | left | right, all real) ---
 
 #[test]
 fn tab_bar_placement_defaults_to_top() {
@@ -565,7 +565,7 @@ fn tab_bar_placement_parses_top_left_right() {
     assert_eq!(left.tab_bar_placement.effective(), TabBarPlacement::Left);
 
     // `right` parses AND renders as itself (F4-P2 landed the right arm), so
-    // `effective()` is an identity — no degrade to top.
+    // `effective()` is an identity - no degrade to top.
     let (right, warnings) = settings_from([(TAB_BAR_PLACEMENT_ENV, "right")]);
     assert_eq!(right.tab_bar_placement, TabBarPlacement::Right);
     assert!(warnings.is_empty(), "a known value emits no warning");

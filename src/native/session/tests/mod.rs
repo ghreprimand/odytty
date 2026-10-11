@@ -67,7 +67,7 @@ fn test_selection() -> AbsoluteSelectionRange {
 }
 
 /// Build a session whose pump (reader) thread is PARKED and will not exit on
-/// its own for `park` — the shape a wedged remote leaves behind (the ssh
+/// its own for `park` - the shape a wedged remote leaves behind (the ssh
 /// child never delivers EOF, so the reader never returns). Used to prove the
 /// shutdown teardown does not block the caller on that join.
 fn build_session_with_parked_reader(id: SessionToken, park: std::time::Duration) -> Session {
@@ -132,14 +132,14 @@ fn fake_spawner(
     }
 }
 
-/// A remote spawner that never resolves a host — the default for the
+/// A remote spawner that never resolves a host - the default for the
 /// pre-RESTORE-REMOTE round-trip tests, which use only local leaves. A leaf
 /// carrying a `remote_host` would fall through to the local spawner.
 fn no_remote_spawner() -> impl FnMut(&mut WorkspaceSet, &str) -> Option<SessionToken> {
     |_, _| None
 }
 
-/// A headless remote spawner (RESTORE-REMOTE): records each identity it is
+/// A headless remote spawner: records each identity it is
 /// asked to reconnect and inserts a placeholder session, standing in for the
 /// real `ssh` connect path so a test can assert remote leaves route here
 /// with the right host string.

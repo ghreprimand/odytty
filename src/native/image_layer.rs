@@ -167,8 +167,8 @@ pub(super) fn placement_quad_with_padding_and_row_offset(
     padding: WindowPadding,
     row_offset: usize,
     col_offset: usize,
-    // CHROME-GAP: the content cells' chrome-facing gap shift in pixels
-    // (`[0.0, 0.0]` with no pinned chrome or zero padding — byte-identical).
+    // The content cells' chrome-facing gap shift in pixels
+    // (`[0.0, 0.0]` with no pinned chrome or zero padding - byte-identical).
     content_gap_px: [f32; 2],
 ) -> Option<ImageQuad> {
     if image_width == 0 || image_height == 0 || placement.display_columns == 0 {
@@ -325,7 +325,7 @@ struct ImageDraw {
 /// A single per-pane image placement draw for a split tab. Like [`ImageDraw`]
 /// but keyed by the composite `(namespace, id)` cache key and carrying the
 /// pane's scissor rect (physical px `[x, y, w, h]`) so the draw is clipped to
-/// the pane's sub-rect on BOTH axes — a vertical divider between column-split
+/// the pane's sub-rect on BOTH axes - a vertical divider between column-split
 /// panes cannot be crossed by an image bleeding horizontally (the reason a
 /// vertical-only clip could not be reused here).
 struct PaneImageDraw {
@@ -364,8 +364,8 @@ struct OverlayImage {
     _texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
     /// The centered fit-rect (viewport PIXELS, `[x0,y0,x1,y1]`) the image is
-    /// actually drawn over — the single source of truth for hit-testing a
-    /// click-outside-to-dismiss (Phase 13d). Recorded at `set_overlay_image`
+    /// actually drawn over - the single source of truth for hit-testing a
+    /// click-outside-to-dismiss. Recorded at `set_overlay_image`
     /// time from the same `overlay_fit_quad` that builds the draw geometry.
     fit_rect: [f32; 4],
 }
@@ -374,7 +374,7 @@ pub(super) struct ImageLayer {
     pipeline: wgpu::RenderPipeline,
     /// Overlay (C4 viewer) pipeline in the SWAPCHAIN/surface format. The viewer
     /// is composited AFTER the CRT/bloom post pass directly onto the swapchain,
-    /// so its pipeline targets the surface format — distinct from `pipeline`
+    /// so its pipeline targets the surface format - distinct from `pipeline`
     /// (placements), which draws inside the scene pass in the scene-target
     /// format (the HDR offscreen format when post is active).
     overlay_pipeline: wgpu::RenderPipeline,
@@ -412,7 +412,7 @@ pub(super) struct ImageLayer {
     /// keyed by `(namespace, id)` where `namespace` is the pane's session token,
     /// preventing a cross-pane id collision. Single-pane frames leave these
     /// empty (cleared by `update_with_padding`) and multipane frames clear the
-    /// single-pane `draws` — the two modes are mutually exclusive per frame, so
+    /// single-pane `draws` - the two modes are mutually exclusive per frame, so
     /// only one of the two draw lists is ever non-empty.
     pane_textures: HashMap<(u64, StoredImageId), CachedImage>,
     pane_vertices: Vec<ImageVertex>,
@@ -486,7 +486,7 @@ impl ImageLayer {
         });
         // Linear sampler for the C4 viewer overlay only. The bind-group layout's
         // sampler binding (binding 2) is `SamplerBindingType::Filtering`, which
-        // accepts a linear (filtering) sampler — no layout change required.
+        // accepts a linear (filtering) sampler - no layout change required.
         let overlay_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("odytty-image-overlay-sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -592,7 +592,7 @@ impl ImageLayer {
     /// `None` clears the overlay so the frame returns to byte-identical. The
     /// fit-quad is recomputed for the current `viewport_w`×`viewport_h` so a
     /// resize re-centers the image. A zero-sized or under-length buffer is
-    /// treated as "clear" (defensive — the decode path never produces one).
+    /// treated as "clear" (defensive - the decode path never produces one).
     #[allow(clippy::too_many_arguments)]
     pub(super) fn set_overlay_image(
         &mut self,
@@ -656,7 +656,7 @@ impl ImageLayer {
 
     /// The centered fit-rect (viewport PIXELS, `[x0,y0,x1,y1]`) of the current
     /// C4 viewer image, or `None` when no overlay image is set. This is the exact
-    /// rect the image is drawn over, so a click-outside hit-test (Phase 13d) is
+    /// rect the image is drawn over, so a click-outside hit-test is
     /// pixel-accurate. `None` after clear (no image / zero-size / under-length
     /// buffer all leave `overlay_image == None`).
     pub(super) fn overlay_image_fit_rect(&self) -> Option<[f32; 4]> {
@@ -671,7 +671,7 @@ impl ImageLayer {
         self.overlay_image.is_some()
     }
 
-    /// Draw the C4 viewer overlay, if any, onto the SWAPCHAIN — called from a
+    /// Draw the C4 viewer overlay, if any, onto the SWAPCHAIN - called from a
     /// dedicated pass opened AFTER the CRT/bloom post pass, so the photo is
     /// never touched by effects. Draws a full-viewport semitransparent scrim,
     /// then the image over its fit rectangle in surface format. Transparent
@@ -1057,7 +1057,7 @@ impl ImageLayer {
     /// reset to the full render target afterwards so the following glyph draws
     /// (issued by `gpu.rs` between `draw_below` and `draw_above`, and after
     /// `draw_above`) are not clipped. A no-op with an empty pane draw list, so
-    /// single-pane frames never touch scissor state — their command stream is
+    /// single-pane frames never touch scissor state - their command stream is
     /// byte-identical.
     fn draw_pane_filtered<'pass>(
         &'pass self,

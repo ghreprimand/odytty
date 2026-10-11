@@ -7,7 +7,7 @@ use odytty::boxdraw::{coverage, covers};
 const SIZES: &[(u32, u32)] = &[(6, 12), (9, 18), (11, 23), (12, 24), (18, 36)];
 
 #[test]
-fn deferred_legacy_diagonals_have_bounded_nonempty_coverage() {
+fn legacy_diagonals_have_bounded_nonempty_coverage() {
     for cp in (0x1fb3c..=0x1fb67).chain(0x1fbbd..=0x1fbbf) {
         let ch = char::from_u32(cp).unwrap();
         assert!(covers(ch), "missing geometric coverage for U+{cp:04X}");

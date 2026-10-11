@@ -2,11 +2,11 @@
 //! Shared headless CPU compositor and helpers for the `pixel_smoke` suite.
 //!
 //! The compositor rasterizes a small terminal grid into a linear-RGB buffer
-//! using the *real* geometry path — `grid::build_vertices*` produces the exact
+//! using the *real* geometry path - `grid::build_vertices*` produces the exact
 //! quads the GPU draws, composited here on the CPU with the same painter
 //! ordering (all backgrounds first, then glyphs/decorations) and the same
 //! straight-alpha blend the `cell.wgsl` fragment shader uses on its default
-//! path. No GPU, no winit, no window — so it runs in the default `cargo test`.
+//! path. No GPU, no winit, no window - so it runs in the default `cargo test`.
 
 use odytty::atlas::{FontStyle, GlyphAtlas, SubpixelMode};
 use odytty::core::{CursorStyle, Snapshot, Terminal};
@@ -93,7 +93,7 @@ pub(crate) fn composite(
 }
 
 /// Composite a frame driving the ID2 focus-dim amount through the real geometry
-/// path — the same `build_cell_vertices_with_color_glyph_runs_into` seam the
+/// path - the same `build_cell_vertices_with_color_glyph_runs_into` seam the
 /// native renderer uses for an unfocused window. `focus_dim == 0.0` reproduces
 /// the focused render byte-for-byte (the off-path gate).
 pub(crate) fn composite_focus_dim(
@@ -188,7 +188,7 @@ pub(crate) fn composite_with_padding(
 }
 
 /// Composite a frame driving an ID3/U5 background treatment through the real
-/// geometry path — the same `build_cell_vertices_with_focus_dim_into` seam the
+/// geometry path - the same `build_cell_vertices_with_focus_dim_into` seam the
 /// native renderer uses. The default (inactive) `BackgroundTreatmentParams`
 /// reproduces the plain render byte-for-byte (the off-path gate).
 pub(crate) fn composite_background_treatment(
@@ -226,7 +226,7 @@ pub(crate) fn composite_background_treatment(
 /// scrimmed background image is drawn first (here, a uniform fill of
 /// `image_rgb`, standing in for the post-scrim image pass), then the cell
 /// background quads composite on top with their alpha scaled by
-/// `cell_bg_opacity` — exactly the `bg[3] *= cell_bg_opacity` path in the grid
+/// `cell_bg_opacity` - exactly the `bg[3] *= cell_bg_opacity` path in the grid
 /// cell-vertex builder. At `cell_bg_opacity = 1.0` the cells are fully opaque
 /// and the image is hidden behind them (the off-path identity); below 1.0 the
 /// image shows through behind text.
@@ -244,7 +244,7 @@ pub(crate) fn composite_background_image(
     let width = cols * cell_w;
     let height = rows * cell_h;
 
-    // The frame starts as the (scrimmed) background image — the image pass draws
+    // The frame starts as the (scrimmed) background image - the image pass draws
     // first, behind every cell quad.
     let mut frame = Frame {
         width,
@@ -423,7 +423,7 @@ pub(crate) fn cell_ink_count(frame: &Frame, col: usize, row: usize) -> usize {
 
 /// Mean inked-pixel x (cell-local) in the top quarter of row 0 minus that in
 /// the bottom quarter, aggregated over `cols` cells. Positive means the ink
-/// above the baseline sits right of the ink below it — the signature of a
+/// above the baseline sits right of the ink below it - the signature of a
 /// right-leaning oblique. `None` if either band has no ink to measure.
 pub(crate) fn row_top_minus_bottom_centroid(frame: &Frame, cols: usize) -> Option<f64> {
     let bg = default_bg();
@@ -455,7 +455,7 @@ pub(crate) fn row_top_minus_bottom_centroid(frame: &Frame, cols: usize) -> Optio
     Some(top_sum / top_n as f64 - bot_sum / bot_n as f64)
 }
 
-/// The modal (most common) quantized color inside a cell — dominated by the
+/// The modal (most common) quantized color inside a cell - dominated by the
 /// background fill, since glyph ink is a minority of cell pixels.
 pub(crate) fn cell_modal_color(frame: &Frame, col: usize, row: usize) -> [u8; 3] {
     use std::collections::HashMap;

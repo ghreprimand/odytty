@@ -974,7 +974,7 @@ impl App {
                     }
                     if !extras.is_empty() {
                         self.raise_open_notice(format!(
-                            "Restored your layout \u{2014} {}.",
+                            "Restored your layout: {}.",
                             extras.join("; ")
                         ));
                     }
@@ -985,7 +985,7 @@ impl App {
             // Unreadable or from a newer build: start fresh, one quiet notice.
             LoadOutcome::Skew { .. } | LoadOutcome::Corrupt(_) => {
                 self.raise_open_notice(
-                    "Couldn't read the saved layout \u{2014} starting fresh.".to_owned(),
+                    "Couldn't read the saved layout. Starting fresh.".to_owned(),
                 );
             }
         }

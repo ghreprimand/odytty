@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Contrast-aware palette generation (U3): one seed color in, a complete,
+//! Contrast-aware palette generation: one seed color in, a complete,
 //! legible-by-construction [`ThemeSpec`] out.
 //!
 //! You hand [`generate`] a single accent color (a hex value or a sampled
 //! wallpaper color), an appearance polarity, and a contrast floor; it hands back
 //! a full 24-role theme that is guaranteed readable. The output IS a
 //! [`ThemeSpec`], so it drops straight into the existing serialize / live-apply /
-//! theme-builder paths — generation adds nothing to the on-disk format.
+//! theme-builder paths - generation adds nothing to the on-disk format.
 //!
 //! ## How it stays legible
 //!
 //! Generation is an explicit authoring action: it changes no pixels unless
 //! invoked, so it needs no visual gate. Its one non-negotiable is that it
 //! *cannot emit an unreadable theme*. Every floored role clears the authoring
-//! floor against its mapped surface by construction — the final step is a loop
+//! floor against its mapped surface by construction - the final step is a loop
 //! of `floor_role` over those roles, which runs
 //! [`color::enforce_min_contrast_unclamped`](crate::color::enforce_min_contrast_unclamped),
 //! gamut-maps along the hue and re-checks the bytes. The interactive
-//! snap-to-floor (U2) uses the same function; the render-time floor
+//! snap-to-floor uses the same function; the render-time floor
 //! ([`color::enforce_min_contrast`](crate::color::enforce_min_contrast)) shares the
 //! lightness search and the WCAG metric but checks the displayed colour itself.
 //!
@@ -25,7 +25,7 @@
 //!
 //! [`generate`] is a pure function with no RNG: the same `(seed, appearance,
 //! floor)` always yields a byte-identical spec. That makes it golden-testable and
-//! reproducible — "the theme I generated from blue" is the same every time.
+//! reproducible - "the theme I generated from blue" is the same every time.
 //!
 //! ## Pipeline (`generate`)
 //!
@@ -33,7 +33,7 @@
 //!    has no meaningful hue, so it falls back to a neutral cool-blue anchor
 //!    rather than reading a garbage `atan2(0, 0)`.
 //! 2. Background / foreground come from the **appearance polarity**, not the
-//!    seed's own lightness — a bright accent still yields a dark theme in Dark
+//!    seed's own lightness - a bright accent still yields a dark theme in Dark
 //!    appearance. They carry a faint seed tint so the field reads as related to
 //!    the accent without being colored.
 //! 3. The 16 ANSI colors sit on one shared lightness/chroma ramp at the
@@ -88,7 +88,7 @@ struct Polarity {
     clear_l: f32,
     /// Foreground lightness (the body text).
     fg_l: f32,
-    /// Cursor lightness — a vivid, seed-hued block.
+    /// Cursor lightness - a vivid, seed-hued block.
     cursor_l: f32,
     /// Selection-fill lightness.
     selection_l: f32,
@@ -155,17 +155,17 @@ const ANSI_BRIGHT_L: f32 = 0.76;
 /// Faint chroma applied to the neutral roles (bg / fg / neutral greys) so the
 /// whole theme reads as gently related to the accent without being colored.
 const NEUTRAL_TINT_C: f32 = 0.012;
-/// Chroma of the selection / search fills — a low-saturation seed tint.
+/// Chroma of the selection / search fills - a low-saturation seed tint.
 const FILL_C: f32 = 0.045;
 /// Minimum / maximum chroma the cursor may take (clamped from the seed chroma)
 /// so the cursor is always a visible accent block, never washed out and never
 /// out of gamut.
 const CURSOR_C_MIN: f32 = 0.10;
 const CURSOR_C_MAX: f32 = 0.16;
-/// Chroma of the chrome roles (border / inactive) — barely tinted neutrals.
+/// Chroma of the chrome roles (border / inactive) - barely tinted neutrals.
 const CHROME_C: f32 = 0.02;
 
-/// Generate a complete, RV1-validated [`ThemeSpec`] from a single seed color.
+/// Generate a complete, validated [`ThemeSpec`] from a single seed color.
 ///
 /// `seed` drives the theme's hue identity; `appearance` sets the light/dark
 /// polarity (the seed's own lightness is deliberately *not* trusted for the
@@ -283,7 +283,7 @@ pub fn generate(seed: Srgb, appearance: Appearance, floor: f32) -> ThemeSpec {
     spec
 }
 
-/// The RV1 validation pass — the legibility guarantee.
+/// The RV1 validation pass - the legibility guarantee.
 ///
 /// Floors every readable role against its mapped surface, reusing the U2 Q-4
 /// surface mapping verbatim so the author-time snap and this generator agree on
@@ -302,14 +302,14 @@ pub fn generate(seed: Srgb, appearance: Appearance, floor: f32) -> ThemeSpec {
 ///   (darkest) and `color8` (a step up) stay near the background so the ramp
 ///   keeps its low end and the two don't collapse to the same legible grey; in a
 ///   light theme the near-bg light neutrals `color7`/`color15` are exempt by
-///   symmetry. The render-time legibility floor (U1) still lifts any app text
+///   symmetry. The render-time legibility floor still lifts any app text
 ///   that actually lands on the background at draw time, so pre-flooring these
 ///   here would be both redundant and aesthetically harmful. The far neutral
 ///   pair (nearest the foreground) clears the floor naturally and stays floored.
 ///
 /// [`enforce_min_contrast_unclamped`] only nudges OKLab lightness (preserving hue and
 /// chroma) and is idempotent, so this preserves every hue identity built above
-/// while making the output RV1-valid by construction for all primary text.
+/// while making the output valid by construction for all primary text.
 fn validate(spec: &mut ThemeSpec, floor: f32) {
     let bg = to_linear(spec.background);
     spec.foreground = floor_role(spec.foreground, bg, floor);
@@ -397,7 +397,7 @@ fn seed_hue(seed: Srgb) -> f32 {
 
 /// The canonical hue (radians) of a reference ANSI family, derived by round-trip
 /// of [`DEFAULT_ANSI_SRGB`] through OKLCH. Keeps the anchors honest and
-/// self-documenting — the reference palette is the single source of the hues.
+/// self-documenting - the reference palette is the single source of the hues.
 fn anchor_hue(reference_index: usize) -> f32 {
     srgb_to_oklch(DEFAULT_ANSI_SRGB[reference_index]).h
 }
@@ -604,7 +604,7 @@ mod tests {
     fn bg_side_neutrals_keep_their_near_bg_lightness() {
         // The exempt neutral pair stays close to the background lightness rather
         // than being lifted to the legible floor. Dark exempts color0/color8
-        // (near a dark bg); Light exempts color7/color15 (near a light bg) — the
+        // (near a dark bg); Light exempts color7/color15 (near a light bg) - the
         // symmetric mirror.
         let seed = (0x86, 0xc1, 0xff);
 
@@ -628,7 +628,7 @@ mod tests {
             );
         }
 
-        // And the far (fg-side) neutrals are NOT exempt — they clear the floor.
+        // And the far (fg-side) neutrals are NOT exempt - they clear the floor.
         let dark_bg = to_linear(dark.background);
         for slot in [7usize, 15] {
             let c = wcag_contrast(to_linear(dark.palette[slot]), dark_bg);
@@ -710,7 +710,7 @@ mod tests {
     #[test]
     fn floor_of_one_is_a_no_op_validation_pass() {
         // With the floor at unity (passthrough), the validation pass must not
-        // move any role — the pre-validation colors survive intact.
+        // move any role - the pre-validation colors survive intact.
         //
         // A Light appearance is the clean demonstrator: the chromatic ramp sits
         // at L≈0.62, which is too light against the L≈0.95 light background, so
@@ -731,7 +731,7 @@ mod tests {
 
         // floor=1.0 is an exact passthrough: every role equals the pre-floor
         // build. Re-running the same generation is byte-identical (determinism),
-        // and the floored variant genuinely differs — so the pass did real work.
+        // and the floored variant genuinely differs - so the pass did real work.
         assert_eq!(
             unfloored,
             generate(seed, Appearance::Light, 1.0),
@@ -745,7 +745,7 @@ mod tests {
 
     #[test]
     fn generated_spec_round_trips_through_the_theme_format() {
-        // The generated spec serializes and re-parses identically — it rides the
+        // The generated spec serializes and re-parses identically - it rides the
         // existing on-disk path with no additions.
         let spec = generate((0x86, 0xc1, 0xff), Appearance::Dark, AUTHORING_FLOOR);
         let text = spec.serialize();
@@ -761,7 +761,7 @@ mod tests {
         // appearance at the 4.5 authoring floor. This locks the whole pipeline:
         // a change to any constant, anchor, the bias cap, or the floor pass that
         // alters the result trips this test on purpose. (In Dark, color0/color8
-        // are the exempt near-bg structural neutrals — distinct, not floored.)
+        // are the exempt near-bg structural neutrals - distinct, not floored.)
         let spec = generate((0x86, 0xc1, 0xff), Appearance::Dark, AUTHORING_FLOOR);
         assert_eq!(spec.name, "custom");
         assert_eq!(spec.appearance, Appearance::Dark);

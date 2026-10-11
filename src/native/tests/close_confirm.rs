@@ -3,7 +3,7 @@
 //! through the real overlay-key path so a confirm sets the App's `pending_exit`
 //! flag (which `window_event` turns into an actual exit), while a dismiss leaves
 //! it clear. These drive a real `App` over a one-shot PTY (skipped when none is
-//! available); no GPU is needed — the dialog state and exit flag are observable
+//! available); no GPU is needed - the dialog state and exit flag are observable
 //! without a surface.
 
 use super::*;
@@ -21,7 +21,7 @@ fn build_app() -> Option<App> {
 
 #[test]
 fn confirm_default_is_on() {
-    // D-CC-5: confirm_close defaults ON (footgun protection); the prompt only
+    // Confirm_close defaults ON (footgun protection); the prompt only
     // appears when a job is actually running, so the idle path is unaffected.
     assert!(Settings::default().confirm_close);
 }
@@ -62,7 +62,7 @@ fn escape_dismisses_without_pending_exit() {
     app.open_confirm_close_for_test();
     assert!(app.confirm_close_open_for_test());
 
-    // Esc cancels: the dialog closes and the window never exits (TRAP-2).
+    // Esc cancels: the dialog closes and the window never exits.
     app.drive_overlay_key_for_test(
         WinitKey::Named(winit::keyboard::NamedKey::Escape),
         false,

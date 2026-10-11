@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Bounded, portable reads for operator-supplied config and theme files.
+//! Bounded, portable reads for user-supplied config and theme files.
 //!
 //! Config and theme files are untrusted-in-shape text: a corrupt, truncated, or
 //! hostile file must never make the terminal read gigabytes into memory, and on

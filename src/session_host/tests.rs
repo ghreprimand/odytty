@@ -24,7 +24,7 @@ use super::{
 // Frame-read / output-wait budget. Generous so a cold, heavily-parallel CI
 // runner (especially macOS) that is slow to schedule the host thread and pump
 // frames does not lose the race. Polling stays at a fine interval, so a healthy
-// host still completes near-instantly — this only raises the failure ceiling.
+// host still completes near-instantly - this only raises the failure ceiling.
 const SHORT_WAIT: Duration = Duration::from_secs(15);
 
 // Socket-bind readiness budget. The host thread must spawn its PTY child and
@@ -37,8 +37,8 @@ const SOCKET_READY_WAIT: Duration = Duration::from_secs(30);
 // Upper bound on awaiting a spawned helper thread (the session-host) to finish.
 // The host is expected to exit in well under a second once the test drives it to
 // its terminal condition (child exit or detached idle timeout). This is purely a
-// safety net: if `run_host` ever fails to return — the intermittent macOS
-// non-exit we are hardening against — the test FAILS FAST with a clear message
+// safety net: if `run_host` ever fails to return - the intermittent macOS
+// non-exit we are hardening against - the test FAILS FAST with a clear message
 // instead of hanging the whole suite (and CI) indefinitely.
 const JOIN_DEADLINE: Duration = Duration::from_secs(30);
 
@@ -56,7 +56,7 @@ fn join_within<T: Send + 'static>(handle: thread::JoinHandle<T>, what: &str) -> 
         Ok(Ok(value)) => value,
         Ok(Err(panic)) => std::panic::resume_unwind(panic),
         Err(_) => panic!(
-            "{what} did not finish within {JOIN_DEADLINE:?} — the session-host \
+            "{what} did not finish within {JOIN_DEADLINE:?}: the session-host \
              loop is wedged (run_host never returned). Failing fast instead of \
              hanging the suite."
         ),
@@ -107,7 +107,7 @@ fn protocol_handshake_rejects_version_mismatch() {
 
 #[test]
 fn connect_to_a_wedged_host_that_never_accepts_fails_within_the_deadline() {
-    // C-2 regression: `UnixStream::connect` succeeds against a bound host that
+    // Regression: `UnixStream::connect` succeeds against a bound host that
     // never `accept()`s (the listen backlog absorbs the connection); the client
     // hello lands in the socket buffer. Before the fix, `read_host_hello` had no
     // timeout and blocked the caller forever. The bounded hello read must now
@@ -321,7 +321,7 @@ fn host_shutdown_frame_terminates_session_and_cleans_up_socket() {
 fn host_survives_hostile_resize_dimensions() {
     let temp = TempDir::new("sh-rsz");
     // The child blocks on `read` until this client sends a byte, then prints
-    // its marker — proving the host is still serving traffic AFTER the hostile
+    // its marker - proving the host is still serving traffic AFTER the hostile
     // resize frame has been drained.
     let config = host_config(
         temp.path(),
@@ -355,7 +355,7 @@ fn host_survives_hostile_resize_dimensions() {
 
 #[test]
 fn metadata_with_unknown_version_is_ignored() {
-    // audit C27: `read_session_metadata` skipped the `version=` line entirely,
+    // `read_session_metadata` skipped the `version=` line entirely,
     // so a future-format (or corrupted-version) file would be parsed with v1
     // semantics instead of being treated as unreadable. An unknown version must
     // read as `None` (same graceful fallback as a missing file).
@@ -461,9 +461,9 @@ fn metadata_read_rejects_a_non_regular_leaf() {
 
 #[test]
 fn spawn_socket_timeout_reaps_the_spawned_child() {
-    // audit C26: when the freshly spawned host child never binds its socket
+    // When the freshly spawned host child never binds its socket
     // within the startup timeout, `spawn_host_on_demand` returned the error and
-    // DROPPED the `Child` — leaking a live orphan host process (or a zombie if
+    // DROPPED the `Child` - leaking a live orphan host process (or a zombie if
     // it exited) with no owner ever calling kill/wait. The timeout path must
     // kill and reap the child before surfacing the error.
     let temp = TempDir::new("sh-c26");
@@ -490,10 +490,10 @@ fn spawn_socket_timeout_reaps_the_spawned_child() {
 
 #[test]
 fn host_survives_client_that_vanishes_mid_handshake() {
-    // audit C6: a per-connection failure during the attach handshake must
+    // A per-connection failure during the attach handshake must
     // log-and-drop THAT connection, not tear down the whole host. The classic
     // trigger: a client that connects, sends a valid hello, and dies before
-    // reading the reply — the host's hello/snapshot writes then fail with
+    // reading the reply - the host's hello/snapshot writes then fail with
     // BrokenPipe, which previously propagated out of accept_pending_clients and
     // killed the session for everyone.
     let temp = TempDir::new("sh-c6");

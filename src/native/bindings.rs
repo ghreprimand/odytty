@@ -28,7 +28,7 @@ pub(super) const PREFIX_TIMEOUT: Duration = Duration::from_secs(2);
 /// Outcome of feeding a keychord to the multiplexer prefix engine (§7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PrefixOutcome {
-    /// No prefix configured, or not pending and this chord is not the prefix —
+    /// No prefix configured, or not pending and this chord is not the prefix -
     /// the caller processes the chord through the normal path. This is the
     /// byte-identical case: when not pending, every non-prefix chord is
     /// `Inactive` and nothing about the existing input path changes.
@@ -36,16 +36,16 @@ pub(super) enum PrefixOutcome {
     /// This chord was the prefix; the engine is now prefix-pending. The caller
     /// swallows the chord (sends nothing to the PTY) and waits for the next key.
     Entered,
-    /// Doubled prefix while pending (`Ctrl-b Ctrl-b`) — the caller sends the
+    /// Doubled prefix while pending (`Ctrl-b Ctrl-b`) - the caller sends the
     /// literal prefix bytes ([`PrefixEngine::passthrough_bytes`]) to the focused
-    /// pane's PTY so a nested multiplexer still gets its prefix (K3). Back to
+    /// pane's PTY so a nested multiplexer still gets its prefix. Back to
     /// normal afterward.
     Passthrough,
     /// A prefix-table pane action resolved while pending. The caller dispatches
-    /// it (K2) and the engine returns to normal.
+    /// it and the engine returns to normal.
     Action(BindableAction),
     /// Prefix was pending but this chord matched nothing in the table (or the
-    /// pending state had already timed out) — the caller swallows the chord,
+    /// pending state had already timed out) - the caller swallows the chord,
     /// fires no action, and returns to normal (tmux swallows unknown prefix
     /// keys).
     Cancelled,
@@ -122,7 +122,7 @@ impl PrefixEngine {
     /// Without this, `pending_deadline()` keeps reporting a boundary that has
     /// already passed: the loop schedules `WaitUntil(that boundary)`, wakes to
     /// find it in the past, re-reads the same still-pending deadline, and
-    /// re-arms `WaitUntil(past)` — a 0-timeout poll that returns immediately
+    /// re-arms `WaitUntil(past)` - a 0-timeout poll that returns immediately
     /// every iteration, busy-spinning a core (frozen `voluntary_ctxt_switches`)
     /// until the next key or focus loss clears the prefix. Mirrors the timeout
     /// Shares [`Self::is_expired`] with the next-key path, so a prefix is
@@ -144,8 +144,8 @@ impl PrefixEngine {
         now.duration_since(since) >= self.timeout
     }
 
-    /// The literal bytes to forward to the PTY for the doubled-prefix passthrough
-    /// (K3). For a `Ctrl+<letter>` prefix this is the corresponding C0 control
+    /// The literal bytes to forward to the PTY for the doubled-prefix passthrough.
+    /// For a `Ctrl+<letter>` prefix this is the corresponding C0 control
     /// byte (`Ctrl-b` -> `0x02`), and `Ctrl+Space` sends NUL; empty for prefixes
     /// with no single-byte literal, which then send nothing.
     pub(super) fn passthrough_bytes(&self) -> Vec<u8> {
@@ -360,12 +360,12 @@ fn default_prefix_bindings() -> Vec<(KeyChord, BindableAction)> {
 }
 
 /// A read-only view of the pane-action PREFIX table (tmux-prefix second keys)
-/// for the KB-REMAP modal (C8).
+/// for the KB-REMAP modal.
 ///
 /// Pane actions live ONLY in the multiplexer prefix space ([`PrefixEngine`]),
 /// never in the flat [`KeyBindings`] table (`KeyBindings::from_overrides` skips
 /// pane-action overrides). So the remap UI must resolve a pane action's display
-/// chord and its conflicts here rather than through the flat table — which
+/// chord and its conflicts here rather than through the flat table - which
 /// always returned `None` for them, rendering a bound pane action as the
 /// self-contradictory "(unbound) *". The two spaces are disjoint: a prefix
 /// second-key never collides with a bare global chord at runtime, so a
@@ -426,7 +426,7 @@ impl KeyBindings {
         let mut bindings = default_key_bindings();
         for override_ in overrides {
             // Pane-management actions (§7) live only in the multiplexer prefix
-            // table (`PrefixEngine`), never in the flat global table — so a
+            // table (`PrefixEngine`), never in the flat global table - so a
             // pane-action override cannot bind a bare global chord and perturb
             // the no-prefix input path.
             if override_.action.is_pane_action() {
@@ -664,7 +664,7 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
         // `Ctrl+Shift+Enter` for new-workspace mirrors `Ctrl+Shift+T`'s new-tab
         // feel one level up; plain `Enter` and `Shift+Enter` are untouched (the
         // chord requires Ctrl+Shift, and the search overlay's `Shift+Enter` is
-        // modal). `Ctrl+Shift+G` opens the picker — free in the letter space and
+        // modal). `Ctrl+Shift+G` opens the picker - free in the letter space and
         // clear of GTK/ibus's `Ctrl+Shift+U` Unicode entry. Close / Rename
         // Workspace stay unbound (destructive close, Rename-Tab precedent); the
         // rail, context menu, and command palette cover them.
@@ -709,10 +709,10 @@ fn named_chord(
     }
 }
 
-// Visibility widened to `pub(in crate::native)` (D-KBR-7) so the chord-capture
+// Visibility widened to `pub(in crate::native)` so the chord-capture
 // bypass in `app/mod.rs::handle_overlay_key` can build a raw `KeyChord` from a
 // live keypress without the lossy `overlay_input_from_winit` mapper. Stays
-// internal to the native module — no new public crate API surface.
+// internal to the native module - no new public crate API surface.
 pub(in crate::native) fn chord_from_winit(
     logical: &WinitKey,
     mods: Modifiers,
@@ -749,7 +749,7 @@ pub(in crate::native) fn chord_from_winit(
 /// (e.g. `<prefix> Ctrl+f`). winit gives two views of a key: `logical` carries
 /// the shifted character (`%` for Shift+5, `"` for Shift+'), while `binding_key`
 /// (`key_without_modifiers()`) carries the unshifted base key (`5`, `'`). Using
-/// `binding_key` alone — the previous behaviour — meant `%`/`"` never matched
+/// `binding_key` alone - the previous behaviour - meant `%`/`"` never matched
 /// their stored chords (`5` != `%`), so the tmux split chords silently did
 /// nothing on hardware.
 ///
@@ -1619,7 +1619,7 @@ mod tests {
             Some(BindableAction::WorkspacePicker),
             "Ctrl+Shift+G opens the workspace picker"
         );
-        // Plain Enter and Shift+Enter are untouched — they never resolve to a
+        // Plain Enter and Shift+Enter are untouched - they never resolve to a
         // workspace action, so the shell and the modal search overlay keep them.
         assert_eq!(
             bindings.action_for_chord(named_chord(
@@ -1684,7 +1684,7 @@ mod tests {
             "Ctrl+Shift+Down still jumps to the next prompt"
         );
         // The reclaimed P no longer maps to prompt-jump; N now opens a new window
-        // (F1) rather than being unbound.
+        // rather than being unbound.
         assert_ne!(
             bindings.action_for_chord(char_chord('p', true, true, false, false)),
             Some(BindableAction::JumpPromptPrev),
@@ -1712,7 +1712,7 @@ mod tests {
         let mut engine = engine_ctrl_b();
         let now = Instant::now();
         // Bare keys, including the very keys that are pane chords once pending,
-        // are all Inactive when nothing is pending — the byte-identical path.
+        // are all Inactive when nothing is pending - the byte-identical path.
         for chord in [
             char_chord('a', false, false, false, false),
             char_chord('%', false, true, false, false),
@@ -1879,7 +1879,7 @@ mod tests {
         let mid = start + PREFIX_TIMEOUT / 2;
         assert!(!engine.expire_pending(mid), "not yet timed out");
         assert!(engine.is_pending());
-        // At the timeout boundary — the instant the loop is woken at — it clears,
+        // At the timeout boundary - the instant the loop is woken at - it clears,
         // so the recomputed wait deadline is never a stale past instant.
         let at = start + PREFIX_TIMEOUT;
         assert!(engine.expire_pending(at), "cleared at the boundary");

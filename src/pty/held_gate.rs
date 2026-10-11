@@ -63,8 +63,9 @@ impl<H> HeldGate<H> {
         let State::Held(_) = &*state else {
             return Ok(false);
         };
-        // Placeholder while the handle is moved out; replaced below before
-        // the lock is released on every path.
+        // Placeholder while the handle is moved out; replaced below unless
+        // `resume` panics, in which case the placeholder stays and the poisoned
+        // lock is recovered by `state()`.
         let State::Held(handle) =
             std::mem::replace(&mut *state, State::ResumeFailed(String::new()))
         else {

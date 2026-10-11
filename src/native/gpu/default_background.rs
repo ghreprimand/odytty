@@ -2,8 +2,8 @@
 //! Embedded default background image (v0.6.0).
 //!
 //! OdyTTY ships an original "Dark Waves" background as its out-of-the-box
-//! default. The bytes are compiled into the binary with `include_bytes!` —
-//! exactly like the bundled fonts in [`crate::text`] — so there is no on-disk
+//! default. The bytes are compiled into the binary with `include_bytes!` -
+//! exactly like the bundled fonts in [`crate::text`] - so there is no on-disk
 //! asset to locate at runtime. That makes the default resolve **identically**
 //! on every target: a `cargo` dev build, a source build, the relocatable
 //! AppImage (whose FUSE mount path changes every launch), and a distro package
@@ -15,7 +15,7 @@
 //! these bytes from memory instead of opening a file. A user who points
 //! `background_image` at their own file takes the normal on-disk path unchanged.
 //!
-//! Provenance + license: see `assets/backgrounds/LICENSE` — original work,
+//! Provenance + license: see `assets/backgrounds/LICENSE` - original work,
 //! GPL-3.0-only, same as the repository.
 
 /// The bundled default background, embedded into the binary at compile time.

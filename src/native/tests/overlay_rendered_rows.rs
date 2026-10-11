@@ -3,7 +3,7 @@
 //!
 //! The row is located in the text emitted by `visible_lines`, not reconstructed
 //! from a duplicated prompt/scroll offset formula.  Each test therefore means
-//! "click the label the operator can see", including filtered and scrolled
+//! "click the label the user can see", including filtered and scrolled
 //! states.
 
 use crate::desktop::DesktopApp;
@@ -138,7 +138,7 @@ fn open_add_form(name: &str) -> ProfileManager {
 fn profile_form_clicks_save_in_the_last_scroll_state() {
     // A short body forces the form to scroll. Driving focus to the end brings
     // [Save]/[Cancel] into the final viewport; the press must land on the row
-    // the operator sees, not a pre-scroll index.
+    // the user sees, not a pre-scroll index.
     let mut manager = open_add_form("svc");
     for _ in 0..200 {
         let _ = manager.handle_input(OverlayInput::Down);

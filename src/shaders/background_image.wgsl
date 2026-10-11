@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //
-// ID3/U5 background-image pass. A full-window textured quad drawn BEFORE the
+// Background-image pass. A full-window textured quad drawn BEFORE the
 // background cell quads so it sits behind all terminal content. A readability
 // scrim (a solid black or white overlay at `scrim_alpha`) is blended over the
-// image here, before the translucent cell layer composites on top — so the
+// image here, before the translucent cell layer composites on top - so the
 // effective luminance behind text stays on the safe side of the theme
-// background and the per-cell RV1 floor remains valid (see
+// background and the per-cell readability floor remains valid (see
 // `color::readability_scrim_for`).
 //
 // The fullscreen quad is hardcoded from `@builtin(vertex_index)`; no vertex
 // buffer is bound. The fragment outputs the window background alpha (`1.0`
-// when opaque — byte-identical to the pre-transparency output; `window_alpha`
+// when opaque - byte-identical to the pre-transparency output; `window_alpha`
 // while the window is translucent, so the desktop shows through the wallpaper
 // instead of the image repainting the transparent clear opaque). The cell
 // layer above provides the behind-text see-through via `cell_bg_opacity`.
@@ -20,8 +20,7 @@ struct BgImageUniform {
     scrim_alpha: f32,
     // > 0.5 selects a white scrim (light themes); otherwise a black scrim.
     scrim_is_white: f32,
-    // TRANSPARENCY: window background alpha in [0, 1]. `1.0` (the default and
-    // the opaque path) is byte-identical to the pre-transparency output. While
+    // Window background alpha in [0, 1]. `1.0` is the opaque path. While
     // the window is translucent this scales the wallpaper quad so the desktop
     // shows through it rather than the image repainting the transparent clear.
     window_alpha: f32,

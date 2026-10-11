@@ -4,8 +4,8 @@
 //! The control state machine's `step(byte) -> Action` (in [`super::machine`])
 //! returns one of these values per byte. The **driver** (in [`super::driver`])
 //! is the only place an action becomes a [`super::VtDispatch`] call. Splitting
-//! along the action boundary keeps the state machine sink-agnostic — ideal for
-//! component-level tests, fuzzers, and golden fixtures — and confines the I/O
+//! along the action boundary keeps the state machine sink-agnostic - ideal for
+//! component-level tests, fuzzers, and golden fixtures - and confines the I/O
 //! contract to one module.
 //!
 //! ## Originality note
@@ -29,7 +29,7 @@
 /// One outcome of processing a control byte in the state machine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Action {
-    /// No observable effect — internal bookkeeping (param digit collected,
+    /// No observable effect - internal bookkeeping (param digit collected,
     /// intermediate stashed, ignore flag set) or a deliberately ignored byte.
     None,
     /// Execute a control byte (C0 typically; in Ground via the segmenter for C1

@@ -112,7 +112,7 @@ impl ProfilePicker {
 
     fn empty_line_text(&self) -> String {
         if self.entries.is_empty() {
-            "No launch profiles yet \u{2014} create one in Settings".to_owned()
+            "No launch profiles yet: create one in Settings".to_owned()
         } else {
             "No matches".to_owned()
         }

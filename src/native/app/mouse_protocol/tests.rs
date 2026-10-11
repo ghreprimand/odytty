@@ -5,7 +5,7 @@
 use super::*;
 use crate::core::MouseTracking;
 
-// --- SH-CLICK: click-to-position arrow encoding (Finding A) ---
+// --- click-to-position arrow encoding (Finding A) ---
 
 fn app_cursor_modes() -> KeyModes {
     KeyModes {
@@ -55,7 +55,7 @@ fn click_position_burst_length_matches_delta_magnitude() {
     assert_eq!(wide.len(), b"\x1b[C".len() * 200);
 }
 
-// --- MS2: SGR-pixel (1016) native pixel seam ---
+// --- SGR-pixel (1016) native pixel seam ---
 
 fn cell_8x16() -> CellSize {
     CellSize {
@@ -294,7 +294,7 @@ fn halfcell_right_half_targets_one_column_further_than_left_half() {
     // Input "xxxxx" at cols 2..7, cursor at the append origin (col 7 = 5
     // glyphs). A click on the 3rd glyph (col 4): the LEFT half targets
     // before it (2 glyphs in -> delta -3), the RIGHT half targets after it
-    // (3 glyphs in -> delta -2). Exactly one column apart — the
+    // (3 glyphs in -> delta -2). Exactly one column apart - the
     // nearest-boundary behaviour that fixes the one-cell-left mis-land.
     assert_eq!(halfcell_delta(2, 5, 4, false, 7), Some(-3));
     assert_eq!(halfcell_delta(2, 5, 4, true, 7), Some(-2));
@@ -322,7 +322,7 @@ fn halfcell_prompt_side_right_half_never_rounds_into_the_input() {
 fn halfcell_left_half_of_first_glyph_is_the_input_start() {
     // A left-half click on the first input glyph (col 2) targets buffer
     // position 0; from the append origin (col 7 = 5 glyphs) that is -5.
-    // Rounding up moves one glyph in (delta -4) — the boundary after the
+    // Rounding up moves one glyph in (delta -4) - the boundary after the
     // first glyph.
     assert_eq!(halfcell_delta(2, 5, 2, false, 7), Some(-5));
     assert_eq!(halfcell_delta(2, 5, 2, true, 7), Some(-4));

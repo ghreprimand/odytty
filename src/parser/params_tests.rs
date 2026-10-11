@@ -43,7 +43,7 @@ fn colon_subparams_stay_in_one_group() {
 
 #[test]
 fn mixed_groups_reconstruct_boundaries() {
-    // `38:5:200;1` — a 3-value subparam group then a single-value group.
+    // `38:5:200;1` - a 3-value subparam group then a single-value group.
     let mut p = Params::new();
     p.extend(38);
     p.extend(5);
@@ -174,7 +174,7 @@ fn parsed_control_sequences_never_dispatch_empty_parameters() {
 // `Params` values, so every rule below is only observable from these tests.
 // ---------------------------------------------------------------------------
 
-/// `1;2;3` — three single-value groups.
+/// `1;2;3` - three single-value groups.
 fn semicolon_triple() -> Params {
     let mut p = Params::new();
     p.push(1);

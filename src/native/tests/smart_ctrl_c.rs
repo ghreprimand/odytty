@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! SMART-CTRLC: App-level wiring tests for the `smart_ctrl_c` copy-or-interrupt
+//! App-level wiring tests for the `smart_ctrl_c` copy-or-interrupt
 //! policy.
 //!
 //! These drive the production `handle_key_event_with_text` path headlessly to pin the
@@ -62,7 +62,7 @@ fn plain_ctrl_c_with_policy_off_leaves_selection_for_interrupt() {
         eprintln!("skipping: no PTY available");
         return;
     };
-    // Explicit off policy — byte-identical interrupt path. (The shipped default
+    // Explicit off policy - byte-identical interrupt path. (The shipped default
     // is now copy-or-interrupt, so the off path is set explicitly here.)
     app.set_smart_ctrl_c_for_test(SmartCtrlC::Off);
     app.force_selection_for_test(0, 0, 0, 4);

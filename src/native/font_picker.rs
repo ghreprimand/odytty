@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Font-family picker overlay (FONT-PICKER).
+//! Font-family picker overlay.
 //!
 //! Displays the monospace font families available on the host (via
 //! [`crate::text::font_families`]), lets the user navigate and filter them, and
-//! on Enter emits a [`SettingEdit`] that writes `font_family` to the config —
+//! on Enter emits a [`SettingEdit`] that writes `font_family` to the config -
 //! the same path saving any other setting uses.
 //!
 //! **Real family names**: the list is the distinct real `name`-table families
 //! that have a monospace face, read by [`crate::text::font_families`]. There is
-//! no filename-stem guessing — italic/variant files of one family collapse into
+//! no filename-stem guessing - italic/variant files of one family collapse into
 //! a single entry, and the name the user picks resolves cleanly because the
 //! resolver matches the same real family names.
 //!
@@ -136,9 +136,8 @@ impl FontPicker {
         self.original = current_font_family(settings);
         self.entries = build_entries(&groups);
         self.query.clear();
-        self.message = Some(
-            "Select a font family — type to filter, Enter to apply, Esc to cancel.".to_owned(),
-        );
+        self.message =
+            Some("Select a font family: type to filter, Enter to apply, Esc to cancel.".to_owned());
         self.rebuild_filter();
         self.select_family(&self.original.clone());
     }
@@ -170,10 +169,10 @@ impl FontPicker {
 
     pub(super) fn save_succeeded(&mut self, _changed: usize) {
         self.original = self.selected_family().unwrap_or(self.original.clone());
-        // FONT-PICKER-STAY-OPEN: the picker stays open after applying, so make
+        // The picker stays open after applying, so make
         // the model obvious. self.original now tracks the just-applied family,
         // so it renders with the "current" marker and Esc keeps it.
-        self.message = Some("Applied — Enter to try another, Esc to close.".to_owned());
+        self.message = Some("Applied. Enter to try another, Esc to close.".to_owned());
     }
 
     pub(super) fn save_failed(&mut self, message: String) {
@@ -218,7 +217,7 @@ impl FontPicker {
     }
 
     /// Hidden entries above / below the visible window, for the scroll
-    /// affordance (OVERLAY-SMALL-WINDOW). One body row is the header/filter
+    /// affordance. One body row is the header/filter
     /// hint, so the entry viewport is `body_height - 1`. `(false, false)` when
     /// everything fits.
     pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
@@ -252,7 +251,7 @@ impl FontPicker {
         };
         lines.push(FontPickerLine {
             text: ellipsize(
-                &format!("  Font picker — type to filter, Enter saves, Esc cancels{filter_hint}"),
+                &format!("  Font picker: type to filter, Enter saves, Esc cancels{filter_hint}"),
                 body_width,
             ),
             focused: false,
@@ -345,7 +344,7 @@ impl FontPicker {
         count
     }
 
-    /// Map a clicked body row to the `filtered` position it represents — the
+    /// Map a clicked body row to the `filtered` position it represents - the
     /// inverse of [`Self::visible_lines`] (UX4-P1 click→Activate). Returns `None`
     /// for the header/message rows, a click on a non-selectable group header, or
     /// a click past the last row.
@@ -708,7 +707,7 @@ mod tests {
             .collect()
     }
 
-    // C24: the scroll "more below" indicator pages over the filtered list, not
+    // The scroll "more below" indicator pages over the filtered list, not
     // the full model, so an active filter never reports phantom rows below.
     #[test]
     fn scroll_indicator_below_measures_filtered_not_entries() {
@@ -926,7 +925,7 @@ mod tests {
     }
 
     // T-apply-writes: Enter emits a SettingEdit that routes font_family through
-    // the dirty/save path with the correct key and env — and the value is the
+    // the dirty/save path with the correct key and env - and the value is the
     // exact REAL family name (with spaces), which the resolver matches.
     #[test]
     fn t_apply_writes_correct_setting_edit() {

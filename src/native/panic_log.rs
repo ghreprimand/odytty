@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Abort-on-panic hook with durable evidence (FREEZE-HARDEN item a).
+//! Abort-on-panic hook with durable evidence.
 //!
 //! The v0.7.0 freeze postmortem concluded that a swallowed panic on a
 //! render/update/worker thread would strand the winit event loop exactly as
 //! observed: the loop keeps servicing compositor events mechanically while
-//! the thread that did the real work is gone — a zombie window burning 0%
+//! the thread that did the real work is gone - a zombie window burning 0%
 //! CPU. The hook installed here makes that impossible: ANY panic on ANY
 //! thread writes the panic message, location, thread name, and a captured
 //! backtrace to stderr, to the rotated runtime log (`odytty.log`), and to the
 //! structured `panic.log`, then **aborts the process**. Dying visibly beats
 //! running undead: the session hosts survive (detached processes), the
-//! operator sees the window close, and the logs name the culprit.
+//! user sees the window close, and the logs name the culprit.
 //!
 //! PRIVACY (hard release rule): panic records carry the panic message,
 //! source location, thread name, and code addresses/symbol names. OdyTTY's own
@@ -66,7 +66,7 @@ fn log_panic_info(info: &PanicHookInfo<'_>) {
     let human = format_human_report(&message, location.as_deref(), &thread_name, &backtrace);
     // Order matters only in that each write must be independent: any of the
     // three sinks may be unavailable (stderr at /dev/null, unwritable state
-    // dir) and the others must still land. All errors are swallowed — the
+    // dir) and the others must still land. All errors are swallowed - the
     // hook must reach abort() no matter what.
     let _ = io::stderr().write_all(human.as_bytes());
     crate::logging::append_record_directly(&human);
@@ -262,9 +262,8 @@ mod tests {
         );
     }
 
-    /// The human report puts every caller-controlled string through plain
-    /// interpolation of panic metadata only — message, location, thread —
-    /// plus the backtrace. This seam test pins the exact shape so a future
+    /// The human report interpolates panic metadata only (message, location,
+    /// thread) plus the backtrace. This seam test pins the exact shape so a future
     /// edit cannot quietly start including extra state (privacy rule: no
     /// terminal content in any log sink).
     #[test]

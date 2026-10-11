@@ -1,34 +1,34 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! FZ2 - protocol-surface fuzzing for the input features that landed after FZ1.
+//! Protocol-surface fuzzing for the input features that landed after FZ1.
 //!
 //! FZ1 (`src/core/graphics_fuzz_tests.rs`) covers the Kitty/Sixel *graphics*
 //! display surface. This integration fuzzer covers the eight control-sequence
 //! surfaces that grew since then, driving the public [`Terminal`] facade only
 //! (no crate internals), so it lives in `tests/` rather than a core unit module:
 //!
-//! 1. **Extended underline SGR subparams** (US1): `CSI 4 : n m` styles and
+//! 1. **Extended underline SGR subparams**: `CSI 4 : n m` styles and
 //!    `CSI 58 : …` underline color, including truncated/garbage colon forms.
-//! 2. **Kitty keyboard protocol** (KB1/KB2): `CSI > … u` push, `CSI < … u` pop,
+//! 2. **Kitty keyboard protocol**: `CSI > … u` push, `CSI < … u` pop,
 //!    `CSI = … u` set, `CSI ? u` query - interleaved with RIS/DECSTR.
-//! 3. **Synchronized output mode 2026** (SU1): `CSI ? 2026 h/l` set/reset and
+//! 3. **Synchronized output mode 2026**: `CSI ? 2026 h/l` set/reset and
 //!    `CSI ? 2026 $ p` DECRQM, interleaved with text and resets.
-//! 4. **OSC 52 + dynamic colors** (OSC1): `OSC 52` payloads with oversized and
+//! 4. **OSC 52 + dynamic colors**: `OSC 52` payloads with oversized and
 //!    invalid base64 plus `?` query floods, `OSC 4/10/11/12` color garbage, and
 //!    `OSC 1337 ; File=` inline-image argument/payload soup.
-//! 5. **DECRQM / XTWINOPS probes** (RQ1): `CSI ? Ps $ p` / `CSI Ps $ p` across
+//! 5. **DECRQM / XTWINOPS probes**: `CSI ? Ps $ p` / `CSI Ps $ p` across
 //!    the mode table and `CSI Ps ; … t` window-op reports.
-//! 6. **DCS query reports** (RQ2): `DCS + q … ST` XTGETTCAP (hex cap-name
+//! 6. **DCS query reports**: `DCS + q … ST` XTGETTCAP (hex cap-name
 //!    lists) and `DCS $ q … ST` DECRQSS (SGR `m`, cursor ` q`, region `r`
 //!    selectors), including malformed/truncated hex, `;`-floods, oversized
 //!    payloads that trip the 4096-byte cap, DECRQSS interleaved with SGR churn
 //!    so the `m` round-trip runs under load, and DCS streams aborted mid-flight
 //!    by CAN/SUB/ESC or split across `advance` feed boundaries.
-//! 7. **DEC rectangle / selective-erase ops** (RC1, FZ4): DECCRA/DECFRA/DECERA/
+//! 7. **DEC rectangle / selective-erase ops**: DECCRA/DECFRA/DECERA/
 //!    DECSERA with random/degenerate/inverted/out-of-bounds coordinates, DECSCA
 //!    protection toggled and interleaved with DECSED/DECSEL/ED/EL, DECOM and
 //!    scroll-region churn, CJK wide glyphs placed across rectangle edges, and
 //!    alternate-screen flips mid-sequence.
-//! 8. **Button protocol OSCs** (B1): both spellings (`OSC 1337 ; Button=` and
+//! 8. **Button protocol OSCs**: both spellings (`OSC 1337 ; Button=` and
 //!    `OSC 133 ; P ; odytty-button`) with valid, malformed, truncated, and
 //!    flooded payloads, gate on and off, interleaved with prompt marks,
 //!    resizes, alt-screen flips, and resets. Invariant: no byte sequence
@@ -45,7 +45,7 @@
 //!   observable mode/attr state (mouse, keyboard, synchronized output, focus,
 //!   bracketed paste) to its power-on defaults, discards pending host output,
 //!   and leaves the parser able to print.
-//! - **Grid self-consistency (FZ4).** After any rectangle/erase op the snapshot
+//! - **Grid self-consistency.** After any rectangle/erase op the snapshot
 //!   grid is well-formed: a `wide_continuation` spacer always follows a wide
 //!   head (no orphaned continuations, none at column 0), every wide head has its
 //!   continuation and never sits in the last column, and the cursor stays in
@@ -119,7 +119,8 @@ fn resolve_budget(raw: Option<&str>) -> (u64, BudgetSource) {
 }
 
 /// The process-wide budget, resolved once. An invalid value is reported on
-/// stderr instead of being silently replaced.
+/// stderr instead of being silently replaced; a value that is not valid
+/// Unicode reads as unset (`env::var(..).ok()`) and takes the default.
 fn budget() -> (u64, BudgetSource) {
     static BUDGET: std::sync::OnceLock<(u64, BudgetSource)> = std::sync::OnceLock::new();
     *BUDGET.get_or_init(|| {
@@ -282,7 +283,7 @@ fn host_output_cap(input_len: usize) -> usize {
     64 * input_len + 4096
 }
 
-/// Grid self-consistency scan (FZ4). Walk the snapshot and assert the
+/// Grid self-consistency scan. Walk the snapshot and assert the
 /// ownership invariant and cursor bounds. An owner is a head cell (its first
 /// scalar in `ch`, retained extension scalars in `combining`) plus, when it
 /// spans two columns, one `wide_continuation` spacer:
@@ -631,7 +632,7 @@ fn gen_osc(rng: &mut FuzzRng) -> Vec<u8> {
             }
         }
         6 => {
-            // OSC 133 shell-integration prompt marks (SH1/SH-CLICK): random
+            // OSC 133 shell-integration prompt marks: random
             // letter + key/value attribute soup, including click_events values.
             s.extend_from_slice(b"133;");
             s.push(*rng.pick(b"ABCDZ;"));
@@ -1678,7 +1679,7 @@ fn protocol_fuzz_rect_copy_churn_deep() {
 }
 
 // ---------------------------------------------------------------------------
-// (H) Button protocol OSCs (B1): totality, no grid writes, bounded table
+// (H) Button protocol OSCs: totality, no grid writes, bounded table
 // ---------------------------------------------------------------------------
 
 /// A button OSC in either spelling - valid, malformed, truncated, or hostile.

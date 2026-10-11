@@ -39,15 +39,16 @@ pub(super) async fn choose_open_path(
     }
 }
 
-/// Convert a backend panic into an unavailable adapter result rather than
-/// unwinding a dialog worker. This remains outside the async function because
-/// catching across an `.await` boundary is not stable in `std`.
+/// Blocking save dialog for a plain-text command export (`command-output.txt`).
 pub(super) fn choose_save_path_blocking() -> SaveDialogSelection {
     choose_save_path_blocking_for("command-output.txt", "Plain text", &["txt"])
 }
 
 /// [`choose_save_path_blocking`] with an application-owned neutral filename
-/// and filter (scrollback export offers `.txt` and `.html`).
+/// and filter (scrollback export offers `.txt` and `.html`). Converts a backend
+/// panic into an unavailable adapter result rather than unwinding a dialog
+/// worker; this stays outside the async function because catching across an
+/// `.await` boundary is not stable in `std`.
 pub(super) fn choose_save_path_blocking_for(
     suggested_filename: &str,
     filter_label: &str,

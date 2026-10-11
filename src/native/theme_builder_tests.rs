@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Unit tests for the theme builder (U2/U3). Kept as a child `mod tests` of
+//! Unit tests for the theme builder. Kept as a child `mod tests` of
 //! `theme_builder` via `#[path]`, so `use super::*` still reaches the builder’s
-//! private items — this is a pure file move for module-size relief, not a
+//! private items - this is a pure file move for module-size relief, not a
 //! behavior or visibility change.
 
 use super::*;
@@ -578,7 +578,7 @@ fn visible_lines_and_hit_map_stay_lockstep() {
 
 /// Drive the U3 generate action end-to-end through the key path: G opens seed
 /// entry, the typed accent feeds `palette_gen::generate`, and the loaded spec
-/// is RV1-valid by construction — so the AA readout reads PASS (or "not
+/// is valid by construction - so the AA readout reads PASS (or "not
 /// floored") on *every* role, never FAIL.
 #[test]
 fn generate_from_seed_yields_aa_clear_readout_for_every_role() {
@@ -646,7 +646,7 @@ fn generate_honors_appearance_and_preserves_name() {
     );
 }
 
-// --- OVERLAY-SMALL-WINDOW: role-list selection-follow + ▲/▼ affordance -------
+// --- role-list selection-follow + ▲/▼ affordance -------
 
 /// On a mid-size window the role list fits far fewer than the old hardcoded
 /// slack of 8, so keyboard nav must follow the selection through the *real*
@@ -714,7 +714,7 @@ fn seed_entry_cancels_on_escape() {
 }
 
 // ---------------------------------------------------------------------------
-// THEME-CAPTURE: opening on a captured draft, and re-capturing in-editor
+// Opening on a captured draft, and re-capturing in-editor
 // ---------------------------------------------------------------------------
 
 /// A capture-shaped spec whose colors are unmistakably not any built-in theme,
@@ -831,7 +831,7 @@ fn help_line_persists_and_status_region_is_fixed_height() {
         .position(|(_, zone)| matches!(zone, BuilderZone::Field { .. }))
         .expect("role rows present");
 
-    // Clear the status entirely — the strongest layout-shift case.
+    // Clear the status entirely - the strongest layout-shift case.
     builder.message = None;
     let rows_without_status = builder.build_rows(W, H);
     assert!(

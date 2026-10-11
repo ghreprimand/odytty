@@ -5,7 +5,7 @@ impl SettingsPanel {
     pub(in crate::native) fn handle_input(&mut self, input: OverlayInput) -> SettingsPanelOutcome {
         // Guard order is load-bearing (T-two-substates):
         // 1. Path picker owns all input while open.
-        // 2. Dirty-close prompt owns all input while showing (T8).
+        // 2. Dirty-close prompt owns all input while showing.
         // 3. Text edit owns keystrokes before search.
         // 4. Search active.
         // 5. Level dispatch.
@@ -200,7 +200,7 @@ impl SettingsPanel {
         &mut self,
         input: OverlayInput,
     ) -> SettingsPanelOutcome {
-        // T8: while the prompt is showing, ALL input is consumed here.
+        // While the prompt is showing, ALL input is consumed here.
         // Ctrl+S maps to Save-and-close (does NOT fire the normal save path).
         match input {
             OverlayInput::Char('s')
@@ -249,7 +249,7 @@ impl SettingsPanel {
 
     // ── Search ──────────────────────────────────────────────────────────────
 
-    /// Handle a key while the search filter is active (OB-SEARCH). Only
+    /// Handle a key while the search filter is active. Only
     /// available at Level 1. Enter on a result drills into the section that
     /// owns the entry, then selects it at Level 2 (T-search-vs-level).
     pub(super) fn handle_search_input(&mut self, input: OverlayInput) -> SettingsPanelOutcome {

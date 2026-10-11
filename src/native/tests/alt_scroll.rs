@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! ALT-SCROLL (DECSET 1007) routing tests. On the alternate screen — which has
-//! no scrollback — a wheel notch is translated into cursor-key presses so a TUI
+//! ALT-SCROLL (DECSET 1007) routing tests. On the alternate screen - which has
+//! no scrollback - a wheel notch is translated into cursor-key presses so a TUI
 //! that enables alternate-scroll without full mouse tracking (classic pagers
 //! like `less`, `man`, `git log`) still scrolls. The emulated arrow count
 //! honors the `scroll_wheel_lines` multiplier, so a pager scrolls at the same
@@ -141,10 +141,10 @@ fn alt_screen_with_1007_disabled_sends_nothing() {
 
 #[test]
 fn alt_scroll_arrow_count_tracks_wheel_lines_setting() {
-    // RE-COUPLE: the alternate-scroll (DECSET 1007) arrow emulation honors the
+    // The alternate-scroll (DECSET 1007) arrow emulation honors the
     // `scroll_wheel_lines` multiplier, so a pager scrolls at the same
     // rows-per-notch as local scrollback. At 3 lines/notch a wheel-up notch
-    // emits 3 Up arrows; at the default 6 it emits 6 — the count follows the
+    // emits 3 Up arrows; at the default 6 it emits 6 - the count follows the
     // knob, not a fixed step.
     let three = Settings {
         scroll_wheel_lines: 3.0,

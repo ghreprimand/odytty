@@ -120,7 +120,7 @@ fn scroll_indicator_is_offset_by_window_padding() {
     assert_eq!(oldest.rect, [85.0, 8.0, 88.0, 20.5]);
 }
 
-// MOUSE-SCROLLBAR: the draggable-thumb hit-test + drag inverse share their
+// The draggable-thumb hit-test + drag inverse share their
 // geometry with the render path above (the `ScrollbarGeometry` SSOT), so these
 // tests pin both the round-trip against the rendered thumb and the gates that
 // keep the plain press path byte-identical.
@@ -129,7 +129,7 @@ fn scroll_indicator_is_offset_by_window_padding() {
 fn scrollbar_hit_is_none_at_live_tail_and_without_history() {
     let dimensions = Dimensions::new(10, 5);
     let cell = cell(8, 10);
-    // Live tail (offset 0): the thumb is hidden, so a press never grabs it —
+    // Live tail (offset 0): the thumb is hidden, so a press never grabs it -
     // this is what keeps press routing byte-identical at the default offset.
     assert_eq!(
         scroll_indicator_hit(70.0, 5.0, 0, 15, dimensions, cell),
@@ -153,7 +153,7 @@ fn scrollbar_hit_only_on_the_thumb_grab_band() {
         scroll_indicator_hit(70.0, 5.0, 15, 15, dimensions, cell),
         Some(5.0)
     );
-    // Left of the grab band (the text area): no grab — selection/report path
+    // Left of the grab band (the text area): no grab - selection/report path
     // keeps the press.
     assert_eq!(
         scroll_indicator_hit(50.0, 5.0, 15, 15, dimensions, cell),
@@ -461,7 +461,7 @@ fn huge_or_infinite_wheel_deltas_are_bounded_without_overflow() {
 
 #[test]
 fn wheel_lines_scaled_multiplies_notches_and_preserves_default() {
-    // MOUSE-WHEEL-SPEED: the local-scroll path scales notches by the configured
+    // The local-scroll path scales notches by the configured
     // step. The default step (3) is byte-identical to plain `wheel_lines`.
     assert_eq!(
         wheel_lines_scaled(MouseScrollDelta::LineDelta(0.0, 1.0), 16, 3),
@@ -502,7 +502,7 @@ fn wheel_lines_scaled_multiplies_notches_and_preserves_default() {
 
 #[test]
 fn wheel_zoom_steps_maps_sign_and_notches() {
-    // CTRL-WHEEL-ZOOM: wheel up = positive (larger font), down = negative.
+    // Wheel up = positive (larger font), down = negative.
     assert_eq!(wheel_zoom_steps(MouseScrollDelta::LineDelta(0.0, 1.0)), 1);
     assert_eq!(wheel_zoom_steps(MouseScrollDelta::LineDelta(0.0, -1.0)), -1);
     // Multiple notches in one event scale the step count, sign preserved.
@@ -566,7 +566,7 @@ fn wheel_accumulator_clean_notch_is_identity() {
 fn wheel_accumulator_coalesces_subnotch_burst_into_one_notch() {
     // WHEEL-SENS root-cause test: a high-resolution mouse fires a burst of small
     // PixelDelta events per physical detent. With a 16px cell, four 4px events
-    // sum to exactly one 16px notch — and must yield exactly ONE notch of
+    // sum to exactly one 16px notch - and must yield exactly ONE notch of
     // scroll, not four.
     let mut accum = WheelAccumulator::default();
     let mut emitted = 0;
@@ -585,7 +585,7 @@ fn wheel_accumulator_coalesces_subnotch_burst_into_one_notch() {
 #[test]
 fn wheel_accumulator_zoom_burst_is_one_step_per_notch() {
     // WHEEL-SENS zoom fix: the same 4x4px burst must produce exactly ONE font
-    // step, not four — the runaway-zoom bug. Cap is one step per notch.
+    // step, not four - the runaway-zoom bug. Cap is one step per notch.
     let mut accum = WheelAccumulator::default();
     let mut steps = 0;
     for _ in 0..4 {
@@ -599,14 +599,14 @@ fn wheel_accumulator_zoom_burst_is_one_step_per_notch() {
 
 #[test]
 fn wheel_accumulator_zoom_caps_one_step_per_event() {
-    // Even a large single event (3 notches at once) only steps once per call —
+    // Even a large single event (3 notches at once) only steps once per call -
     // the carry is reset after a step fires, so a fast swipe can never leap
     // across many sizes.
     let mut accum = WheelAccumulator::default();
     let big = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 48.0));
     let notch = accum.coalesce_zoom(big, 16).expect("crosses a notch");
     assert_eq!(wheel_zoom_steps(notch), 1);
-    // The leftover (>1 notch) did not carry — a second identical magnitude is
+    // The leftover (>1 notch) did not carry - a second identical magnitude is
     // required to step again.
     let next = accum.coalesce_zoom(
         MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 4.0)),
@@ -618,7 +618,7 @@ fn wheel_accumulator_zoom_caps_one_step_per_event() {
 #[test]
 fn wheel_accumulator_subnotch_alone_emits_nothing() {
     // A single sub-notch event (less than one cell-height of pixels) emits no
-    // discrete notch — it is carried for the next event.
+    // discrete notch - it is carried for the next event.
     let mut accum = WheelAccumulator::default();
     let px = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 4.0));
     assert!(accum.coalesce_scroll(px, 16).is_none());
@@ -661,7 +661,7 @@ fn wheel_accumulator_reset_clears_both_carries() {
         "half a zoom notch carried"
     );
     accum.reset();
-    // After reset, a fresh half-notch is still only half — the prior carry is
+    // After reset, a fresh half-notch is still only half - the prior carry is
     // gone (otherwise the two halves would total a full notch and emit).
     assert!(accum.coalesce_scroll(px, 16).is_none());
     assert!(accum.coalesce_zoom(px, 16).is_none());
@@ -696,7 +696,7 @@ fn overlay_damper_inertial_burst_emits_one_step() {
 #[test]
 fn overlay_damper_discrete_notch_emits_one_step_each_direction() {
     // A Magic Mouse in line mode (or any discrete wheel reaching the macOS
-    // branch) delivers LineDelta(0, ±1) — treated as a clean detent → exactly
+    // branch) delivers LineDelta(0, ±1) - treated as a clean detent → exactly
     // ±1, correct sign, no pixel accumulation needed.
     let mut damper = OverlayWheelDamper::default();
     assert_eq!(
@@ -713,7 +713,7 @@ fn overlay_damper_discrete_notch_emits_one_step_each_direction() {
 
 #[test]
 fn overlay_damper_subthreshold_pixels_emit_nothing() {
-    // A gentle sub-detent nudge (under 48px at a 16px cell) carries silently —
+    // A gentle sub-detent nudge (under 48px at a 16px cell) carries silently -
     // no step until a full detent of travel accrues.
     let mut damper = OverlayWheelDamper::default();
     for _ in 0..3 {
@@ -756,7 +756,7 @@ fn overlay_damper_direction_reversal_drops_stale_carry() {
 #[test]
 fn overlay_damper_large_single_event_caps_at_one_step() {
     // Even a single huge PixelDelta (well over 2x the threshold) emits at most
-    // ONE step and resets the carry to 0 — the excess is discarded, not carried.
+    // ONE step and resets the carry to 0 - the excess is discarded, not carried.
     // This is the inertial-tail damping guarantee: bounded per event.
     let mut damper = OverlayWheelDamper::default();
     assert_eq!(
@@ -792,7 +792,7 @@ fn overlay_damper_reset_clears_carry() {
         "40px carried (sub-48px)"
     );
     damper.reset();
-    // After reset, a fresh 40px is again only 40px — the prior carry is gone
+    // After reset, a fresh 40px is again only 40px - the prior carry is gone
     // (otherwise 40+40=80 would cross and emit).
     assert_eq!(
         damper.step(

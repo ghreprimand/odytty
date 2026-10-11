@@ -12,8 +12,8 @@ use crate::emoji::ColorGlyphAtlas;
 use crate::grid::{self, ColorGlyphRun, ColorGlyphVertex, CursorRenderParams, SolidQuad};
 use crate::text;
 
-/// SCROLL-CHROME-BOUNCE: the composited-chrome geometry the App hands the GPU
-/// each single-pane frame so [`GpuState::chrome_pin`] can hold the tab bar / rail
+/// The composited-chrome geometry the App hands the GPU
+/// each single-pane frame so the GPU's chrome pin can hold the tab bar / rail
 /// still while the terminal content glides. Column indices are in the decorated
 /// snapshot's coordinate space (post tab-chrome decoration).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -21,19 +21,19 @@ pub(in crate::native) struct ChromePinGeom {
     pub(in crate::native) top_rows: usize,
     pub(in crate::native) rail_col_start: usize,
     pub(in crate::native) rail_col_end: usize,
-    /// TAB-LABEL-CENTERING: sub-row glyph shift (cell-height units) for the top
+    /// Sub-row glyph shift (cell-height units) for the top
     /// tab band's label row, including its descender guard. Computed by
     /// the App layer (which knows the bar height + label convention) and copied
     /// straight into [`grid::ChromePin`].
     pub(in crate::native) band_glyph_dy_rows: f32,
-    /// TAB-LABEL-CENTERING: the rail analog for the side workspace rail's slot
+    /// The rail analog for the side workspace rail's slot
     /// label, including its descender guard.
     pub(in crate::native) rail_glyph_dy_rows: f32,
-    /// CHROME-GAP: pixels between the pinned rail band and the content columns
+    /// Pixels between the pinned rail band and the content columns
     /// (the window padding value; 0.0 with no rail or zero padding). See
     /// [`grid::ChromePin::gap_x`] for which cells carry the shift.
     pub(in crate::native) gap_x: f32,
-    /// CHROME-GAP: pixels between the pinned top band and the content rows
+    /// Pixels between the pinned top band and the content rows
     /// below it (0.0 with no bar or zero padding).
     pub(in crate::native) gap_y: f32,
 }
@@ -85,7 +85,7 @@ pub(in crate::native) struct PaneRender<'a> {
     pub(in crate::native) snapshot: &'a Snapshot,
     /// Pane top-left in physical px, with this pane's scroll glide folded into y.
     pub(in crate::native) origin: [f32; 2],
-    /// Whether this pane has keyboard focus — only the focused pane draws a
+    /// Whether this pane has keyboard focus - only the focused pane draws a
     /// live cursor (unfocused panes draw none yet; hollow/dim is a
     /// later refinement per §3.3).
     pub(in crate::native) focused: bool,
@@ -99,7 +99,7 @@ pub(in crate::native) struct PaneRender<'a> {
     pub(in crate::native) overlays: &'a [SolidQuad],
     /// Background treatment params for this pane's cells.
     pub(in crate::native) treatment: grid::BackgroundTreatmentParams,
-    /// PANE-SUBCELL-CLIP: the vertical band this pane's vertices are clamped to,
+    /// The vertical band this pane's vertices are clamped to,
     /// so a sub-cell scroll glide baked into `origin[1]` cannot smear the partial
     /// top/bottom row past the pane's content rect into a neighbour across the
     /// divider. [`grid::VClip::NONE`] (chrome strips, single-pane, at-rest panes)
@@ -116,11 +116,11 @@ pub(in crate::native) struct PaneRender<'a> {
     /// tiled, stacked, and zoomed panes, which leaves their vertex streams
     /// untouched.
     pub(in crate::native) occluders: &'a [[f32; 4]],
-    /// TAB-LABEL-CENTERING: sub-row glyph shift (cell-height units) for a top
+    /// Sub-row glyph shift (cell-height units) for a top
     /// tab-bar chrome strip, recentering its label row on the band's true center.
     /// `0.0` (every content pane and the rail strip) is inert.
     pub(in crate::native) band_glyph_dy_rows: f32,
-    /// TAB-LABEL-CENTERING: sub-row glyph shift for a workspace-rail chrome strip.
+    /// Sub-row glyph shift for a workspace-rail chrome strip.
     /// `0.0` (every content pane and the top-bar strip) is inert.
     pub(in crate::native) rail_glyph_dy_rows: f32,
     /// Shape-aware cursor aura clip for the focused content pane. `None` is the
@@ -130,9 +130,9 @@ pub(in crate::native) struct PaneRender<'a> {
     /// Large-jump cursor follower for the focused pane. `None` for chrome,
     /// background panes, reduced motion, or an idle/disabled trail.
     pub(in crate::native) cursor_streak: Option<CursorStreakRequest>,
-    /// COLORED-BG-FLOOR: whether this pane is a composited chrome strip (top
+    /// Whether this pane is a composited chrome strip (top
     /// tab bar / workspace rail) rather than terminal content. Chrome strips
-    /// are exempt from the colored-background opacity floor — their effective
+    /// are exempt from the colored-background opacity floor - their effective
     /// opacity is owned by `tab_panel_strength`, whose wash math tops up from
     /// the plain content alpha these cells composite at. The strip's label
     /// offsets cannot stand in for this flag: they are `0.0` for single-row
@@ -530,8 +530,8 @@ pub(in crate::native) fn cursor_glow_falloff(outside: f32, radius: f32) -> f32 {
 
 /// A window-level overlay drawn **topmost** over a multi-pane composite
 /// (context menu / settings / palette / connections / replay). Unlike a
-/// [`PaneRender`] — whose background quads land in the shared background segment
-/// and so would be overdrawn by other panes' glyphs — an `OverlayTop`'s full
+/// [`PaneRender`] - whose background quads land in the shared background segment
+/// and so would be overdrawn by other panes' glyphs - an `OverlayTop`'s full
 /// cell vertices (background **and** glyphs) are appended after the dividers and
 /// per-pane overlays, so the panel composites opaquely on top of everything.
 /// The snapshot is sized and positioned in window space by the caller; in the
@@ -551,7 +551,7 @@ pub(in crate::native) struct OverlayTop<'a> {
 /// floating strip at its window edge, over live content, without any content
 /// reflow. Composited topmost like an [`OverlayTop`], but with a layered stack
 /// around the strip snapshot so the band reads over the terminal beneath it
-/// (CHROME-ALPHA: cells and wash compose the same effective translucency as
+/// (cells and wash compose the same effective translucency as
 /// the pinned bands, so autohide state never changes the band's opacity):
 /// 1. strip cell backgrounds and panel-colored outer remainder strips.
 /// 2. `wash` over cell backgrounds, excluding the already-filled remainders.
@@ -606,9 +606,9 @@ pub(in crate::native) fn quads_excluding(
     current
 }
 
-/// TAB-LABEL-CENTERING: the [`grid::ChromePin`] for one multi-pane render input.
+/// The [`grid::ChromePin`] for one multi-pane render input.
 /// A content pane (and a chrome strip with no label offset) yields
-/// `ChromePin::NONE` — byte-identical to the pre-feature split path. A top tab
+/// `ChromePin::NONE` - byte-identical to the pre-feature split path. A top tab
 /// bar or workspace-rail chrome strip yields a pin carrying only its sub-row
 /// label offset: the strip snapshot IS the band, so the whole snapshot's rows
 /// (top bar) or columns (rail) are the band the offset applies to. Sub-cell
@@ -633,7 +633,7 @@ pub(super) fn pane_chrome_pin(pane: &PaneRender) -> grid::ChromePin {
         },
         band_glyph_dy_rows: pane.band_glyph_dy_rows,
         rail_glyph_dy_rows: pane.rail_glyph_dy_rows,
-        // CHROME-GAP: multi-pane chrome strips render at their own gap-aware
+        // Multi-pane chrome strips render at their own gap-aware
         // pixel origins; no per-cell shift is composited into a strip snapshot.
         gap_x: 0.0,
         gap_y: 0.0,
@@ -642,19 +642,19 @@ pub(super) fn pane_chrome_pin(pane: &PaneRender) -> grid::ChromePin {
 
 /// Accumulate one pane's color glyphs (emoji) into the shared per-frame buffer.
 ///
-/// `build_color_glyph_vertices_with_origin_into` clears its output on entry —
+/// `build_color_glyph_vertices_with_origin_into` clears its output on entry -
 /// the two single-pane callers rebuild the whole buffer, so that clear is their
 /// contract. The multi-pane loop therefore builds each pane into `scratch` and
 /// then *extends* `shared`; writing straight into `shared` would clear away
 /// every earlier pane's glyphs and desync the frame. A pane whose emoji count
 /// is lower than an earlier pane's used to leave a captured `shared[start..]`
-/// offset pointing past the end of the emptied buffer, which panicked and — via
-/// the abort-on-panic hook — took the window down.
+/// offset pointing past the end of the emptied buffer, which panicked and - via
+/// the abort-on-panic hook - took the window down.
 ///
 /// This is a free function so the accumulation can be exercised without a GPU
 /// device or window: the panic only reproduced across panes with uneven emoji
 /// counts, which needs no rendering to trigger. It takes the per-pane geometry
-/// as primitives rather than a `&PaneRender` for that reason — a test can drive
+/// as primitives rather than a `&PaneRender` for that reason - a test can drive
 /// it from a bare snapshot and run list without building a full pane record.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::native) fn accumulate_pane_color_glyphs(
@@ -664,7 +664,7 @@ pub(in crate::native) fn accumulate_pane_color_glyphs(
     snapshot: &Snapshot,
     runs: &[ColorGlyphRun],
     origin: [f32; 2],
-    // TAB-LABEL-CENTERING: a chrome strip's emoji label centers with the same
+    // A chrome strip's emoji label centers with the same
     // offset as its mono glyphs; `ChromePin::NONE` for content panes.
     chrome_pin: grid::ChromePin,
     clip: grid::VClip,
@@ -683,7 +683,7 @@ pub(in crate::native) fn accumulate_pane_color_glyphs(
     );
     // Colour glyphs obey the same per-pane clip so a gliding emoji's partial row
     // is cropped, not smeared across the divider. Clip the scratch, then extend
-    // the shared accumulator — the builder clears `scratch`, so writing into
+    // the shared accumulator - the builder clears `scratch`, so writing into
     // `shared` directly would wipe earlier panes' glyphs.
     grid::clip_quads_vertical(scratch, clip);
     if let Some(rect) = content_clip {
@@ -706,8 +706,8 @@ pub(in crate::native) fn rail_overlay_chrome_pin(
         rail_col_end: columns,
         band_glyph_dy_rows: 0.0,
         rail_glyph_dy_rows,
-        // CHROME-GAP: the floating auto-hide overlay is full-bleed by design
-        // (no reflow, no gap) — it never composites a chrome-facing gap.
+        // The floating auto-hide overlay is full-bleed by design
+        // (no reflow, no gap) - it never composites a chrome-facing gap.
         gap_x: 0.0,
         gap_y: 0.0,
     }

@@ -182,7 +182,7 @@ impl ThemePicker {
     }
 
     /// Hidden entries above / below the visible window, for the scroll
-    /// affordance (OVERLAY-SMALL-WINDOW). The entry viewport is the capacity
+    /// affordance. The entry viewport is the capacity
     /// the last render recorded, after the header hint and any wrapped message
     /// rows (as `ThemeBuilder::scroll_indicator` does); before the first render
     /// it is `body_height - 1`. `(false, false)` when all fit.
@@ -280,7 +280,7 @@ impl ThemePicker {
         count
     }
 
-    /// Map a clicked body row to the theme-entry index it represents — the
+    /// Map a clicked body row to the theme-entry index it represents - the
     /// inverse of [`Self::visible_lines`] (UX4-P1 click→Activate). Returns `None`
     /// for the header/message rows or a click past the last entry.
     pub(super) fn row_at(
@@ -701,7 +701,7 @@ mod tests {
             .iter()
             .position(|line| line.focused)
             .expect("the selected entry renders focused");
-        // The clicked focused row maps back to whatever entry is selected — the
+        // The clicked focused row maps back to whatever entry is selected - the
         // prefix accounting (header + wrapped message) matches the render.
         let selected = picker.render_signature().selected;
         assert_eq!(picker.row_at(focused_row, 60, 40), Some(selected));

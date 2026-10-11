@@ -319,7 +319,7 @@ fn safe_session_id(session_id: &str) -> Result<&str> {
     Ok(session_id)
 }
 
-/// Deadline for the client-side read of the host's hello frame (audit C-2).
+/// Deadline for the client-side read of the host's hello frame.
 ///
 /// `UnixStream::connect` succeeds against a wedged host via the listen backlog
 /// even though the host never `accept()`s, and the client's hello write lands in

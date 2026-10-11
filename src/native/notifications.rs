@@ -301,7 +301,7 @@ pub(in crate::native) fn deliver_desktop(kind: DesktopNotificationKind) {
         // console over the terminal for the whole PowerShell startup, and the
         // rate limiter still permits four per 30s, so noisy PTY output could
         // drive repeated flashes. `apply_no_console_window` is the documented
-        // fix (C13) and every other console spawn already routes through it;
+        // fix and every other console spawn already routes through it;
         // this was the missing sixth site. No-op on non-Windows.
         let mut command = std::process::Command::new(spec.program);
         command.args(spec.args);

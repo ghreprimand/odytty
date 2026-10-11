@@ -72,11 +72,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         return vec4<f32>(in.color.rgb, in.color.a * corrected);
     }
 
-    // Background fill. The legacy ambient scanline wash was retired here (UX5):
-    // the scanline look is now produced by the unified CRT post-process, so the
-    // cell shader no longer modulates the background by `viewport.effect`. This
-    // is the previous off-path output (factor 1.0), so default rendering is
-    // pixel-identical. `viewport.effect` is retained in the uniform for layout
-    // stability but is no longer sampled.
+    // Background fill. The scanline look is produced by the unified CRT
+    // post-process, so the cell shader does not modulate the background by
+    // `viewport.effect`. The field stays in the uniform for layout stability
+    // but is never sampled.
     return in.color;
 }

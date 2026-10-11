@@ -5,7 +5,7 @@
 //! the six workspace `BindableAction`s and the palette workspace rows
 //! (`workspace-switch-<idx>` / `workspace-new` / `workspace-rename`). The
 //! model-level hierarchy invariants live in `session.rs`; here we pin the App
-//! wiring — creation, cycling, close-with-exit-guard, rename commit, and the
+//! wiring - creation, cycling, close-with-exit-guard, rename commit, and the
 //! palette routing.
 
 use super::super::app::NewWorkspaceBinding;
@@ -318,7 +318,7 @@ fn close_last_workspace_signals_exit_without_emptying_the_arena() {
         "closing the last workspace exits the app"
     );
     // The guard returns before reaping, so the arena still holds the workspace
-    // (teardown happens on the exit path, not here) — no Deref-on-empty panic.
+    // (teardown happens on the exit path, not here) - no Deref-on-empty panic.
     assert_eq!(app.workspace_count_for_test(), 1);
 }
 
@@ -457,7 +457,7 @@ fn moving_the_last_tab_out_closes_the_source_workspace_app() {
     assert_eq!(app.workspace_count_for_test(), 2);
     assert_eq!(app.active_workspace_index_for_test(), 1);
 
-    // Moving ws1's only tab out (into ws0) empties and closes ws1 (ODP-3).
+    // Moving ws1's only tab out (into ws0) empties and closes ws1.
     let token = app.active_session_token_for_test();
     app.move_tab_to_workspace_for_test(token, 0);
     assert_eq!(app.workspace_count_for_test(), 1, "emptied source closed");
@@ -472,7 +472,7 @@ fn move_tab_is_a_noop_with_a_single_workspace() {
     let mut app = headless_app();
     assert_eq!(app.workspace_count_for_test(), 1);
     let token = app.active_session_token_for_test();
-    // Single workspace: no destinations, so the picker never opens (W4-v2).
+    // Single workspace: no destinations, so the picker never opens.
     assert_eq!(app.open_move_tab_workspace_picker_for_test(token), 0);
     // Nothing moved: still one workspace, one tab.
     assert_eq!(app.workspace_count_for_test(), 1);
@@ -481,7 +481,7 @@ fn move_tab_is_a_noop_with_a_single_workspace() {
 
 #[test]
 fn rename_band_holds_the_single_pane_opaque_region_under_transparency() {
-    // PROMPT-OPACITY: the rename/prompt band paints on its own path (not
+    // The rename/prompt band paints on its own path (not
     // `overlay_rect`), so before it was folded into the single-pane opaque span
     // it rendered translucent under a translucent window. With no modal open
     // the span is `None` (the opaque-window path stays byte-identical); opening
@@ -514,7 +514,7 @@ fn rename_band_holds_the_single_pane_opaque_region_under_transparency() {
 
 #[test]
 fn secondary_instance_raises_the_restore_suppressed_notice() {
-    // SECONDARY-INSTANCE-NOTICE: a second concurrent window is silently inert on
+    // A second concurrent window is silently inert on
     // restore/autosave. When the user expects restore, the startup gate must
     // surface the one-line banner so the silence stops reading as "restore
     // didn't work".
@@ -533,7 +533,7 @@ fn secondary_instance_raises_the_restore_suppressed_notice() {
 
 #[test]
 fn primary_instance_stays_silent_on_the_restore_notice() {
-    // The owner of the lock restores and autosaves normally — no notice.
+    // The owner of the lock restores and autosaves normally - no notice.
     let mut app = headless_app();
     app.set_primary_instance_for_test(true);
     app.set_restore_workspaces_for_test(true);
@@ -547,7 +547,7 @@ fn primary_instance_stays_silent_on_the_restore_notice() {
 #[test]
 fn secondary_instance_without_restore_expectation_stays_silent() {
     // With restore off the user is not relying on it, so the secondary window
-    // has nothing to explain — no notice.
+    // has nothing to explain - no notice.
     let mut app = headless_app();
     app.set_primary_instance_for_test(false);
     app.set_restore_workspaces_for_test(false);
@@ -560,9 +560,9 @@ fn secondary_instance_without_restore_expectation_stays_silent() {
 
 #[test]
 fn open_layout_onto_pristine_window_opens_without_a_prompt() {
-    // LAYOUT-OPEN-MODE: a bare launch is a single pristine workspace, so opening
+    // A bare launch is a single pristine workspace, so opening
     // a layout goes straight through (the pristine-consume path) with no
-    // Replace/Add prompt — even when the named layout doesn't exist (it then
+    // Replace/Add prompt - even when the named layout doesn't exist (it then
     // raises a "not found" notice, but never the mode dialog).
     //
     // Loading a layout prepares the state and layouts folders, so the case runs
@@ -632,7 +632,7 @@ fn open_layout_asks_when_the_lone_pane_job_is_busy_or_unknown() {
 )]
 #[test]
 fn open_layout_onto_real_state_raises_the_mode_prompt() {
-    // LAYOUT-OPEN-MODE: once the window holds real state (here, a second
+    // Once the window holds real state (here, a second
     // workspace), opening a layout raises the Replace/Add/Cancel dialog instead
     // of silently appending.
     let mut app = app_or_skip!();
@@ -656,7 +656,7 @@ fn open_layout_onto_real_state_raises_the_mode_prompt() {
     );
 }
 
-// --- SHELL-EXIT-CLOSES: the `shell_exit_closes` exit-behavior setting ---
+// --- the `shell_exit_closes` exit-behavior setting ---
 
 #[cfg_attr(
     target_os = "macos",
@@ -664,7 +664,7 @@ fn open_layout_onto_real_state_raises_the_mode_prompt() {
 )]
 #[test]
 fn app_mode_shell_exit_in_a_non_last_workspace_quits_without_reaping() {
-    // SHELL-EXIT-CLOSES: in App mode, a shell exit that would close a workspace
+    // In App mode, a shell exit that would close a workspace
     // sets pending_exit (quit) even though another workspace survives, and does
     // NOT reap the workspace first -- the arena stays intact so the shutdown
     // snapshot can capture every workspace for restore. Confirm-close off makes
@@ -700,7 +700,7 @@ fn app_mode_shell_exit_in_a_non_last_workspace_quits_without_reaping() {
 )]
 #[test]
 fn workspace_mode_shell_exit_in_a_non_last_workspace_closes_only_it() {
-    // SHELL-EXIT-CLOSES: the default (Workspace) mode is byte-identical to the
+    // The default (Workspace) mode is byte-identical to the
     // historical cascade -- a shell exit that empties a non-last workspace reaps
     // just that workspace and the app stays open.
     let mut app = app_or_skip!();
@@ -796,7 +796,7 @@ fn app_mode_shell_exit_with_a_sibling_pane_closes_only_the_pane() {
 )]
 #[test]
 fn close_workspace_action_stays_single_workspace_scoped_in_app_mode() {
-    // SHELL-EXIT-CLOSES: the setting governs ONLY the shell-exit path. The
+    // The setting governs ONLY the shell-exit path. The
     // explicit Close Workspace action (and the rail x, which routes through the
     // same close_workspace path) still closes a single workspace in App mode.
     let mut app = app_or_skip!();

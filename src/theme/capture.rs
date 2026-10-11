@@ -2,7 +2,7 @@
 //! Capture a theme draft from a pane's live colors.
 //!
 //! A running pane's colors are not always the theme's colors. Any program can
-//! repaint the terminal at runtime with the dynamic-color escape sequences —
+//! repaint the terminal at runtime with the dynamic-color escape sequences -
 //! `OSC 4` overrides one of the 256 palette slots, `OSC 10`/`11`/`12` override
 //! the default foreground, background, and cursor. Shell prompts, `vim`
 //! colorschemes, `tmux` configs, and `dircolors` setups all do this. The result
@@ -10,8 +10,8 @@
 //! terminal state.
 //!
 //! This module closes that gap: it turns the **effective** color state of a
-//! pane — the colors actually on screen, live override first and the
-//! theme-seeded value where no override exists — into a [`ThemeSpec`] draft
+//! pane - the colors actually on screen, live override first and the
+//! theme-seeded value where no override exists - into a [`ThemeSpec`] draft
 //! that the theme editor can name, tweak, and save.
 //!
 //! ## What is captured directly
@@ -29,9 +29,9 @@
 //! the draft to the theme editor, where every role is editable before saving,
 //! so the heuristics need to be explainable and sane rather than perfect.
 //!
-//! Every heuristic works in the same direction — "away from the background" for
+//! Every heuristic works in the same direction - "away from the background" for
 //! something that must be visible against it, "toward the background" for
-//! something that must recede — using [`relative_luminance`] to decide which
+//! something that must recede - using [`relative_luminance`] to decide which
 //! way that is. A light background darkens; a dark background lightens. This is
 //! why they behave correctly for light and dark themes without a separate
 //! branch per case.
@@ -41,7 +41,7 @@
 //! | `clear` | The captured background, unchanged. The window surface matches the cell field unless a theme deliberately frames the grid, and a capture has no way to know a frame was wanted. |
 //! | `selection` | The background moved 22% toward the foreground. Enough to read as a highlight band, not enough to fight the text drawn over it. |
 //! | `search` | The captured yellow (palette index 3) blended 45% into the background. Search highlights read as a distinct warm band in every major terminal; blending toward the background keeps it from overpowering the field. |
-//! | `border` | The background moved 12% toward the foreground — a low-contrast structural line, visible as an edge without drawing the eye. |
+//! | `border` | The background moved 12% toward the foreground - a low-contrast structural line, visible as an edge without drawing the eye. |
 //! | `inactive` | The midpoint between foreground and background. Legible but clearly recessive, which is what inactive tab/workspace chrome needs. |
 //!
 //! Appearance (light or dark) is classified from the background's relative
@@ -80,7 +80,7 @@ const YELLOW_INDEX: usize = 3;
 /// The effective color state of one pane: what it is actually displaying.
 ///
 /// "Effective" is the whole point. Each field must already have live dynamic
-/// overrides resolved against theme-seeded values by the caller — a captured
+/// overrides resolved against theme-seeded values by the caller - a captured
 /// draft that reproduced the *theme* rather than the *screen* would defeat the
 /// feature. There is no single accessor for this: the native layer assembles it
 /// in `native::app::keyboard::capture_live_theme_spec`, combining
@@ -101,7 +101,7 @@ pub struct LiveColors {
 ///
 /// `name` is the draft's starting display name; the theme editor prompts for
 /// the final name before saving, so this only has to be a reasonable default.
-/// The returned spec is a plain value — capturing writes nothing and changes no
+/// The returned spec is a plain value - capturing writes nothing and changes no
 /// live state.
 pub fn capture_spec(live: &LiveColors, name: &str) -> ThemeSpec {
     let foreground = live.foreground;

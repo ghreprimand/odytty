@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Draw order, pass encoding, acquire, submit, present, and frame outcome.
 //!
-//! Draw order within the scene pass is the buffer-segment order `scene` built:
-//! background quads, coverage glyphs, colour glyphs, then the cursor and
-//! overlay tail. `pre_present_notify` stays immediately before presentation.
+//! Draw order within the scene pass: background image, background cell quads,
+//! negative-z images, cursor aura and streak, coverage glyphs and decorations,
+//! colour glyphs, cursor and overlay tail, then non-negative-z images. The
+//! viewer overlay is drawn in its own pass after post-processing.
+//! `pre_present_notify` stays immediately before presentation.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -46,13 +48,13 @@ impl GpuState {
     /// [`PostProcessResources`] is created lazily on the first frame that needs
     /// it. It was previously never released, so turning bloom and CRT back off
     /// left the full-resolution offscreen target and the two half-resolution
-    /// bloom targets resident for the remaining life of the process — three
+    /// bloom targets resident for the remaining life of the process - three
     /// `Rgba16Float` surfaces totalling `width * height * 12` bytes, about 24 MB
     /// at 1080p and 95 MB at 4K, held for an effect nothing was drawing.
     ///
     /// Releasing from the consumer side rather than inside the effect setters is
     /// deliberate. `render` is the only consumer of these targets, so the check
-    /// there covers every path that can turn the stack off — including any added
+    /// there covers every path that can turn the stack off - including any added
     /// later. Today the effect fields are reachable only through
     /// `set_bloom`/`set_crt`, but a third mutation site would need no change
     /// here, whereas a setter-side release would have to be remembered at each
@@ -61,7 +63,7 @@ impl GpuState {
     ///
     /// Externally this is invisible. Turning an effect back on takes the same
     /// lazy creation path that built the targets the first time, inside the
-    /// frame that needs them and before that frame is presented — so the first
+    /// frame that needs them and before that frame is presented - so the first
     /// effects-on frame is fully post-processed, exactly as the very first
     /// toggle always was. Nothing between the release and the next enable reads
     /// the targets: the no-effect branch of `render` draws straight to the
@@ -85,7 +87,7 @@ impl GpuState {
             return;
         }
 
-        // ID3/U5: the background image is drawn FIRST (over the clear colour,
+        // The background image is drawn FIRST (over the clear colour,
         // behind every cell quad), with its readability scrim baked in. The
         // translucent cell layer (at `cell_bg_opacity`) composites on top, so
         // the image shows through behind text. `None` (off path) is skipped.
@@ -199,7 +201,7 @@ impl GpuState {
                 ops: wgpu::Operations {
                     // Keep the neutral clear, then draw cell quads over it.
                     // TRANSPARENCY: a fully-transparent clear when the window is
-                    // translucent (opaque theme clear otherwise — byte-identical).
+                    // translucent (opaque theme clear otherwise - byte-identical).
                     load: wgpu::LoadOp::Clear(self.scene_clear_color()),
                     store: wgpu::StoreOp::Store,
                 },
@@ -212,7 +214,8 @@ impl GpuState {
         self.draw_scene(&mut pass);
     }
 
-    /// Clear the surface to the active theme's clear color and present one frame.
+    /// Encode the scene (through the post-process stack when active), the viewer
+    /// overlay, and present one frame.
     ///
     /// Returns a [`FrameOutcome`] so the event loop can decide whether to
     /// reconfigure the surface or simply skip the frame. `wgpu` 29 reports
@@ -227,7 +230,7 @@ impl GpuState {
         // Placed BEFORE the surface acquire on purpose: an occluded or
         // timing-out window returns early from the arms below, and releasing
         // after the acquire would make it hold the memory until it became
-        // visible again — precisely the case where holding it is least
+        // visible again - precisely the case where holding it is least
         // defensible.
         self.release_post_process_if_inactive();
         let (frame, suboptimal) = match self.surface.get_current_texture() {
@@ -292,7 +295,7 @@ impl GpuState {
         // takes a `wl_surface.frame` callback, which makes winit align
         // `RedrawRequested` with the compositor's own draw loop.
         //
-        // Not cosmetic — it is the visibility signal this app was missing. With
+        // Not cosmetic - it is the visibility signal this app was missing. With
         // no callback in flight, winit never throttles `RedrawRequested`, so a
         // surface the compositor has stopped painting (display DPMS-off, output
         // asleep, surface occluded) still gets driven through `render()` on the

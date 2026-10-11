@@ -60,7 +60,7 @@ struct BundledFace {
 
 const BUNDLED_FACES: &[BundledFace] = &[
     // Victor Mono (default family). SGR italic maps to the **Oblique** face
-    // (roman slant) for readability, not the cursive Italic face — so the italic
+    // (roman slant) for readability, not the cursive Italic face - so the italic
     // row for each weight points at the `…Oblique.otf` file. The Regular weight's
     // oblique file is named `VictorMono-Oblique.otf` (no `Regular` infix).
     BundledFace {
@@ -324,7 +324,7 @@ pub fn load_font() -> Result<FontHandle, TextError> {
 /// Load a monospace font: honor an explicit settings path, then try the bundled
 /// default and the host candidate list.
 ///
-/// **Resilient by design (F1):** a bad explicit `font_path` (missing,
+/// **Resilient by design:** a bad explicit `font_path` (missing,
 /// unreadable, or unparseable) must never abort startup. The explicit path is
 /// tried first; on failure a one-line stderr notice is emitted and loading
 /// falls back to the bundled default, then the host candidate list. Only when
@@ -337,7 +337,7 @@ pub fn load_font_with_path(font_path: Option<&Path>) -> Result<FontHandle, TextE
         match load_font_at(path) {
             Ok(font) => return Ok(font),
             Err(err) => {
-                eprintln!("odytty: {err}; falling back to a probed system font");
+                eprintln!("odytty: {err}; falling back to the bundled font");
             }
         }
     }

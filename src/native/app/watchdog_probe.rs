@@ -6,7 +6,7 @@
 //! delegated event.
 //!
 //! PRIVACY: this probe may only ever export booleans, counters, and C-like
-//! enum discriminants (see [`WatchdogAppState`]) — never strings, titles, or
+//! enum discriminants (see [`WatchdogAppState`]) - never strings, titles, or
 //! buffer contents. That is what makes the watchdog's stall record safe to
 //! ship to a log file by construction.
 

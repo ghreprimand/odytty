@@ -2,13 +2,12 @@
 //! Native window + GPU surface (Linux-first, Wayland-native).
 //!
 //! This module owns the seam between the OS window/event loop, the GPU surface,
-//! and the rest of OdyTTY. It is built up incrementally so each piece is
-//! reviewable on its own:
+//! and the rest of OdyTTY. Its core pieces:
 //!
-//! - **Window lifecycle** — a `winit` window that opens and closes cleanly.
-//! - **GPU surface bring-up** — a `wgpu` surface/device/queue that survives
+//! - **Window lifecycle** - a `winit` window that opens and closes cleanly.
+//! - **GPU surface bring-up** - a `wgpu` surface/device/queue that survives
 //!   resize.
-//! - **Glyph text rendering** — the `crate::text` atlas is uploaded to an
+//! - **Glyph text rendering** - the `crate::text` atlas is uploaded to an
 //!   `R8Unorm` texture and the `crate::grid` geometry is drawn as textured
 //!   quads with the shared `cell.wgsl` pipeline, so the window shows readable
 //!   monospaced text.
@@ -34,13 +33,13 @@
 //! The native app keeps the owned terminal core (`crate::core`) separate from
 //! windowing, GPU rendering, and the Odyssey visual layer:
 //!
-//! - **Event loop** — `winit` owns the OS window, input events, and resize.
-//! - **GPU surface/device** — `wgpu` owns the surface, device, queue, and swap
+//! - **Event loop** - `winit` owns the OS window, input events, and resize.
+//! - **GPU surface/device** - `wgpu` owns the surface, device, queue, and swap
 //!   chain, presenting frames (including the post-processing passes) to the
 //!   window.
-//! - **Glyph atlas / text renderer** — a CPU-rasterized monospace glyph atlas
+//! - **Glyph atlas / text renderer** - a CPU-rasterized monospace glyph atlas
 //!   (`crate::text`) uploaded to a `wgpu` texture; cells drawn as textured quads.
-//! - **Grid presentation** — maps an owned-core `Snapshot` to positioned cell
+//! - **Grid presentation** - maps an owned-core `Snapshot` to positioned cell
 //!   quads via `crate::grid`, with no terminal semantics in the renderer.
 //!
 //! ## Linux / Wayland
@@ -198,14 +197,14 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // Select the presentation theme once via Settings and apply its default cell
     // colors process-wide before any rendering. This only
     // affects how Color::Default paints; the terminal core is unaware of it.
-    // U4: publish the *effective* theme so a launch-time `cvd_mode` is honored
+    // Publish the *effective* theme so a launch-time `cvd_mode` is honored
     // from the first frame. Off (the default) returns the authored theme
     // unchanged, so the plain path is byte-identical.
     let theme =
         cvd_theme::effective_theme(&settings.theme, settings.cvd_mode, settings.cvd_strength);
     text::set_default_colors(theme.foreground, theme.background);
     text::set_ansi_palette(&theme.palette);
-    // Publish the RV1 minimum-contrast floor process-wide before the first
+    // Publish the minimum-contrast floor process-wide before the first
     // frame so a launch-time `ODYTTY_MIN_CONTRAST` is honored immediately; the
     // grid resolve seam reads it per cell. The reload path republishes it on
     // change. Passthrough at the default 1.0, so the plain path is unchanged.
@@ -353,20 +352,20 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     if let Some(session_id) = attach_session {
         app.attach_launch_session(&session_id);
     }
-    // WP2: shape autosave and restore belong to the primary instance of a bare
+    // Shape autosave and restore belong to the primary instance of a bare
     // `odytty` launch (sub-ODPs 8a/8b). Any CLI argument leaves `bare_launch`
     // false: the launch starts fresh and never writes the saved shape, so the
     // saved layout survives it. A secondary instance never restores or writes.
     let owns_shape = app.claim_launch_shape_ownership(is_primary, bare_launch);
     if is_primary {
-        // C27: clear crash-orphaned atomic-write temporaries from the state and
+        // Clear crash-orphaned atomic-write temporaries from the state and
         // layouts dirs before autosave begins (only the primary writes them).
         crate::native::persistence::sweep_stale_temp_files();
     }
     if owns_shape && settings.restore_workspaces {
         app.restore_workspaces_on_launch();
     }
-    // SECONDARY-INSTANCE-NOTICE: a second concurrent window is silently inert on
+    // A second concurrent window is silently inert on
     // restore/autosave (a live primary holds the instance lock). Surface that
     // once at startup when the user expects restore, so relaunching over a
     // still-running or wedged first window no longer reads as "restore failed".
@@ -527,24 +526,6 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     Ok(())
 }
 
-/// Build a same-process sibling window's [`App`] for a New Window request
-/// (v0.15.0 D), mirroring `run_native`'s primary launch: spawn a default shell
-/// in the inherited working directory, wire the PTY pump to the shared event
-/// loop, and construct the window's `WorkspaceSet` and `App`. Returns `None` on
-/// any spawn/pump failure so the owner drops the request rather than crashing
-/// the requesting window (the pre-v0.15.0 log-and-drop New Window policy).
-///
-/// The sibling's launch session is seeded at `base_token`, a disjoint token
-/// range base from `window_owner::next_window_token_base`, so its tokens never
-/// collide with another window's and the keyboard merge can move whole
-/// workspaces between windows without re-keying a live pump. The surface itself
-/// is created later by the owner (`App::on_resumed`) when the event loop is in
-/// scope; this builds only the model/session/pump.
-///
-/// A New Window is a fresh settings-derived default window (matching the
-/// historical re-exec New Window behavior), not a clone of the primary's CLI
-/// options: it never restores workspaces, attaches a session, or re-runs a
-/// launch command. Only the working directory is inherited.
 /// Resolve the launch settings + optional local spawn plan for a sibling
 /// window. When `request.profile` names a profile, its effective settings and
 /// spawn plan are resolved through the profile catalog (one bounded local read,
@@ -580,6 +561,24 @@ fn resolve_sibling_launch(
     (effective.settings, Some(plan))
 }
 
+/// Build a same-process sibling window's [`App`] for a New Window request
+/// (v0.15.0 D), mirroring `run_native`'s primary launch: spawn a default shell
+/// in the inherited working directory, wire the PTY pump to the shared event
+/// loop, and construct the window's `WorkspaceSet` and `App`. Returns `None` on
+/// any spawn/pump failure so the owner drops the request rather than crashing
+/// the requesting window (the pre-v0.15.0 log-and-drop New Window policy).
+///
+/// The sibling's launch session is seeded at `base_token`, a disjoint token
+/// range base from `window_owner::next_window_token_base`, so its tokens never
+/// collide with another window's and the keyboard merge can move whole
+/// workspaces between windows without re-keying a live pump. The surface itself
+/// is created later by the owner (`App::on_resumed`) when the event loop is in
+/// scope; this builds only the model/session/pump.
+///
+/// A New Window is a fresh settings-derived default window (matching the
+/// historical re-exec New Window behavior), not a clone of the primary's CLI
+/// options: it never restores workspaces, attaches a session, or re-runs a
+/// launch command. Only the working directory is inherited.
 fn build_sibling_app(
     request: app::NewWindowRequest,
     settings: &Settings,
@@ -705,7 +704,7 @@ fn rgb(color: (u8, u8, u8)) -> RgbColor {
 /// panes, and attaches receive the same defaults through
 /// `initialize_session_with`; the launch session is built ahead of that path,
 /// and the headless test harness (`test_support::headless_app_with_writer`)
-/// builds its terminal through this same function — so a per-session default
+/// builds its terminal through this same function - so a per-session default
 /// added to the launch path is automatically exercised by every headless test,
 /// and the two construction paths cannot drift. The button gate previously
 /// bypassed this coupling and shipped a launch-pane-only regression; keep any
@@ -726,7 +725,7 @@ pub(in crate::native) fn seed_launch_session_model(model: &mut Terminal, setting
             theme.foreground
         }),
     );
-    // C29: seed the base 16 ANSI palette so OSC 4 queries report the theme's
+    // Seed the base 16 ANSI palette so OSC 4 queries report the theme's
     // colors rather than the hardcoded xterm table.
     model.set_base_palette(theme.palette.map(rgb));
     model.set_osc52_read_enabled(settings.osc52_read);
@@ -736,7 +735,7 @@ pub(in crate::native) fn seed_launch_session_model(model: &mut Terminal, setting
     model.set_scrollback_limit(settings.scrollback_limit());
     // Apply the host default cursor shape/blink policy from settings before any
     // output. An application's DECSCUSR can still override this at runtime; RIS/
-    // DECSTR return to it. Presentation policy only — the grid contents are
+    // DECSTR return to it. Presentation policy only - the grid contents are
     // unaffected.
     model.set_cursor_defaults(settings.cursor_style, settings.cursor_blink.enabled());
     // Button protocol gates (docs/buttons.md). Turning the default-on master

@@ -40,7 +40,7 @@ impl ContextMenuUi {
         match self.surface {
             ContextMenuSurface::TabSlot(_) => {
                 let mut items = vec![ContextMenuItem::NewTab, ContextMenuItem::NewTabWithProfile];
-                // F6-W5: when the workspace is bound to a host, New Tab opens a
+                // When the workspace is bound to a host, New Tab opens a
                 // remote tab, so offer a local-shell escape right beside it.
                 if self.bound_workspace {
                     items.push(ContextMenuItem::NewLocalTab);
@@ -53,12 +53,12 @@ impl ContextMenuUi {
                     ContextMenuItem::CloseTab,
                     ContextMenuItem::CloseOtherTabs,
                 ]);
-                // ODP-5D: a host is reachable straight from the tab strip. The
+                // A host is reachable straight from the tab strip. The
                 // default opens a remote tab adjacent to the clicked one; the
                 // consent-gated replace sits right under it.
                 items.push(ContextMenuItem::ConnectToHost);
                 items.push(ContextMenuItem::ReplaceTabWithHost);
-                // ODP-7: the move item only appears when there is a destination
+                // The move item only appears when there is a destination
                 // workspace. Single-workspace tab menus are unchanged.
                 if self.multi_workspace {
                     items.push(ContextMenuItem::MoveToWorkspace);
@@ -81,7 +81,7 @@ impl ContextMenuUi {
                     ContextMenuItem::NewTabWithProfile,
                     ContextMenuItem::NewWorkspace,
                     ContextMenuItem::NewWorkspaceWithProfile,
-                    // LAYOUT-SURFACE: Open Layout is reachable from the empty strip.
+                    // Open Layout is reachable from the empty strip.
                     ContextMenuItem::OpenLayout,
                 ];
                 // v0.16: merge this window into another, or pull another into
@@ -106,7 +106,7 @@ impl ContextMenuUi {
                     ContextMenuItem::DuplicateWorkspace,
                     ContextMenuItem::RenameWorkspace,
                 ];
-                // RAIL-REORDER: the move rows gate on the clicked slot's
+                // The move rows gate on the clicked slot's
                 // position -- Move Up hides on the first slot, Move Down on the
                 // last (workspace_count is snapshotted at open by the App). With
                 // a single workspace neither appears.
@@ -117,7 +117,7 @@ impl ContextMenuUi {
                     items.push(ContextMenuItem::MoveWorkspaceDown);
                 }
                 items.push(ContextMenuItem::CloseWorkspace);
-                // RAIL-BIND: exactly one of the host bind/unbind pair, keyed to
+                // Exactly one of the host bind/unbind pair, keyed to
                 // whether the CLICKED workspace is bound (`bound_workspace` is set
                 // to the clicked slot's state for this surface). Bind opens the
                 // shared host picker targeting the slot; Unbind clears it.
@@ -126,16 +126,16 @@ impl ContextMenuUi {
                 } else {
                     items.push(ContextMenuItem::BindWorkspaceToHost);
                 }
-                // LAYOUT-SURFACE + RAIL-SAVE-ALL: the whole-app save leads (a
+                // The whole-app save leads (a
                 // layout means the whole session), then the single-workspace
-                // save of the CLICKED slot — same order as the content menu.
+                // save of the CLICKED slot - same order as the content menu.
                 items.push(ContextMenuItem::SaveAllLayout);
                 items.push(ContextMenuItem::SaveAsLayout);
                 items.push(ContextMenuItem::Settings);
                 return items;
             }
             ContextMenuSurface::WorkspaceRailEmpty => {
-                // LAYOUT-SURFACE + SAVE-ALL-LAYOUT: the empty rail offers the
+                // The empty rail offers the
                 // whole-app Save as Layout and Open Layout so saving/restoring a
                 // full session is reachable from a bare rail.
                 return vec![
@@ -146,10 +146,10 @@ impl ContextMenuUi {
                     ContextMenuItem::Settings,
                 ];
             }
-            // ODP-2C: a connection-manager row offers Open in New Tab / Open in
+            // A connection-manager row offers Open in New Tab / Open in
             // New Workspace / Bind Current Workspace always; Edit + Remove only
             // for OdyTTY-owned rows (an ssh-config-imported row is read-only, so
-            // those two mutating items are hidden — never write ~/.ssh/config).
+            // those two mutating items are hidden - never write ~/.ssh/config).
             ContextMenuSurface::ConnectionRow(_) => {
                 let mut items = vec![
                     ContextMenuItem::ConnRowOpenInTab,
@@ -162,7 +162,7 @@ impl ContextMenuUi {
                 }
                 return items;
             }
-            // NAVIGATOR-ROW: the applicable action set depends on the
+            // The applicable action set depends on the
             // right-clicked row's target class. A live target (workspace / tab /
             // pane) offers Focus plus the shared Rename / Duplicate / Move edits
             // and Close; a detached registry row offers only Attach and Close
@@ -215,9 +215,9 @@ impl ContextMenuUi {
             return items;
         }
         // Content surface. `Copy` is hoisted to the very top when a selection
-        // exists (ODP-8); `ContextMenuItem::ALL` keeps `Copy` in its historical
-        // first slot, so the hoist is a no-op on ordering — the list already
-        // leads with Copy — and this branch only needs to DROP the editing rows
+        // exists; `ContextMenuItem::ALL` keeps `Copy` in its historical
+        // first slot, so the hoist is a no-op on ordering - the list already
+        // leads with Copy - and this branch only needs to DROP the editing rows
         // that no longer apply.
         let has_selection = self.copy_enabled;
         ContextMenuItem::ALL
@@ -245,24 +245,24 @@ impl ContextMenuUi {
                     item,
                     ContextMenuItem::CloseOtherTabs
                         | ContextMenuItem::MoveToWorkspace
-                        // RAIL-REORDER: the workspace move rows are
+                        // The workspace move rows are
                         // WorkspaceSlot-only (they need a clicked slot); the
                         // content-grid workspace section acts on the active one.
                         | ContextMenuItem::MoveWorkspaceUp
                         | ContextMenuItem::MoveWorkspaceDown
-                        // F6-W5: the New Local Tab escape is a bound-workspace
+                        // The New Local Tab escape is a bound-workspace
                         // tab-menu row only; never on the content surface.
                         | ContextMenuItem::NewLocalTab
-                        // DUPLICATE-TAB: a tab-menu row only; never on content.
+                        // A tab-menu row only; never on content.
                         | ContextMenuItem::DuplicateTab
-                        // DUPLICATE-WORKSPACE: a WorkspaceSlot-only row; never on
+                        // A WorkspaceSlot-only row; never on
                         // content (the content workspace section acts on the
                         // active workspace, and New Workspace already covers it).
                         | ContextMenuItem::DuplicateWorkspace
-                        // ODP-5D: the tab host actions are TabSlot-only.
+                        // The tab host actions are TabSlot-only.
                         | ContextMenuItem::ConnectToHost
                         | ContextMenuItem::ReplaceTabWithHost
-                        // ODP-2C: the connection-row actions are ConnectionRow-only.
+                        // The connection-row actions are ConnectionRow-only.
                         | ContextMenuItem::ConnRowOpenInTab
                         | ContextMenuItem::ConnRowOpenInWorkspace
                         | ContextMenuItem::ConnRowBindWorkspace
@@ -277,10 +277,10 @@ impl ContextMenuUi {
                         | ContextMenuItem::NavClose
                 )
             })
-            // Drop the always-disabled `Rename Tab` row on the content surface —
+            // Drop the always-disabled `Rename Tab` row on the content surface -
             // it only has a target on a tab right-click (kept on `TabSlot`).
             .filter(|item| !matches!(item, ContextMenuItem::RenameTab))
-            // ODP-6B: exactly one of the workspace host bind/unbind pair shows,
+            // Exactly one of the workspace host bind/unbind pair shows,
             // keyed to whether the active workspace is bound. Bind opens the
             // shared host picker; Unbind clears the binding.
             .filter(|item| {
@@ -316,7 +316,7 @@ impl ContextMenuUi {
             // rows hide the arrangement already in force, and Stack / Float need
             // two or more panes.
             .filter(|item| self.window_row_visible(*item))
-            // ODP-5: hide Copy/Cut/Delete entirely with no selection (cleaner
+            // Hide Copy/Cut/Delete entirely with no selection (cleaner
             // than rendering them dim); Paste/Select All stay the always-present
             // editing anchors.
             .filter(|item| {
@@ -334,10 +334,10 @@ impl ContextMenuUi {
                         | ContextMenuItem::RevealPath
                 ) || has_path
             })
-            // "Open in OdyTTY" (C4) appears only on a resolved IMAGE span, so a
+            // "Open in OdyTTY" appears only on a resolved IMAGE span, so a
             // non-image path (or no path) keeps the menu byte-identical to C3.
             .filter(|item| !matches!(item, ContextMenuItem::OpenInOdytty) || is_image)
-            // "Open With…" (C3b) appears only on a resolved regular FILE span, so
+            // "Open With…" appears only on a resolved regular FILE span, so
             // a directory (or no path) does not show it.
             .filter(|item| !matches!(item, ContextMenuItem::OpenWith) || is_file)
             .collect()
@@ -427,12 +427,12 @@ impl ContextMenuUi {
 
     /// The menu's cell geometry for a `columns`×`rows` grid: a fixed-size box
     /// whose top-left tracks the (clamped) spawn cell so it always fits on
-    /// screen. No title row (D-IN2-10): the body starts one row below the top
+    /// screen. No title row: the body starts one row below the top
     /// border. Shares [`OverlayRect`] with the centered overlays so the App's
     /// pointer routing and click-outside dismissal work unchanged.
     pub(in crate::native) fn rect(&self, columns: usize, rows: usize) -> OverlayRect {
         let body_rows = self.body_row_count();
-        // MENU-Z-ORDER: constrain the box to the column span between the
+        // Constrain the box to the column span between the
         // reserved rail band(s). `avail_left`..`avail_right` is the full grid
         // when both reserves are 0 (every non-rail open). When the reserves
         // leave too few columns for a bordered body, the clearance is dropped
@@ -491,7 +491,7 @@ impl ContextMenuUi {
     }
 
     /// The first body row to render, given the box-clamped `body_height`. When
-    /// every row fits (`body_height >= body_row_count`) this is always `0` — the
+    /// every row fits (`body_height >= body_row_count`) this is always `0` - the
     /// normal case, byte-identical to the pre-scroll layout. Otherwise the
     /// window is sticky: it stays at the committed scroll anchor and moves only
     /// as far as needed to keep the focused item inside the

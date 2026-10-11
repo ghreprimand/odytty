@@ -33,7 +33,7 @@ fn overlay_open_press_is_captured_and_neither_selects_nor_reports() {
     );
     let rect = app.overlay_rect_for_test().expect("overlay rect");
     // At Level 2 Themes: body row 0 is the "Theme" group header; row 1 is the
-    // theme value line. SETTINGS-CLICKZONES: click the action VALUE zone (the
+    // theme value line. click the action VALUE zone (the
     // "Theme" name is 5 columns, so the value zone starts at body column 9).
     app.set_pointer_cell_for_test(rect.body_top + 1, rect.body_left + 12);
 
@@ -84,12 +84,12 @@ fn overlay_press_does_not_leak_to_pty_even_with_mouse_reporting_enabled() {
     );
     let rect = app.overlay_rect_for_test().expect("overlay rect");
     // body_top + 1 = theme value row (after "Theme" group header at row 0).
-    // SETTINGS-CLICKZONES: click the action VALUE zone (starts at body col 9).
+    // Click the action VALUE zone (starts at body col 9).
     app.set_pointer_cell_for_test(rect.body_top + 1, rect.body_left + 12);
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
 
     // Reporting was armed, yet the overlay captured the press: no report button
-    // was held and no selection began — the click never reached the PTY path.
+    // was held and no selection began - the click never reached the PTY path.
     assert_eq!(
         app.overlay_signature_for_test().mode,
         OverlayMode::ThemePicker,
@@ -352,7 +352,7 @@ fn focus_loss_after_settings_stepper_click_leaves_moves_inert() {
     assert!(!app.overlay_is_dragging_for_test());
 
     // Snapshot the full overlay signature, then on focus regain drive a bare
-    // CursorMoved to the down button: it must be inert — no phantom
+    // CursorMoved to the down button: it must be inert - no phantom
     // value commit (signature unchanged), no re-armed drag/selection.
     let before = app.overlay_signature_for_test();
     app.set_pointer_cell_for_test(down_button.row, down_button.column);
@@ -419,7 +419,7 @@ fn opening_overlay_clears_a_held_tui_report_button() {
     );
 }
 
-/// D-SLIDER-GUARD: settings steppers are click-only, so cursor movements must
+/// Settings steppers are click-only, so cursor movements must
 /// not advance a value before or after release.
 #[test]
 fn move_is_inert_after_settings_stepper_click_and_release() {

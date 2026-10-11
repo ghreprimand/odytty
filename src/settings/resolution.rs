@@ -42,7 +42,7 @@ impl Settings {
         }
     }
 
-    /// The active background treatment (ID3/U5), forced `Off` on the plain
+    /// The active background treatment, forced `Off` on the plain
     /// renderer profile so the fast path stays pixel-identical even when the
     /// knob is set.
     pub fn effective_background_treatment(&self) -> BackgroundTreatment {
@@ -113,7 +113,7 @@ impl Settings {
         }
     }
 
-    /// Rows advanced per mouse-wheel notch (MOUSE-WHEEL-SPEED), as a `usize >= 1`.
+    /// Rows advanced per mouse-wheel notch, as a `usize >= 1`.
     /// Rounds the stored `f32` (kept in the shared numeric-setting model) and
     /// floors at 1 so a wheel notch always moves at least one row. The default
     /// `3.0` returns `3`, byte-identical to the historical fixed step.
@@ -121,9 +121,9 @@ impl Settings {
         (self.scroll_wheel_lines.round() as i64).max(1) as usize
     }
 
-    /// Resolve the vertical rail band width in cells (F4-P4).
+    /// Resolve the vertical rail band width in cells.
     ///
-    /// `auto_want_cols` is the width the `Auto` mode wants — the longest tab
+    /// `auto_want_cols` is the width the `Auto` mode wants - the longest tab
     /// title plus the widget's label chrome, measured by the integration layer
     /// (which owns the widget geometry). In `Auto` mode the result is that value
     /// clamped to `[MIN_TAB_RAIL_WIDTH, tab_rail_max_width]`; in `Manual` mode
@@ -139,7 +139,7 @@ impl Settings {
         }
     }
 
-    /// The `auto`-mode upper clamp in cells (F4-P4), rounded from the stored
+    /// The `auto`-mode upper clamp in cells, rounded from the stored
     /// `f32` and clamped to `[MIN_TAB_RAIL_MAX_WIDTH, MAX_TAB_RAIL_MAX_WIDTH]`.
     pub fn rail_max_width_cols(&self) -> usize {
         self.tab_rail_max_width
@@ -147,7 +147,7 @@ impl Settings {
             .clamp(MIN_TAB_RAIL_MAX_WIDTH, MAX_TAB_RAIL_MAX_WIDTH) as usize
     }
 
-    /// Inter-slot gap in rows for the vertical rail (F4-P1), rounded and clamped
+    /// Inter-slot gap in rows for the vertical rail, rounded and clamped
     /// to `[MIN_TAB_RAIL_GAP, MAX_TAB_RAIL_GAP]`.
     pub fn rail_slot_gap_rows(&self) -> usize {
         self.tab_rail_gap
@@ -155,7 +155,7 @@ impl Settings {
             .clamp(MIN_TAB_RAIL_GAP, MAX_TAB_RAIL_GAP) as usize
     }
 
-    /// Rail slot height in rows (F4-P1), rounded and clamped to `{1, 2}`.
+    /// Rail slot height in rows, rounded and clamped to `{1, 2}`.
     pub fn rail_slot_rows(&self) -> usize {
         self.tab_rail_slot_rows
             .round()
@@ -174,10 +174,10 @@ impl Settings {
         }
     }
 
-    /// Upper bound on rows advanced per drag-edge autoscroll tick
-    /// (MOUSE-AUTOSCROLL-VEL). `Ramp` allows up to [`MAX_AUTOSCROLL_ROWS`] so the
+    /// Upper bound on rows advanced per drag-edge autoscroll tick.
+    /// `Ramp` allows up to [`MAX_AUTOSCROLL_ROWS`] so the
     /// step accelerates with overshoot past the band; `Legacy` returns `1`, which
-    /// pins the delta helper to exactly ±1/0 — byte-identical to the pre-feature
+    /// pins the delta helper to exactly ±1/0 - byte-identical to the pre-feature
     /// fixed one-row-per-tick autoscroll.
     pub fn autoscroll_max_rows(&self) -> usize {
         match self.scroll_drag_speed {
@@ -224,13 +224,13 @@ impl Settings {
         if let Some(error) = font_family_error {
             return Err(error);
         }
-        // C4: THEME resolution/parse warnings must not block the edit. A theme
+        // THEME resolution/parse warnings must not block the edit. A theme
         // loaded from a file (or one that resolves with a tolerable warning like
         // an unknown key) would otherwise make every OTHER key read-only, since
         // each edit re-parses the whole value map including the theme. These are
         // treated as tolerant here, matching startup/reload semantics (which
-        // only print them). All other warnings — an invalid numeric value, an
-        // out-of-range knob — stay hard edit errors so the panel still rejects
+        // only print them). All other warnings - an invalid numeric value, an
+        // out-of-range knob - stay hard edit errors so the panel still rejects
         // bad input with a precise message. Theme warnings are identified by the
         // `theme <name>: ...` per-file prefix or the THEME_ENV token in the
         // fallback message.
@@ -313,7 +313,7 @@ impl Settings {
         // other value is treated as a user theme (a path, or a name found in
         // the user theme dir) loaded via `read_theme` and parsed through the
         // shared `ThemeSpec` path. A missing/garbage value falls back to the
-        // configured default with a warning — startup never fails from a bad
+        // configured default with a warning - startup never fails from a bad
         // theme setting.
         // `ODYTTY_THEME=system` is a single-key alias (OS-THEME alias) that
         // enables OS dark/light following with default mappings. It is NOT a
@@ -387,7 +387,7 @@ impl Settings {
         let direct_path = get(FONT_ENV).map(PathBuf::from);
         // The raw explicit `font` key, kept verbatim for display/writeback. This
         // is distinct from the effective `font_path` below, which may instead be
-        // the regular face resolved from `font_family` (RC4): the advanced `font`
+        // the regular face resolved from `font_family`: the advanced `font`
         // row must reflect only what the user explicitly set.
         let explicit_font_path = direct_path.clone();
         let font_family = get(FONT_FAMILY_ENV)
@@ -1015,7 +1015,7 @@ impl Settings {
             &mut warn,
         );
         // Trim surrounding whitespace; empty (the default) means "use $EDITOR".
-        // No validation here — the editor spec is tokenized + matched at open
+        // No validation here - the editor spec is tokenized + matched at open
         // time (a path/template with internal spaces is preserved as written).
         let interactive_paths_editor = get(INTERACTIVE_PATHS_EDITOR_ENV)
             .and_then(|value| value.into_string().ok())

@@ -1,24 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Primary-instance file lock (WP2 sub-ODP 8d).
+//! Primary-instance file lock.
 //!
-//! A single advisory lock on a state-dir file elects ONE "primary" odytty
-//! process per machine-user. Only the primary autosaves the workspace shape and
-//! restores it at launch; a second concurrent instance takes the lock's
-//! would-block, marks itself secondary, and neither saves nor restores — so two
-//! windows never race on `workspaces.json` and a second window never clobbers
-//! the first window's saved layout.
+//! An advisory lock on a state-directory file elects one primary odytty process
+//! per user. Only the primary autosaves and restores the workspace shape; a
+//! second concurrent instance marks itself secondary and does neither, so two
+//! windows never race on `workspaces.json`.
 //!
-//! Mechanism: [`std::fs::File::try_lock`] — a kernel advisory lock (`flock` on
-//! Unix, `LockFileEx` on Windows, via one std API). Chosen over a PID file
-//! because the kernel RELEASES the lock automatically when the owning process
-//! exits OR crashes: there is no stale-lock class to clean up, no PID-liveness
-//! probe to get right per platform, and no PID-reuse false positive. The lock is
-//! held for the whole process lifetime by keeping the `File` alive inside
-//! [`PrimaryInstanceLock`]; dropping it (normal exit) or the process dying
-//! (crash) frees the lock for the next launch. The lock file itself is left in
-//! place between runs — never unlinked — so there is no unlink/relock race; the
-//! next launch simply re-locks the same file. Behavior is identical on Windows
-//! through the same std API.
+//! The lock is [`std::fs::File::try_lock`] (`flock` on Unix, `LockFileEx` on
+//! Windows). The kernel releases it when the process exits or crashes, so there
+//! is no stale-lock cleanup. The lock file is never unlinked. The descriptor is
+//! opened close-on-exec so spawned shells do not inherit it; that is
+//! load-bearing on Unix, where an inherited descriptor would keep the lock held.
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -100,7 +92,7 @@ mod tests {
         assert!(first.is_some(), "the first acquirer must become primary");
 
         // A second acquirer of the SAME file (a stand-in for a concurrent
-        // process) is rejected — the advisory lock conflicts across open file
+        // process) is rejected - the advisory lock conflicts across open file
         // descriptions even within one process.
         let second = PrimaryInstanceLock::acquire_at(&path);
         assert!(

@@ -35,7 +35,7 @@ fn cell_bg_luminance(frame: &Frame, col: usize, row: usize) -> f32 {
 }
 
 /// KILL-SHOT (trap 1): the default (inactive) treatment composites a frame that
-/// is byte-identical to the plain render — the off-path is pixel-identical.
+/// is byte-identical to the plain render - the off-path is pixel-identical.
 #[test]
 fn off_path_is_pixel_identical() {
     let (_font, atlas) = setup();
@@ -125,7 +125,7 @@ fn vignette_darkens_toward_corners() {
 
 /// KILL-SHOT (T2 / off-path identity): with `cell_bg_opacity = 1.0` the cells
 /// are fully opaque, so even with a background image present behind them the
-/// composited cell backgrounds are byte-identical to the plain render — the
+/// composited cell backgrounds are byte-identical to the plain render - the
 /// image is fully hidden behind opaque cells. This is the `bg[3] * 1.0 == bg[3]`
 /// guarantee at the pixel level.
 #[test]
@@ -138,7 +138,7 @@ fn image_opaque_cells_hide_image_pixel_identical() {
         composite_background_image(&snapshot, &atlas, CursorStyle::Block, 1.0, [1.0, 0.0, 0.0]);
     assert!(
         frames_match(&plain, &imaged),
-        "opaque cells (opacity 1.0) must hide the image — pixel-identical to plain"
+        "opaque cells (opacity 1.0) must hide the image: pixel-identical to plain"
     );
 }
 

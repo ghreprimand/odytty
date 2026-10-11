@@ -68,7 +68,7 @@ fn pending_surface_reconfigure_is_consumed_once() {
 /// TRANSPARENCY: the pure window-background-alpha decision. Opaque (`1.0`)
 /// whenever the setting is off or the compositor can't composite alpha;
 /// otherwise the configured percent as a fraction. An open overlay panel no
-/// longer forces opacity (MENU-OPACITY) — the window stays translucent and
+/// longer forces opacity - the window stays translucent and
 /// the panel is held opaque per-surface elsewhere.
 #[test]
 fn window_bg_alpha_gates_on_setting_and_capability() {
@@ -91,7 +91,7 @@ fn window_bg_alpha_gates_on_setting_and_capability() {
 ///   recovered surface stays black under `ControlFlow::Wait`).
 /// - `Skipped` ⇒ a BOUNDED retry (a surface that came back Timeout/Occluded
 ///   on restore; the OLD policy did nothing here, so it stayed black until
-///   an unrelated event — this is the residual fixed here).
+///   an unrelated event - this is the residual fixed here).
 ///
 /// `Presented` settles. The GPU triggers themselves are on-device-only;
 /// this pins the decision deterministically.
@@ -119,7 +119,7 @@ fn after_frame_maps_outcomes_to_recovery_actions() {
     );
     // The load-bearing assertion here: a skipped frame must
     // schedule a bounded retry, not dead-end (the black-screen residual).
-    // Both skip kinds map to the same bounded retry — escalation is a
+    // Both skip kinds map to the same bounded retry - escalation is a
     // separate, stateful decision layered on top at the call site.
     for occluded in [false, true] {
         match after_frame(FrameOutcome::Skipped { occluded }) {
@@ -135,7 +135,7 @@ fn after_frame_maps_outcomes_to_recovery_actions() {
 }
 
 /// ANTI-FREEZE ESCALATION: a chronic acquire timeout reaching the
-/// consecutive-skip threshold escalates to a surface recreate — the episode
+/// consecutive-skip threshold escalates to a surface recreate - the episode
 /// that previously retried forever (an explicit-sync fence that never
 /// signals left a live window frozen for minutes with the watchdog logging
 /// the stall) now routes into the existing recreate machinery.
@@ -248,7 +248,7 @@ fn recreate_attempt_always_leaves_a_wake() {
 /// Repeated recreate FAILURES respect the per-episode escalation budget:
 /// the attempt is spent when escalation fires (before the recreate runs),
 /// so a failing recreate never refunds itself. After the budget, chronic
-/// skips fall back to the keep-alive — with a wake scheduled at every step
+/// skips fall back to the keep-alive - with a wake scheduled at every step
 /// of the sequence, so the loop can never strand.
 #[test]
 fn repeated_recreate_failures_spend_the_budget_then_keep_alive() {
@@ -280,7 +280,7 @@ fn repeated_recreate_failures_spend_the_budget_then_keep_alive() {
 }
 
 /// The escalation record is state-only: counters and flags, no terminal
-/// content — same privacy discipline as the stall and episode records.
+/// content - same privacy discipline as the stall and episode records.
 #[test]
 fn skip_escalation_record_is_state_only() {
     let record = format_skip_escalation_record(2, 33, true);
@@ -304,7 +304,7 @@ fn skipped_retry_is_guarded_against_spin() {
     // Minimized: never retry regardless of budget.
     assert!(
         !should_schedule_skipped_retry(true, 0),
-        "a minimized (0x0) window must not retry — nothing to paint"
+        "a minimized (0x0) window must not retry: nothing to paint"
     );
     // Budget exhausted: stop retrying (fall back to Wait).
     assert!(
@@ -318,7 +318,7 @@ fn skipped_retry_is_guarded_against_spin() {
 }
 
 /// ANTI-FREEZE regression lock: once the fast-retry budget is spent, a
-/// visible surface must STILL schedule a retry — a slow keep-alive, not
+/// visible surface must STILL schedule a retry - a slow keep-alive, not
 /// `None`. The previous policy dead-ended here, which under
 /// `ControlFlow::Wait` left a long-lived, non-interacted background window
 /// permanently unpainted (and apparently input-dead) until an external
@@ -351,7 +351,7 @@ fn skipped_retry_falls_back_to_slow_keepalive_never_silent() {
         "the last skip within budget still retries fast"
     );
 
-    // Visible, budget spent: slow keep-alive — the load-bearing invariant.
+    // Visible, budget spent: slow keep-alive - the load-bearing invariant.
     // It must be a real scheduled retry (never `None`), and slower than the
     // fast cadence so it is not a busy-spin.
     for spent in [MAX_SKIPPED_RETRIES, MAX_SKIPPED_RETRIES + 1, 10_000] {
@@ -880,8 +880,8 @@ fn config_reload_wake_is_suppressed_while_unfocused() {
 /// then times out with no follow-up key must not busy-spin the event loop.
 ///
 /// `pending_deadline()` is a `next_wake_deadline` source, so a prefix left
-/// pending past its timeout kept the loop scheduling `WaitUntil(<past>)` — a
-/// 0-timeout poll that returns immediately every iteration and pins a core —
+/// pending past its timeout kept the loop scheduling `WaitUntil(<past>)` - a
+/// 0-timeout poll that returns immediately every iteration and pins a core -
 /// until the next key or focus loss cleared it. The about-to-wait maintenance
 /// pass now expires the stale prefix on the timer, so the recomputed wait
 /// deadline is never a past instant. Drives the real deadline arithmetic
@@ -923,7 +923,7 @@ fn timed_out_prefix_does_not_spin_the_event_loop() {
 
     // The loop wakes at/after the boundary and runs its maintenance pass.
     // That pass MUST forget the timed-out prefix; otherwise the recomputed
-    // deadline is `deadline` again — now in the past — and the loop spins.
+    // deadline is `deadline` again - now in the past - and the loop spins.
     let woken = deadline + Duration::from_millis(1);
     app.run_about_to_wait_maintenance_for_test(woken);
     assert!(
@@ -941,7 +941,7 @@ fn timed_out_prefix_does_not_spin_the_event_loop() {
 }
 
 /// NF21-2 acceptance (ii): a single-pane terminal with nothing animating
-/// schedules NO animation wake — the restored `animation_deadline()`
+/// schedules NO animation wake - the restored `animation_deadline()`
 /// collector source contributes nothing at rest, so the strict zero-wake
 /// idle invariant is preserved.
 #[test]
@@ -958,12 +958,12 @@ fn idle_single_pane_schedules_no_animation_wake() {
     assert_eq!(
         app.next_wake_deadline_for_surface_for_test(true),
         None,
-        "idle single-pane parks at zero wake — the NF21-2 source adds nothing at rest"
+        "idle single-pane parks at zero wake: the cursor animation source adds nothing at rest"
     );
 }
 
 /// NF21-2 acceptance (i, bell contributor): a bell flash schedules a repaint
-/// wake and a due wake requests a rebuild — even while the window is
+/// wake and a due wake requests a rebuild - even while the window is
 /// unfocused and the cursor is not blinking. Fails before both halves of the
 /// fix (no wake scheduled; no rebuild on the due wake). Headless Apps have no
 /// native surface, so the presented-window wake partition is modeled with
@@ -1183,7 +1183,7 @@ fn synchronized_output_hold_suppresses_single_pane_follower_frame() {
 /// Reveal-zone regression (#1, padding-aware trigger): the trigger band is
 /// measured from the window edge inward by `pad + reveal_px`, so a pointer
 /// resting `reveal_px` into the *visible content* (just past the padding
-/// margin) reveals — it is not stranded behind the padding.
+/// margin) reveals - it is not stranded behind the padding.
 #[test]
 fn reveal_trigger_zone_is_padding_aware_interior_band() {
     let pad = 12.0;
@@ -1235,7 +1235,7 @@ fn reveal_trigger_zone_is_padding_aware_interior_band() {
 /// Reveal-zone regression (#2, keep-alive = union): the keep-alive region is
 /// the trigger zone UNIONED with the drawn band, so a pointer parked anywhere
 /// over the revealed band (or in the padding-aware trigger zone) holds the
-/// rail — hide grace begins only on leaving that union. This also pins the
+/// rail - hide grace begins only on leaving that union. This also pins the
 /// union so a future band narrower than the trigger cannot leave a gap.
 #[test]
 fn reveal_keep_alive_is_the_union_of_trigger_and_band() {
@@ -1268,7 +1268,7 @@ fn reveal_keep_alive_is_the_union_of_trigger_and_band() {
     ));
 
     // UNION guard: an artificially narrow band (seam at x=10, narrower than
-    // reach=20) still keeps alive across the whole trigger zone — the trigger
+    // reach=20) still keeps alive across the whole trigger zone - the trigger
     // fills the gap the thin band would otherwise leave.
     let thin_seam = 10.0;
     assert!(
@@ -1305,13 +1305,13 @@ fn reveal_keep_alive_is_the_union_of_trigger_and_band() {
 /// Reveal-zone regression (motion-aware trigger, from the live pointer
 /// trace): a fast approach delivers samples 30–200 px apart that jump clean
 /// over the static point zone, so the arm must test the whole *segment*
-/// between consecutive samples — not just the current point.
+/// between consecutive samples - not just the current point.
 #[test]
 fn reveal_edge_segment_crosses_a_fast_sweep_over_the_point_zone() {
     let reach = 29.0; // ≈ the reference trace's reach
     let surface_w = 1000.0;
 
-    // LEFT: the trace's dominant case — a move from x=60 to x=−5 has NEITHER
+    // LEFT: the trace's dominant case - a move from x=60 to x=−5 has NEITHER
     // endpoint that a bounded [0, reach] point test would accept, yet the
     // path sweeps through the trigger band → the motion-aware test arms it.
     assert!(reveal_edge_segment_crosses(
@@ -1322,7 +1322,7 @@ fn reveal_edge_segment_crosses_a_fast_sweep_over_the_point_zone() {
         surface_w
     ));
     // A move that stops short of the band (60 → 40, both past the reach)
-    // does NOT cross — the pointer never reached the edge.
+    // does NOT cross - the pointer never reached the edge.
     assert!(!reveal_edge_segment_crosses(
         RailSide::Left,
         60.0,
@@ -1340,7 +1340,7 @@ fn reveal_edge_segment_crosses_a_fast_sweep_over_the_point_zone() {
         surface_w
     ));
 
-    // RIGHT: symmetric — a fast sweep toward the right edge that overshoots
+    // RIGHT: symmetric - a fast sweep toward the right edge that overshoots
     // past surface_w crosses the right band [surface_w − reach, surface_w].
     assert!(reveal_edge_segment_crosses(
         RailSide::Right,
@@ -1695,7 +1695,7 @@ fn reduced_motion_keeps_activity_blink_edges_hard() {
 
 // ---- Shell-integration "applies to new shells" notice ----
 
-/// The gating decision is pure so EVERY combination is pinned here —
+/// The gating decision is pure so EVERY combination is pinned here -
 /// including the no-live-session case, which `build_idle_app` cannot
 /// construct (`App::new` always seeds one session, and there is no public
 /// close to drain it).
@@ -1725,7 +1725,7 @@ fn new_shells_notice_fires_only_on_off_to_on_with_session() {
 }
 
 /// Driving the real settings-reload seam OFF->ON while a live session
-/// exists must surface the transient notice — the wiring added here.
+/// exists must surface the transient notice - the wiring added here.
 #[test]
 fn off_to_on_reload_raises_new_shells_notice() {
     // The reload seam republishes process-global render state (default

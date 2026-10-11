@@ -913,13 +913,13 @@ fn valid_values_resolve_to_typed_settings() {
     assert!(warnings.is_empty());
 }
 
-// UX5 — legacy `visual=ambient` is folded into the unified CRT post-process.
+// Legacy `visual=ambient` is folded into the unified CRT post-process.
 // These guard the alias precedence + the plain-gate bypass so the retired
 // scanline look survives a back-compat config and never double-applies.
 
 #[test]
 fn ux5_ambient_visual_aliases_to_crt_when_unset() {
-    // TRAP 1 BACK-COMPAT: `visual=ambient` with no explicit CRT setting routes
+    // TRAP 1 `visual=ambient` with no explicit CRT setting routes
     // the scanline look through CRT (crt=on). `scanlines` is an ambient alias.
     let (settings, _) = settings_from([(VISUAL_ENV, "ambient")]);
     assert_eq!(settings.visual, VisualEffect::Ambient);
@@ -937,7 +937,7 @@ fn ux5_ambient_visual_aliases_to_crt_when_unset() {
 
 #[test]
 fn ux5_explicit_crt_always_wins_over_ambient_alias() {
-    // TRAP 4 NO-DOUBLE-APPLY: an explicit `crt=` always overrides the alias, in
+    // TRAP 4 an explicit `crt=` always overrides the alias, in
     // BOTH precedence directions, so a config can never stack two scanline
     // passes (the alias only fills the unset case).
     let (settings, _) = settings_from([(VISUAL_ENV, "ambient"), (CRT_ENV, "off")]);
@@ -1884,8 +1884,8 @@ fn cursor_defaults_without_env() {
 
 #[test]
 fn cursor_blink_auto_resolves_to_the_conventional_blinking_default() {
-    // HELP1: `Auto` is honest about Linux exposing no OS caret-blink preference
-    // — it resolves to the conventional blinking default (the historical VT
+    // HELP1: `Auto` is honest about Linux exposing no OS caret-blink preference -
+    // it resolves to the conventional blinking default (the historical VT
     // power-on state), the same concrete blink flag `On` produces, while `Off`
     // is the explicit steady override. No phantom "OS preference" is consulted.
     assert!(CursorBlink::Auto.enabled());
@@ -2242,7 +2242,7 @@ fn os_theme_round_trips_through_config_key_mapping() {
 
 #[test]
 fn confirm_close_round_trips_through_config_key_mapping() {
-    // CLOSE-CONFIRM: the toggle maps both ways and defaults ON.
+    // The toggle maps both ways and defaults ON.
     assert_eq!(config_key_to_env("confirm_close"), Some(CONFIRM_CLOSE_ENV));
     assert_eq!(config_key_to_env("closeconfirm"), Some(CONFIRM_CLOSE_ENV));
     assert_eq!(env_to_config_key(CONFIRM_CLOSE_ENV), Some("confirm_close"));
@@ -2351,7 +2351,7 @@ fn remote_reuse_round_trips_through_config_key_mapping() {
 
 #[test]
 fn remote_persist_round_trips_and_defaults_to_ten_minutes() {
-    // ODP-9 Tier 2: the config key resolves both directions.
+    // The config key resolves both directions.
     assert_eq!(
         config_key_to_env("remote_persist"),
         Some(REMOTE_PERSIST_ENV)

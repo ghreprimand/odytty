@@ -498,7 +498,7 @@ fn path_separators_and_traversal_in_a_profile_name_are_rejected() {
     assert!(ok.ends_with("dev.profile.json"));
 }
 
-// ---- v0.14 Phase A3: launch-surface parity, precedence, and fail-closed ----
+// ---- v0.14 Phase launch-surface parity, precedence, and fail-closed ----
 
 /// Build a fully populated named profile so parity/precedence assertions cover
 /// every EffectiveLaunch field, not just settings.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Pure pane-layout geometry — the headless core of the splits/panes feature.
+//! Pure pane-layout geometry - the headless core of the splits/panes feature.
 //!
 //! This module is **presentation-agnostic and GPU-free**. It owns the binary
 //! split-tree model ([`PaneNode`]) and the pure functions that turn a tree plus
@@ -58,7 +58,7 @@ pub(super) enum FocusDir {
     Down,
 }
 
-/// A pane's pixel rectangle in physical-pixel, origin-top-left space — the same
+/// A pane's pixel rectangle in physical-pixel, origin-top-left space - the same
 /// basis as `grid.rs` vertices and `WindowPadding`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct PaneRect {
@@ -437,7 +437,7 @@ const EDGE_EPS: f32 = 0.5;
 /// [`grid_dims_for_rect`] floors a pane to whole cells, leaving a sub-cell
 /// remainder (`rect.w - cols·cell_w`, `rect.h - rows·cell_h`). Drawn naïvely at
 /// `rect`'s top-left, that remainder strands as background **between the grid
-/// edge and the adjacent divider** — the visible inter-pane gap the operator
+/// edge and the adjacent divider** - the visible inter-pane gap the user
 /// reported (and, since cells are ~2:1 tall, a *row* split strands ~2× a
 /// *column* split's pixels, so gaps look non-uniform across axes).
 ///
@@ -445,7 +445,7 @@ const EDGE_EPS: f32 = 0.5;
 /// the grid edge that abuts a divider sits flush to it: the visible separation
 /// between any two adjacent panes is then exactly the 1px themed divider,
 /// uniform across both axes and stable as the divider drags smoothly (the
-/// divider position is unchanged — only the grid content shifts within the
+/// divider position is unchanged - only the grid content shifts within the
 /// pane). Leftover pixels pool at the window margin, where a sub-cell strip is
 /// invisible/acceptable.
 ///
@@ -492,19 +492,19 @@ pub(super) fn pane_grid_origin(
     [rect.x + off_x, rect.y + off_y]
 }
 
-/// PANE-PADDING: inset a pane's tiled `rect` by the configured window padding
+/// Inset a pane's tiled `rect` by the configured window padding
 /// `pad` on every **divider-facing** edge, returning the pane's drawable grid
 /// rect. An edge flush with the `content` boundary is an outer window-margin
-/// edge — its padding was already applied when `content` was inset from the
+/// edge - its padding was already applied when `content` was inset from the
 /// window, so it is left untouched. An edge that abuts a divider gets `pad`
 /// physical pixels of breathing room, so a pane's glyphs no longer sit flush
 /// against the divider after a split (the reported regression). Horizontal and
 /// nested splits are handled uniformly because the classification is purely
 /// geometric per edge.
 ///
-/// Every downstream per-pane geometry — grid cell dimensions
+/// Every downstream per-pane geometry - grid cell dimensions
 /// ([`grid_dims_for_rect`]), the drawn origin ([`pane_grid_origin`]), the image
-/// scissor ([`pane_image_scissor`]), and pointer→cell mapping — derives from
+/// scissor ([`pane_image_scissor`]), and pointer→cell mapping - derives from
 /// this inner rect, so the PTY size, the rendered grid, and hit-testing all stay
 /// consistent. The tiled `rect`, the divider positions, and the divider grab
 /// bands are unchanged (they keep using the full tiled rects), so divider drag
@@ -535,7 +535,7 @@ pub(super) fn pane_inner_rect(rect: PaneRect, content: PaneRect, pad: f32) -> Pa
     PaneRect::new(x, y, w, h)
 }
 
-/// PANE-SUBCELL-CLIP: resolve a gliding pane's RENDER origin and its vertical
+/// Resolve a gliding pane's RENDER origin and its vertical
 /// clip band from its at-rest `base_origin` (from [`pane_grid_origin`]) and the
 /// current sub-cell remainder `frac_px` (in `[0, cell_h)`, from the glide
 /// follower). A downward glide shifts the content origin down by `frac_px`
@@ -565,7 +565,7 @@ pub(super) fn pane_glide_origin_and_clip(
 }
 
 /// Cut 1 (inline graphics in splits): the scissor rect (physical px
-/// `[x, y, w, h]`) an inline image is clipped to inside a split pane — the
+/// `[x, y, w, h]`) an inline image is clipped to inside a split pane - the
 /// pane's at-rest grid rect (`base_origin` from [`pane_grid_origin`] plus the
 /// pane's grid extent), clamped to the pane rect and the surface. Bounds BOTH
 /// axes, so an image
@@ -766,7 +766,7 @@ fn drag_into(
 /// [`drag_divider_to`]) so its divider lands on a whole-cell boundary, returning
 /// the snapped ratio when the split exists. Called once on drag *release* so the
 /// outer window margins are identical at every rest position (the smooth
-/// per-pixel drag is untouched — only the release re-derives a snapped ratio).
+/// per-pixel drag is untouched - only the release re-derives a snapped ratio).
 ///
 /// Why this makes the outer margin constant: snapping the first child's actual
 /// padded inner extent to exactly `k·cell` pixels leaves it with zero remainder,
@@ -935,7 +935,7 @@ mod tests {
 
     #[test]
     fn pane_image_scissor_clamps_to_a_pane_smaller_than_its_grid() {
-        // C21: a grid extent (320x320) larger than the pane rect it belongs to
+        // A grid extent (320x320) larger than the pane rect it belongs to
         // (200x160) is cropped at the pane edge, well inside the surface, so an
         // over-large image cannot bleed past the pane boundary.
         let pane = PaneRect::new(100.0, 50.0, 200.0, 160.0);
@@ -1132,7 +1132,7 @@ mod tests {
     /// §8 pixel-smoke: the exact geometry contract `GpuState::update_from_panes`
     /// relies on for divider + multi-grid composition. For every split, the
     /// divider is a crisp 1px strip that exactly fills the gap between the two
-    /// child panes — `first.right == divider near edge`, `divider far edge ==
+    /// child panes - `first.right == divider near edge`, `divider far edge ==
     /// second near edge`, and `first + divider + second == parent` with no gap
     /// or overlap, on both axes and when nested. This is the headless analogue
     /// of the divider/multi-grid pixel render (the GPU draws these rects as
@@ -1226,7 +1226,7 @@ mod tests {
     // ----- pane_grid_origin: remainder absorption (uniform 1px gap) -----
 
     /// A single-pane tab (`rect == content`) must keep its top-left placement
-    /// exactly — the byte-identical path. Both edges are window margins, so no
+    /// exactly - the byte-identical path. Both edges are window margins, so no
     /// remainder is absorbed regardless of how the content fails to tile evenly.
     #[test]
     fn single_pane_grid_origin_is_byte_identical_top_left() {
@@ -1264,7 +1264,7 @@ mod tests {
         );
     }
 
-    /// Same regression guard on a ROW split (horizontal divider) — the axis that
+    /// Same regression guard on a ROW split (horizontal divider) - the axis that
     /// looked visibly worse because cells are ~2:1 tall.
     #[test]
     fn row_split_grid_gap_is_exactly_the_divider() {
@@ -1306,7 +1306,7 @@ mod tests {
     }
 
     /// A single-pane / zoomed pane (`rect == content`) never has a divider-facing
-    /// edge, so even at nonzero padding the inner rect equals the tiled rect —
+    /// edge, so even at nonzero padding the inner rect equals the tiled rect -
     /// the single-pane path keeps its full outer-padded content unchanged.
     #[test]
     fn pane_inner_rect_single_pane_is_identity() {
@@ -1366,7 +1366,7 @@ mod tests {
 
     /// A 2x2 grid's inner (sandwiched) corners: every pane touches the outer
     /// window margin on exactly two sides and a divider on the other two, so each
-    /// pane is inset by `pad` on precisely its two divider-facing edges — uniform
+    /// pane is inset by `pad` on precisely its two divider-facing edges - uniform
     /// across the whole grid regardless of nesting order.
     #[test]
     fn pane_inner_rect_2x2_pads_every_interior_edge() {
@@ -1463,7 +1463,7 @@ mod tests {
 
     /// THE release-snap regression guard (column split): dragging the divider to
     /// two different non-cell-aligned positions and releasing must leave the
-    /// SAME far-margin remainder — the outer margin is constant at every rest
+    /// SAME far-margin remainder - the outer margin is constant at every rest
     /// position. Revert the snap → margins differ across positions → this fails.
     #[test]
     fn column_release_snap_gives_constant_outer_margin() {
@@ -1811,7 +1811,7 @@ mod tests {
         assert_eq!(pane_at_point(&rects, 5000.0, 300.0), None);
     }
 
-    // ----- PANE-SUBCELL-CLIP: pane_glide_origin_and_clip (frac accounting) -----
+    // ----- pane_glide_origin_and_clip (frac accounting) -----
 
     #[test]
     fn glide_at_rest_is_inert() {
@@ -1843,7 +1843,7 @@ mod tests {
 
     #[test]
     fn glide_band_bottom_is_below_the_shifted_content_bottom_by_exactly_frac() {
-        // The shifted content bottom overhangs the band bottom by exactly frac —
+        // The shifted content bottom overhangs the band bottom by exactly frac -
         // that overhang is the partial row `clip_quads_vertical` crops so it can
         // never reach the divider.
         let rows = 10usize;

@@ -39,7 +39,7 @@ fn system_alias_is_case_insensitive() {
     assert!(settings.follow_os_theme);
 }
 
-// C37: the panel's single-row value getter must mirror the theme_is_system
+// The panel's single-row value getter must mirror the theme_is_system
 // branch used by the full settings table -- both route through
 // `theme_config_value`, so an active `theme = system` reads back as "system"
 // (the alias), never the underlying preview theme's name.

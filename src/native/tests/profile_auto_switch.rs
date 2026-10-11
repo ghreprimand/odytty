@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! v0.14 Phase A3 F-A3-6: headless trust-boundary tests for live
+//! v0.14 Phase A3 headless trust-boundary tests for live
 //! `App::poll_profile_auto_switch`.
 
 use std::fs;

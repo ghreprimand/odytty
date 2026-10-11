@@ -226,7 +226,7 @@ fn pane_focus_is_owned_and_restored_by_its_workspace() {
 
 /// WP1 capture: a headless multi-workspace, multi-pane `App` captures into a
 /// `ShapeSnapshot` that mirrors names, tab count/order, the split tree, and
-/// per-pane cwd — and the captured shape round-trips through the JSON layer.
+/// per-pane cwd - and the captured shape round-trips through the JSON layer.
 #[test]
 fn capture_shape_records_workspaces_tabs_panes_and_cwd() {
     use crate::native::persistence::{PaneShape, ShapeSnapshot};
@@ -316,8 +316,8 @@ fn add_workspace_with_terminal(app: &mut App) -> Option<Arc<Mutex<Terminal>>> {
     Some(terminal)
 }
 
-/// NF21-6: a bell rung in a BACKGROUND tab is drained by the arena-wide
-/// maintenance sweep and latches that tab's activity flag — without switching
+/// A bell rung in a BACKGROUND tab is drained by the arena-wide
+/// maintenance sweep and latches that tab's activity flag - without switching
 /// to it and without touching the active tab's flag.
 #[test]
 fn background_tab_bell_latches_activity_without_switching() {
@@ -332,7 +332,7 @@ fn background_tab_bell_latches_activity_without_switching() {
     assert!(!focused, "the focused pane did not ring");
     assert!(background, "a background session rang -> urgency path");
     // The background tab latched; the active tab did not. (A latched flag on a
-    // non-active tab also proves no switch happened — a switch would clear it.)
+    // non-active tab also proves no switch happened - a switch would clear it.)
     assert!(app.tab_activity_for_test(0, 1));
     assert!(!app.tab_activity_for_test(0, 0));
     app.set_test_cell_for_test(cell(8, 16));
@@ -348,7 +348,7 @@ fn background_tab_bell_latches_activity_without_switching() {
 }
 
 /// NF21-6 / §5 rule 3: a bell rung in a BACKGROUND WORKSPACE latches its tab's
-/// activity (and the derived workspace rollup) without waiting for a switch —
+/// activity (and the derived workspace rollup) without waiting for a switch -
 /// the surface a bell is most for after workspaces landed.
 #[test]
 fn background_workspace_bell_latches_activity_without_switching() {
@@ -386,7 +386,7 @@ fn background_workspace_bell_latches_activity_without_switching() {
     );
 }
 
-/// NF21-6: the active-visible focused pane keeps today's behavior — its bell
+/// The active-visible focused pane keeps today's behavior - its bell
 /// starts the viewport flash and never latches an activity flag (you saw it).
 #[test]
 fn focused_pane_bell_flashes_and_does_not_latch_activity() {
@@ -409,8 +409,8 @@ fn focused_pane_bell_flashes_and_does_not_latch_activity() {
     );
 }
 
-/// NF21-6: a bell on the focused pane of a MULTIPANE active tab now drains
-/// (previously it stranded — the multipane render path never drained bells).
+/// A bell on the focused pane of a MULTIPANE active tab now drains
+/// (previously it stranded - the multipane render path never drained bells).
 #[test]
 fn multipane_focused_bell_drains_and_does_not_strand() {
     let Some((mut app, _fixtures)) = app_with_two_sessions() else {
@@ -433,7 +433,7 @@ fn multipane_focused_bell_drains_and_does_not_strand() {
     assert!(!focused_again, "the bell drained once and did not strand");
 }
 
-/// NF21-6: switching to a flagged tab clears its activity latch — viewing is
+/// Switching to a flagged tab clears its activity latch - viewing is
 /// what clears the rollup signal.
 #[test]
 fn switching_to_a_flagged_tab_clears_its_activity() {
@@ -484,12 +484,12 @@ fn backgrounded_session_blink_does_not_spin_the_event_loop() {
     // NF20-B regression: `next_wake_deadline` sourced the cursor-blink toggle of
     // EVERY session, but the blink is only consumed for the ACTIVE session (the
     // `Deref` target). So a blinking cursor in tab A, once tab B is activated,
-    // left A's toggle deadline in the wake set with nothing to advance it —
+    // left A's toggle deadline in the wake set with nothing to advance it -
     // `WaitUntil(<past>)` returned immediately every iteration and busy-spun a
     // core. The fix narrows the source to the active pane and parks background
     // panes' timers in maintenance. This drives the real switch + maintenance
     // and asserts the STRICT invariant: after maintenance the next wake is None
-    // or STRICTLY in the future — never a stale past instant.
+    // or STRICTLY in the future - never a stale past instant.
     //
     // Headless Apps have no native surface (`window.is_some()` is false), so
     // render-gated blink/animation sources would be excluded by the plain
@@ -503,7 +503,7 @@ fn backgrounded_session_blink_does_not_spin_the_event_loop() {
     // Arm the ACTIVE pane's (session 0) blink: its activity-hold deadline
     // (t0+650ms)
     // now sits in the wake set. Also arm the other two per-session deadline
-    // sources — cursor ease/slide and the synchronized-output hold — so this one
+    // sources - cursor ease/slide and the synchronized-output hold - so this one
     // flow covers every fan-out source `next_wake_deadline` mins over sessions.
     let t0 = Instant::now();
     app.arm_active_cursor_blink_for_test(t0);
@@ -515,7 +515,7 @@ fn backgrounded_session_blink_does_not_spin_the_event_loop() {
         "an armed active pane schedules a near-future wake"
     );
 
-    // Switch to session 1 — session 0 is now BACKGROUND and never rendered, so
+    // Switch to session 1 - session 0 is now BACKGROUND and never rendered, so
     // its blink toggle is never polled again.
     assert!(app.switch_to_session_for_test(1));
 
@@ -534,8 +534,8 @@ fn backgrounded_session_blink_does_not_spin_the_event_loop() {
         ),
     }
 
-    // SWITCH-BACK: activate session 0 again. Because it was parked while
-    // backgrounded, it starts from a clean (non-stale) blink — so even the frame
+    // Activate session 0 again. Because it was parked while
+    // backgrounded, it starts from a clean (non-stale) blink - so even the frame
     // the pane is switched back on parks cleanly (no past-instant wake).
     assert!(app.switch_to_session_for_test(0));
     let later2 = later + Duration::from_secs(1);
@@ -726,7 +726,7 @@ fn split_large_jump_streak_uses_only_the_focused_pane_clip_and_wake() {
 #[test]
 fn output_into_a_background_split_pane_drives_a_rebuild() {
     // NF21-7 regression (paired with NF21-1; its spin masked this until fixed).
-    // `App` has no own `needs_rebuild` — `self.needs_rebuild` Derefs to the
+    // `App` has no own `needs_rebuild` - `self.needs_rebuild` Derefs to the
     // FOCUSED pane. PTY output for a non-focused but visible split pane sets THAT
     // pane's flag and requests a redraw, but the frame gate read only the focused
     // pane's flag, so a build streaming into the other half of a split never
@@ -774,7 +774,7 @@ fn output_into_a_background_split_pane_drives_a_rebuild() {
     assert_eq!(
         app.pane_needs_rebuild_for_test(app.active_session_token_for_test()),
         Some(false),
-        "the focused pane stays clean — its flag alone would keep the gate shut"
+        "the focused pane stays clean: its flag alone would keep the gate shut"
     );
     assert!(
         app.should_rebuild_frame_for_test(),
@@ -917,7 +917,7 @@ fn tab_bar_show_rule_is_hidden_for_one_session_and_visible_for_two() {
 
 #[test]
 fn tab_bar_shows_for_a_lone_renamed_tab() {
-    // F4 ODP-7 / F4-NF1: a single tab normally hides the bar, but once it
+    // F4 a single tab normally hides the bar, but once it
     // carries a custom name the bar must show so the named "workflow" tab is
     // visible. (Fails before the show-rule change: a lone tab stayed hidden
     // regardless of its title override.)
@@ -956,7 +956,7 @@ fn tab_bar_shows_for_a_lone_renamed_tab() {
 
 #[test]
 fn always_show_tab_bar_setting_reveals_the_bar_for_a_single_tab() {
-    // F4 ODP-7: the opt-in `always_show_tab_bar` setting shows the strip even
+    // F4 the opt-in `always_show_tab_bar` setting shows the strip even
     // for one unnamed tab, applied live. (Fails before the show-rule change:
     // the setting did not exist / was not consulted.)
     let options = NativeOptions::default();
@@ -1116,7 +1116,7 @@ fn top_chrome_geometry_agrees_in_window_space_with_a_wide_left_rail() {
     app.set_test_surface_for_test(900, 400, padding);
 
     // The top strip begins at pad + 32 rail columns + the chrome-facing gap
-    // (CHROME-GAP: one window padding between the rail band and the bar's
+    // (one window padding between the rail band and the bar's
     // content-aligned columns) = 4 + 256 + 4 = 264px. With two tabs, slot 1
     // begins 24 columns later at 456px. A pointer just inside that slot must
     // hit slot 1, resolve a drag of slot 0 before slot 1, and report the same
@@ -1227,7 +1227,7 @@ fn sub_threshold_top_tab_press_stays_a_switch_click() {
     assert_eq!(app.session_token_at_position_for_test(1), Some(second));
 }
 
-// --- F4-V2 R1: vertical tab rail integration ---
+// --- F4-V2 vertical tab rail integration ---
 
 #[test]
 fn tab_reserve_combines_top_bar_and_workspace_rail() {
@@ -1272,7 +1272,7 @@ fn tab_reserve_combines_top_bar_and_workspace_rail() {
 fn workspace_rail_grows_decorated_snapshot_by_columns_beside_the_top_bar() {
     // With the workspace rail shown alongside the top tab bar, the single-pane
     // decoration grows the snapshot by the rail's COLUMNS (content shifts right)
-    // WITHOUT adding rows — the top bar's row is already present (the rail is a
+    // WITHOUT adding rows - the top bar's row is already present (the rail is a
     // full-height sidebar beside it). The grown axis must match `tab_reserve`.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
@@ -1427,20 +1427,20 @@ fn pinned_tab_chrome_preserves_single_pane_cursor_motion_and_large_jump_streaks(
 #[test]
 fn left_rail_hit_test_resolves_switch_close_and_new() {
     // Row-major rail hit-test round-trip: the same TabHit dispatch the bar uses,
-    // resolved through the rail's X-band + row-stacked slots (F4-V2).
+    // resolved through the rail's X-band + row-stacked slots.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
         return;
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
-    // F4-P4: pin a manual rail width (16) so the close-× column (rail_cols − 2)
+    // Pin a manual rail width (16) so the close-× column (rail_cols − 2)
     // is a fixed 14 regardless of the auto-sized width.
     app.set_tab_rail_width_manual_for_test(16);
     // Pin short single-line labels so the F4-P1 floating-`+` anchor (one gap
     // below the last slot's LABEL row) is deterministic regardless of the live
     // shell title's length.
-    // W2: two workspaces give the rail two slots; the active workspace holds a
+    // Two workspaces give the rail two slots; the active workspace holds a
     // single tab so no top bar competes for the corner. Short names keep the
     // slot geometry deterministic (single label row), matching the labels the
     // pre-workspace rail tabs used.
@@ -1468,7 +1468,7 @@ fn left_rail_hit_test_resolves_switch_close_and_new() {
         "slot 0 × → close"
     );
 
-    // RAIL-PLUS-GAP: the `+` anchors a dead gap below slot 1's end row (end 6 +
+    // The `+` anchors a dead gap below slot 1's end row (end 6 +
     // gap 1 = row 7); row 6 is the dead separator. Centre y = 7*16 + 8 = 120.
     app.set_pointer_px_for_test(20.0, 120.0);
     assert_eq!(app.tab_bar_hit_for_test(), Some("new"), "+ slot → new");
@@ -1484,14 +1484,14 @@ fn left_rail_hit_test_resolves_switch_close_and_new() {
 #[test]
 fn click_right_of_the_rail_is_not_a_tab_hit() {
     // A click in the content area (past the rail's right edge, x ≥ rail_w=128)
-    // is never a tab hit — the X-band gate excludes it.
+    // is never a tab hit - the X-band gate excludes it.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
         return;
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
-    // W2: a second workspace makes the auto rail appear on the left; the active
+    // A second workspace makes the auto rail appear on the left; the active
     // workspace's single tab means no top bar, so the content area is clear.
     add_workspace(&mut app);
 
@@ -1503,7 +1503,7 @@ fn click_right_of_the_rail_is_not_a_tab_hit() {
     );
 }
 
-// --- F4-P4: rail seam drag → manual width, double-click → auto ---
+// --- rail seam drag → manual width, double-click → auto ---
 
 /// A hermetic temp `odytty.conf` for a persistence test (unique per process +
 /// test thread, seeded with a comment to prove non-destructive rewrite).
@@ -1528,7 +1528,7 @@ fn rail_seam_drag_sets_and_persists_a_manual_width() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
-    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // Force the workspace rail on so its reserve/seam/reveal machinery
     // is exercised (the rail now lists workspaces).
     app.set_workspace_rail_for_test("always");
     // Pin a manual width so the seam is deterministic: left rail band [0, 128),
@@ -1581,7 +1581,7 @@ fn double_click_rail_seam_resets_to_auto_and_persists() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
-    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // Force the workspace rail on so its reserve/seam/reveal machinery
     // is exercised (the rail now lists workspaces).
     app.set_workspace_rail_for_test("always");
     // Start from a manual width (seam at x = 20*8 = 160).
@@ -1621,7 +1621,7 @@ fn rail_seam_hover_shows_a_resize_cursor_off_the_tab_slots() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
-    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // Force the workspace rail on so its reserve/seam/reveal machinery
     // is exercised (the rail now lists workspaces).
     app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16); // seam at x = 128
@@ -1688,9 +1688,9 @@ fn top_seam_owns_pinned_rail_junction_on_both_sides_at_common_scales() {
 fn gap_strip_right_press_routes_to_content_not_chrome_menus() {
     // CHROME-GAP hit routing: the padding-wide neutral strips between the
     // content grid and the chrome bands belong to CONTENT for the empty-area
-    // right-press route (consistent with left-click), while the drawn bands —
+    // right-press route (consistent with left-click), while the drawn bands -
     // including the joined-band junction strip the bar background paints up to
-    // the rail edge — keep their chrome menus.
+    // the rail edge - keep their chrome menus.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -1756,7 +1756,7 @@ fn right_rail_gap_strip_routes_to_content_and_zero_padding_is_flush() {
     // rail_origin = 4 + 107*8 + 4 = 864. The content rect's pixel width
     // carries a 4px sub-cell remainder (860 = 107*8 + 4), so a boundary at
     // content.x + content.w + gap (= 868) would misroute the innermost 4px of
-    // the PAINTED band to content — the hit test must bind at the drawn seam.
+    // the PAINTED band to content - the hit test must bind at the drawn seam.
     app.set_pointer_px_for_test(861.0, 100.0);
     assert_eq!(
         app.empty_chrome_menu_surface_for_test(),
@@ -1805,7 +1805,7 @@ fn right_rail_gap_strip_routes_to_content_and_zero_padding_is_flush() {
 #[test]
 fn right_rail_hit_boundary_is_grid_exact_at_cell_multiple_width() {
     // When the content width is an exact cell multiple there is no sub-cell
-    // remainder, so the grid-basis boundary and the content-rect edge agree —
+    // remainder, so the grid-basis boundary and the content-rect edge agree -
     // the historical routing is byte-identical. (The remainder case is pinned
     // in `right_rail_gap_strip_routes_to_content_and_zero_padding_is_flush`.)
     let Some(mut app) = tab_bar_app() else {
@@ -2179,7 +2179,7 @@ fn tab_bar_height_reservation_reduces_shell_rows_by_the_chosen_count() {
 /// FEEL-FIX (Bug 1): a multi-row top tab bar must float its label near the band
 /// centre, never pinned to the top row. Driven through the real
 /// `decorate_snapshot_with_tab_bar` decoration (the live frame path), not the
-/// pure placement helper — the shipped centering biased every even height
+/// pure placement helper - the shipped centering biased every even height
 /// upward (a two-row bar sat the label on row 0), which read as "hugging the
 /// top". Round-half-to-lower centering puts the label on `rows / 2`.
 #[test]
@@ -2219,12 +2219,12 @@ fn tab_bar_label_is_vertically_centered_in_a_multi_row_band() {
     }
 }
 
-// --- F4-P3: rail auto-hide (ODP-4) ---
+// --- rail auto-hide ---
 
 #[test]
 fn autohide_removes_the_rail_reservation() {
     // The load-bearing rule: enabling auto-hide drops the rail's content
-    // reservation to zero (one reflow at toggle time) — reveal is a pure
+    // reservation to zero (one reflow at toggle time) - reveal is a pure
     // overlay, never a reflow. Pinned left reserves the band + gap; auto-hidden
     // reserves nothing.
     let Some(mut app) = tab_bar_app() else {
@@ -2234,7 +2234,7 @@ fn autohide_removes_the_rail_reservation() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
-    // W2: a second workspace makes the auto rail appear (left side, inherited
+    // A second workspace makes the auto rail appear (left side, inherited
     // from placement); the active workspace has a single tab, so no top bar is
     // reserved and the reservation is the rail band alone.
     add_workspace(&mut app);
@@ -2266,7 +2266,7 @@ fn pinned_rail_gap_consumes_grid_columns_and_the_autohide_toggle_is_stable() {
     // padding, the chrome-facing gap comes out of the content's pixel budget,
     // so the grid loses whatever whole cells the gap displaces (here exactly
     // one 8px column for an 8px padding). Toggling auto-hide reflows to
-    // full-bleed and back to the SAME gap-inset width every time — the fit is a
+    // full-bleed and back to the SAME gap-inset width every time - the fit is a
     // pure function of the inputs, so no column oscillation is possible.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
@@ -2281,12 +2281,12 @@ fn pinned_rail_gap_consumes_grid_columns_and_the_autohide_toggle_is_stable() {
     add_workspace(&mut app);
     assert_eq!(app.tab_reserve_for_test(), (0, 16), "pinned left rail");
 
-    // Pinned: (1280 - 2*8 - 16*8 - 8) / 8 = 141 columns — one column fewer
+    // Pinned: (1280 - 2*8 - 16*8 - 8) / 8 = 141 columns - one column fewer
     // than the flush historical fit (142), consumed by the 8px gap.
     app.resize_grid_with_padding_for_test(cell, padding, 1280, 800);
     assert_eq!(app.grid_dims_for_test(), (141, 49), "gap costs one column");
 
-    // Auto-hidden: no reservation, no gap — full-bleed content.
+    // Auto-hidden: no reservation, no gap - full-bleed content.
     app.set_tab_rail_autohide_for_test(true);
     app.resize_grid_with_padding_for_test(cell, padding, 1280, 800);
     assert_eq!(
@@ -2364,7 +2364,7 @@ fn chrome_offsets_grow_by_exactly_the_padding_gap_per_shown_band() {
 
 #[test]
 fn rail_autohide_control_click_toggles_and_persists() {
-    // RAIL-AUTOHIDE-CTL: clicking the bottom-edge control flips the real
+    // Clicking the bottom-edge control flips the real
     // `tab_rail_autohide` setting through the live-apply + config-writeback path,
     // both directions, so the panel/env/config stay coherent.
     let Some(mut app) = tab_bar_app() else {
@@ -2533,7 +2533,7 @@ fn reveal_edge_zone_is_the_window_edge_and_band_extends_to_the_seam() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
-    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // Force the workspace rail on so its reserve/seam/reveal machinery
     // is exercised (the rail now lists workspaces).
     app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16); // band [0..128] (pad 0 headless)
@@ -2560,7 +2560,7 @@ fn reveal_zone_is_logical_px_scaled_for_hidpi() {
     // REGRESSION (trigger zone too thin on fractional/HiDPI): the reveal zone is
     // a LOGICAL-px width, scaled to the physical-px space winit reports pointer
     // coordinates in. At scale 2.0 the default 16 logical px must trigger out to
-    // physical x=32 — with the old physical-px zone it would have stopped at x=8
+    // physical x=32 - with the old physical-px zone it would have stopped at x=8
     // and the rail would be unreachable on a scaled display.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
@@ -2568,7 +2568,7 @@ fn reveal_zone_is_logical_px_scaled_for_hidpi() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
-    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // Force the workspace rail on so its reserve/seam/reveal machinery
     // is exercised (the rail now lists workspaces).
     app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16);
@@ -2594,8 +2594,8 @@ fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
     // NF20-B live-wiring regression: reported (scale ~1.5, real
     // window padding) that the reveal only triggered at the very window edge and
     // would not stay up with the pointer over the band. This exercises the FULL
-    // live path — `update_rail_autohide_pointer` (real contact geometry) + the
-    // machine — with an injected clock at scale 1.5 with real padding, so the
+    // live path - `update_rail_autohide_pointer` (real contact geometry) + the
+    // machine - with an injected clock at scale 1.5 with real padding, so the
     // interior-reach + keep-alive behavior is pinned at true device values, not
     // just the pad-0 / scale-1 headless case the earlier tests covered.
     let Some(mut app) = tab_bar_app() else {
@@ -2604,7 +2604,7 @@ fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
     };
     app.set_test_cell_for_test(cell(12, 24)); // ~8x16 logical at 1.5x
     app.set_tab_bar_placement_for_test("left");
-    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // Force the workspace rail on so its reserve/seam/reveal machinery
     // is exercised (the rail now lists workspaces).
     app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16); // band_w = 16*12 = 192; seam at pad+192
@@ -2617,7 +2617,7 @@ fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
     let t0 = std::time::Instant::now();
 
     // (1) INTERIOR REACH: a pointer 8px INTO the visible content (x=20, past the
-    // 12px padding margin) must arm the reveal — not require the bare edge.
+    // 12px padding margin) must arm the reveal - not require the bare edge.
     app.feed_rail_pointer_for_test(20.0, t0);
     // Not visible yet (show debounce), but a poll past the debounce reveals it.
     assert!(
@@ -2632,7 +2632,7 @@ fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
     );
 
     // (2) KEEP-ALIVE OVER THE BAND: moving deeper onto the drawn band (x=100,
-    // mid-band) must HOLD the reveal — not drop it.
+    // mid-band) must HOLD the reveal - not drop it.
     let hold_at = revealed_at + std::time::Duration::from_millis(50);
     app.feed_rail_pointer_for_test(100.0, hold_at);
     assert!(
@@ -2656,7 +2656,7 @@ fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
     app.feed_rail_pointer_for_test(250.0, leave_at);
     assert!(
         app.rail_autohide_is_visible_for_test(leave_at),
-        "leaving the band starts the hide grace — still visible through it"
+        "leaving the band starts the hide grace: still visible through it"
     );
     let hidden_at = leave_at + std::time::Duration::from_millis(700); // > 600ms grace
     app.poll_rail_autohide_for_test(hidden_at);
@@ -2670,14 +2670,14 @@ fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
 fn reveal_visibility_flip_marks_the_frame_for_rebuild() {
     // Live-trace regression: state reported visible at +27px but the rail was
     // not painted until crossing off the window edge. The reveal state
-    // machine was already correct — the trace showed `visible=true` on-window —
+    // machine was already correct - the trace showed `visible=true` on-window -
     // but the paint never landed. Root cause: the rail overlay is assembled ONLY
     // inside the `should_rebuild_frame` gate (`build_rail_overlay`), and that gate
     // reads `needs_rebuild`. The rail-reveal paths requested a redraw WITHOUT
     // marking the frame dirty, so `RedrawRequested` skipped the rebuild and
     // re-presented the previous, rail-less frame. Over a quiescent terminal
     // (nothing else setting `needs_rebuild`) the reveal only painted when an
-    // unrelated event — the pointer crossing off-window — happened to dirty a
+    // unrelated event - the pointer crossing off-window - happened to dirty a
     // frame. Both the maintenance-poll flip and the pointer-driven flip must now
     // set `needs_rebuild`.
     let Some(mut app) = tab_bar_app() else {
@@ -2686,7 +2686,7 @@ fn reveal_visibility_flip_marks_the_frame_for_rebuild() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
-    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // Force the workspace rail on so its reserve/seam/reveal machinery
     // is exercised (the rail now lists workspaces).
     app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16); // band [0..128], seam at x=128
@@ -2718,12 +2718,12 @@ fn reveal_visibility_flip_marks_the_frame_for_rebuild() {
     );
     assert!(
         app.needs_rebuild_for_test(),
-        "the reveal flip in the maintenance poll must mark the frame for rebuild — \
+        "the reveal flip in the maintenance poll must mark the frame for rebuild: \
          a bare redraw request is dropped by the `should_rebuild_frame` gate and \
          the overlay never paints (the live-trace bug)"
     );
 
-    // (B) HIDE FLIP — leaving the band starts the grace; when the grace elapses in
+    // (B) HIDE FLIP - leaving the band starts the grace; when the grace elapses in
     // the maintenance poll the rail must be REMOVED from the frame, which likewise
     // needs a rebuild.
     let leave_at = revealed_at + std::time::Duration::from_millis(10);
@@ -2740,7 +2740,7 @@ fn reveal_visibility_flip_marks_the_frame_for_rebuild() {
         "the hide flip must also rebuild so the overlay is dropped from the frame"
     );
 
-    // (C) POINTER-DRIVEN FLIP — when the debounce elapses on a pointer sample
+    // (C) POINTER-DRIVEN FLIP - when the debounce elapses on a pointer sample
     // (the pointer is still moving over the band as it reveals), that path must
     // mark the frame dirty too.
     let t1 = hidden_at + std::time::Duration::from_millis(10);
@@ -2771,7 +2771,7 @@ fn reveal_arms_at_the_edge_and_the_band_carries_the_debounce() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
-    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // Force the workspace rail on so its reserve/seam/reveal machinery
     // is exercised (the rail now lists workspaces).
     app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16); // band [0..128], seam at x=128
@@ -2792,7 +2792,7 @@ fn reveal_arms_at_the_edge_and_the_band_carries_the_debounce() {
     app.feed_rail_pointer_for_test(50.0, t1);
     assert!(
         app.rail_autohide_is_visible_for_test(t1),
-        "the band carries the armed reveal through the debounce — no need to \
+        "the band carries the armed reveal through the debounce: no need to \
          sit pinned in the thin edge strip"
     );
 }
@@ -2804,7 +2804,7 @@ fn reveal_arms_and_holds_across_the_live_trace_sequences() {
     //   (1) a fast approach that overshoots OFF the window edge (samples jump
     //       30–200px and hop over a static point zone) must still arm+reveal;
     //   (2) a fast in-then-past-the-seam FOLLOW-THROUGH within the confirm window
-    //       (the trace's 7.9px→214px in 74ms) must NOT abort the armed reveal —
+    //       (the trace's 7.9px→214px in 74ms) must NOT abort the armed reveal -
     //       the motion-aware trigger keeps `in_edge` set so the confirm completes.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
@@ -2812,7 +2812,7 @@ fn reveal_arms_and_holds_across_the_live_trace_sequences() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
-    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // Force the workspace rail on so its reserve/seam/reveal machinery
     // is exercised (the rail now lists workspaces).
     app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16); // band [0..128], seam at x=128
@@ -2853,7 +2853,7 @@ fn reveal_arms_and_holds_across_the_live_trace_sequences() {
     // (2) FAST FOLLOW-THROUGH PAST THE SEAM. A deliberate quick approach lands at
     // the edge (x=8, arms), then ONE fast sample overshoots past the seam
     // (x=214) inside the confirm window. The segment 8→214 still sweeps the
-    // trigger band, so `in_edge` stays set and the confirm is NOT aborted — the
+    // trigger band, so `in_edge` stays set and the confirm is NOT aborted - the
     // reveal completes. (Pre-fix, the out-of-band sample aborted the arm and the
     // rail "wouldn't open" on a fast approach.)
     let t2 = hidden + std::time::Duration::from_millis(10);
@@ -2874,15 +2874,15 @@ fn reveal_arms_and_holds_across_the_live_trace_sequences() {
 
 #[test]
 fn reveal_yields_to_an_active_scrollbar_drag() {
-    // Coexistence (ODP-5): while a scroll-thumb drag is in progress, a pointer
-    // even at the very edge reports no reveal contact — the drag wins the edge.
+    // Coexistence: while a scroll-thumb drag is in progress, a pointer
+    // even at the very edge reports no reveal contact - the drag wins the edge.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
         return;
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
-    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // Force the workspace rail on so its reserve/seam/reveal machinery
     // is exercised (the rail now lists workspaces).
     app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16);
@@ -3100,7 +3100,7 @@ fn revealed_band_click_hits_the_rail_hidden_does_not() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
-    // W2: two workspaces give the rail two slots; the active workspace holds a
+    // Two workspaces give the rail two slots; the active workspace holds a
     // single tab so no top bar competes for the corner. Short names keep the
     // slot geometry deterministic (single label row), matching the labels the
     // pre-workspace rail tabs used.
@@ -3128,11 +3128,11 @@ fn revealed_band_click_hits_the_rail_hidden_does_not() {
     );
 }
 
-// --- RAIL-PIN: the rail stays revealed under its own menu / rename prompt ---
+// --- the rail stays revealed under its own menu / rename prompt ---
 
 #[test]
 fn autohide_rail_stays_revealed_under_its_own_workspace_menu() {
-    // RAIL-PIN: right-clicking a workspace to open its context menu must NOT
+    // Right-clicking a workspace to open its context menu must NOT
     // hide the rail out from under the menu. Before the fix the draw was gated
     // on `!overlay.is_open()`, so opening the rail's own menu blanked the rail.
     let Some(mut app) = tab_bar_app() else {
@@ -3148,7 +3148,7 @@ fn autohide_rail_stays_revealed_under_its_own_workspace_menu() {
     app.set_tab_rail_autohide_for_test(true);
 
     // Reveal the rail (as a pointer at the edge would), then open the workspace
-    // slot's context menu — the rail must remain drawn.
+    // slot's context menu - the rail must remain drawn.
     app.force_rail_reveal_for_test();
     assert!(
         app.rail_overlay_visible_for_test(),
@@ -3163,7 +3163,7 @@ fn autohide_rail_stays_revealed_under_its_own_workspace_menu() {
 
 #[test]
 fn move_workspace_at_reorders_the_rail_and_keeps_focus() {
-    // RAIL-REORDER: the App-side reorder (as a context-menu Move Up/Down would
+    // The App-side reorder (as a context-menu Move Up/Down would
     // fire) swaps adjacent slots and follows the active workspace by identity,
     // so the focused workspace never changes under the user.
     let Some(mut app) = tab_bar_app() else {
@@ -3199,8 +3199,8 @@ fn move_workspace_at_reorders_the_rail_and_keeps_focus() {
 
 #[test]
 fn autohide_rail_reveals_for_a_workspace_rename_prompt() {
-    // RAIL-PIN: a workspace rename prompt is rail-anchored, so the rail reveals
-    // (and holds) for it — even from a hidden state — so the user sees which
+    // A workspace rename prompt is rail-anchored, so the rail reveals
+    // (and holds) for it - even from a hidden state - so the user sees which
     // workspace they are renaming. A tab rename does NOT pin the rail.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
@@ -3232,8 +3232,8 @@ fn autohide_rail_reveals_for_a_workspace_rename_prompt() {
 
 #[test]
 fn autohide_rail_menu_box_clears_the_floating_rail_band() {
-    // MENU-Z-ORDER: a WorkspaceSlot menu opened while the auto-hide rail is
-    // revealed keeps the rail visible (RAIL-PIN) — the rail composites topmost,
+    // A WorkspaceSlot menu opened while the auto-hide rail is
+    // revealed keeps the rail visible - the rail composites topmost,
     // so the menu box must land BESIDE the band, never under it, or its edge is
     // occluded. The box's left column must clear the reserved rail band.
     let Some(mut app) = tab_bar_app() else {
@@ -3299,7 +3299,7 @@ fn repro_right_click_in_content_opens_menu_under_autohide() {
 #[test]
 fn repro_reveal_holds_across_maintenance_polls_no_flicker() {
     // REGRESSION (flicker): once revealed with the pointer parked over the band,
-    // the maintenance poll must keep it revealed — it must not oscillate.
+    // the maintenance poll must keep it revealed - it must not oscillate.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -3307,7 +3307,7 @@ fn repro_reveal_holds_across_maintenance_polls_no_flicker() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
-    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // Force the workspace rail on so its reserve/seam/reveal machinery
     // is exercised (the rail now lists workspaces).
     app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16);
@@ -3338,7 +3338,7 @@ fn repro_reveal_holds_across_maintenance_polls_no_flicker() {
 #[test]
 fn repro_revealed_content_right_click_opens_menu_not_swallowed() {
     // REGRESSION: while the rail is REVEALED (the flicker state), a right-click
-    // in CONTENT (past the band seam) must still open the content context menu —
+    // in CONTENT (past the band seam) must still open the content context menu -
     // the floating overlay must not swallow content-area clicks.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
@@ -3347,7 +3347,7 @@ fn repro_revealed_content_right_click_opens_menu_not_swallowed() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
-    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // Force the workspace rail on so its reserve/seam/reveal machinery
     // is exercised (the rail now lists workspaces).
     app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16); // band [0..128], seam at x=128
@@ -3367,7 +3367,7 @@ fn repro_revealed_content_right_click_opens_menu_not_swallowed() {
 #[test]
 fn repro_open_menu_suppresses_the_rail_overlay_no_occlusion() {
     // REGRESSION ("can't right-click Settings"): the revealed rail strip is
-    // composited topmost — OVER any open window overlay. So while a context menu
+    // composited topmost - OVER any open window overlay. So while a context menu
     // (or Settings / palette) is open, the rail must NOT be drawn, or it paints
     // over the menu and hides the items the pointer is clicking. An open overlay
     // owns the screen; the floating rail steps aside until it closes.
@@ -3378,7 +3378,7 @@ fn repro_open_menu_suppresses_the_rail_overlay_no_occlusion() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
-    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // Force the workspace rail on so its reserve/seam/reveal machinery
     // is exercised (the rail now lists workspaces).
     app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16);
@@ -3402,7 +3402,7 @@ fn repro_open_menu_suppresses_the_rail_overlay_no_occlusion() {
     );
 }
 
-// --- F4-P3 REGRESSION: phantom top-bar leak + idle self-wake (NF20) ---
+// --- F4-P3 REGRESSION: phantom top-bar leak + idle self-wake ---
 
 #[test]
 fn autohide_left_decoration_grows_no_phantom_top_bar() {
@@ -3412,8 +3412,8 @@ fn autohide_left_decoration_grows_no_phantom_top_bar() {
     // and reports `None`; without the auto-hide guard an auto-hidden LEFT rail
     // fell through to the top-bar branch and grew a one-row bar across the top
     // (decorated rows = raw rows + 1). The rail draws only as a floating overlay,
-    // so the decorated snapshot must equal the raw snapshot — no rows off the
-    // top, no columns off the side — in BOTH the hidden and revealed phases.
+    // so the decorated snapshot must equal the raw snapshot - no rows off the
+    // top, no columns off the side - in BOTH the hidden and revealed phases.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -3421,8 +3421,8 @@ fn autohide_left_decoration_grows_no_phantom_top_bar() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
-    // W2: a single-tab active workspace means no top bar, so the autohidden
-    // rail (a floating overlay) is the ONLY chrome — the decoration must add
+    // A single-tab active workspace means no top bar, so the autohidden
+    // rail (a floating overlay) is the ONLY chrome - the decoration must add
     // nothing. A second workspace keeps the rail shown.
     add_workspace(&mut app);
     app.set_tab_rail_width_manual_for_test(16);
@@ -3438,7 +3438,7 @@ fn autohide_left_decoration_grows_no_phantom_top_bar() {
         "auto-hidden left rail must not grow a phantom top bar (hidden)"
     );
 
-    // Revealed: still no pinned decoration — the reveal is a separate floating
+    // Revealed: still no pinned decoration - the reveal is a separate floating
     // overlay, not a snapshot grow.
     app.force_rail_reveal_for_test();
     assert!(app.rail_overlay_visible_for_test());
@@ -3451,7 +3451,7 @@ fn autohide_left_decoration_grows_no_phantom_top_bar() {
 
 #[test]
 fn autohide_right_decoration_grows_no_phantom_top_bar() {
-    // Mirror of the left case for placement=right — the same `rail_side()`
+    // Mirror of the left case for placement=right - the same `rail_side()`
     // predicate leaked a top bar on a right-placed auto-hidden rail too.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
@@ -3460,8 +3460,8 @@ fn autohide_right_decoration_grows_no_phantom_top_bar() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("right");
-    // W2: a single-tab active workspace means no top bar, so the autohidden
-    // rail (a floating overlay) is the ONLY chrome — the decoration must add
+    // A single-tab active workspace means no top bar, so the autohidden
+    // rail (a floating overlay) is the ONLY chrome - the decoration must add
     // nothing. A second workspace keeps the rail shown.
     add_workspace(&mut app);
     app.set_tab_rail_width_manual_for_test(16);
@@ -3505,7 +3505,7 @@ fn autohide_top_placement_still_decorates_its_bar() {
 #[test]
 fn autohide_idle_states_schedule_no_self_wake() {
     // REGRESSION (NF20 CPU spin): an idle auto-hidden rail must not schedule a
-    // wake — neither steady Hidden nor Revealed-with-the-pointer-parked. A past
+    // wake - neither steady Hidden nor Revealed-with-the-pointer-parked. A past
     // or immediate wake here would spin the event loop (`WaitUntil(now)` → wake →
     // poll → no change → repeat) at frame rate, pegging a core. Both idle phases
     // must add nothing to `next_wake_deadline`.
@@ -3516,7 +3516,7 @@ fn autohide_idle_states_schedule_no_self_wake() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
-    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // Force the workspace rail on so its reserve/seam/reveal machinery
     // is exercised (the rail now lists workspaces).
     app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16);
@@ -3556,7 +3556,7 @@ fn autohide_idle_states_schedule_no_self_wake() {
     }
 }
 
-// --- F4-P2: right rail (mirror of the left rail) ---
+// --- right rail (mirror of the left rail) ---
 
 #[test]
 fn right_rail_hit_test_is_x_flipped_to_the_far_side() {
@@ -3570,7 +3570,7 @@ fn right_rail_hit_test_is_x_flipped_to_the_far_side() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("right");
-    // W2: two workspaces give the rail two slots; the active workspace holds a
+    // Two workspaces give the rail two slots; the active workspace holds a
     // single tab so no top bar competes for the corner. Short names keep the
     // slot geometry deterministic (single label row), matching the labels the
     // pre-workspace rail tabs used.
@@ -3591,7 +3591,7 @@ fn right_rail_hit_test_is_x_flipped_to_the_far_side() {
     );
 
     // A click in the LEFT content area (well before the rail band) is not a tab
-    // hit — the X-band gate excludes it, mirroring the left rail's exclusion of
+    // hit - the X-band gate excludes it, mirroring the left rail's exclusion of
     // the right content.
     app.set_pointer_px_for_test(8.0, 24.0);
     assert_eq!(
@@ -3605,7 +3605,7 @@ fn right_rail_hit_test_is_x_flipped_to_the_far_side() {
 fn right_and_left_rails_grow_the_decorated_snapshot_identically() {
     // Both rails grow the single-pane decorated snapshot by `rail_cols` columns
     // (never rows); only the side the content sits on differs. The dims are
-    // therefore identical — the mirror is a placement, not a size, difference.
+    // therefore identical - the mirror is a placement, not a size, difference.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -3640,7 +3640,7 @@ fn right_rail_leaves_the_content_origin_unshifted_for_overlays() {
     app.set_test_cell_for_test(cell(8, 16));
 
     app.set_tab_bar_placement_for_test("right");
-    // W2: a second workspace makes the auto rail appear; the active workspace's
+    // A second workspace makes the auto rail appear; the active workspace's
     // single tab means no top bar, so the only offset is the rail's (0 for a
     // right rail, positive for a left rail).
     add_workspace(&mut app);
@@ -3662,9 +3662,9 @@ fn right_rail_leaves_the_content_origin_unshifted_for_overlays() {
 
 #[test]
 fn right_rail_scrollbar_stays_in_the_content_not_under_the_rail() {
-    // MANDATORY collision test (ODP-5): with a right rail, the scroll thumb hugs
+    // MANDATORY collision test: with a right rail, the scroll thumb hugs
     // the content grid's right edge, which sits at/left of the rail band's left
-    // edge — never under it. So a press resolves to exactly one target: the thumb
+    // edge - never under it. So a press resolves to exactly one target: the thumb
     // grabs the scrollbar (and is not a tab hit), and the rail band is a tab
     // action (and never grabs the scrollbar).
     let Some((mut app, fixtures)) = app_with_two_sessions() else {
@@ -3678,7 +3678,7 @@ fn right_rail_scrollbar_stays_in_the_content_not_under_the_rail() {
     }
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("right");
-    // W2: force the workspace rail on the right so the collision geometry is
+    // Force the workspace rail on the right so the collision geometry is
     // exercised (the rail lists workspaces now).
     app.set_workspace_rail_for_test("right");
     app.scroll_up_for_test(usize::MAX);
@@ -3821,7 +3821,7 @@ fn rename_modal_commits_edits_cancels_and_empty_commit_clears_override() {
     );
 }
 
-/// Replicate the rename modal's editable-input origin from the grid dims — the
+/// Replicate the rename modal's editable-input origin from the grid dims - the
 /// same math `rename_layout` uses, so a click column maps to a known character.
 fn rename_input_origin(cols: usize, rows: usize) -> (usize, usize) {
     let width = cols.clamp(8, 48);
@@ -3834,7 +3834,7 @@ fn rename_input_origin(cols: usize, rows: usize) -> (usize, usize) {
 
 #[test]
 fn rename_field_click_places_caret_and_drag_selects() {
-    // F4-RENAME-MOUSE: a click positions the caret, a drag extends a selection,
+    // A click positions the caret, a drag extends a selection,
     // and typing replaces the selected span.
     let Some((mut app, _fixtures)) = app_with_two_sessions() else {
         eprintln!("skipping: no PTY available");
@@ -3884,7 +3884,7 @@ fn rename_field_click_places_caret_and_drag_selects() {
 
 #[test]
 fn rename_field_double_click_selects_word_and_backspace_replaces_it() {
-    // F4-RENAME-MOUSE: a double-click selects the word under the pointer, and a
+    // A double-click selects the word under the pointer, and a
     // subsequent Backspace deletes the whole selection.
     let Some((mut app, _fixtures)) = app_with_two_sessions() else {
         eprintln!("skipping: no PTY available");
@@ -4259,7 +4259,7 @@ fn changed_cells(before: &Snapshot, after: &Snapshot) -> usize {
 }
 
 /// Whether any cell in `row` (a `columns`-wide grid) differs between two
-/// equal-shaped snapshots — used to check whether a paint touched a specific
+/// equal-shaped snapshots - used to check whether a paint touched a specific
 /// row (e.g. the search bar's last row).
 fn row_changed(before: &Snapshot, after: &Snapshot, row: usize, columns: usize) -> bool {
     let start = row * columns;
@@ -4394,7 +4394,7 @@ fn per_pane_overlay_gates_the_search_bar_to_the_focused_pane() {
         &app.effective_theme_for_test(),
     );
 
-    // Background pane: the same match highlights, but NO query bar — the bar is
+    // Background pane: the same match highlights, but NO query bar - the bar is
     // keyboard-interactive and belongs to the focused pane only.
     let mut bg_snap = snapshot(&["needle", "", "", ""], 40);
     let bb = bg_snap.clone();
@@ -4429,7 +4429,7 @@ fn per_pane_overlay_gates_the_search_bar_to_the_focused_pane() {
     );
 }
 
-// ----- §7 K2: prefix engine wired into the App key path -----
+// ----- §7 prefix engine wired into the App key path -----
 
 #[test]
 fn bare_pane_chord_without_prefix_is_plain_input() {
@@ -4437,7 +4437,7 @@ fn bare_pane_chord_without_prefix_is_plain_input() {
         eprintln!("skipping: no PTY available");
         return;
     };
-    // `%` (Shift+%) with no pending prefix is ordinary text — the engine returns
+    // `%` (Shift+%) with no pending prefix is ordinary text - the engine returns
     // Inactive and the byte reaches the PTY exactly as before §7.
     app.drive_char_with_mods_for_test('%', false, true);
     assert_eq!(&*bytes.lock().expect("bytes"), b"%");
@@ -4455,7 +4455,7 @@ fn single_pane_passes_ctrl_b_through_to_pty() {
     // Byte-identity guarantee: on a single-pane tab the prefix engine is gated
     // out, so Ctrl-b reaches the PTY as the literal 0x02 (readline
     // backward-char) exactly like the pre-§7 path. The prefix only engages once
-    // the tab is split — see `split_tab_engages_prefix_capture`.
+    // the tab is split - see `split_tab_engages_prefix_capture`.
     app.drive_char_with_mods_for_test('b', true, false);
     assert_eq!(&*bytes.lock().expect("bytes"), &[0x02]);
     // It did not enter prefix-pending and did not split.
@@ -4847,7 +4847,7 @@ fn doubled_prefix_passes_the_literal_byte_to_the_pty() {
     };
     app.seed_split_pane_for_test(true, terminal, writer, pty);
     assert_eq!(app.active_pane_count_for_test(), 2);
-    // Ctrl-b Ctrl-b → the focused pane's PTY receives a literal 0x02 (K3), so a
+    // Ctrl-b Ctrl-b → the focused pane's PTY receives a literal 0x02, so a
     // tmux running inside OdyTTY still gets its own prefix. The first Ctrl-b
     // enters pending and sends nothing; the second triggers the passthrough.
     app.drive_char_with_mods_for_test('b', true, false);
@@ -4944,7 +4944,7 @@ fn wheel_scrolls_the_pane_under_the_cursor_not_the_focused_pane() {
 fn continuous_scroll_eligible_of_is_per_pane_in_a_split() {
     // Cut 3: the continuous (pixel_scroll) lane is no longer single-pane-only.
     // Each pane of a split is independently eligible while it is on its primary
-    // screen and the knob is on — the gate reads the pane, not active_is_single_pane.
+    // screen and the knob is on - the gate reads the pane, not active_is_single_pane.
     const COLS: usize = 80;
     const ROWS: usize = 24;
     const CW: u32 = 8;
@@ -4988,7 +4988,7 @@ fn continuous_scroll_eligible_of_is_per_pane_in_a_split() {
         "precondition: a split"
     );
 
-    // Both panes are eligible on the primary screen with the knob on — the old
+    // Both panes are eligible on the primary screen with the knob on - the old
     // single-pane restriction is gone.
     assert!(
         app.continuous_scroll_eligible_of_for_test(pane_a),
@@ -5006,7 +5006,7 @@ fn continuous_scroll_eligible_of_is_per_pane_in_a_split() {
 
 #[test]
 fn pixel_wheel_drives_the_continuous_lane_on_the_pane_under_the_pointer() {
-    // Cut 3 + smell P3-c: a high-resolution PixelDelta wheel over the NON-focused
+    // Cut 3 + smell a high-resolution PixelDelta wheel over the NON-focused
     // pane drives THAT pane's continuous (sub-cell) scroll, not the focused pane.
     const COLS: usize = 80;
     const ROWS: usize = 24;
@@ -5050,7 +5050,7 @@ fn pixel_wheel_drives_the_continuous_lane_on_the_pane_under_the_pointer() {
         ROWS as u32 * CH,
         crate::native::WindowPadding::ZERO,
     );
-    // Move focus back to pane A so focus != the pointed pane (P3-c).
+    // Move focus back to pane A so focus != the pointed pane.
     app.drive_char_with_mods_for_test('b', true, false);
     app.drive_char_with_mods_for_test('o', false, false);
     assert_eq!(
@@ -5078,7 +5078,7 @@ fn pixel_wheel_drives_the_continuous_lane_on_the_pane_under_the_pointer() {
         Some(8.0),
         "pane B holds the half-row sub-cell remainder the split render clips"
     );
-    // The focused pane A never moved — routing followed the pointer, not focus.
+    // The focused pane A never moved - routing followed the pointer, not focus.
     assert_eq!(
         app.viewport_offset_for_token_for_test(pane_a),
         Some(0),
@@ -5094,7 +5094,7 @@ fn pixel_wheel_drives_the_continuous_lane_on_the_pane_under_the_pointer() {
 #[test]
 fn sub_notch_pixel_scroll_moves_only_the_sub_cell_offset_in_a_split() {
     // Cut 3: sub-notch pixel travel (< one row) now produces pure sub-cell motion
-    // inside a split — previously the continuous lane was disabled in multipane,
+    // inside a split - previously the continuous lane was disabled in multipane,
     // so a fractional glide was truncated to nothing. The offset stays put; only
     // the clipped sub-cell remainder advances.
     const COLS: usize = 80;
@@ -5176,12 +5176,12 @@ fn wheel_scroll_still_scrolls_the_lone_single_pane() {
     );
 }
 
-/// C11: focus-follows-click into a split must anchor the selection under the
+/// Focus-follows-click into a split must anchor the selection under the
 /// LIVE click, not the newly-focused pane's stale per-session `pointer_px`.
 ///
 /// `pointer_px`/`pointer_cell` are per-session; before the fix the press
 /// switched focus to pane B and THEN read `self.pointer_px`, which now derefed
-/// to B's own last-stored (stale) coordinate — anchoring the first drag at the
+/// to B's own last-stored (stale) coordinate - anchoring the first drag at the
 /// wrong cell. Seed B with a stale coord at its top-left (cell 0,0), focus A,
 /// click deep inside B, and assert the anchor lands under the click (row 10),
 /// not B's stale (0,0).
@@ -5265,7 +5265,7 @@ fn focus_follows_click_anchors_under_the_live_click_not_stale_coords() {
 }
 
 // Fill every row of a terminal with a long bare URL so the hover scan finds an
-// openable URL under ANY cell the pointer (or a buggy clamp) maps to — making
+// openable URL under ANY cell the pointer (or a buggy clamp) maps to - making
 // the assertions independent of exact split-pane cell geometry.
 fn fill_grid_with_url(terminal: &Arc<Mutex<Terminal>>, rows: usize) {
     let url = format!("https://example.com/{}", "a".repeat(120));
@@ -5284,7 +5284,7 @@ fn fill_grid_with_url(terminal: &Arc<Mutex<Terminal>>, rows: usize) {
 fn split_pane_grid_is_inset_from_the_divider_by_window_padding() {
     // PANE-PADDING (board 4c8856ae): with window_padding > 0, a split pane's
     // drawable grid must gain the configured breathing room from the divider it
-    // faces — matching the outer-window inset — instead of the first glyph
+    // faces - matching the outer-window inset - instead of the first glyph
     // sitting flush against the divider (the reported regression). Every
     // divider-facing edge is inset by exactly the padding; outer-margin edges
     // keep the tiled geometry, so the PTY size, render origin, and pointer
@@ -5450,8 +5450,8 @@ fn hover_over_a_non_focused_pane_does_not_resolve_a_link_in_the_focused_pane() {
     // RIGHT pane (B); moving the pointer over the LEFT pane (A) must NOT map the
     // pointer into the focused pane's grid and light a false bare-URL hit (+ hand
     // cursor) from B. Before the fix `active_pane_pointer_cell` mapped the over-A
-    // pointer relative to B's rect — x_px − rect.x goes negative and clamps to
-    // B's column 0 — so a link at B's left edge latched while hovering pane A.
+    // pointer relative to B's rect - x_px − rect.x goes negative and clamps to
+    // B's column 0 - so a link at B's left edge latched while hovering pane A.
     const COLS: usize = 80;
     const ROWS: usize = 24;
     const CW: u32 = 8;
@@ -5516,7 +5516,7 @@ fn hover_over_a_non_focused_pane_does_not_resolve_a_link_in_the_focused_pane() {
 #[test]
 fn hover_over_the_focused_pane_in_a_split_still_resolves_a_link() {
     // The suppression must be precise: hovering the FOCUSED pane in a split
-    // resolves links exactly as a single pane does (Rule D — not a blanket
+    // resolves links exactly as a single pane does (Rule D - not a blanket
     // multi-pane hover kill).
     const COLS: usize = 80;
     const ROWS: usize = 24;
@@ -5570,7 +5570,7 @@ fn hover_over_the_focused_pane_in_a_split_still_resolves_a_link() {
 
 #[test]
 fn single_pane_hover_still_resolves_a_link() {
-    // Rule D: the lone single-pane hover path is byte-identical — the
+    // Rule D: the lone single-pane hover path is byte-identical - the
     // non-focused-pane suppression never engages (`multipane_geometry` is None).
     const COLS: usize = 80;
     const ROWS: usize = 24;
@@ -5623,7 +5623,7 @@ fn split_app_at_surface(columns: bool, cols: usize, rows: usize, cw: u32, ch: u3
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
     // The headless cell/surface seams are per-session (they Deref to the active
-    // session — production resolves these from the shared GPU instead). Set them
+    // session - production resolves these from the shared GPU instead). Set them
     // while the original pane is focused so the *survivor* of the close carries
     // them, then again after the split so the new (focused) pane has them too;
     // otherwise the post-close reflow can't resolve the content rect headlessly.
@@ -5635,7 +5635,7 @@ fn split_app_at_surface(columns: bool, cols: usize, rows: usize, cw: u32, ch: u3
     app.seed_split_pane_for_test(columns, t2, w2, p2);
     app.set_test_cell_for_test(cell(cw, ch));
     app.set_test_surface_for_test(surf_w, surf_h, crate::native::WindowPadding::ZERO);
-    // Reflow the split so each pane is sized to its (narrow) sub-rect — the
+    // Reflow the split so each pane is sized to its (narrow) sub-rect - the
     // pre-close state where the survivor is clipped to half-width.
     app.reflow_active_panes_for_test();
     Some(app)
@@ -5668,7 +5668,7 @@ fn closing_a_column_split_reflows_survivor_to_full_width() {
         1,
         "tab collapsed to one pane"
     );
-    // The survivor must now span the full content width (and full height — a
+    // The survivor must now span the full content width (and full height - a
     // column split never changed the row count, so this also guards no regress).
     let (cols, rows) = app.active_session_grid_dims_for_test();
     assert_eq!(
@@ -5820,7 +5820,7 @@ fn drag_select_still_works_single_pane() {
 fn divider_drag_coalesces_the_pty_resize_to_one_flush_at_release() {
     // Coalescing guard (Phase H): a divider drag fires one pointer-move event
     // per pixel. Routing each through the full pane resize flooded the shell with
-    // one kernel resize (`ResizePseudoConsole`/`TIOCSWINSZ`) per move — on
+    // one kernel resize (`ResizePseudoConsole`/`TIOCSWINSZ`) per move - on
     // Windows ConPTY that scrambles PSReadLine's prompt as it repaints
     // mid-resize. The fix reflows the on-screen grid LIVE per move but defers the
     // single kernel resize to drag-end. This test crosses many cell boundaries
@@ -6248,7 +6248,7 @@ fn single_pane_has_no_divider_drag_resize_path() {
 
 #[test]
 fn attach_overlay_closes_when_switching_to_already_attached_session() {
-    // C5: the session-attach summon overlay must close when the selected
+    // The session-attach summon overlay must close when the selected
     // session is already attached in a tab. Before the fix, the already-attached
     // branch of route_attach_session switched tabs but returned WITHOUT closing
     // the overlay, so keyboard dispatch kept routing every key into the overlay's
@@ -6275,10 +6275,10 @@ fn attach_overlay_closes_when_switching_to_already_attached_session() {
     );
 }
 
-// --- W2: workspace rail chrome (design doc §7, ODP-2/-6) ---
+// --- workspace rail chrome (design doc §7, ODP-2/-6) ---
 
-/// F6-W5: a New Tab in a workspace bound to a host that is no longer configured
-/// falls back to a local tab and raises a one-line notice — a stale binding
+/// A New Tab in a workspace bound to a host that is no longer configured
+/// falls back to a local tab and raises a one-line notice - a stale binding
 /// never blocks opening a tab. (The connect path itself needs a live `ssh`; the
 /// stale-alias fallback is the headless-observable decision.)
 #[test]
@@ -6302,14 +6302,14 @@ fn bound_workspace_stale_host_falls_back_to_local_with_notice() {
         notice.contains("ghost-host") && notice.contains("local tab"),
         "notice names the stale host and the local fallback: {notice}"
     );
-    // The binding is left intact — only the resolution failed.
+    // The binding is left intact - only the resolution failed.
     assert_eq!(
         app.active_workspace_binding_for_test().as_deref(),
         Some("ghost-host")
     );
 }
 
-/// F6-W5: the App-side unbind clears the active workspace's host binding and
+/// The App-side unbind clears the active workspace's host binding and
 /// reports it; New Tab then returns to the local path.
 #[test]
 fn unbind_active_workspace_clears_the_binding() {
@@ -6320,8 +6320,8 @@ fn unbind_active_workspace_clears_the_binding() {
     app.set_workspace_binding_for_test(Some("edge".to_owned()));
     app.unbind_active_workspace();
     assert_eq!(app.active_workspace_binding_for_test(), None);
-    // W5-BIND-TOAST: unbind confirms that new tabs are local again (the message
-    // is host-agnostic — the escape is stating the new behavior, not the host).
+    // Unbind confirms that new tabs are local again (the message
+    // is host-agnostic - the escape is stating the new behavior, not the host).
     let notice = app
         .open_notice_message_for_test()
         .expect("unbind emits a one-line notice");
@@ -6333,8 +6333,8 @@ fn unbind_active_workspace_clears_the_binding() {
 
 #[test]
 fn single_workspace_default_shows_no_workspace_rail() {
-    // ODP-2: a single-workspace launch is ZERO chrome change from a top-only tab
-    // bar — the auto rail stays hidden until a second workspace exists.
+    // A single-workspace launch is ZERO chrome change from a top-only tab
+    // bar - the auto rail stays hidden until a second workspace exists.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -6362,7 +6362,7 @@ fn single_workspace_default_shows_no_workspace_rail() {
 
 #[test]
 fn workspace_rail_always_shows_with_a_single_workspace() {
-    // ODP-2: `workspace_rail = always` pins the rail even with one workspace
+    // `workspace_rail = always` pins the rail even with one workspace
     // (alongside the top bar).
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
@@ -6382,7 +6382,7 @@ fn workspace_rail_always_shows_with_a_single_workspace() {
 #[test]
 fn clicking_a_workspace_rail_slot_switches_the_active_workspace() {
     // ODP-10 / §7.1: a click on a rail slot dispatches to `switch_workspace`,
-    // not `switch_tab`; the band reports the WORKSPACE surface. RAIL-DRAG: a
+    // not `switch_tab`; the band reports the WORKSPACE surface. a
     // press now ARMS a drag-to-reorder gesture and the switch fires on release
     // (a click that never crossed the movement threshold), so the click is a
     // press+release pair with the pointer parked on the same slot.
@@ -6474,7 +6474,7 @@ fn dragging_a_workspace_slot_reorders_it_and_follows_the_active_by_identity() {
         eprintln!("skipping: no PTY available");
         return;
     };
-    // Press on slot 0's label cell (row 1) — arms the gesture, no switch yet.
+    // Press on slot 0's label cell (row 1) - arms the gesture, no switch yet.
     app.set_pointer_px_for_test(12.0, 24.0);
     app.mouse_left_press_for_test();
     assert_eq!(
@@ -6621,7 +6621,7 @@ fn a_sub_threshold_press_stays_a_click_and_does_not_reorder() {
 #[test]
 fn escape_cancels_a_workspace_drag_leaving_the_order_untouched() {
     // Once armed, Escape aborts the gesture with the rail order unchanged and the
-    // drag state cleared — the cancel-on-escape ergonomic.
+    // drag state cleared - the cancel-on-escape ergonomic.
     let Some(mut app) = rail_drag_app() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -6931,7 +6931,7 @@ fn a_revealed_autohide_rail_click_keeps_the_single_pane_route() {
 
 #[test]
 fn the_rail_plus_slot_resolves_to_a_new_workspace_hit() {
-    // §7.4: the rail `+` slot is New Workspace — it resolves to a `NewTab` hit on
+    // §7.4: the rail `+` slot is New Workspace - it resolves to a `NewTab` hit on
     // the WORKSPACE band (dispatched to `handle_new_workspace`).
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
@@ -6944,7 +6944,7 @@ fn the_rail_plus_slot_resolves_to_a_new_workspace_hit() {
     app.rename_workspace_for_test(0, "a");
     app.rename_workspace_for_test(1, "b");
 
-    // RAIL-PLUS-GAP: the `+` anchors a dead gap below workspace 1's end row
+    // The `+` anchors a dead gap below workspace 1's end row
     // (row 7 centre y = 7*16 + 8 = 120), with the dead separator on row 6,
     // mirroring the tab-rail `+` geometry.
     app.set_pointer_px_for_test(20.0, 120.0);
@@ -6979,10 +6979,10 @@ fn the_shared_rename_field_retargets_the_workspace_name() {
     );
 }
 
-// ---- WP2: debounced workspace-shape autosave (sub-ODP 8c/8d) ----
+// ---- debounced workspace-shape autosave (sub-ODP 8c/8d) ----
 
 /// A burst of shape mutations coalesces into exactly one autosave write once the
-/// debounce quiet window elapses — a drag/rapid-edit stream is one write, not N.
+/// debounce quiet window elapses - a drag/rapid-edit stream is one write, not N.
 #[test]
 fn shape_autosave_debounces_a_mutation_burst_into_one_write() {
     let Some((mut app, _fixtures)) = app_with_two_sessions() else {
@@ -7111,7 +7111,7 @@ fn switching_back_to_a_scrolled_up_tab_does_not_strand_the_viewport() {
 }
 
 /// FEEL-FIX (Bug 6) companion: a tab left at the live bottom (offset 0) stays
-/// live across a background switch — backgrounded growth must not push the view
+/// live across a background switch - backgrounded growth must not push the view
 /// off the tail, and no reconcile can make it drift.
 #[test]
 fn switching_back_to_a_live_bottom_tab_stays_live() {

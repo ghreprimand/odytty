@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! MOUSE-SCROLLBAR App-level press-routing precedence tests. They prove that a
 //! left press on the *visible* scroll thumb grabs it to scrub scrollback and
-//! wins over TUI mouse reporting, while every other press — including in a
-//! mouse-reporting app, and at the live tail — routes exactly as before (the
+//! wins over TUI mouse reporting, while every other press - including in a
+//! mouse-reporting app, and at the live tail - routes exactly as before (the
 //! byte-identical guarantee for the default/off paths).
 //!
 //! Headless (no GPU/window): the cell size the hit-test needs is injected via a
@@ -90,7 +90,7 @@ fn press_off_thumb_still_reports_in_a_mouse_reporting_app() {
     app.enable_mouse_reporting_for_test();
 
     // A press well left of the thumb's grab band (the text area) is not a thumb
-    // grab, so it routes to the PTY report exactly as before — even though the
+    // grab, so it routes to the PTY report exactly as before - even though the
     // thumb is visible and scrollbar_drag is on.
     let off_x = (thumb.rect[0] / 2.0) as f64;
     let cy = ((thumb.rect[1] + thumb.rect[3]) / 2.0) as f64;
@@ -101,7 +101,7 @@ fn press_off_thumb_still_reports_in_a_mouse_reporting_app() {
 #[test]
 fn off_switch_does_not_grab_even_on_the_visible_thumb() {
     // Inverted-gate parity: with `scrollbar_drag = false`, a press on the
-    // visible thumb does NOT grab — it falls through to a local selection,
+    // visible thumb does NOT grab - it falls through to a local selection,
     // byte-identical to before the feature existed.
     let Some((mut app, thumb)) = app_scrolled_back() else {
         eprintln!("skipping: no PTY available");
@@ -122,7 +122,7 @@ fn off_switch_does_not_grab_even_on_the_visible_thumb() {
 #[test]
 fn press_at_live_tail_never_grabs() {
     // Default offset (live tail): the thumb is hidden, so a right-edge press
-    // does not grab — keeping the plain press path byte-identical. With no thumb
+    // does not grab - keeping the plain press path byte-identical. With no thumb
     // to grab, the press starts a local selection (the historical behavior).
     let Some(mut app) = build_app(b"") else {
         eprintln!("skipping: no PTY available");

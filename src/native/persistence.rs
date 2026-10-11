@@ -1,33 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Workspace SHAPE persistence — a serializable snapshot of the window's
+//! Workspace SHAPE persistence - a serializable snapshot of the window's
 //! workspace / tab / pane STRUCTURE (design doc §10).
 //!
 //! What a snapshot captures: workspace names and order, tab titles / count /
 //! order, each tab's pane split tree + ratios, and per-pane cwd. What it
 //! NEVER captures: terminal grid content, scrollback, environment, or command
-//! lines. That exclusion is a hard privacy invariant (the FREEZE-HARDEN rule,
-//! §10.1) and a security posture: a local shape restore lands a fresh
+//! lines. That exclusion is a hard privacy invariant (design doc §10.1) and a
+//! security posture: a local shape restore lands a fresh
 //! interactive shell at the captured cwd and never re-executes a captured
 //! command. A live detached host can be reattached, while a captured remote
 //! pane reconnects at the remote login shell's default directory.
 //!
 //! Platform-neutral and first-class on Windows (§10.8): the state dir has a
-//! tested `%LOCALAPPDATA%` arm (NF13), OSC 7 cwd capture covers PowerShell and
+//! tested `%LOCALAPPDATA%` arm, OSC 7 cwd capture covers PowerShell and
 //! drive-letter paths, and the fresh-shell restore path is the only path on
 //! Windows (no live session-host to re-attach), so this works identically
 //! there.
 //!
 //! Format is JSON, pretty-printed and hand-editable (§10.4). `serde_json` is
 //! not in the dependency tree, so a small self-contained reader/writer (`json`
-//! below) handles the fixed, shallow schema — the design sanctions this over
+//! below) handles the fixed, shallow schema - the design sanctions this over
 //! adding a dependency for a shape this small.
 //!
-//! This module is the WP1 infra layer: capture + serialize + atomic write +
-//! read-back + version-skew tolerance. Restore-on-launch wiring, the
-//! `restore_workspaces` setting, the debounced autosave, and the
-//! primary-instance lock are WP2 and consume these types — hence the
-//! module-level `dead_code` allow, mirroring the `layout.rs` scaffold
-//! precedent.
+//! This module is the persistence layer: capture + serialize + atomic write +
+//! read-back + version-skew tolerance. Restore-on-launch, the
+//! `restore_workspaces` setting, the debounced autosave and the primary-instance
+//! lock consume these types. Some helpers are referenced only from tests, so the
+//! module keeps a module-level `dead_code` allow.
 
 #![allow(dead_code)]
 
@@ -47,7 +46,7 @@ pub(crate) const SNAPSHOT_VERSION: u32 = 1;
 /// Basename of the single whole-app autosave snapshot in the state dir.
 const SNAPSHOT_FILE: &str = "workspaces.json";
 
-/// Subdirectory of the state dir that will hold named layouts (WP3). Declared
+/// Subdirectory of the state dir that will hold named layouts. Declared
 /// here so the on-disk layout is fixed from WP1; WP3 writes `<name>.json`
 /// files under it. Kept separate from the autosave so a corrupt or
 /// hand-broken layout can never poison launch restore (design §10.4).
@@ -75,7 +74,7 @@ const MAX_TABS_PER_WORKSPACE: usize = 512;
 /// under the JSON parser's own nesting-depth guard.
 const MAX_PANE_DEPTH: usize = 48;
 /// Max total leaves (restorable panes) across the whole snapshot. This bounds
-/// the restore batch's process spawns — the restore path spawns one child per
+/// the restore batch's process spawns - the restore path spawns one child per
 /// leaf, so this is the hard ceiling on that fan-out.
 const MAX_TOTAL_LEAVES: usize = 8192;
 
@@ -123,7 +122,7 @@ impl From<SplitAxis> for SplitAxisShape {
 
 /// A tab's pane layout, mirrored off the internal `PaneNode` tree but with each
 /// leaf carrying its captured cwd (a restorable value) instead of a live,
-/// ephemeral session token. A leaf `cwd` of `None` means "unknown" — restore
+/// ephemeral session token. A leaf `cwd` of `None` means "unknown" - restore
 /// lands that pane at `$HOME` / `%USERPROFILE%` (design §10.5 degrade path).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum PaneShape {
@@ -135,12 +134,12 @@ pub(crate) enum PaneShape {
         /// shell silently. Never captured on Windows (no detached-session
         /// transport there), and tolerated-absent on pre-WP3 snapshots.
         session_host_id: Option<String>,
-        /// The remote host this pane was connected to (RESTORE-REMOTE), or
+        /// The remote host this pane was connected to, or
         /// `None` for a locally-spawned pane. Holds the saved-profile alias when
         /// the pane was opened from a `hosts.conf` entry (so restore re-resolves
         /// its full per-host config), else the literal `[user@]host[:port]`
         /// destination for an ad-hoc connection. On restore this pane respawns
-        /// through the `ssh` connect path — a fresh remote login shell, never a
+        /// through the `ssh` connect path - a fresh remote login shell, never a
         /// re-run of any captured command (8i). Serialized as `null` for a local
         /// pane and tolerated-absent on pre-RESTORE-REMOTE snapshots (a missing
         /// key loads as `None`, i.e. a local pane).
@@ -173,7 +172,7 @@ impl PaneShape {
 
     /// Nesting depth of this subtree: a leaf is depth 1, a split is one deeper
     /// than its deeper child. Used to bound restore against a pathologically
-    /// deep pane tree (PLAUS-01).
+    /// deep pane tree.
     fn depth(&self) -> usize {
         match self {
             PaneShape::Leaf { .. } => 1,
@@ -406,7 +405,7 @@ impl TabShape {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct WorkspaceShape {
     pub(crate) name: String,
-    /// The host alias this workspace is bound to (F6-W5), or `None` for a plain
+    /// The host alias this workspace is bound to, or `None` for a plain
     /// local workspace. When set, restore re-applies the binding so a New Tab in
     /// the restored workspace routes through the remote connect path again.
     /// Tolerated-absent on old snapshots (WP1 forward-compat): a missing field
@@ -521,8 +520,8 @@ impl ShapeSnapshot {
         Ok(snapshot)
     }
 
-    /// Reject a parsed snapshot that exceeds the aggregate load budgets
-    /// (PLAUS-01). Returns the first budget violated as a
+    /// Reject a parsed snapshot that exceeds the aggregate load budgets.
+    /// Returns the first budget violated as a
     /// [`LoadError::Malformed`] so the caller degrades to a fresh launch (fail
     /// closed) before any restore process is spawned, rather than instantiating
     /// a pathological tree. The bounds are generous enough that no legitimate
@@ -581,9 +580,9 @@ pub(crate) enum LoadOutcome {
     Loaded(ShapeSnapshot),
     /// No snapshot file exists yet (first launch, or restore never saved).
     Absent,
-    /// A newer schema version — ignore and launch fresh, with a notice.
+    /// A newer schema version - ignore and launch fresh, with a notice.
     Skew { found: u32 },
-    /// Unreadable or malformed — ignore and launch fresh, with a notice.
+    /// Unreadable or malformed - ignore and launch fresh, with a notice.
     Corrupt(String),
 }
 
@@ -592,7 +591,7 @@ pub(crate) fn snapshot_path() -> PathBuf {
     state_log_dir().join(SNAPSHOT_FILE)
 }
 
-/// Absolute path of the named-layouts directory in the state dir (WP3).
+/// Absolute path of the named-layouts directory in the state dir.
 pub(crate) fn layouts_dir() -> PathBuf {
     state_log_dir().join(LAYOUTS_DIR)
 }
@@ -602,7 +601,7 @@ pub(crate) fn layouts_dir() -> PathBuf {
 /// only ever leave the temp file behind (cleaned up on the error path), never a
 /// half-written snapshot (design §10.4 / sub-ODP 8c). The temp file's data is
 /// `sync_all`'d and the parent directory is fsync'd before returning, so the
-/// rename is durable across a power loss — parity with the settings writeback
+/// rename is durable across a power loss - parity with the settings writeback
 /// path. The rename is atomic and replaces an existing target on both Unix and
 /// Windows. Creates the parent directory if absent.
 pub(crate) fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
@@ -666,7 +665,7 @@ pub(crate) fn sanitize_layout_name(name: &str) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
-    // C26: Windows reserved device stems (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+    // Windows reserved device stems (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
     // are illegal filenames on Windows EVEN WITH an extension -- "CON.json"
     // resolves to the console device, not a file. Mangle them cross-platform so
     // a layout saved on any OS is portable and can never open a device.
@@ -725,7 +724,7 @@ pub(crate) fn save_layout(name: &str, snapshot: &ShapeSnapshot) -> io::Result<St
     save_layout_in(&prepared_layouts_dir()?, name, snapshot)
 }
 
-/// Whether a saved layout already exists for `name` in `dir` (OVERWRITE-WARN).
+/// Whether a saved layout already exists for `name` in `dir`.
 /// Keyed by the SAME sanitized stem [`save_layout_in`] writes, so the existence
 /// check can never disagree with the writer about which file a name maps to. An
 /// unusable name (nothing survives sanitization) can never collide, so it is
@@ -735,7 +734,7 @@ fn layout_exists_in(dir: &Path, name: &str) -> bool {
         .is_some_and(|path| crate::state_dir::open_existing_sensitive(&path).is_ok())
 }
 
-/// Whether a saved layout already exists for `name` (OVERWRITE-WARN). The save
+/// Whether a saved layout already exists for `name`. The save
 /// paths call this before writing so a name collision can prompt the user
 /// (replace vs. a different name) instead of silently clobbering.
 pub(crate) fn layout_exists(name: &str) -> bool {
@@ -797,7 +796,7 @@ fn list_layout_names_in(dir: &Path) -> LayoutListing {
     listing
 }
 
-/// The names of all saved layouts, sorted (WP3). Empty when nothing is saved.
+/// The names of all saved layouts, sorted. Empty when nothing is saved.
 pub(crate) fn list_layout_names() -> Vec<String> {
     list_layouts().names
 }
@@ -827,7 +826,7 @@ fn load_layout_in(dir: &Path, name: &str) -> LoadOutcome {
     }
 }
 
-/// Read and classify a named layout (WP3). Mirrors [`load_snapshot`]'s
+/// Read and classify a named layout. Mirrors [`load_snapshot`]'s
 /// four-way outcome so the caller degrades a corrupt/skewed layout to a notice
 /// instead of instantiating a broken workspace.
 pub(crate) fn load_layout(name: &str) -> LoadOutcome {
@@ -946,7 +945,7 @@ fn read_sensitive_to_string(path: &Path) -> io::Result<String> {
 
 fn read_sensitive_to_string_with_limit(path: &Path, limit: u64) -> io::Result<String> {
     let file = crate::state_dir::open_existing_sensitive(path)?;
-    // PLAUS-01: reject an implausibly large state file before reading it into
+    // Reject an implausibly large state file before reading it into
     // memory. Legitimate workspace state is kilobytes; this cap bounds both the
     // whole-file read and the parser's char-vector clone of the input. Over-cap
     // surfaces as a corrupt-load outcome (fail closed to a fresh launch), never
@@ -970,7 +969,7 @@ fn read_sensitive_to_string_with_limit(path: &Path, limit: u64) -> io::Result<St
     Ok(text)
 }
 
-/// C27: remove crash-orphaned atomic-write temporaries from the state and
+/// Remove crash-orphaned atomic-write temporaries from the state and
 /// layouts directories at startup. A crash between [`create_temp_sibling`] and
 /// its rename leaves a hidden `.<base>...tmp` sibling behind; without a sweep
 /// these accumulate across sessions. Only files matching that shape AND older
@@ -1068,8 +1067,8 @@ pub(crate) fn resolve_cwd(captured: Option<&str>, home: Option<&Path>) -> Resolv
     }
 }
 
-/// Validate an interactively tracked (OSC 7) cwd before it seeds a spawn
-/// (audit D-1). Unlike [`resolve_cwd`] (the restore path), an unknown cwd stays
+/// Validate an interactively tracked (OSC 7) cwd before it seeds a spawn.
+/// Unlike [`resolve_cwd`] (the restore path), an unknown cwd stays
 /// `None` -- New Tab / Duplicate / New Window then spawn in the default
 /// directory, the pre-fix behavior -- rather than falling back to home. A
 /// tracked directory that still exists is used as-is; an invalid one falls back

@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Perceptual-safe theme authoring math (U2 core): the pure, deterministic
+//! Perceptual-safe theme authoring math: the pure, deterministic
 //! primitives the interactive theme builder wires its OKLCH sliders, live
 //! contrast readout, and snap-to-floor onto.
 //!
-//! The native builder (sliders, the readout widget, the hex-entry fallback) is a
-//! separate, later packet; this module is only the math, with no I/O, no RNG, and
-//! no UI. Every function is pure and deterministic — identical inputs yield
-//! byte-identical output — so the whole authoring surface is golden-testable.
+//! The native builder (`native/theme_builder.rs`) owns the sliders, the readout
+//! widget and the hex-entry fallback; this module is only the math, with no I/O,
+//! no RNG, and no UI. Every function is pure and deterministic - identical inputs yield
+//! byte-identical output - so the whole authoring surface is golden-testable.
 //!
 //! ## The guarantee: "you cannot author an unreadable theme"
 //!
 //! The builder edits a role in OKLCH (perceptually uniform lightness / chroma /
 //! hue) via [`nudge`], shows the live WCAG contrast of the role against the
-//! surface it is read on via [`authoring_contrast`], and — when the operator
-//! asks, or as a hard backstop on write — pulls the role up to the authoring
+//! surface it is read on via [`authoring_contrast`], and - when the user
+//! asks, or as a hard backstop on write - pulls the role up to the authoring
 //! floor via [`snap_to_floor`]. Because the snap is validated on the **final
 //! quantized 8-bit bytes**, the value the builder writes to the `.theme` is
 //! exactly what the renderer draws: *authored == rendered*. No render-time
@@ -22,10 +22,10 @@
 //! ## Two distinct floors
 //!
 //! - **Authoring floor** ([`AUTHORING_CONTRAST_FLOOR`], WCAG 4.5): what the
-//!   builder authors against — the WCAG AA body-text threshold, so a theme built
+//!   builder authors against - the WCAG AA body-text threshold, so a theme built
 //!   here is comfortably legible, not merely above the bare render minimum.
 //! - **Render-time floor** (`min_contrast`, default 1.0): the universal safety
-//!   net the renderer applies to *all* text (U1). It stays at unity by default so
+//!   net the renderer applies to *all* text. It stays at unity by default so
 //!   it never silently rewrites a deliberately-authored low-contrast accent.
 //!
 //! The builder authors against 4.5; the renderer floor stays 1.0. They are
@@ -34,7 +34,7 @@
 //! ## Relationship to the palette generator
 //!
 //! [`crate::palette_gen`] solves the one-shot "seed → whole legible theme"
-//! problem; this module solves the interactive "operator is dragging a slider on
+//! problem; this module solves the interactive "user is dragging a slider on
 //! one role" problem. They share the same hue-preserving chroma-reduction gamut
 //! map and the same byte-rechecked floor technique, reimplemented locally here on
 //! purpose: consolidating both into one shared authoring core is a deliberately
@@ -46,7 +46,7 @@ use crate::color::{
 };
 use crate::theme::{Appearance, Srgb, ThemeSpec};
 
-/// The WCAG contrast ratio the interactive builder authors against — the AA
+/// The WCAG contrast ratio the interactive builder authors against - the AA
 /// body-text threshold. Distinct from the render-time `min_contrast` floor
 /// (default 1.0): the builder snaps roles up to 4.5 so an authored theme is
 /// comfortably legible, while the renderer's universal floor stays at unity and
@@ -61,7 +61,7 @@ pub const AUTHORING_CONTRAST_FLOOR: f32 = 4.5;
 /// `[0, 1]` and chroma to `>= 0`; hue is free (the `cos`/`sin` round-trip handles
 /// wrap). If the nudged chroma exceeds the sRGB gamut at that lightness, the
 /// gamut map reduces chroma toward the neutral axis rather than clamping
-/// per-channel (which would skew the hue), so the hue the operator dialed in is
+/// per-channel (which would skew the hue), so the hue the user dialed in is
 /// the hue they get.
 ///
 /// Pure and deterministic.
@@ -81,7 +81,7 @@ pub fn nudge(color: Srgb, dl: f32, dc: f32, dh: f32) -> Srgb {
 /// This is the "cannot author unreadable" backstop. The guarantee is checked on
 /// the **final quantized 8-bit bytes**, not on the intermediate float color, so
 /// the value returned here is exactly what the renderer will draw against the
-/// same partner — *authored == rendered*. The underlying
+/// same partner - *authored == rendered*. The underlying
 /// `palette_gen::floor_role` moves OKLab lightness (hue
 /// preserved, gamut-mapped along the hue, bytes re-checked) and picks the
 /// lightness direction that increases contrast, so the
@@ -132,11 +132,11 @@ pub enum AuthorRole {
     Selection,
     /// The search-highlight fill.
     Search,
-    /// The window background (the surface itself — not floored).
+    /// The window background (the surface itself - not floored).
     Background,
-    /// Window-clear color (chrome — not floored).
+    /// Window-clear color (chrome - not floored).
     Clear,
-    /// Window border (chrome — not floored).
+    /// Window border (chrome - not floored).
     Border,
     /// Inactive / dim chrome (not floored).
     Inactive,
@@ -166,7 +166,7 @@ pub enum FloorAgainst {
 /// (imported below), so the interactive author-time snap and the one-shot
 /// generator exempt exactly the same slots by construction -- pre-flooring these
 /// would collapse the very ramp the generator protects, and the render-time
-/// floor (U1) still lifts any text that actually lands on the background at draw
+/// floor still lifts any text that actually lands on the background at draw
 /// time.
 use crate::palette_gen::bg_side_neutral_slots;
 
@@ -176,7 +176,7 @@ use crate::palette_gen::bg_side_neutral_slots;
 ///
 /// This is the single source of the author-time surface mapping; it matches the
 /// generator's RV1 validation pass ([`palette_gen::validate`](crate::palette_gen))
-/// verbatim — including the [`bg_side_neutral_slots`] exemption — so the
+/// verbatim - including the [`bg_side_neutral_slots`] exemption - so the
 /// interactive snap and the one-shot generator agree on what is floored against
 /// what. The palette mapping is therefore **appearance-dependent**: which two
 /// neutral slots are exempt flips with the light/dark polarity.
@@ -206,7 +206,7 @@ pub fn floor_partner(role: AuthorRole, appearance: Appearance) -> Option<FloorAg
 /// [`floor_partner`] that reads the appearance + surface color out of `spec` so a
 /// caller can `snap_to_floor(role_color, partner, AUTHORING_CONTRAST_FLOOR)`
 /// directly. Because the background-side neutral exemption is appearance-keyed,
-/// this resolves it from `spec.appearance` — the same polarity the generator
+/// this resolves it from `spec.appearance` - the same polarity the generator
 /// used to author the theme.
 pub fn partner_color(spec: &ThemeSpec, role: AuthorRole) -> Option<Srgb> {
     floor_partner(role, spec.appearance).map(|against| match against {
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn nudge_hue_rotation_preserves_target_hue() {
         // Rotating hue by dh lands (after gamut-map + quantization) within a
-        // small tolerance of the intended hue — the operator gets the hue dialed.
+        // small tolerance of the intended hue - the user gets the hue dialed.
         let base = (0x4f, 0x9c, 0xff);
         let base_h = srgb_to_oklch(base).h;
         for &dh in &[0.0_f32, 0.3, -0.5, 1.2] {
@@ -485,7 +485,7 @@ mod tests {
 
     #[test]
     fn snap_is_idempotent_on_its_own_output() {
-        // Snapping an already-snapped value changes nothing material — a second
+        // Snapping an already-snapped value changes nothing material - a second
         // pass returns a byte-identical result.
         let cand = oklch_to_srgb(Oklch {
             l: 0.35,
@@ -575,7 +575,7 @@ mod tests {
     #[test]
     fn background_side_neutral_pair_is_exempt_per_appearance() {
         // Mirrors palette_gen::validate: dark exempts color0/color8, light exempts
-        // color7/color15 — these structural ramp neutrals are NOT pre-floored.
+        // color7/color15 - these structural ramp neutrals are NOT pre-floored.
         for slot in [0, 8] {
             assert_eq!(
                 floor_partner(AuthorRole::Palette(slot), Appearance::Dark),
@@ -660,7 +660,7 @@ mod tests {
             partner_color(&spec, AuthorRole::Palette(3)),
             Some(spec.background)
         );
-        // Background-side neutral (dark color0) resolves to None — not floored.
+        // Background-side neutral (dark color0) resolves to None - not floored.
         assert_eq!(partner_color(&spec, AuthorRole::Palette(0)), None);
         // Fill role → foreground; chrome → None.
         assert_eq!(
@@ -673,7 +673,7 @@ mod tests {
     #[test]
     fn snap_a_role_against_its_resolved_partner_clears_the_floor() {
         // End-to-end: resolve a role's partner from a spec, snap the role color
-        // against it, and confirm the snapped bytes clear the authoring floor —
+        // against it, and confirm the snapped bytes clear the authoring floor -
         // the exact call shape the native builder will use.
         let spec = ThemeSpec::default();
         // Deliberately darken the foreground toward the background to break the

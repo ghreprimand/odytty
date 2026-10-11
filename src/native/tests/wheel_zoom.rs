@@ -4,7 +4,7 @@
 //! reporting app's Ctrl+wheel passes through to the PTY (the report gate wins),
 //! that the off switch returns Ctrl+wheel to plain scrollback movement, and
 //! that the zoom clamps at the supported font-size bounds. A plain wheel (no
-//! Ctrl) never zooms — the byte-identical guarantee for the default path.
+//! Ctrl) never zooms - the byte-identical guarantee for the default path.
 //!
 //! Headless (no GPU/window): the wheel is driven through the real
 //! `handle_mouse_wheel` routing so the precedence is pinned, not reimplemented.
@@ -29,7 +29,7 @@ fn build_app(content: &[u8]) -> Option<App> {
 }
 
 /// A PTY writer that records every byte written to it, so a test can assert the
-/// exact mouse report a routing decision emits. (`flush` is a no-op — the byte
+/// exact mouse report a routing decision emits. (`flush` is a no-op - the byte
 /// stream is what we check.)
 #[derive(Clone, Default)]
 struct RecordingWriter {
@@ -113,9 +113,9 @@ fn plain_wheel_without_ctrl_never_zooms() {
 fn ctrl_wheel_does_not_zoom_in_a_mouse_reporting_app() {
     // The report gate sits before the zoom branch: when a TUI has enabled mouse
     // reporting, Ctrl+wheel must report to the PTY exactly as a normal wheel
-    // notch does, and never zoom. Both halves are pinned — the font size stays
+    // notch does, and never zoom. Both halves are pinned - the font size stays
     // put AND the emitted bytes match the production wheel-up report at the
-    // pointer cell — so this proves the report path actually ran, not merely
+    // pointer cell - so this proves the report path actually ran, not merely
     // that the zoom branch was skipped.
     let Some((mut app, pty_bytes)) = build_recording_app(b"") else {
         eprintln!("skipping: no PTY available");
@@ -174,9 +174,9 @@ fn ctrl_wheel_does_not_zoom_in_a_mouse_reporting_app() {
 
 #[test]
 fn ctrl_wheel_over_open_overlay_does_not_zoom() {
-    // Overlay precedence (UX4-P1): an open settings panel captures the wheel
+    // Overlay precedence: an open settings panel captures the wheel
     // first to scroll its own list, before the report gate or the zoom branch.
-    // So Ctrl+wheel over an open overlay must not change the font size — this is
+    // So Ctrl+wheel over an open overlay must not change the font size - this is
     // intentional, not an oversight.
     let Some(mut app) = build_app(b"") else {
         eprintln!("skipping: no PTY available");
@@ -197,7 +197,7 @@ fn ctrl_wheel_over_open_overlay_does_not_zoom() {
 #[test]
 fn wheel_zoom_off_switch_routes_ctrl_wheel_as_plain_scroll() {
     // Inverted-gate parity: with `wheel_zoom = false`, Ctrl+wheel falls through
-    // to plain scrollback movement — the font is untouched and the viewport
+    // to plain scrollback movement - the font is untouched and the viewport
     // scrolls into history exactly as a plain wheel would.
     let Some(mut app) = build_app(&b"scrollback line\r\n".repeat(80)) else {
         eprintln!("skipping: no PTY available");
@@ -230,7 +230,7 @@ fn ctrl_wheel_clamps_at_font_size_bounds() {
     // Zooming past either bound is a clean no-op (the clamp leaves the size
     // unchanged, which `apply_reloadable_values` treats as no change).
     //
-    // WHEEL-SENS: Ctrl+wheel is now debounced to at most ONE font step per
+    // Ctrl+wheel is now debounced to at most ONE font step per
     // physical notch (the cap that ends runaway zoom), so reaching a bound takes
     // one notch per pixel of headroom rather than a single giant event. Each
     // `dispatch_wheel_for_test(1.0)` is one clean discrete notch == one step.

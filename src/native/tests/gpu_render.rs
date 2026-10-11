@@ -1106,8 +1106,8 @@ fn padded_cell_vertices_start_at_window_padding_origin() {
 
 #[test]
 fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
-    // The cursor layer is built twice here — once appended to a full rebuild,
-    // once on its own — and the two are compared byte-for-byte. The
+    // The cursor layer is built twice here - once appended to a full rebuild,
+    // once on its own - and the two are compared byte-for-byte. The
     // under-cursor glyph color is floored through the process-global
     // minimum-contrast seam, so a floor change landing between the two appends
     // diverges them. Hold the shared render-globals guard across both.
@@ -1186,8 +1186,8 @@ fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
 
 #[test]
 fn full_rebuild_cursor_layer_matches_cursor_only_during_large_jump_follower() {
-    // The cursor layer is built twice here — once appended to a full rebuild,
-    // once on its own — and the two are compared byte-for-byte. The
+    // The cursor layer is built twice here - once appended to a full rebuild,
+    // once on its own - and the two are compared byte-for-byte. The
     // under-cursor glyph color is floored through the process-global
     // minimum-contrast seam, so a floor change landing between the two appends
     // diverges them. Hold the shared render-globals guard across both.
@@ -1262,8 +1262,8 @@ fn full_rebuild_cursor_layer_matches_cursor_only_during_large_jump_follower() {
 
 #[test]
 fn full_rebuild_cursor_layer_matches_cursor_only_when_unfocused() {
-    // The cursor layer is built twice here — once appended to a full rebuild,
-    // once on its own — and the two are compared byte-for-byte. The
+    // The cursor layer is built twice here - once appended to a full rebuild,
+    // once on its own - and the two are compared byte-for-byte. The
     // under-cursor glyph color is floored through the process-global
     // minimum-contrast seam, so a floor change landing between the two appends
     // diverges them. Hold the shared render-globals guard across both.
@@ -1568,9 +1568,9 @@ fn render_signature_update_matrix_covers_pixel_invalidators() {
         GeometryUpdate::Full
     );
 
-    // MOUSE-RECT: the SAME selection range with a different mode (wrapped vs
+    // The SAME selection range with a different mode (wrapped vs
     // rectangular/block) paints a different highlight shape, so the content
-    // signature must change — otherwise a coalesced redraw could retain a stale
+    // signature must change - otherwise a coalesced redraw could retain a stale
     // wrapped highlight when a block selection recreates the same range (and
     // vice versa). Both directions must classify as Full.
     let mut block_selection = selection.clone();
@@ -1622,7 +1622,7 @@ fn render_signature_update_matrix_covers_pixel_invalidators() {
     // SH2 status gutter: a pure OSC 133 status transition can move prompt marks
     // without bumping the terminal revision. The native layer folds a monotonic
     // prompt-marks epoch into the content signature (only while the gutter is
-    // on), so the bumped epoch must force a non-retained rebuild — otherwise the
+    // on), so the bumped epoch must force a non-retained rebuild - otherwise the
     // gutter bar would not repaint until an unrelated invalidator fired.
     let mut gutter_marks = base.clone();
     gutter_marks.content.prompt_marks_epoch += 1;
@@ -1694,7 +1694,7 @@ fn hyperlink_click_policy_authorizes_on_open_modifier_alone() {
         false,
         OpenerOs::Linux
     ));
-    // Ctrl+Shift still authorizes — Shift is no longer required, just harmless.
+    // Ctrl+Shift still authorizes - Shift is no longer required, just harmless.
     assert!(hyperlink_action_allowed(
         Modifiers {
             ctrl: true,
@@ -1778,7 +1778,7 @@ fn hyperlink_action_macos_uses_cmd_open_modifier() {
         true,
         OpenerOs::Macos
     ));
-    // Cmd+Shift also authorizes — Shift is not required.
+    // Cmd+Shift also authorizes - Shift is not required.
     assert!(hyperlink_action_allowed(
         Modifiers {
             ctrl: false,

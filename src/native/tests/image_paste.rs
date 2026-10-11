@@ -2,7 +2,7 @@
 //! F6-i7 App-level image paste-through tests. These drive a real `App` (with a
 //! real `EventLoop` proxy where a case spawns a session, and none otherwise)
 //! through the production paste path, `handle_paste_shortcut` and
-//! the confirm-prompt commit/cancel — with a synthetic clipboard image and a
+//! the confirm-prompt commit/cancel - with a synthetic clipboard image and a
 //! synthetic remote-integrated upload target. The pure argv/target builders are
 //! tested in `ssh_connect.rs`; here we pin the App gating + confirm flow:
 //! prompt-on-eligible, Enter uploads, Esc cancels, and the off/local/over-cap
@@ -74,7 +74,7 @@ fn recorded_app() -> Option<(App, std::sync::Arc<std::sync::Mutex<Vec<u8>>>)> {
 
 #[test]
 fn image_upload_completion_notifies_and_copies_without_pty_write() {
-    // IMAGE-PASTE-NOTICE: a successful image upload must NOT type the remote
+    // A successful image upload must NOT type the remote
     // path into the shell (a bare path on an empty prompt runs on the next
     // Enter and errors). Instead the completion posts an in-pane notice and
     // copies the path to the local clipboard.
@@ -149,7 +149,7 @@ fn image_paste_prompts_then_uploads_on_confirm() {
     app.set_clipboard_image_for_test(Some(png));
 
     // A paste on a remote integrated tab with a clipboard image arms the confirm
-    // prompt — nothing is uploaded yet.
+    // prompt - nothing is uploaded yet.
     app.handle_paste_shortcut_for_test();
     assert!(
         app.image_paste_pending_for_test(),

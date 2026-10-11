@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! S3b-2: cursor effects and cell-anchored overlays under the test-only bidi
+//! Cursor effects and cell-anchored overlays under the test-only bidi
 //! display gate. The cursor slide, trail, follower, and aura run in drawn
 //! columns, so a move on a reordered line animates exactly as the same move
 //! between the same screen cells on an unreordered line. The armed underline,

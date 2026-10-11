@@ -3,9 +3,9 @@
 //!
 //! Mechanically split out of `app/mod.rs` to keep that file under the
 //! source-size cap; no behavior change. These `App` methods turn the desktop's
-//! color-scheme preference — delivered live by the compositor on Wayland via
+//! color-scheme preference - delivered live by the compositor on Wayland via
 //! `WindowEvent::ThemeChanged`, seeded from `ODYTTY_APPEARANCE` on X11 where no
-//! live signal exists — into the active presentation theme. They live in a
+//! live signal exists - into the active presentation theme. They live in a
 //! child module so they can reach `App`'s private fields and the sibling free
 //! helpers (`rgb`, `text::*`) directly; `app/mod.rs` calls
 //! [`App::resolve_active_theme`] from the settings-reload seam and
@@ -17,9 +17,11 @@ impl App {
     /// Resolve the theme that should currently drive presentation. Returns the
     /// OS-selected dark/light theme when following is on and the OS signal maps
     /// to a configured, resolvable theme name; otherwise returns the authored
-    /// [`Settings::theme`] unchanged. The authored theme is always the fallback,
-    /// so an unset or unknown direction never guesses (D-OST-3/T3), and the off
-    /// path (`follow_os_theme = false`) returns exactly `self.settings.theme` —
+    /// [`Settings::theme`] unchanged. A followed external palette wins over the
+    /// OS mapping, which wins over the authored theme. The authored theme is
+    /// always the fallback,
+    /// so an unset or unknown direction never guesses, and the off
+    /// path (`follow_os_theme = false`) returns exactly `self.settings.theme` -
     /// byte-identical to before the feature existed.
     pub(super) fn resolve_active_theme(&self) -> Theme {
         if self.settings.follow_external_palette
@@ -169,12 +171,12 @@ impl App {
     /// Re-resolve and republish the active theme after an OS appearance change
     /// (or at startup when following is on). Recomputes `self.theme` via
     /// [`Self::resolve_active_theme`], re-derives the CVD-adapted
-    /// `effective_theme`, and pushes it to every renderer color seam — the
+    /// `effective_theme`, and pushes it to every renderer color seam - the
     /// theme-only subset of the settings-reload publish (no font/padding/bloom/
     /// crt work, which a pure theme switch never changes). A no-op (no epoch
     /// bump, no rebuild) when the resolved theme already equals the live one, so
     /// repeated `ThemeChanged` events at the same preference are idempotent and
-    /// free (T4).
+    /// free.
     pub(super) fn apply_os_theme_override(&mut self) {
         let next = self.resolve_active_theme();
         if next == self.theme {
@@ -190,8 +192,8 @@ impl App {
         let themed_ui_roles = self.themed_ui_roles;
         let cvd_mode = self.settings.cvd_mode;
         let cvd_strength = self.settings.cvd_strength;
-        // NF21-4: an OS light/dark flip must reach EVERY session's terminal
-        // model, not just the active one through `Deref` — otherwise a
+        // An OS light/dark flip must reach EVERY session's terminal
+        // model, not just the active one through `Deref` - otherwise a
         // background tab (or background workspace's tabs) keeps answering OSC
         // 4/10/11 with the old theme and paints a stale cursor default on
         // switch-back. Mirrors the reload-seam fan-out. Per session: a profile
@@ -211,7 +213,7 @@ impl App {
             };
             let base_fg = rgb(theme.foreground);
             let base_bg = rgb(theme.background);
-            // C29: keep OSC 4 replies in sync with the newly effective theme.
+            // Keep OSC 4 replies in sync with the newly effective theme.
             let base_palette = theme.palette.map(rgb);
             {
                 let mut terminal = crate::native::lock_recover(&session.terminal);

@@ -2,16 +2,16 @@
 //! Shared image-file decode point (FLAG B + FLAG F).
 //!
 //! Every image-file decode in the app funnels through this one module so the
-//! decode bound is enforced in exactly one place — the same "single audit
+//! decode bound is enforced in exactly one place - the same "single audit
 //! point" discipline as the argv-only `spawn_detached`. Two callers use it:
 //!
 //! * the background-image / wallpaper path ([`super::gpu::image`]), and
-//! * the in-terminal image viewer overlay (Phase 9 / C4).
+//! * the in-terminal image viewer overlay.
 //!
 //! ## The decode bound (FLAG B)
 //!
 //! The terminal graphics `ImageStore` enforces a 64 MiB cap, but that cap is
-//! applied *after* decode — on the resulting RGBA buffer. A crafted small file
+//! applied *after* decode - on the resulting RGBA buffer. A crafted small file
 //! (a decompression bomb: tiny on disk, enormous decoded) can therefore OOM
 //! *during* decode before the post-decode cap ever sees it. The fix is to bound
 //! the decode itself: [`image::Limits`] (max width/height/total allocation) set
@@ -26,7 +26,7 @@
 //! ## Format trust
 //!
 //! `with_guessed_format()` content-sniffs the actual bytes (magic numbers), so
-//! a `.png` that is really text — or a file with no/extension-mismatched name —
+//! a `.png` that is really text - or a file with no/extension-mismatched name -
 //! is classified by its content, not its name. The extension allowlist in the
 //! pure `crate::paths` layer only decides whether to *offer* the viewer; this
 //! decode is the real gate.
@@ -182,7 +182,7 @@ mod tests {
     use image::{ImageEncoder, ImageFormat};
 
     /// Encode a synthetic solid RGBA image to an in-memory byte buffer in the
-    /// given format — the test-only inverse of the decoder, so robustness tests
+    /// given format - the test-only inverse of the decoder, so robustness tests
     /// never need a real file. PNG/JPEG only (the always-available encoders
     /// among the enabled features).
     fn encode_solid(width: u32, height: u32, format: ImageFormat) -> Vec<u8> {
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn content_sniffing_ignores_a_lying_name() {
-        // The decoder never sees the name — it sniffs the bytes. A valid PNG
+        // The decoder never sees the name - it sniffs the bytes. A valid PNG
         // body decodes regardless of what extension a caller thought it had.
         let bytes = encode_solid(2, 2, ImageFormat::Png);
         assert!(decode_image_rgba_bytes(&bytes).is_some());

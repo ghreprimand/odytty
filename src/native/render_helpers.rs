@@ -70,7 +70,7 @@ pub(super) fn image_uploads_for_visible(
 /// Cmd (the super/logo key) on macOS.
 ///
 /// macOS translates Ctrl+left-click into a SECONDARY (right) click at the OS
-/// level, so winit reports it as a right button and it opens the context menu —
+/// level, so winit reports it as a right button and it opens the context menu -
 /// Ctrl can never reach the left/open path on a Mac. Cmd+left-click is NOT
 /// translated (stays a left event) and is the macOS-native "open" convention,
 /// so it is the open modifier there. Linux is unchanged (Ctrl).
@@ -89,7 +89,7 @@ pub(super) fn open_modifier_held(mods: Modifiers, super_key: bool, os: OpenerOs)
 
 /// Whether a left click should trigger the open path: the platform open
 /// modifier ([`open_modifier_held`]) is held (Ctrl on Linux/Windows, Cmd on
-/// macOS). This deliberately does NOT depend on mouse reporting — a plain
+/// macOS). This deliberately does NOT depend on mouse reporting - a plain
 /// open-modifier click over a resolved span opens even inside a mouse-tracking
 /// TUI (Claude Code, vim, tmux), matching the kitty/iTerm2/GNOME Terminal
 /// convention. The report-vs-open decision under mouse reporting is made
@@ -121,7 +121,7 @@ impl GeometryUpdate {
     /// path (`GpuState::update_cursor_and_overlays`) rebuilds ONLY that segment
     /// from the cursor vertices: it truncates to `cell_vertex_count` and
     /// re-appends the cursor WITHOUT the rail. So once the rail is steady-revealed
-    /// the next cursor blink — a `CursorOnly` update — drops the rail out of the
+    /// the next cursor blink - a `CursorOnly` update - drops the rail out of the
     /// buffer, and it stays gone until an unrelated `Full` rebuild (a hover
     /// change, terminal output, or the pointer leaving the window) re-appends it.
     /// That is the "reveals where expected, then vanishes as the pointer inches
@@ -132,7 +132,7 @@ impl GeometryUpdate {
     /// Promote `CursorOnly` to `Full` whenever the rail overlay is present so it
     /// is re-appended every frame it is visible. `Full` and `Retained` are left
     /// unchanged (`Retained` never touches the buffer, so the rail persists across
-    /// it), and the no-rail path keeps its classification exactly — nothing off
+    /// it), and the no-rail path keeps its classification exactly - nothing off
     /// the revealed-rail path changes.
     pub(super) fn retaining_rail_overlay(self, rail_present: bool) -> Self {
         match self {
@@ -173,20 +173,9 @@ pub(super) enum NoticeSurface {
 /// the contributor adds nothing to the composite cache key, so an inactive
 /// feature never perturbs the geometry-update decision. Each active feature
 /// folds its compact, change-observable state into its own variant.
-///
-/// Foundation note: every variant except `Inert` is currently unconstructed in
-/// production (the contributor `*_overlay_signature()` methods all return
-/// `Inert`); the variants land here so later feature work fills in
-/// only its own submodule body without re-editing this enum.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-// Foundation scaffolding: every variant except `Inert` is intentionally
-// unconstructed in production until its later feature work fills in the
-// corresponding `*_overlay_signature()` body. Landing the variants now is the
-// whole point of the dissolver: feature work edits only its own submodule,
-// never this enum.
-#[allow(dead_code)]
 pub(super) enum OverlayFragment {
-    /// Contributes nothing to the cache key — the off/inactive state.
+    /// Contributes nothing to the cache key - the off/inactive state.
     Inert,
     /// HINTS label-overlay epoch (bumped when the visible label set changes).
     Hints { label_epoch: u64 },
@@ -219,7 +208,7 @@ pub(super) enum OverlayFragment {
     /// inline pre-edit overlay repaints via a Full geometry update. `Inert` when
     /// no composition is in progress.
     ImePreedit { text: String },
-    /// OPEN-NOTICE (P0-2) transient banner text and painted surface. Changes
+    /// Transient notice banner text and painted surface. Changes
     /// when a new notice is raised, or the same text is raised in another tone
     /// or as a consent prompt, so the banner repaints; `Inert` when no notice is
     /// in flight (the default / success path), keeping the cache decision
@@ -228,7 +217,7 @@ pub(super) enum OverlayFragment {
         text: String,
         surface: NoticeSurface,
     },
-    /// UX-A (Phase 11) transient "Ctrl+click to open" discoverability hint.
+    /// Transient "Ctrl+click to open" discoverability hint.
     /// `Inert` when the hint is not shown (the default / feature-off path), so
     /// the cache decision is unchanged; `ClickHint { shown: true }` while the
     /// bottom-left hint is visible so it repaints when it raises and clears.
@@ -236,7 +225,7 @@ pub(super) enum OverlayFragment {
     /// Static centered feedback chip shared by bounded font-size and resize
     /// cues. The message changes the key; `Inert` when absent.
     TransientHud { text: String },
-    /// UX-A (Phase 11) armed underline on the open-modifier-hovered
+    /// UX-A armed underline on the open-modifier-hovered
     /// interactive-path or bare-URL span. `Inert` unless the open modifier (Ctrl,
     /// or Cmd on macOS) is held and an enabled path or URL is hovered, so plain
     /// hover and feature-off are unchanged; the span coordinates change the key
@@ -283,7 +272,7 @@ pub(super) enum OverlayFragment {
 
 /// Folds the NEW overlay contributors' fragments into one hashable cache key.
 /// The existing selection/search/overlay/hovered_hyperlink/prompt_marks_epoch
-/// signature fields are left as-is (D-INFRA-1/D-INFRA-6) — only the open
+/// signature fields are left as-is - only the open
 /// frontier is generalized here. When every contributor is inactive every
 /// fragment is `Inert`, so the composite is a frame-to-frame constant and the
 /// geometry-update gate behaves exactly as before this field existed.
@@ -299,12 +288,12 @@ pub(super) struct OverlayCompositeSignature {
     pub(super) bell_flash: OverlayFragment,
     pub(super) ime_preedit: OverlayFragment,
     pub(super) open_notice: OverlayFragment,
-    /// UX-A (Phase 11) bottom-left click-to-open hint. `Inert` on the default /
+    /// UX-A bottom-left click-to-open hint. `Inert` on the default /
     /// feature-off / not-shown path, so the composite stays constant there.
     pub(super) click_hint: OverlayFragment,
     /// Reusable centered feedback HUD. `Inert` when no cue is visible.
     pub(super) transient_hud: OverlayFragment,
-    /// UX-A (Phase 11) open-modifier armed underline span. `Inert` unless armed, so
+    /// UX-A open-modifier armed underline span. `Inert` unless armed, so
     /// toggling the open modifier while hovering a path or URL reclassifies to a Full rebuild.
     pub(super) armed_path: OverlayFragment,
     /// Button Protocol B2 visible-button set. `Inert` when no button is visible
@@ -349,13 +338,10 @@ pub(super) struct RenderContentSignature {
     /// while it is off the epoch never advances, so the default render path
     /// stays byte-identical.
     pub(super) prompt_marks_epoch: u64,
-    /// Overlay-registry composite cache key for the NEW painted contributors
-    /// (hints / copy-mode / cursor-trail / background). All fragments are
-    /// `Inert` while their features are off, so this field is a constant on the
-    /// default path and the geometry-update decision is unchanged from before
-    /// the overlay registry landed.
+    /// Composite cache key of the overlay contributors; every fragment is
+    /// `Inert` while its feature is off.
     pub(super) overlays: OverlayCompositeSignature,
-    /// F4-P3 rail auto-hide overlay cache key. The revealed rail floats over the
+    /// Rail auto-hide overlay cache key. The revealed rail floats over the
     /// terminal without changing its content, so a pure reveal/hide (or a hover
     /// / tab-switch / auto-width change while revealed) would not perturb any of
     /// the fields above and the frame would be wrongly `Retained`. Folding the
@@ -373,7 +359,7 @@ pub(super) struct RenderContentSignature {
     pub(super) live_tab_drag: bool,
 }
 
-/// Cache key for the F4-P3 revealed rail overlay. `default()` — not revealed —
+/// Cache key for the F4-P3 revealed rail overlay. `default()` - not revealed -
 /// is a constant, so the geometry-update gate is unchanged when autohide is off
 /// or the rail is hidden.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -405,7 +391,7 @@ pub(super) struct CursorRenderSignature {
     /// params. When both features are off the params are the identity
     /// (`offset == [0, 0]`, `alpha == 1.0`) which quantizes to
     /// [`CursorAnimKey::IDENTITY`], so the key is a frame-to-frame constant and
-    /// the classification stays `Retained` — the plain path is byte-identical.
+    /// the classification stays `Retained` - the plain path is byte-identical.
     pub(super) anim: CursorAnimKey,
     /// Per-session large-jump follower phase. Zero at rest; changes on start,
     /// every active frame, and stop so content-stable follower frames classify as
@@ -472,10 +458,10 @@ impl CursorAnimKey {
 pub(super) struct SelectionSignature {
     pub(super) start: (usize, usize),
     pub(super) end: (usize, usize),
-    /// MOUSE-RECT: whether the live selection is a rectangular/column (block)
+    /// Whether the live selection is a rectangular/column (block)
     /// run. The highlight geometry differs for the same two corner endpoints
     /// (a column band vs a wrapped run), so block-ness must take part in the
-    /// render-cache signature — otherwise a cached frame could be reused with
+    /// render-cache signature - otherwise a cached frame could be reused with
     /// the wrong highlight shape. Folding it into the per-selection signature
     /// (rather than a top-level field) keeps it observable only while a
     /// selection exists, so a cleared-but-stale block flag never forces a
@@ -560,18 +546,18 @@ mod tests {
     }
 
     /// The promotion is scoped to exactly the lossy case: no rail present, or a
-    /// classification that already preserves the buffer, is left untouched — the
+    /// classification that already preserves the buffer, is left untouched - the
     /// plain / no-autohide path stays byte-identical.
     #[test]
     fn retention_leaves_every_other_case_unchanged() {
         // No rail: the CursorOnly fast path is safe and must be preserved (the
-        // whole point of the optimization) — no promotion.
+        // whole point of the optimization) - no promotion.
         assert_eq!(
             GeometryUpdate::CursorOnly.retaining_rail_overlay(false),
             GeometryUpdate::CursorOnly,
             "with no rail overlay the CursorOnly fast path is retained"
         );
-        // Full is already a full rebuild — unchanged regardless of the rail.
+        // Full is already a full rebuild - unchanged regardless of the rail.
         assert_eq!(
             GeometryUpdate::Full.retaining_rail_overlay(true),
             GeometryUpdate::Full
@@ -581,7 +567,7 @@ mod tests {
             GeometryUpdate::Full
         );
         // Retained never touches the vertex buffer, so the rail already in it
-        // from the last Full build persists across the frame — no promotion
+        // from the last Full build persists across the frame - no promotion
         // needed even with the rail present.
         assert_eq!(
             GeometryUpdate::Retained.retaining_rail_overlay(true),

@@ -25,13 +25,13 @@ use super::layout::*;
 use super::state::OverlayUi;
 
 impl OverlayUi {
-    /// The overlay's title-bar text — the single source of truth shared by the
+    /// The overlay's title-bar text - the single source of truth shared by the
     /// painter ([`apply_overlay`]) and the back-arrow hit-test
     /// ([`Self::picker_title_back_hit`]). A leading `\u{2190}` marks the modes
     /// that carry a clickable back/close affordance; deriving the hit-test from
     /// this string (rather than a hand-maintained mode list) is what stops a new
     /// `\u{2190}`-titled mode from drifting into a click-dead arrow (the NF15
-    /// recurrence class — About, then Connections, were each such a miss).
+    /// recurrence class - About, then Connections, were each such a miss).
     /// `ContextMenu` has no title bar (early-dispatched to its own layout) and
     /// returns an empty string.
     pub(in crate::native) fn title(&self) -> String {
@@ -61,7 +61,7 @@ impl OverlayUi {
             OverlayMode::ImageView => {
                 format!("\u{2190} {}  (Esc = close)", self.image_view_caption)
             }
-            // No title bar — early-dispatched to `apply_context_menu`.
+            // No title bar - early-dispatched to `apply_context_menu`.
             OverlayMode::ContextMenu => String::new(),
             OverlayMode::ConfirmClose => "Close?".to_owned(),
             OverlayMode::RiskyPaste if self.risky_paste.broadcast.is_some() => {
@@ -80,7 +80,7 @@ impl OverlayUi {
     }
 
     /// Whether the open centered overlay has hidden body rows above / below the
-    /// visible window, for the shared scroll affordance (OVERLAY-SMALL-WINDOW).
+    /// visible window, for the shared scroll affordance.
     /// `(false, false)` whenever the body fits, so a normal window draws no
     /// arrows and stays byte-identical. The context menu draws its own arrows
     /// (it is not a centered panel), so it returns `(false, false)` here. Each
@@ -204,9 +204,9 @@ pub(in crate::native) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut Ov
     ) else {
         return;
     };
-    // The context menu has its own no-title layout (IN2); dispatch and return.
+    // The context menu has its own no-title layout; dispatch and return.
     if overlay.mode == OverlayMode::ContextMenu {
-        // MENU-OVER-MANAGER: a connection-row menu is spawned from WITHIN the
+        // A connection-row menu is spawned from WITHIN the
         // connection manager, which stays loaded underneath (the mode is
         // ContextMenu, but `picker_return` restores Connections on dismiss).
         // The overlay system draws only the active mode, so without this the
@@ -233,9 +233,9 @@ pub(in crate::native) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut Ov
         apply_context_menu(snapshot, overlay, rect);
         return;
     }
-    // The image viewer is a LIGHTBOX (Phase 13c): the GPU draws a full-viewport
+    // The image viewer is a LIGHTBOX: the GPU draws a full-viewport
     // scrim + the image AFTER post-processing, so the cell grid must NOT paint a
-    // bordered panel behind it. Paint ONLY a minimal caption and return — no
+    // bordered panel behind it. Paint ONLY a minimal caption and return - no
     // fill, no border. The scrim dims this caption to legible light gray.
     if overlay.mode == OverlayMode::ImageView {
         apply_image_view_caption(snapshot, overlay);
@@ -247,8 +247,8 @@ pub(in crate::native) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut Ov
 /// Paint the generic bordered overlay panel (fill + border + title + the mode's
 /// visible body lines + scroll affordances) at `rect`. Extracted from
 /// [`apply_overlay`] so the connection-row context menu can render the still-open
-/// connection manager UNDERNEATH itself (MENU-OVER-MANAGER) before the menu box
-/// composites over it — the overlay system only draws the active mode, so the
+/// connection manager UNDERNEATH itself before the menu box
+/// composites over it - the overlay system only draws the active mode, so the
 /// manager would otherwise vanish the instant its row menu opened.
 pub(super) fn apply_panel(snapshot: &mut Snapshot, overlay: &mut OverlayUi, rect: OverlayRect) {
     let rows = snapshot.dimensions.rows;
@@ -284,7 +284,7 @@ pub(super) fn apply_panel(snapshot: &mut Snapshot, overlay: &mut OverlayUi, rect
 
     let body_width = rect.body_width;
     // Sync the body dimensions into the panel before rendering so that keyboard
-    // navigation (`clamp`) uses the real visible window (VIEWPORT-FOLLOW-LAG).
+    // navigation (`clamp`) uses the real visible window.
     if overlay.mode == OverlayMode::Settings {
         overlay.panel.update_body_height(rect.body_height);
         overlay.panel.update_body_width(rect.body_width);
@@ -324,7 +324,7 @@ pub(super) fn apply_panel(snapshot: &mut Snapshot, overlay: &mut OverlayUi, rect
             write_text(snapshot, y, text_column, text_width, &row.text, attrs);
         }
     }
-    // Shared scroll affordance (OVERLAY-SMALL-WINDOW): a ▲ on the top border and
+    // Shared scroll affordance: a ▲ on the top border and
     // a ▼ on the bottom border when the body overflows the visible window.
     // Painted onto the border (right side, clear of the title), so a window tall
     // enough to show everything draws neither arrow and stays byte-identical.
@@ -339,7 +339,7 @@ pub(super) fn apply_panel(snapshot: &mut Snapshot, overlay: &mut OverlayUi, rect
     }
 }
 
-/// Paint ONLY the image-viewer lightbox caption (Phase 13c) — no panel fill, no
+/// Paint ONLY the image-viewer lightbox caption - no panel fill, no
 /// border. The image + a full-viewport dimming scrim are composited on the GPU
 /// after post-processing; the cell grid contributes just this caption so the
 /// viewer reads as a classic lightbox (dimmed terminal, bright photo). The
@@ -362,7 +362,7 @@ pub(super) fn apply_image_view_caption(snapshot: &mut Snapshot, overlay: &Overla
     );
 }
 
-/// Render the right-click context menu (IN2): a bordered box at the spawn cell
+/// Render the right-click context menu: a bordered box at the spawn cell
 /// with one row per item. The focused item gets the highlight attrs; a disabled
 /// item (Copy with no selection, Paste with an empty clipboard) renders dim. No
 /// title row. Item text starts at `left + 2` (border + one pad column), matching
@@ -545,7 +545,7 @@ impl OverlayUi {
                 .into_iter()
                 .map(OverlayLine::from)
                 .collect(),
-            // The image viewer (C4) draws the decoded picture over the panel via
+            // The image viewer draws the decoded picture over the panel via
             // the GPU image layer; the only cell-rendered body is a short hint,
             // which the image covers when it is large enough.
             OverlayMode::ImageView => vec![OverlayLine {
@@ -555,9 +555,9 @@ impl OverlayUi {
                 bold: false,
             }],
             // The context menu renders via `apply_context_menu`, not this shared
-            // body walker (IN2).
+            // body walker.
             OverlayMode::ContextMenu => Vec::new(),
-            // Static confirmation copy (CLOSE-CONFIRM). No state, no swatch; the
+            // Static confirmation copy. No state, no swatch; the
             // shared centered-panel painter draws it like any other modal body.
             OverlayMode::ConfirmClose => vec![
                 OverlayLine {
@@ -653,8 +653,8 @@ impl OverlayUi {
                     },
                 ]
             }
-            // Static choice copy (Phase 14). Row 0 prompt, row 1 blank, row 2 the
-            // action line — the action row index (2) matches `ACTION_ROW` in
+            // Static choice copy. Row 0 prompt, row 1 blank, row 2 the
+            // action line - the action row index (2) matches `ACTION_ROW` in
             // `attach_choice_click` so the click hit-test lands on it.
             OverlayMode::AttachChoice => vec![
                 OverlayLine {
@@ -678,7 +678,7 @@ impl OverlayUi {
             ],
             // Static kill-confirmation copy (Manage Sessions). Row 0 names the
             // target session (truncated to the body), row 1 blank, row 2 the
-            // action line — the action row index (2) matches `ACTION_ROW` in
+            // action line - the action row index (2) matches `ACTION_ROW` in
             // `confirm_kill_session_click`. The id is plain (validated to
             // alnum/._- by `safe_session_id`), so it cannot inject escapes.
             OverlayMode::ConfirmKillSession => {
@@ -741,8 +741,8 @@ impl OverlayUi {
             }
             // Static Detach & switch copy. Row 0 names the cwd, row 1
             // is the honest data-loss warning, row 2 blank, row 3 the action
-            // line — the action row index (3) matches `ACTION_ROW` in
-            // `detach_switch_click`. The cwd is operator-controlled text, so it
+            // line - the action row index (3) matches `ACTION_ROW` in
+            // `detach_switch_click`. The cwd is externally controlled text, so it
             // is control-stripped and truncated to the body width; it is
             // display-only here.
             OverlayMode::DetachSwitchChoice => {
@@ -784,18 +784,15 @@ impl OverlayUi {
                     },
                 ]
             }
-            // Static replace-tab confirm copy (ODP-5D). Row 0 names the host and
-            // the running-shell hazard, row 1 blank, row 2 the action line — the
+            // Static replace-tab confirm copy. Row 0 names the host and
+            // the running-shell hazard, row 1 blank, row 2 the action line - the
             // action row index (2) matches `ACTION_ROW` in
             // `confirm_replace_tab_click`. The host alias is OdyTTY-owned config
             // text; it is truncated to the body width and display-only here.
             OverlayMode::ConfirmReplaceTab => {
                 let prompt = match self.confirm_replace_tab.as_ref() {
                     Some((host, _)) => {
-                        format!(
-                            "A program is running here — replace it with {}?",
-                            host.alias
-                        )
+                        format!("A program is running here. Replace it with {}?", host.alias)
                     }
                     None => "A program is running in this tab.".to_owned(),
                 };
@@ -821,8 +818,8 @@ impl OverlayUi {
                     },
                 ]
             }
-            // Static remove-host confirm copy (ODP-2C). Row 0 names the host
-            // being deleted, row 1 blank, row 2 the action line — the action row
+            // Static remove-host confirm copy. Row 0 names the host
+            // being deleted, row 1 blank, row 2 the action line - the action row
             // index (2) matches `ACTION_ROW` in `confirm_remove_host_click`. The
             // host alias is OdyTTY-owned config text; truncated to the body width
             // and display-only here.
@@ -853,9 +850,9 @@ impl OverlayUi {
                     },
                 ]
             }
-            // Static overwrite-layout confirm copy (OVERWRITE-WARN). Row 0 names
-            // the colliding layout, row 1 blank, row 2 the three-way action line
-            // — the action row index (2) matches `ACTION_ROW` in
+            // Static overwrite-layout confirm copy. Row 0 names
+            // the colliding layout, row 1 blank, row 2 the three-way action line -
+            // the action row index (2) matches `ACTION_ROW` in
             // `confirm_overwrite_layout_click`. The layout name is user-entered
             // text; truncated to the body width and display-only here.
             OverlayMode::ConfirmOverwriteLayout => {
@@ -887,9 +884,9 @@ impl OverlayUi {
                     },
                 ]
             }
-            // Static open-layout mode copy (LAYOUT-OPEN-MODE). Row 0 names the
-            // layout being opened, row 1 blank, row 2 the three-way action line
-            // — the action row index (2) matches `ACTION_ROW` in
+            // Static open-layout mode copy. Row 0 names the
+            // layout being opened, row 1 blank, row 2 the three-way action line -
+            // the action row index (2) matches `ACTION_ROW` in
             // `confirm_open_layout_click`. The layout name is user-entered text;
             // truncated to the body width and display-only here.
             OverlayMode::ConfirmOpenLayout => {
@@ -1222,9 +1219,9 @@ pub(in crate::native) fn fit_chars(text: &str, max_width: usize) -> String {
 }
 
 /// Fit a footer / hint line into `max_width` display cells **without cutting a
-/// word in half** (OVERLAY-SMALL-WINDOW). When the whole hint already fits the
+/// word in half**. When the whole hint already fits the
 /// string is returned unchanged, so the normal/large-window render is
-/// byte-identical to before this helper existed — the word-boundary trim only
+/// byte-identical to before this helper existed - the word-boundary trim only
 /// engages on a window too narrow to show the full hint. If even the first word
 /// overflows, it falls back to a hard character cut so something legible still
 /// shows. Leading indentation spaces are preserved.
@@ -1412,7 +1409,7 @@ pub(super) fn focused_attrs() -> Attrs {
     attrs
 }
 
-/// Attrs for a disabled context-menu item (IN2): the panel fill with a muted
+/// Attrs for a disabled context-menu item: the panel fill with a muted
 /// (bright-black) foreground so the label reads as unavailable.
 pub(super) fn dim_attrs() -> Attrs {
     let mut attrs = panel_attrs();

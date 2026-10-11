@@ -18,8 +18,8 @@ use super::reload::{ConfigFileFingerprint, ConfigPollEvent};
 use super::*;
 
 mod automation;
-/// Tests in this directory that call `apply_reloadable_values` — or that read
-/// one of the process-global switches it republishes — take
+/// Tests in this directory that call `apply_reloadable_values` - or that read
+/// one of the process-global switches it republishes - take
 /// `crate::test_lock::render_globals_lock`, the single coordinating guard for
 /// that state. A directory-local mutex used to serialize them instead; two
 /// locks over one class of state exclude nothing from each other, so a reload
@@ -96,7 +96,7 @@ fn every_reload_test_holds_the_render_globals_lock() {
 /// C14 (structural): every `ODYTTY_*` env-key const declared in
 /// `settings/consts.rs` must be listed in [`SETTING_ENV_KEYS`]. That list is
 /// the reload snapshot's source of truth (`reload::env_snapshot`), so a key
-/// missing from it silently loses its env override on every config reload —
+/// missing from it silently loses its env override on every config reload -
 /// exactly what happened to `ODYTTY_COMMAND_STATUS_GUTTER`. The test parses
 /// the consts source at compile time, so declaring a new `*_ENV` const
 /// without listing it fails here instead of shipping the same bug again.
@@ -125,7 +125,7 @@ fn setting_env_keys_lists_every_declared_env_const() {
 
     assert!(
         declared.len() >= 70,
-        "the consts parse found only {} env keys — parser broken?",
+        "the consts parse found only {} env keys: parser broken?",
         declared.len()
     );
     let missing: Vec<&String> = declared
@@ -268,7 +268,7 @@ fn config_base_dir_resolves_xdg_then_home() {
 #[cfg(windows)]
 #[test]
 fn config_base_dir_prefers_appdata_on_windows() {
-    // D-12: on Windows the config base resolves under %APPDATA%\odytty; an
+    // On Windows the config base resolves under %APPDATA%\odytty; an
     // empty/unset APPDATA falls through to XDG_CONFIG_HOME then HOME. Runs on
     // the windows-latest leg.
     let via_appdata = config_base_dir_from_env(

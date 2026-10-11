@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Runtime window/title-bar icon for the native window.
 //!
-//! This sets the icon winit applies to the live window — the title-bar glyph and
+//! This sets the icon winit applies to the live window - the title-bar glyph and
 //! the Alt-Tab / taskbar entry on platforms that honor a per-window icon
 //! (Windows and X11). winit treats `with_window_icon` as a no-op on macOS (the
-//! `.app` bundle's icon is authoritative) and on Wayland (which has no
-//! per-window icon protocol; the `.desktop` app-id supplies the icon there), so
+//! `.app` bundle's icon is authoritative) and ignores the icon on Wayland (the
+//! `.desktop` app-id supplies the icon there), so
 //! wiring this in is a deliberate, low-risk enhancement on the platforms that
 //! use it and a harmless no-op elsewhere.
 //!
@@ -16,7 +16,7 @@
 //! The art is the 256×256 hicolor PNG that already backs the Linux `.desktop`
 //! entry, embedded with `include_bytes!` so it is always present (no file I/O at
 //! startup, works from any working directory). Decoding is robust: any failure
-//! yields `None` and a logged warning — a bad icon must NEVER break window
+//! yields `None` and a warning on stderr - a bad icon must NEVER break window
 //! creation.
 
 /// The embedded source art: the same 256×256 PNG used for the Linux desktop

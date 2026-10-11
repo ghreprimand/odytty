@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! PATHS-DETECT — the pure path-span scanner.
+//! The pure path-span scanner.
 //!
 //! [`detect_paths`] is a hand-rolled, single-pass, dependency-free scanner that
 //! finds filesystem-path-looking spans in one line of terminal text and parses
 //! an optional trailing `:line[:col]` suffix off each one. It is **syntactic
-//! only** — it makes no filesystem decision; liveness is decided later by the
+//! only** - it makes no filesystem decision; liveness is decided later by the
 //! resolution layer ([`super::resolve`]) through an injectable stat probe.
 //!
 //! See `docs/interactive-paths-design.md` for the full model. The short version:
@@ -13,7 +13,7 @@
 //!   quotes/brackets and trailing prose punctuation, that satisfies a shape
 //!   rule: absolute (`/…`), home (`~/…`), explicit relative (`./…`, `../…`), or
 //!   bare relative that **contains a `/`** (`src/main.rs`). The default
-//!   interior-`/` requirement is the key false-positive guard — a lone word, a
+//!   interior-`/` requirement is the key false-positive guard - a lone word, a
 //!   version string (`1.2.3`), or a domain (`example.com`) is never a candidate.
 //!   [`DetectionOptions::barewords`] can additionally emit basename-like tokens
 //!   such as `carpet1.jpg`; callers must still resolve them through the stat
@@ -31,7 +31,7 @@ pub struct PathSpan {
     /// Byte offset into the line where the actionable span begins (after any
     /// stripped leading wrappers/quotes).
     pub start: usize,
-    /// Byte offset just past the actionable span — covers the path body **and**
+    /// Byte offset just past the actionable span - covers the path body **and**
     /// the `:line[:col]` suffix, but excludes stripped trailing punctuation and
     /// wrappers. `line[start..end]` is the full highlightable region.
     pub end: usize,
@@ -55,7 +55,7 @@ pub struct DetectionOptions {
 }
 
 /// Longest candidate body (bytes) the scanner will consider. A token longer
-/// than this is rejected rather than grown — anti-DoS bound for hostile lines.
+/// than this is rejected rather than grown - anti-DoS bound for hostile lines.
 const MAX_CANDIDATE_LEN: usize = 4096;
 
 /// Most candidates emitted from a single line. Once hit, scanning stops.
@@ -125,7 +125,7 @@ const MAX_HOVER_SIDE_TOKENS: usize = 6;
 /// [`detect_paths`] tokenizes strictly on ASCII whitespace, so a filename with a
 /// space (`my notes.txt`) is split into `my` + `notes.txt` and neither token
 /// resolves to the real file. This generator emits, for the hovered token, the
-/// contiguous token-RUN candidates that include it — each built from the EXACT
+/// contiguous token-RUN candidates that include it - each built from the EXACT
 /// original line substring `line[run_start..run_end]`, so internal spacing
 /// (including runs of spaces / tabs from column-padded output) is preserved
 /// verbatim rather than re-joined. Candidates are ordered longest-first and
@@ -142,7 +142,7 @@ pub fn detect_path_candidates_at(
     at_byte: usize,
     options: DetectionOptions,
 ) -> Vec<PathSpan> {
-    // Tokenize into (start, end) byte ranges on ASCII whitespace — the identical
+    // Tokenize into (start, end) byte ranges on ASCII whitespace - the identical
     // boundary rule [`detect_paths_with_options`] uses (boundary-safe on the raw
     // byte; see that function's note on Unicode-whitespace aliasing).
     let bytes = line.as_bytes();
@@ -248,8 +248,8 @@ fn is_path_shape_allowing_spaces(body: &str, options: DetectionOptions) -> bool 
 /// filename such as `my notes.txt` qualifies. Requires an actual internal space
 /// (the no-space case is handled by [`is_path_shape`]); rejects leading/trailing
 /// whitespace, and keeps the file-extension, version, and domain guards. The
-/// extension (after the final `.`) must still be clean — [`is_file_extension`]
-/// rejects any whitespace there — so a run that does not end in an
+/// extension (after the final `.`) must still be clean - [`is_file_extension`]
+/// rejects any whitespace there - so a run that does not end in an
 /// extensioned token (e.g. `my file.txt here`) is not a candidate.
 fn is_spaced_bareword_path_shape(body: &str) -> bool {
     let bytes = body.as_bytes();
@@ -294,7 +294,7 @@ fn scan_token(token: &str, options: DetectionOptions) -> Option<PathSpan> {
     if body.is_empty() {
         return None;
     }
-    // 4. Shape test — only true path shapes qualify.
+    // 4. Shape test - only true path shapes qualify.
     if !is_path_shape(body, options) {
         return None;
     }
@@ -393,7 +393,7 @@ fn strip_trailing_colon_num(s: &str) -> Option<(&str, u32)> {
         return None;
     }
     // Windows drive-letter guard: never peel a `:<digits>` suffix when the only
-    // thing before the colon is a single ascii-alpha char — that is a drive
+    // thing before the colon is a single ascii-alpha char - that is a drive
     // letter (`C:10`), not a `body:line` suffix, so peeling would wrongly leave
     // a bare `C`. Harmless on POSIX: a token like `a:10` never produces a path
     // span either way (a lone `a` fails the shape test), so detection stays
@@ -426,7 +426,7 @@ fn is_path_shape(body: &str, options: DetectionOptions) -> bool {
         return true;
     }
     // Windows path shapes (drive-absolute / UNC / backslash separator). Wired in
-    // only on Windows so Linux/macOS detection stays byte-identical — no existing
+    // only on Windows so Linux/macOS detection stays byte-identical - no existing
     // POSIX input can newly become a path. The matcher itself is also compiled in
     // test builds (see [`is_windows_path_shape`]) so its logic is unit-tested on
     // a Linux host.
@@ -448,13 +448,13 @@ fn is_path_shape(body: &str, options: DetectionOptions) -> bool {
 /// macOS release build, which keeps POSIX path detection byte-identical.
 ///
 /// The drive-absolute matcher requires EXACTLY ONE ascii-alphabetic char before
-/// the colon, then a separator — this is the critical URL-collision guard: a
+/// the colon, then a separator - this is the critical URL-collision guard: a
 /// scheme like `https:`/`file:` has multiple chars before the colon and so can
 /// never be mistaken for a drive.
 #[cfg(any(windows, test))]
 fn is_windows_path_shape(body: &str) -> bool {
     let bytes = body.as_bytes();
-    // Drive-absolute: <letter> ':' ('\' | '/') — single-letter drive only.
+    // Drive-absolute: <letter> ':' ('\' | '/') - single-letter drive only.
     if bytes.len() >= 3
         && bytes[0].is_ascii_alphabetic()
         && bytes[1] == b':'
@@ -714,7 +714,7 @@ mod tests {
         // Regression for the macOS 26.5 mouse-move abort: a Powerline prompt
         // glyph `\u{e0a0}` is UTF-8 `EE 82 A0`. Its tail byte `0xA0`, if cast
         // `as char`, becomes U+00A0 NO-BREAK SPACE, which `is_whitespace()`
-        // reports true — splitting the token mid-character and panicking the
+        // reports true - splitting the token mid-character and panicking the
         // `&line[..]` slice. The scanner must treat the whole glyph as
         // non-whitespace and never panic.
         let line = "\u{e0a0} ~/Projects/Archon \u{e0b0} main";
@@ -791,7 +791,7 @@ mod tests {
     #[test]
     fn spaceless_token_is_present_and_is_the_shortest_fallback() {
         // A spaceless path token is always a candidate, and (being the shortest)
-        // is probed LAST — so once the longer prose-with-slash runs fail the
+        // is probed LAST - so once the longer prose-with-slash runs fail the
         // stat-gate, the single token wins and resolves byte-identically. The
         // longer runs are inert at resolve time (no such file), so the resolved
         // outcome is unchanged; the byte-identity is pinned end-to-end in the
@@ -885,7 +885,7 @@ mod tests {
     fn split_suffix_drive_letter_guard() {
         // `C:10` must NOT peel to body `C` + line 10 (drive-letter guard).
         assert_eq!(split_suffix("C:10"), ("C:10", None, None));
-        // A real drive path with a line:col suffix peels correctly — the chars
+        // A real drive path with a line:col suffix peels correctly - the chars
         // before each colon are many, so the guard does not fire.
         assert_eq!(
             split_suffix("C:\\src\\main.rs:10:5"),

@@ -202,7 +202,7 @@ pub(super) fn key_bindings_edit_value(bindings: &[KeyBindingOverride]) -> String
 
 /// Serialize key-binding overrides to the `keybinds=` config value (KB-REMAP
 /// persistence). Public wrapper over the internal serializer so the native
-/// remap UI writes the EXACT string the parser round-trips — never a reinvented
+/// remap UI writes the EXACT string the parser round-trips - never a reinvented
 /// format. An empty slice yields an empty string (clears the setting).
 pub fn key_bindings_config_value(overrides: &[KeyBindingOverride]) -> String {
     key_bindings_edit_value(overrides)

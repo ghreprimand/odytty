@@ -13,7 +13,7 @@ impl SettingsPanel {
             return SettingsPanelOutcome::Consumed;
         }
         // The synthetic "Open Theme Builder" action row opens the builder
-        // directly (v0.3.1 discoverability) — no `b` press, no row edit.
+        // directly (v0.3.1 discoverability) - no `b` press, no row edit.
         if entry.key == THEME_BUILDER_ACTION_KEY {
             self.message = Some("Opening theme builder.".to_owned());
             return SettingsPanelOutcome::OpenThemeBuilder;

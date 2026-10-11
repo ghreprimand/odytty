@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! App-side "Open With…" integration (C3b): the production seams and the open
+//! App-side "Open With…" integration: the production seams and the open
 //! action.
 //!
 //! The pure enumeration lives in `crate::desktop` behind two injectable seams
 //! ([`crate::desktop::MimeProbe`] + [`crate::desktop::DesktopEnv`]). This module
-//! supplies the one production implementation of each — [`XdgMimeProbe`] (the
-//! single audited captured-output `xdg-mime` spawn) and [`FsDesktopEnv`] (real
-//! `std::fs` + the real `XDG_*` env ladder, bounded reads) — and the App method
+//! supplies the one production implementation of each - [`PlatformMimeProbe`]
+//! (the single audited captured-output `xdg-mime` spawn on freedesktop Unix) and [`FsDesktopEnv`] (real
+//! `std::fs` + the real `XDG_*` env ladder, bounded reads) - and the App method
 //! that wires them, enumerates the handler apps, and opens the picker overlay.
 //!
 //! Layering: the seam *implementations* live here (in `native/`) because they
 //! touch the real process/filesystem; `crate::desktop` itself stays pure and
 //! GPU/windowing-free. The open action reuses the C3 `spawn_detached` verbatim.
 
-// Used only by the freedesktop MIME/desktop enumeration below — Linux/other
+// Used only by the freedesktop MIME/desktop enumeration below - Linux/other
 // free-desktop unixes only (gated off macOS, which uses NSWorkspace, and off
 // Windows, where the "Open With" list is a v1 scope cut).
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -40,7 +40,7 @@ use super::*;
 const MAX_DESKTOP_FILE_BYTES: u64 = 256 * 1024;
 
 /// Production MIME probe: the platform-aware, single audited captured-output
-/// MIME query (P0-1). On Linux it spawns `xdg-mime query filetype <abs>`
+/// MIME query. On Linux it spawns `xdg-mime query filetype <abs>`
 /// (argv-only, read-only); a non-zero exit, missing binary, or empty output
 /// yields `None` and then falls back to a small built-in magic-byte sniffer.
 /// A final `None` surfaces the empty picker with its visible empty-state hint
@@ -86,7 +86,7 @@ impl MimeProbe for PlatformMimeProbe {
             super::platform_opener::OpenerOs::Macos => None,
             // Windows: no `xdg-mime` equivalent wired; fall through to the
             // built-in magic-byte sniff below (the desktop "Open With" list is a
-            // v1 scope cut — see the desktop enumeration gating).
+            // v1 scope cut - see the desktop enumeration gating).
             super::platform_opener::OpenerOs::Windows => None,
         };
         platform_mime.or_else(|| super::platform_opener::sniff_mime_path(abs))
@@ -229,7 +229,7 @@ fn read_capped_lines(reader: impl std::io::Read, cap: u64) -> Option<String> {
 }
 
 impl App {
-    /// Open the "Open With…" app picker for a resolved file (C3b). Enumerates
+    /// Open the "Open With…" app picker for a resolved file. Enumerates
     /// the handler applications through the production seams (read-only; the
     /// one captured `xdg-mime` spawn plus bounded `std::fs` reads), each row
     /// carrying a pre-built argv-only command, and opens the picker overlay. A
@@ -266,7 +266,7 @@ impl App {
         {
             // Windows: no freedesktop database and no NSWorkspace. The full
             // "Open With…" app list is a v1 Windows scope cut, so enumerate
-            // nothing — the picker overlay still opens with its empty-state hint,
+            // nothing - the picker overlay still opens with its empty-state hint,
             // and default-open + reveal remain available. (Item is file-only.)
             let _ = abs;
             Vec::new()
@@ -275,7 +275,7 @@ impl App {
 }
 
 // These tests construct the Linux `PlatformMimeProbe` / `MimeProbe`, all gated
-// off macOS above — so the whole module is Linux-only too.
+// off macOS above - so the whole module is Linux-only too.
 #[cfg(all(test, unix, not(target_os = "macos")))]
 mod tests {
     use super::*;

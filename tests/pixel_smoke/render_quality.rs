@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! VE5 plain-bypass pixel proof (L2): `render_quality = plain` collapses to the
+//! VE5 plain-bypass pixel proof: `render_quality = plain` collapses to the
 //! minimal renderer, proven BYTE-FOR-BYTE in the headless CPU compositor.
 //!
 //! The plain profile is a hard fast path: it derives neutralized *effective*
@@ -18,13 +18,13 @@
 //! [`composite_focus_dim`]. So this layer rasterizes the SAME content twice and
 //! asserts byte-identity:
 //!
-//! * **plain** — an all-HOT [`Settings`] (`stem=0.5`, `min_contrast=4.5`,
+//! * **plain** - an all-HOT [`Settings`] (`stem=0.5`, `min_contrast=4.5`,
 //!   `focus_dim=0.6`, bloom+crt ON) with `render_quality = Plain`, its
 //!   `focus_dim` taken through the LIVE [`Settings::effective_focus_dim`]
 //!   accessor (which must collapse the hot `0.6` to `0.0`). The hot config is
 //!   the teeth: it proves plain *overrides* live-enabled extras, not merely that
 //!   "0.0 in yields 0.0 out".
-//! * **minimal** — the standard focused composite (the pre-feature renderer).
+//! * **minimal** - the standard focused composite (the pre-feature renderer).
 //!
 //! A genuine unfocused frame (a hot **Balanced** config, whose
 //! `effective_focus_dim()` stays `0.6`) is the **control**: it MUST differ, or
@@ -32,10 +32,10 @@
 //! worthless).
 //!
 //! `stem` (process global, atlas raster) and the post passes (bloom/crt) are out
-//! of this compositor's reach; they are proven in `stem_raster_smoke` (L1) and
-//! the settings/gpu structural units (L3) respectively. This layer is
+//! of this compositor's reach; they are proven in `stem_raster_smoke` and
+//! the settings/gpu structural units respectively. This layer is
 //! deliberately **global-free** so it stays parallel-safe inside the shared
-//! pixel suite — it mutates no `MIN_CONTRAST`/stem global.
+//! pixel suite - it mutates no `MIN_CONTRAST`/stem global.
 
 use crate::harness::{composite, composite_focus_dim, frames_match, row_snapshot, setup};
 use odytty::core::CursorStyle;
@@ -57,7 +57,7 @@ fn all_hot(quality: RenderQuality) -> Settings {
     }
 }
 
-/// L2 — VE5 plain bypass, proven in composited pixels.
+/// VE5 plain bypass, proven in composited pixels.
 ///
 /// `render_quality = Plain` must render an all-extras-ON config pixel-identical
 /// to the minimal renderer. Driven through the live `effective_focus_dim()`
@@ -101,7 +101,7 @@ fn plain_render_quality_is_pixel_identical_to_minimal() {
         "render_quality=plain must be byte-identical to the minimal renderer"
     );
 
-    // CONTROL — proves the assertion above can fail. A hot Balanced config keeps
+    // CONTROL - proves the assertion above can fail. A hot Balanced config keeps
     // its focus_dim live (effective == 0.6), so its unfocused frame MUST differ
     // from the minimal/focused render. Without this, byte-identity is vacuous.
     let hot_balanced = all_hot(RenderQuality::Balanced);

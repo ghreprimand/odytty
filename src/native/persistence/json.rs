@@ -176,7 +176,6 @@ fn write_string(out: &mut String, s: &str) {
     out.push('"');
 }
 
-/// Parse JSON text into a [`Json`] value, or an error message.
 /// Maximum object/array nesting depth accepted by [`parse`]. A hand-editable
 /// workspace snapshot is only a few levels deep; this bound is far above any
 /// real layout yet well below the ~thousands of frames that would exhaust the
@@ -185,6 +184,7 @@ fn write_string(out: &mut String, s: &str) {
 /// process via a stack overflow.
 const MAX_PARSE_DEPTH: usize = 128;
 
+/// Parse JSON text into a [`Json`] value, or an error message.
 pub(super) fn parse(input: &str) -> Result<Json, String> {
     let mut parser = Parser {
         chars: input.chars().collect(),

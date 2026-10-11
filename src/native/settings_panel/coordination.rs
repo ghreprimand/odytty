@@ -216,14 +216,14 @@ impl SettingsPanel {
         match &self.level {
             SettingsLevel::SectionList => {
                 if self.search_active {
-                    return format!("OdyTTY Settings — Search: {}", self.query);
+                    return format!("OdyTTY Settings - Search: {}", self.query);
                 }
                 "OdyTTY Settings".to_owned()
             }
             SettingsLevel::SectionDetail { section_index } => {
                 if let Some(edit) = &self.editing {
                     return format!(
-                        "\u{270e} EDITING {} \u{2014} Enter applies \u{00b7} Esc cancels",
+                        "\u{270e} EDITING {} - Enter applies \u{00b7} Esc cancels",
                         edit.key
                     );
                 }

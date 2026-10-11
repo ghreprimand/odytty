@@ -37,8 +37,8 @@
 //! Wayland has no in-process global grab (the compositor owns it); the adapter
 //! reports an actionable Unsupported. The supported `xdg-desktop-portal`
 //! `GlobalShortcuts` route is modeled as a pure, unit-tested protocol seam
-//! ([`wayland`]); its live D-Bus transport is a separate, dependency-gated
-//! follow-up that wires directly onto that seam.
+//! ([`wayland`]), which also carries the live D-Bus transport with timeouts
+//! and cancellation.
 //! A `ShortcutRegistration::Registered` is returned only after the OS confirms
 //! the grab, so nothing ever falsely claims a working global shortcut.
 
@@ -79,9 +79,6 @@ impl QuickTerminalIdentity {
     /// The quick terminal is never part of ordinary window restoration: it is
     /// summoned on demand, not reopened at startup, so it cannot delay the first
     /// usable default local terminal. Always `false`.
-    // Asserted by the restoration-exclusion test; a staged status accessor for
-    // the section-B non-sensitive status surface, not yet called in production.
-    #[allow(dead_code)]
     pub(in crate::native) fn is_restorable(&self) -> bool {
         false
     }
@@ -542,9 +539,8 @@ impl QuickTerminalController {
         &self.settings
     }
 
-    // Read by the lifecycle tests and staged for the section-B status surface;
-    // the toggle path uses the internal field directly, so this reader has no
-    // production caller yet.
+    // Read by the lifecycle tests; the toggle path uses the internal field
+    // directly, so this reader has no production caller.
     #[allow(dead_code)]
     pub(in crate::native) fn visibility(&self) -> QuickVisibility {
         self.visibility
@@ -555,8 +551,8 @@ impl QuickTerminalController {
     }
 
     /// Whether the dedicated window has been created yet.
-    // Exercised by the singleton/summon tests; a staged status accessor with no
-    // production caller yet (the host tracks the window via `identity`).
+    // Exercised by the singleton/summon tests; the host tracks the window via
+    // `identity`, so this accessor has no production caller.
     #[allow(dead_code)]
     pub(in crate::native) fn exists(&self) -> bool {
         self.identity.is_some()

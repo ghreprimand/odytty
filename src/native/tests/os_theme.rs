@@ -2,7 +2,7 @@
 //! OS-THEME native-wiring integration: following the desktop dark/light
 //! appearance preference selects between a configured dark and light theme
 //! through the real override path, while the off path (and an unset/unknown
-//! direction) leaves the authored theme in place — byte-identical to before the
+//! direction) leaves the authored theme in place - byte-identical to before the
 //! feature existed. These drive a real `App` over a one-shot PTY (skipped when
 //! none is available); no GPU is needed since the active theme is observable
 //! before any surface exists.
@@ -34,7 +34,7 @@ fn following_off_keeps_the_authored_theme_on_any_os_signal() {
         return;
     };
     // The pure resolver returns the authored theme exactly while following is
-    // off — the byte-identical off-path guarantee.
+    // off - the byte-identical off-path guarantee.
     assert_eq!(app.resolve_active_theme_for_test(), authored);
 
     // Even with a dark/light pair configured AND an OS signal present, following
@@ -109,7 +109,7 @@ fn unset_or_unknown_direction_falls_back_to_the_authored_theme() {
 #[test]
 fn defaults_are_off_path_identity() {
     let _render_globals = crate::test_lock::render_globals_lock();
-    // Following off, both directions unset — the feature is fully inert by
+    // Following off, both directions unset - the feature is fully inert by
     // default. (Config-key round-tripping is covered in the settings tests.)
     let defaults = Settings::default();
     assert!(!defaults.follow_os_theme);

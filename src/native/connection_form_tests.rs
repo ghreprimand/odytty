@@ -472,7 +472,7 @@ fn browse_chip_truncates_cleanly_on_a_narrow_body() {
     let row = identity_row_text(&form, 20);
     assert!(row.chars().count() <= 20);
     // A body so narrow that even the chip marker is clipped away yields no
-    // clickable span (rather than a bogus one) , the click falls through to
+    // clickable span (rather than a bogus one), so the click falls through to
     // plain focus. The label occupies 13 columns; width 16 clips the marker.
     assert_eq!(form.identity_browse_chip_span(16), None);
     // A width that still shows the marker keeps a (possibly partial) span.

@@ -14,7 +14,7 @@ use crate::core::Color;
 /// These are the *baseline* defaults (the plain theme). The active default used
 /// when resolving `Color::Default` is overridable at runtime via
 /// [`set_default_colors`]; the theme layer sets it once at startup. Core terminal
-/// semantics never read these — only presentation does.
+/// semantics never read these - only presentation does.
 pub const DEFAULT_FG_SRGB: (u8, u8, u8) = (0xCC, 0xCC, 0xCC);
 pub const DEFAULT_BG_SRGB: (u8, u8, u8) = (0x0B, 0x0C, 0x10);
 
@@ -163,14 +163,14 @@ fn ansi_srgb(index: u8) -> (u8, u8, u8) {
 /// transfer on write, so shader inputs must be linear.
 ///
 /// This is a thin façade over [`crate::color::srgb_to_linear`], which is the
-/// single source of truth for the transfer (RV3). The value is byte-identical
+/// single source of truth for the transfer. The value is byte-identical
 /// to the historical inline formula, so `native::gpu`, `grid`, and every other
 /// caller see no change.
 pub fn srgb_to_linear(byte: u8) -> f32 {
     crate::color::srgb_to_linear(byte)
 }
 
-/// Perceptually dim a linear-RGBA color, preserving alpha (RV3).
+/// Perceptually dim a linear-RGBA color, preserving alpha.
 ///
 /// This is the render-facing adapter over [`crate::color::dim_perceptual`]:
 /// the shared helper scales OKLab lightness and chroma together, equivalent to
@@ -182,10 +182,10 @@ pub fn dim_linear_rgba(color: [f32; 4], amount: f32) -> [f32; 4] {
     [r, g, b, color[3]]
 }
 
-/// Active minimum fg/bg contrast floor (RV1), stored as the bit pattern of an
+/// Active minimum fg/bg contrast floor, stored as the bit pattern of an
 /// `f32` so resolution stays lock-free, mirroring the palette seams above.
 ///
-/// `1.0` (the default) means "no floor" — [`enforce_contrast_rgba`] is then an
+/// `1.0` (the default) means "no floor" - [`enforce_contrast_rgba`] is then an
 /// exact identity, so an un-configured renderer is byte-identical to before.
 /// The native layer sets it from `Settings::min_contrast` at startup/reload.
 pub(super) static MIN_CONTRAST: AtomicU32 = AtomicU32::new(1.0_f32.to_bits());
@@ -207,7 +207,7 @@ pub fn min_contrast() -> f32 {
 }
 
 /// Enforce the active minimum-contrast floor on a resolved linear-RGBA
-/// foreground against its background, preserving alpha (RV1).
+/// foreground against its background, preserving alpha.
 ///
 /// This is the render-facing seam over [`crate::color::enforce_min_contrast`]:
 /// the caller passes the final per-cell `fg`/`bg` (after inverse/dim) and gets
@@ -228,14 +228,14 @@ pub fn enforce_contrast_rgba(fg: [f32; 4], bg: [f32; 4]) -> [f32; 4] {
     [r, g, b, fg[3]]
 }
 
-/// TEXT-BRIGHTNESS: lift a linear-RGBA glyph foreground toward white with a
+/// Lift a linear-RGBA glyph foreground toward white with a
 /// soft knee, preserving alpha.
 ///
 /// For in-gamut channels, `c' = 1 - (1 - c)^b` for `b >= 1.0`: identity at
-/// `b == 1.0` (early-returned, exact — the plain path stays byte-identical),
+/// `b == 1.0` (early-returned, exact - the plain path stays byte-identical),
 /// monotonic in both the channel and the knob, and `c' < 1` whenever `c < 1`,
 /// so near-white ink compresses smoothly instead of clipping flat and channel
-/// ordering is preserved — colors lighten without fully desaturating. Black is
+/// ordering is preserved - colors lighten without fully desaturating. Black is
 /// a fixed point: the curve lifts mid-tones and dim colors, not `#000` ink,
 /// which would only lose contrast on light backgrounds.
 ///
@@ -277,7 +277,7 @@ fn linear_rgba(srgb: (u8, u8, u8)) -> [f32; 4] {
 /// grayscale ramp (16–255) are computed and not theme-overridable.
 pub fn indexed_srgb(index: u8) -> (u8, u8, u8) {
     match index {
-        // 16 standard ANSI colors — theme-overridable.
+        // 16 standard ANSI colors - theme-overridable.
         0..=15 => ansi_srgb(index),
         // 6x6x6 color cube.
         16..=231 => {

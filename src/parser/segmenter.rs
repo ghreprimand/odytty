@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Layer 1 — Ground-state text/control segmenter (UTF-8 lives here).
+//! Layer 1 - Ground-state text/control segmenter (UTF-8 lives here).
 //!
 //! The segmenter walks input bytes in **Ground** state and splits them into
 //! (i) maximal runs of **printable text scalars** (validated UTF-8 that is not
 //! C0/C1) and (ii) **single control scalars/bytes** that drive the Layer-2
-//! state machine. UTF-8 decoding — including the partial-codepoint carry across
-//! `advance()` boundaries that the PTY's arbitrary chunk sizes force — lives
+//! state machine. UTF-8 decoding - including the partial-codepoint carry across
+//! `advance()` boundaries that the PTY's arbitrary chunk sizes force - lives
 //! entirely in this module; by the time bytes reach Layer 2 they are
 //! 8-bit-clean control bytes.
 //!
@@ -42,7 +42,7 @@
 //! Unicode 3.9 guideline that `std::str::from_utf8`'s `valid_up_to` /
 //! `error_len` already implement). The exception: a lone invalid byte in
 //! `0x80..=0x9F` executes as a C1 control (matching the "no 8-bit C1
-//! introduction" UTF-8-mode policy — see `mod.rs` divergence ledger). A
+//! introduction" UTF-8-mode policy - see `mod.rs` divergence ledger). A
 //! truncated trailing codepoint at the end of a chunk is carried, not emitted,
 //! until the next chunk arrives; a truncated codepoint then interrupted by ESC
 //! emits `U+FFFD` and processes the control.
@@ -164,7 +164,7 @@ impl Segmenter {
                                     sink.print('\u{FFFD}');
                                 }
                                 i += valid + len;
-                                // Inner loop continues — more bytes may remain
+                                // Inner loop continues - more bytes may remain
                                 // in the chunk; the ESC position is known.
                             }
                             None => {
@@ -189,7 +189,7 @@ impl Segmenter {
             }
 
             if chunk_has_esc {
-                // ESC at `chunk_end` — consume + signal.
+                // ESC at `chunk_end` - consume + signal.
                 return (GroundResult::SawEsc, chunk_end + 1);
             }
         }

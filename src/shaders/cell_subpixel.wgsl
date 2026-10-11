@@ -9,7 +9,7 @@ struct Viewport {
     // Physical surface size in pixels (x = width, y = height).
     size: vec2<f32>,
     // Legacy scanline-wash slot (x = strength, y = period). Retained for
-    // uniform layout stability; never sampled — the CRT post-process is the
+    // uniform layout stability; never sampled - the CRT post-process is the
     // only scanline implementation now.
     effect: vec2<f32>,
     // Text rendering params: x = glyph coverage gamma.
@@ -79,11 +79,9 @@ fn fs_main(in: VsOut) -> FsOut {
         return out;
     }
 
-    // Legacy ambient scanline wash retired here (UX5): the scanline look is now
-    // produced by the unified CRT post-process, so the background is no longer
-    // modulated by `viewport.effect`. This is the previous off-path output
-    // (factor 1.0), so default rendering is pixel-identical. `viewport.effect`
-    // is retained in the uniform for layout stability but is no longer sampled.
+    // The scanline look is produced by the unified CRT post-process, so the
+    // background is not modulated by `viewport.effect`. The field stays in the
+    // uniform for layout stability but is never sampled.
     out.color = in.color;
     out.weight = vec4<f32>(in.color.a);
     return out;

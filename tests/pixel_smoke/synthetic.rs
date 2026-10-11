@@ -7,7 +7,7 @@ use odytty::core::CursorStyle;
 use crate::harness::*;
 
 /// End-to-end: with synthetic bold enabled and only a Regular face, a bold row
-/// composites strictly more ink than the same row in Regular — the emboldening
+/// composites strictly more ink than the same row in Regular - the emboldening
 /// reaches the rendered frame through the real grid → atlas → composite path.
 #[test]
 fn synthetic_bold_row_inks_heavier_than_regular() {

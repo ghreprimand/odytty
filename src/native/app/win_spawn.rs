@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! WIN-SPAWN — shared child-process creation-flag helper (C13).
+//! Shared child-process creation-flag helper.
 //!
 //! OdyTTY ships as a GUI-subsystem binary on Windows (no attached console).
 //! When such a process spawns a *console* child (`ssh.exe`, an old-style opener,
 //! a console editor) with no creation flags, Windows allocates a fresh console
-//! for the child and flashes a black console window on screen — brief for a
+//! for the child and flashes a black console window on screen - brief for a
 //! one-shot probe, several seconds for an upload that streams over `ssh`.
 //!
 //! [`apply_no_console_window`] centralises the fix: it sets `CREATE_NO_WINDOW`
@@ -31,7 +31,7 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// app (`ssh.exe` probes/uploads, the default-open launcher). A GUI child
 /// ignores the flag, so callers need not distinguish console from GUI targets.
 ///
-/// Non-Windows: a no-op — there is no console-window concept, and
+/// Non-Windows: a no-op - there is no console-window concept, and
 /// `creation_flags` is a Windows-only extension trait.
 #[cfg(windows)]
 pub(in crate::native) fn apply_no_console_window(cmd: &mut Command) {

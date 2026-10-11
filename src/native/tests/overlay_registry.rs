@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Foundation tests: the render-overlay registry + modal-input gate.
 //!
-//! These prove the foundation's correctness contract — the *bypass*, not a
+//! These prove the foundation's correctness contract - the *bypass*, not a
 //! config key:
 //! - the cell-paint + quad manifests are no-ops on the default path (the frame
 //!   bytes are identical to before the registry landed);
@@ -37,7 +37,7 @@ fn content_snapshot() -> Snapshot {
     snapshot(&["hello world", "second line"], COLS)
 }
 
-/// An all-`Inert` composite — the off/default state.
+/// An all-`Inert` composite - the off/default state.
 fn inert_composite() -> OverlayCompositeSignature {
     OverlayCompositeSignature {
         hints: OverlayFragment::Inert,
@@ -209,7 +209,7 @@ fn render_sig(overlays: OverlayCompositeSignature) -> RenderSignature {
 
 /// Trap #1 (PIXEL-IDENTITY, off path): with no selection / search / overlay /
 /// hyperlink and no contributor active, the full cell-paint manifest mutates
-/// zero cells and the quad manifest pushes zero quads — the frame is identical
+/// zero cells and the quad manifest pushes zero quads - the frame is identical
 /// to before the registry existed.
 #[test]
 fn frame_overlay_refactor_is_pixel_identical() {
@@ -261,7 +261,7 @@ fn frame_overlay_refactor_is_pixel_identical() {
 
 /// Trap #2 / no-regression: the NEW contributor slots specifically (hints /
 /// copy-mode cells, cursor-trail / background quads) are no-ops even when an
-/// existing feature (here: the settings overlay) is active — they cannot
+/// existing feature (here: the settings overlay) is active - they cannot
 /// perturb the existing paints.
 #[test]
 fn inactive_contributors_are_noops() {
@@ -296,7 +296,7 @@ fn inactive_contributors_are_noops() {
     assert!(quads.is_empty(), "the new quad slots must push nothing");
 }
 
-/// Wiring proof: an existing relocated paint is NOT a silent no-op — with the
+/// Wiring proof: an existing relocated paint is NOT a silent no-op - with the
 /// overlay open, `paint_overlay_cells` actually mutates the snapshot (so the
 /// relocation behind the manifest preserved the live behaviour).
 #[test]
@@ -322,7 +322,7 @@ fn relocated_overlay_paint_mutates_when_open() {
     );
 }
 
-/// Trap #3a (INERT-CONSTANT): all-`Inert` composites compare equal, so a frame
+/// Trap #3a: all-`Inert` composites compare equal, so a frame
 /// with no contributor active yields the same `Retained` decision as before the
 /// field existed (no spurious full rebuild).
 #[test]
@@ -344,7 +344,7 @@ fn composite_signature_inert_when_off() {
 
 /// Trap #3b (contributor change ⇒ Full): a non-`Inert` fragment changes the
 /// composite, so the content signature differs and the geometry-update gate
-/// returns `Full` — the paint actually invalidates the render cache.
+/// returns `Full` - the paint actually invalidates the render cache.
 #[test]
 fn contributor_change_forces_full_rebuild() {
     let mut bumped = inert_composite();
@@ -365,8 +365,8 @@ fn contributor_change_forces_full_rebuild() {
     );
 }
 
-/// R1/R2: the cursor render-params aggregator returns the identity on
-/// the default path — `offset == [0.0, 0.0]` (no slide) and `alpha == 1.0`
+/// The cursor render-params aggregator returns the identity on
+/// the default path - `offset == [0.0, 0.0]` (no slide) and `alpha == 1.0`
 /// (fully opaque, NOT `0.0` which would make the cursor invisible). This is the
 /// byte-identity gate: a default `CursorRenderParams` threads through
 /// `push_cursor` without changing a single vertex.
@@ -388,8 +388,8 @@ fn cursor_render_params_is_identity_by_default() {
     );
 }
 
-/// R4: with no cursor animation active, the aggregated animation
-/// deadline is `None`, so an idle terminal schedules zero extra wakeups — the
+/// With no cursor animation active, the aggregated animation
+/// deadline is `None`, so an idle terminal schedules zero extra wakeups - the
 /// `update_control_flow_deadline` collector's min is unperturbed.
 #[test]
 fn animation_deadline_is_none_at_rest() {
@@ -437,7 +437,7 @@ fn cursor_anim_key_is_identity_at_rest() {
 }
 
 /// Trap #2: quantization polarity. The identity bucket is `(0,0)` offset + the
-/// full (non-zero) alpha bucket — never inverted to invisible. A faded alpha and
+/// full (non-zero) alpha bucket - never inverted to invisible. A faded alpha and
 /// a sub-cell offset each land in a DIFFERENT bucket, so a live animation step is
 /// observable to the cache (a lower alpha quantizes to a strictly lower bucket).
 #[test]
@@ -524,7 +524,7 @@ fn easing_fades_in_then_settles_to_opaque_and_stops_waking() {
     assert_eq!(
         app.cursor_render_params().alpha,
         1.0,
-        "fade-in completes fully opaque (1.0 — polarity, no inversion)"
+        "fade-in completes fully opaque (1.0, polarity, no inversion)"
     );
     assert_eq!(
         app.animation_deadline(),
@@ -533,7 +533,7 @@ fn easing_fades_in_then_settles_to_opaque_and_stops_waking() {
     );
 }
 
-/// VE4: an adjacent move arms a non-zero slide that decays to zero and stops
+/// An adjacent move arms a non-zero slide that decays to zero and stops
 /// waking once the glide completes (Trap #3 bounded wake after settle).
 #[test]
 fn motion_slides_between_adjacent_cells_then_settles() {
@@ -708,7 +708,7 @@ fn default_motion_keeps_typing_crisp_and_reduced_motion_forces_static() {
     assert_eq!(reduced.animation_deadline(), None, "no motion wake remains");
 }
 
-/// Trap #4: the first frame (no prior snapshot) snaps — never glides from a
+/// Trap #4: the first frame (no prior snapshot) snaps - never glides from a
 /// stale position.
 #[test]
 fn motion_snaps_on_first_frame() {
@@ -763,7 +763,7 @@ fn motion_snaps_on_large_jump() {
     );
 }
 
-/// Trap #4 / Trap #5: with no feature active the modal gate is dead — the active
+/// Trap #4 / Trap #5: with no feature active the modal gate is dead - the active
 /// modal is `None` (keys fall through to the BindableAction match) and the
 /// pointer guard returns `false` (mouse input/wheel are unguarded).
 #[test]
@@ -782,7 +782,7 @@ fn modal_gate_is_dead_by_default() {
     );
 }
 
-// --- ID1 v1 soft cursor glow (Phase 4) --------------------------------------
+// --- ID1 v1 soft cursor glow --------------------------------------
 
 /// Off-path identity: explicitly disabling glow produces no GPU request and
 /// keeps the cache fragment inert.
@@ -798,7 +798,7 @@ fn disabled_cursor_glow_emits_no_request() {
         0,
         cell(CELL_W, CELL_H),
         crate::core::Position { row: 1, column: 2 },
-        true, // visible — proves the gate is the setting, not visibility
+        true, // visible - proves the gate is the setting, not visibility
         std::time::Instant::now(),
     );
     assert!(ctx.cursor_visible);
@@ -829,7 +829,7 @@ fn default_cursor_glow_emits_one_analytic_request() {
         })
     );
 
-    // Cache fragment is a non-Inert constant while on (T4 — toggles the cache).
+    // Cache fragment is a non-Inert constant while on (T4 - toggles the cache).
     assert_eq!(
         app.cursor_glow_overlay_signature(),
         OverlayFragment::CursorGlow { phase: 500 },
@@ -904,9 +904,9 @@ fn cursor_glow_intensity_change_invalidates_cache_and_request() {
     );
 }
 
-/// Cache invalidation (T4): toggling `cursor_glow` flips the composite between
+/// Cache invalidation: toggling `cursor_glow` flips the composite between
 /// `Inert` and `CursorGlow`, so the content signature differs and the
-/// geometry-update gate returns `Full` — the glow appears/disappears without a
+/// geometry-update gate returns `Full` - the glow appears/disappears without a
 /// stale cache.
 #[test]
 fn cursor_glow_toggle_forces_full_rebuild() {

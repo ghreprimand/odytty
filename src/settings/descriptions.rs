@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
 /// Human-readable help for the stem-darken knob, destined for the in-app
-/// settings panel (UX2). Establishes the convention that every new knob ships
+/// settings panel. Establishes the convention that every new knob ships
 /// with a concise description, its accepted values, and its default.
 pub const STEM_DARKEN_DESC: &str = "Stem darkening: boosts glyph coverage so light-on-dark text holds weight at \
      small sizes. Accepts 0.0–1.0; 0.0 is off (identical to no boost), 1.0 is \
      strongest. Default 0.7.";
 
 /// Human-readable help for the minimum-contrast knob, shown in the in-app
-/// settings panel (UX2). Follows the every-knob-carries-a-description convention.
+/// settings panel. Follows the every-knob-carries-a-description convention.
 pub const MIN_CONTRAST_DESC: &str = "Minimum contrast: lifts foreground text so its WCAG contrast against the \
      background meets at least this ratio, keeping low-contrast apps legible. \
      Accepts 1.0–21.0; 1.0 is off (no change), 4.5 is the WCAG AA body-text \
      threshold, 7.0 is AAA. Hue is preserved. Default 17.0.";
 
-/// Human-readable help for the focus-dimming knob (ID2), shown in the in-app
+/// Human-readable help for the focus-dimming knob, shown in the in-app
 /// settings panel. Follows the every-knob-carries-a-description convention.
 pub const FOCUS_DIM_DESC: &str = "Focus dimming: dims the whole window (text and background) while it is \
      unfocused so it recedes visually, in OKLab so hue is preserved. Accepts \
@@ -25,12 +25,12 @@ pub const FOCUS_DIM_DESC: &str = "Focus dimming: dims the whole window (text and
 /// settings panel. Follows the every-knob-carries-a-description convention.
 pub const INACTIVE_PANE_DIM_DESC: &str = "Inactive-pane dimming: dims the non-focused panes of a multi-pane tab \
      (text and background) so the focused pane stands out, in OKLab so hue is \
-     preserved. Accepts 0.0–1.0; 0.0 is off (no change — every pane renders \
+     preserved. Accepts 0.0–1.0; 0.0 is off (no change: every pane renders \
      undimmed, byte-identical to today), 0.15–0.30 is a subtle recede. The \
      focused pane is never dimmed and single-pane tabs are never affected. The \
      minimum-contrast floor still applies, so text stays legible. Default 0.0.";
 
-pub const RENDER_QUALITY_DESC: &str = "Renderer profile: high (default) is the full-quality path — all enabled effects \
+pub const RENDER_QUALITY_DESC: &str = "Renderer profile: high (default) is the full-quality path: all enabled effects \
      (bloom, CRT scanlines, background treatment, focus dimming, stem darkening, \
      and the minimum-contrast floor) are honored. It is reserved for future \
      higher-cost quality work and currently behaves like balanced, which honors \
@@ -113,7 +113,7 @@ pub const CRT_SCANLINE_PERIOD_DESC: &str = "CRT scanline spacing: vertical dista
 pub const CRT_VIGNETTE_STRENGTH_DESC: &str = "CRT vignette strength: bounded edge dimming. Accepts 0.0–0.45; the shader enforces a brightness floor so corners recede without erasing lit cells.";
 pub const CRT_CURVATURE_DESC: &str = "CRT curvature: subtle barrel-distortion screen curvature. Accepts 0.0–0.12; 0.0 (default) is flat and pixel-identical to the plain renderer, higher values gently bow the screen with UV clamping so borders stay free of black seams. A configuration-file and environment knob only, with no settings-panel control; it takes effect while either CRT profile is active (the CRT toggle or the retro preset), and the retro preset does not force any curvature of its own.";
 
-/// Human-readable help for the geometric box-drawing knob (RV2), shown in the
+/// Human-readable help for the geometric box-drawing knob, shown in the
 /// in-app settings panel. Follows the every-knob-carries-a-description convention.
 pub const GEOMETRIC_BOXDRAW_DESC: &str = "Geometric box-drawing: renders line, block and Powerline glyphs from \
      cell-aligned geometry instead of the font, so TUI borders, progress bars \
@@ -121,8 +121,8 @@ pub const GEOMETRIC_BOXDRAW_DESC: &str = "Geometric box-drawing: renders line, b
      off; on (default) draws them from geometry, off uses the font glyph and is \
      identical to before.";
 
-/// Human-readable help for the symbol / Nerd-font fallback enable switch
-/// (RV6), shown in the in-app settings panel.
+/// Human-readable help for the symbol / Nerd-font fallback enable switch,
+/// shown in the in-app settings panel.
 pub const SYMBOL_FALLBACK_DESC: &str = "Symbol fallback: enables a secondary symbol/Nerd-font face for private-use \
      prompt icons when the main font lacks a glyph. On by default for common \
      shell prompts; switch off to force the plain missing-glyph path. Environment override wins.";

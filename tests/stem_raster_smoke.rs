@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Live stem-darkening (RV5) atlas-raster proof.
+//! Live stem-darkening atlas-raster proof.
 //!
 //! RV5 ships *default-on* (a conservative coverage boost so light-on-dark body
 //! text holds weight); `stem_darken = 0.0` is the opt-out that restores the
 //! classic raster byte-for-byte. The pure-function behaviour of the boost is
 //! pinned by `src/atlas/tests/stem_darken.rs`; this binary proves the boost is
-//! actually *wired through the live atlas raster* — i.e. that moving the global
+//! actually *wired through the live atlas raster* - i.e. that moving the global
 //! `set_stem_darken` strength changes the bytes a real `GlyphAtlas::build`
 //! produces, in the expected direction, with the endpoints pinned.
 //!
@@ -14,7 +14,7 @@
 //! `set_stem_darken` is a *process-global* atomic read at raster time. The
 //! `pixel_smoke` binary drives glyph style through *per-atlas* methods
 //! (`set_synthetic_styles`, `set_geometric_boxdraw`), so it has no
-//! global-serialization seam — toggling this global there could perturb sibling
+//! global-serialization seam - toggling this global there could perturb sibling
 //! tests that raster concurrently and assert byte-identity. Running the proof in
 //! its own integration binary gives it a private process: this is the only code
 //! that touches the global here, so there is no cross-test interference and no
@@ -30,7 +30,7 @@ use odytty::atlas::{GlyphAtlas, set_stem_darken};
 use odytty::settings::{DEFAULT_STEM_DARKEN, RenderQuality, Settings};
 use odytty::text;
 
-/// Build size for the proof atlas — large enough that printable ASCII produces
+/// Build size for the proof atlas - large enough that printable ASCII produces
 /// plenty of anti-aliased edge/stem coverage to observe, small enough to stay
 /// fast.
 const PX: f32 = 28.0;
@@ -102,7 +102,7 @@ fn a_panic_under_a_hot_strength_restores_the_global_and_the_lock() {
 #[test]
 fn default_strength_boosts_midtone_coverage_through_live_raster() {
     // (a) The shipped default (`DEFAULT_STEM_DARKEN`) must visibly change the
-    // *live* atlas raster versus the classic 0.0 baseline — proving the
+    // *live* atlas raster versus the classic 0.0 baseline - proving the
     // default-on appearance flows through the real raster, not just the pure
     // function. The boost is monotone (never reduces coverage), so every byte
     // that differs must have risen, and some must rise strictly.
@@ -151,7 +151,7 @@ fn opt_out_zero_restores_classic_raster() {
 #[test]
 fn endpoints_stay_pinned_at_default_strength() {
     // (c) Fully-uncovered (0) and fully-covered (255) samples never move at any
-    // strength — only intermediate (anti-aliased edge / thin stem) coverage is
+    // strength - only intermediate (anti-aliased edge / thin stem) coverage is
     // boosted. So glyph ink bounds and solid interiors are unchanged.
     let baseline = raster_at(0.0);
     let boosted = raster_at(DEFAULT_STEM_DARKEN);
@@ -166,18 +166,18 @@ fn endpoints_stay_pinned_at_default_strength() {
 
 #[test]
 fn plain_render_quality_neutralizes_stem_through_live_raster() {
-    // VE5 plain bypass (L1): `render_quality = plain` derives a neutralized
+    // VE5 plain bypass: `render_quality = plain` derives a neutralized
     // `effective_stem_darken() == 0.0` even when the raw `stem_darken` field is
     // hot. Proven through the LIVE atlas raster: building at the plain-effective
     // strength must reproduce the classic 0.0 raster byte-for-byte. The hot raw
-    // field is the teeth — it proves plain *overrides* a live-enabled stem
+    // field is the teeth - it proves plain *overrides* a live-enabled stem
     // boost, not merely that 0.0 in yields 0.0 out.
     //
     // This is the stem coordinate of the VE5 `plain == minimal` proof; the
     // focus_dim coordinate is the pixel_smoke `render_quality` layer, and the
     // post/bloom/crt coordinates are the settings + gpu structural units. It
     // lives here (not the global-free pixel suite) because `set_stem_darken` is
-    // a process global — the dedicated binary owns its serialization.
+    // a process global - the dedicated binary owns its serialization.
     let hot_plain = Settings {
         render_quality: RenderQuality::Plain,
         stem_darken: 0.5,
@@ -197,7 +197,7 @@ fn plain_render_quality_neutralizes_stem_through_live_raster() {
     );
 
     // Control: the same hot stem under Balanced keeps its boost live, so its
-    // raster MUST differ from the 0.0 baseline — otherwise the equality above
+    // raster MUST differ from the 0.0 baseline - otherwise the equality above
     // would be vacuous.
     let hot_balanced = Settings {
         render_quality: RenderQuality::Balanced,

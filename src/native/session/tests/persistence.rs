@@ -62,7 +62,7 @@ fn move_workspace_order_round_trips_through_the_shape_snapshot() {
     );
 }
 
-/// F6-W5: a workspace host binding survives the capture -> restore round
+/// A workspace host binding survives the capture -> restore round
 /// trip so a restored remote workspace routes New Tab through the host again.
 #[test]
 fn workspace_host_binding_survives_restore() {
@@ -91,7 +91,7 @@ fn workspace_host_binding_survives_restore() {
 }
 
 /// WP3 / 8e: instantiating a layout APPENDS its workspace(s) after the
-/// current list and focuses the first appended one — the live workspaces are
+/// current list and focuses the first appended one - the live workspaces are
 /// untouched (never clobbered).
 #[test]
 fn append_from_snapshot_appends_without_clobbering() {
@@ -146,9 +146,9 @@ fn append_from_snapshot_appends_without_clobbering() {
     assert_eq!(set.active_workspace_index(), 2);
 }
 
-/// SAVE-ALL-LAYOUT: `capture_shape` records EVERY workspace (not just the
+/// `capture_shape` records EVERY workspace (not just the
 /// active one), preserving rail order and the active-workspace index. This is
-/// the whole-app save side — the same snapshot the single-workspace save then
+/// the whole-app save side - the same snapshot the single-workspace save then
 /// slices down to one.
 #[test]
 fn capture_shape_records_every_workspace() {
@@ -216,9 +216,9 @@ fn capture_shape_records_a_panes_launch_profile() {
     }
 }
 
-/// SAVE-ALL-LAYOUT: opening a whole-app layout (a multi-workspace snapshot)
+/// Opening a whole-app layout (a multi-workspace snapshot)
 /// APPENDS every one of its workspaces after the live list, never just the
-/// first — the open side of the whole-app save.
+/// first - the open side of the whole-app save.
 #[test]
 fn append_from_snapshot_appends_all_workspaces_of_a_multi_workspace_layout() {
     let mut set = WorkspaceSet::new(build_session(), None);
@@ -293,7 +293,7 @@ fn set_pane_job(set: &WorkspaceSet, job: crate::pty::ForegroundJob) {
         .set_foreground_job(job);
 }
 
-/// PRISTINE-CONSUME: a bare launch is exactly one untouched default
+/// A bare launch is exactly one untouched default
 /// workspace, so the predicate reads `true`.
 #[test]
 fn is_single_pristine_workspace_true_for_a_fresh_launch() {
@@ -391,7 +391,7 @@ fn append_keeps_a_busy_lone_pane() {
     );
 }
 
-/// PRISTINE-CONSUME: every kind of real state defeats the pristine check —
+/// Every kind of real state defeats the pristine check -
 /// a second workspace, a rename, a host binding, a split, or an extra tab.
 #[test]
 fn is_single_pristine_workspace_false_for_any_real_state() {
@@ -475,8 +475,8 @@ fn is_single_pristine_workspace_false_for_any_real_state() {
     }
 }
 
-/// PRISTINE-CONSUME: opening a layout onto a pristine launch replaces the
-/// default workspace with the saved set — no stray "Workspace 1" left over,
+/// Opening a layout onto a pristine launch replaces the
+/// default workspace with the saved set - no stray "Workspace 1" left over,
 /// and the pristine session is reaped from the arena.
 #[test]
 fn append_consumes_a_pristine_workspace_on_open() {
@@ -520,7 +520,7 @@ fn append_consumes_a_pristine_workspace_on_open() {
         report,
         RestoreReport::Restored { workspaces: 2, .. }
     ));
-    // Exactly the saved set — the pristine workspace is gone, not appended.
+    // Exactly the saved set - the pristine workspace is gone, not appended.
     assert_eq!(set.workspace_count(), 2);
     assert_eq!(set.workspace_name(0), Some("saved-a"));
     assert_eq!(set.workspace_name(1), Some("saved-b"));
@@ -529,8 +529,8 @@ fn append_consumes_a_pristine_workspace_on_open() {
     assert!(!set.sessions.contains_key(&pristine_token));
 }
 
-/// PRISTINE-CONSUME: a single but NON-pristine workspace (here, renamed) is
-/// NOT consumed — the layout appends beside it, never clobbering real state.
+/// A single but NON-pristine workspace (here, renamed) is
+/// NOT consumed - the layout appends beside it, never clobbering real state.
 #[test]
 fn append_does_not_consume_a_single_but_renamed_workspace() {
     let mut set = WorkspaceSet::new(build_session(), None);
@@ -574,7 +574,7 @@ fn append_does_not_consume_a_single_but_renamed_workspace() {
 }
 
 /// LAYOUT-OPEN-MODE (Replace): instantiating a layout via the restore path
-/// onto a populated multi-workspace window installs EXACTLY the saved set —
+/// onto a populated multi-workspace window installs EXACTLY the saved set -
 /// every prior workspace and its sessions are reaped (no survivors in the
 /// arena), and the saved active-workspace index is honored.
 #[test]
@@ -626,7 +626,7 @@ fn replace_via_restore_leaves_no_survivors() {
         report,
         RestoreReport::Restored { workspaces: 2, .. }
     ));
-    // Exactly the saved set — no old workspaces survive.
+    // Exactly the saved set - no old workspaces survive.
     assert_eq!(set.workspace_count(), 2);
     assert_eq!(set.workspace_name(0), Some("saved-a"));
     assert_eq!(set.workspace_name(1), Some("saved-b"));
@@ -638,7 +638,7 @@ fn replace_via_restore_leaves_no_survivors() {
 
 /// WP3 / 8h: a pane carrying a session-host id whose host is not alive (no
 /// runtime dir in the test) is counted as a reattach attempt but falls back
-/// to a fresh shell — never a dead pane. Verifies the "N of M" accounting.
+/// to a fresh shell - never a dead pane. Verifies the "N of M" accounting.
 #[test]
 fn reattach_counts_attempt_and_falls_back_to_fresh_when_host_is_dead() {
     let snapshot = crate::native::persistence::ShapeSnapshot {
@@ -860,9 +860,9 @@ fn restore_aborts_cleanly_when_a_leaf_fails_to_spawn() {
     assert_eq!(set.len(), 1);
 }
 
-/// H4: a snapshot that PARSES cleanly but carries semantically hostile
-/// values — out-of-range active/focused indices reachable by hand-editing
-/// `workspaces.json` — must never panic the launch-time rebuild. Every index
+/// A snapshot that PARSES cleanly but carries semantically hostile
+/// values - out-of-range active/focused indices reachable by hand-editing
+/// `workspaces.json` - must never panic the launch-time rebuild. Every index
 /// is clamped or falls back into range, so restore lands one valid, focused
 /// workspace. Belt-and-suspenders over the audited guards
 /// (`active_workspace.min(len-1)`, `active_tab.min(len-1)`, and the
@@ -920,8 +920,8 @@ fn out_of_range_indices_in_a_snapshot_clamp_never_panic() {
     );
 }
 
-/// H4: a snapshot with nothing restorable — zero workspaces, or workspaces
-/// that are all tab-less — must degrade to `Skipped` (the launch layout is
+/// A snapshot with nothing restorable - zero workspaces, or workspaces
+/// that are all tab-less - must degrade to `Skipped` (the launch layout is
 /// left untouched, so the caller keeps its fresh session) and never panic on
 /// the empty vectors. Both are reachable by hand-editing the file.
 #[test]
@@ -983,13 +983,13 @@ fn empty_and_tabless_snapshots_are_skipped_never_panic() {
     assert_eq!(report2, RestoreReport::Skipped);
 }
 
-/// H4: absurd split ratios and a deep split spine must not panic the
+/// Absurd split ratios and a deep split spine must not panic the
 /// recursive rebuild. Out-of-[0,1] ratios (negative, > 1, huge) are
 /// reachable by hand-editing the file; NaN / infinity are not parser-
 /// reachable (JSON has no such literals) but are constructed here to prove
 /// the rebuild is total over any `f32` it is handed. The ratios are stored
 /// verbatim into the layout tree; geometry that consumes them is a separate,
-/// later concern — restore itself only builds the tree.
+/// later concern - restore itself only builds the tree.
 #[test]
 fn absurd_ratios_and_deep_nesting_restore_without_panicking() {
     use crate::native::persistence::{
@@ -1047,7 +1047,7 @@ fn absurd_ratios_and_deep_nesting_restore_without_panicking() {
     assert!(matches!(report, RestoreReport::Restored { panes: 41, .. }));
 }
 
-/// RESTORE-REMOTE: a leaf carrying a `remote_host` reconnects through the
+/// A leaf carrying a `remote_host` reconnects through the
 /// remote spawner (with the exact stored identity), while a local leaf beside
 /// it still routes to the local spawner. No pane falls back.
 #[test]
@@ -1079,7 +1079,7 @@ fn restore_reconnects_remote_leaves_and_keeps_local_leaves_local() {
                     }),
                     second: Box::new(PaneShape::Leaf {
                         // A remote pane captured the REMOTE cwd; it must not be
-                        // used to chdir a local shell — this leaf reconnects.
+                        // used to chdir a local shell - this leaf reconnects.
                         cwd: Some("/root".to_owned()),
                         session_host_id: None,
                         remote_host: Some("prod".to_owned()),
@@ -1100,7 +1100,7 @@ fn restore_reconnects_remote_leaves_and_keeps_local_leaves_local() {
         fake_remote_spawner(&mut remote_seen),
     );
     // The remote leaf reached the connect spawner with its stored identity;
-    // the local leaf reached the local spawner with its own cwd — and the
+    // the local leaf reached the local spawner with its own cwd - and the
     // remote leaf never touched the local spawner (no /root local shell).
     assert_eq!(remote_seen, vec!["prod".to_owned()]);
     assert_eq!(local_handed, vec![Some(std::env::temp_dir())]);
@@ -1117,9 +1117,9 @@ fn restore_reconnects_remote_leaves_and_keeps_local_leaves_local() {
     );
 }
 
-/// RESTORE-REMOTE: a remote leaf whose host cannot be resolved (the spawner
+/// A remote leaf whose host cannot be resolved (the spawner
 /// returns `None`) falls back to a local shell, counted in `remote_fallback`,
-/// and the restore still succeeds — never a wholesale abort.
+/// and the restore still succeeds - never a wholesale abort.
 #[test]
 fn restore_falls_back_to_local_when_remote_host_unresolvable() {
     use crate::native::persistence::{PaneShape, ShapeSnapshot, TabShape, WorkspaceShape};
@@ -1137,7 +1137,7 @@ fn restore_falls_back_to_local_when_remote_host_unresolvable() {
                 focused_leaf: 0,
                 layout: PaneShape::Leaf {
                     // cwd None so the local fallback lands at home cleanly
-                    // (no stale-cwd noise) — this asserts the remote_fallback
+                    // (no stale-cwd noise) - this asserts the remote_fallback
                     // count in isolation.
                     cwd: None,
                     session_host_id: None,
@@ -1174,8 +1174,8 @@ fn restore_falls_back_to_local_when_remote_host_unresolvable() {
 
 /// RESTORE-REMOTE / sub-ODP 8f: a local leaf whose captured directory exists
 /// but denies the spawn (the EACCES a real `chdir` would hit, e.g. a remote
-/// `/root` that exists locally at mode 700) retries once at home — counted as
-/// stale_cwd — instead of aborting the whole restore.
+/// `/root` that exists locally at mode 700) retries once at home - counted as
+/// stale_cwd - instead of aborting the whole restore.
 #[test]
 fn restore_retries_at_home_when_spawn_fails_at_an_existing_cwd() {
     use crate::native::persistence::{PaneShape, ShapeSnapshot, TabShape, WorkspaceShape};
@@ -1245,7 +1245,7 @@ fn restore_retries_at_home_when_spawn_fails_at_an_existing_cwd() {
     );
 }
 
-/// RESTORE-REMOTE: a session's remote destination is captured into the shape
+/// A session's remote destination is captured into the shape
 /// as the leaf's `remote_host`; a local session leaves it `None`.
 #[test]
 fn capture_records_remote_destination_as_remote_host() {

@@ -30,8 +30,8 @@ pub enum ProfileSwitchReason {
 /// `current_profile` suppresses no-op suggestions. When the current profile's
 /// rules still match the context, switching holds steady even if another
 /// profile would also match (prevents A<->B flapping on repeated cwd events).
-/// `recently_applied` bounds immediate re-entry to a profile that was just left
-/// in the same context before `current_profile` catches up.
+/// `recently_applied` bounds immediate re-entry to a profile that was just
+/// applied in the same context before `current_profile` catches up.
 pub fn suggest_profile_switch<'a>(
     catalog: &ProfileCatalog,
     rules_by_profile: impl IntoIterator<Item = (&'a str, &'a ProfileSwitchRules)>,
@@ -283,7 +283,7 @@ mod tests {
         assert_eq!(suggestion, ProfileSwitchSuggestion::None);
     }
 
-    // ---- v0.14 Phase A3 adversarial: loop bound, trust, remote-inertness ----
+    // ---- Adversarial inputs: loop bound, trust, remote-inertness ----
 
     #[test]
     fn a3_current_profile_holds_when_context_still_matches() {
@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn a3_recently_applied_profile_is_suppressed_to_bound_switching() {
-        // Section 6.b / termination bound: a profile just applied by a switch
+        // Termination bound: a profile just applied by a switch
         // must not immediately re-trigger. `recently_applied` suppresses it even
         // when its own rule still matches the context, breaking A->B->A ping-pong.
         let rules = ProfileSwitchRules {
@@ -388,7 +388,7 @@ mod tests {
 
     #[test]
     fn a3_rule_referencing_a_missing_profile_is_inert() {
-        // Section 6.e: hostile/stale remote context cannot manufacture a profile.
+        // Hostile/stale remote context cannot manufacture a profile.
         // A switch rule whose target profile is absent from the catalog yields no
         // suggestion; switching never creates a profile.
         let rules = ProfileSwitchRules {
@@ -414,7 +414,7 @@ mod tests {
 
     #[test]
     fn a3_untrusted_or_unmatched_context_is_inert() {
-        // Section 6.c: a host/dir that matches no rule produces no switch. Remote
+        // A host/dir that matches no rule produces no switch. Remote
         // output that does not match a locally-configured pattern is inert.
         let rules = ProfileSwitchRules {
             match_hosts: vec!["devbox".to_owned()],

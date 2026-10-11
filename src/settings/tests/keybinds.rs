@@ -242,7 +242,7 @@ fn new_window_action_parses_and_remaps() {
 
 #[test]
 fn bindable_action_names_round_trip_through_parse() {
-    // Every variant — driven off the single `ALL` source of truth so a new
+    // Every variant - driven off the single `ALL` source of truth so a new
     // action is covered automatically.
     for action in BindableAction::ALL {
         assert_eq!(
@@ -269,7 +269,7 @@ fn keyboard_reference_documents_every_bindable_action() {
 #[test]
 fn keybinds_value_round_trips_for_every_action() {
     // Bind a distinct chord to every action, serialize via the same path the
-    // in-app keybinding editor saves through, then re-parse — proving the full
+    // in-app keybinding editor saves through, then re-parse - proving the full
     // expanded editor set (overlay/tab/pane actions included) survives the
     // config round-trip, not only the original 12.
     // Mixed radix over 36 keys (a-z, 0-9) and the four alt/super combinations
@@ -369,7 +369,7 @@ fn all_bindable_actions_is_exhaustive() {
         }
     }
     // Every variant is reachable through `classify`, and every group is present
-    // in ALL — proving ALL covers all four classes without omission.
+    // in ALL - proving ALL covers all four classes without omission.
     let mut groups = [false; 5];
     for action in BindableAction::ALL {
         groups[classify(action) as usize] = true;

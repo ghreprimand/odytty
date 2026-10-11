@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Odyssey theme system (presentation only).
 //!
-//! A theme is a tiny, source-agnostic bundle of *presentation* colors: the
-//! default foreground/background used when a cell carries `Color::Default`, plus
-//! the window clear color. Themes deliberately do **not** touch terminal
-//! semantics — escape-sequence parsing, the cell grid, and SGR attributes are
+//! A theme is a small, source-agnostic bundle of *presentation* colors: the
+//! default foreground/background used when a cell carries `Color::Default`, the
+//! window clear color, a 16-color palette and five semantic roles. Themes
+//! deliberately do **not** touch terminal
+//! semantics - escape-sequence parsing, the cell grid, and SGR attributes are
 //! all theme-unaware. Swapping themes can only change how `Color::Default` and
 //! the empty surface are painted; it can never change what the terminal core
 //! considers the screen contents to be.
@@ -34,8 +35,8 @@ pub use spec::{Appearance, ThemeSpec};
 /// threshold (4.5) so the canonical low-contrast community palettes (notably
 /// Solarized, which sits intentionally around 4.1–4.8 to reduce eye strain)
 /// remain authentic, while still rejecting any theme whose body text would be
-/// genuinely illegible. RV1 (minimum-contrast guarantee) will let users enforce
-/// a stricter floor at render time; this is the authoring gate for the bundled
+/// genuinely illegible. The `min_contrast` setting lets users enforce a
+/// stricter floor at render time; this is the authoring gate for the bundled
 /// library.
 pub const MIN_CONTRAST: f64 = 4.0;
 
@@ -44,7 +45,7 @@ pub const MIN_CONTRAST: f64 = 4.0;
 /// rendering-backend types.
 pub type Srgb = (u8, u8, u8);
 
-/// A presentation theme: a full appearance profile — default cell colors, the
+/// A presentation theme: a full appearance profile - default cell colors, the
 /// window clear color, the 16-color ANSI palette, and semantic role colors.
 ///
 /// Colors are sRGB bytes. Rendering converts them to linear space at the
@@ -80,7 +81,7 @@ pub struct Theme {
     /// `Color::Indexed(0..=15)` in the renderer. For [`PLAIN`](Self::PLAIN) this
     /// is byte-identical to the historical xterm table.
     pub palette: [Srgb; 16],
-    /// Cursor color (semantic role). Consumed by cursor treatments (ID1).
+    /// Cursor color (semantic role). Consumed by cursor treatments.
     pub cursor: Srgb,
     /// Selection background (semantic role). Consumed by selection rendering.
     pub selection: Srgb,
@@ -224,8 +225,8 @@ impl Theme {
     /// The const core themes, authored directly in source. These are the parse
     /// default and the fallback baselines ([`PLAIN`](Self::PLAIN) seeds
     /// [`ThemeSpec`] defaults; [`ODYSSEY_DEFAULT`](Self::ODYSSEY_DEFAULT) is the
-    /// shipped default theme); the *full* built-in library — re-parsed from the
-    /// embedded `.theme` files plus the community palettes — is [`Theme::all`].
+    /// shipped default theme); the *full* built-in library - re-parsed from the
+    /// embedded `.theme` files plus the community palettes - is [`all`].
     /// The const and parsed forms are pinned equal by test.
     pub const ALL: [Theme; 4] = [
         Theme::PLAIN,
@@ -235,7 +236,7 @@ impl Theme {
     ];
 
     /// Resolve a theme by name against the full built-in library
-    /// ([`Theme::all`]). Matching is case-insensitive and ignores surrounding
+    /// ([`all`]). Matching is case-insensitive and ignores surrounding
     /// whitespace. Returns `None` for an unknown name so callers can decide
     /// their own fallback; use [`Theme::from_name_or_default`] for the
     /// plain-fallback convenience.
@@ -276,7 +277,7 @@ impl Default for Theme {
 /// CRT post-process is the only scanline implementation now
 /// (`src/native/gpu/resources.rs::set_visual` is a no-op kept only so the
 /// settings-apply call site stays stable). [`Ambient`](Self::Ambient) instead
-/// enables the CRT post-process — but only when no explicit `crt` setting is
+/// enables the CRT post-process - but only when no explicit `crt` setting is
 /// present; an explicit `crt` value always wins over this alias
 /// (`src/settings/resolution.rs`). The default is [`Off`](Self::Off), which
 /// leaves CRT's own default undisturbed.
@@ -285,7 +286,8 @@ pub enum VisualEffect {
     /// No visual treatment. Rendering is identical to the pre-effect path.
     #[default]
     Off,
-    /// Faint static scanline wash over backgrounds.
+    /// Alias that enables the CRT post-process when no explicit `crt` setting
+    /// is present.
     Ambient,
 }
 

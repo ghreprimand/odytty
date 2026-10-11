@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! KB-REMAP — the in-app keybinding remap modal (`OverlayMode::KeyBindings`).
+//! The in-app keybinding remap modal (`OverlayMode::KeyBindings`).
 //!
 //! Turns the previously display-only `keybinds` settings row into a
 //! mouse-light, keyboard-driven editor: pick an action, press a chord, and it
-//! is captured live and written to `odytty.conf` — no hand-typing of
+//! is captured live and written to `odytty.conf` - no hand-typing of
 //! `ctrl+shift+f=search` strings (the no-hand-editing north star).
 //!
 //! Architecture (mirrors `theme_builder.rs`): this is a self-contained state
 //! machine the [`super::overlay::OverlayUi`] owns as one `OverlayMode`. Browsing
 //! navigation arrives through [`KeyRemapUi::handle_input`] like every other
-//! overlay mode; the chord-capture interaction is special — it BYPASSES the
+//! overlay mode; the chord-capture interaction is special - it BYPASSES the
 //! lossy `overlay_input_from_winit` mapper (which strips modifiers) and routes a
 //! raw [`KeyChord`] in through [`KeyRemapUi::deliver_chord`]. The App gates that
 //! bypass on [`KeyRemapUi::is_capturing_chord`].
@@ -32,7 +32,7 @@ use super::bindings::{KeyBindings, PanePrefixBindings, same_prefix_key};
 use super::overlay::OverlayInput;
 use super::settings_panel::wrap_words;
 
-/// Every `BindableAction` the in-app remap UI exposes — the full config surface,
+/// Every `BindableAction` the in-app remap UI exposes - the full config surface,
 /// grouped core → overlay → tab → pane. Sourced from [`BindableAction::ALL`] so
 /// the editor's row set can never drift from the enum (the
 /// `all_bindable_actions_is_exhaustive` guard in the settings tests pins `ALL`
@@ -48,8 +48,8 @@ pub(super) enum KeyRemapOutcome {
     Consumed,
     Preview(Settings),
     Save(Vec<SettingEdit>),
-    /// Save the working overrides AND return to the settings panel — emitted by
-    /// the dirty-close prompt's "save" choice (P1-6). Distinct from `Save`
+    /// Save the working overrides AND return to the settings panel - emitted by
+    /// the dirty-close prompt's "save" choice. Distinct from `Save`
     /// (which keeps the editor open after an in-modal Ctrl+S) so the overlay can
     /// navigate back only on this path.
     SaveAndClose(Vec<SettingEdit>),
@@ -88,8 +88,8 @@ pub(super) struct KeyRemapUi {
     capture: Option<BindableAction>,
     /// `Some(_)` while a captured chord awaits conflict confirmation.
     conflict: Option<ConflictState>,
-    /// `true` while the dirty-close save/discard/cancel prompt is showing
-    /// (P1-6). Mirrors the settings panel's `pending_close_prompt`: Esc on a
+    /// `true` while the dirty-close save/discard/cancel prompt is showing.
+    /// Mirrors the settings panel's `pending_close_prompt`: Esc on a
     /// dirty editor raises it instead of silently discarding the working
     /// overrides; while it is up, all input routes to the prompt.
     pending_close_prompt: bool,
@@ -145,7 +145,7 @@ impl KeyRemapUi {
     /// True while a row is capturing a chord OR a conflict-confirm is pending.
     /// The App routes raw keys to [`Self::deliver_chord`] exactly when this is
     /// true; it is `false` the instant the modal returns to browsing, so normal
-    /// overlay navigation is never swallowed (R1).
+    /// overlay navigation is never swallowed.
     pub(super) fn is_capturing_chord(&self) -> bool {
         self.capture.is_some() || self.conflict.is_some()
     }
@@ -159,8 +159,8 @@ impl KeyRemapUi {
         if self.is_capturing_chord() {
             return KeyRemapOutcome::Consumed;
         }
-        // The dirty-close prompt captures ALL browsing input until resolved
-        // (P1-6), mirroring the settings panel's `handle_close_prompt_input`.
+        // The dirty-close prompt captures ALL browsing input until resolved,
+        // mirroring the settings panel's `handle_close_prompt_input`.
         if self.pending_close_prompt {
             return self.handle_close_prompt_input(input);
         }
@@ -187,7 +187,7 @@ impl KeyRemapUi {
         self.overrides != self.base.key_bindings
     }
 
-    /// Esc handling (P1-6): a clean editor closes immediately (Cancel restores
+    /// Esc handling: a clean editor closes immediately (Cancel restores
     /// the base settings); a DIRTY editor raises the save/discard/cancel prompt
     /// instead of silently discarding the captured chords.
     fn request_close(&mut self) -> KeyRemapOutcome {
@@ -378,7 +378,7 @@ impl KeyRemapUi {
 
     /// Select the action row under a left-click, reporting whether it landed on a
     /// real action so the caller can route the existing Activate (which ARMS
-    /// chord capture for the row — a click selects + arms, it does not capture).
+    /// chord capture for the row - a click selects + arms, it does not capture).
     /// Inert while capturing or while the dirty-close prompt is up.
     pub(super) fn click_row(&mut self, row_in_body: usize, body_height: usize) -> bool {
         if self.is_capturing_chord() || self.pending_close_prompt {
@@ -403,16 +403,16 @@ impl KeyRemapUi {
             return self.deliver_conflict(chord);
         }
         let Some(action) = self.capture else {
-            // Not actually capturing — guard against a stray route.
+            // Not actually capturing - guard against a stray route.
             return KeyRemapOutcome::Consumed;
         };
         let Some(chord) = chord else {
-            self.message = Some("Unsupported key — try another chord.".to_owned());
+            self.message = Some("Unsupported key. Try another chord.".to_owned());
             return KeyRemapOutcome::Consumed;
         };
         // Esc cancels capture (its natural modal-control role); it is never
-        // BOUND. Enter is reserved too — binding either would make the modal
-        // uncloseable (D-KBR-5 / R4).
+        // BOUND. Enter is reserved too - binding either would make the modal
+        // uncloseable.
         if is_bare(chord, KeyBindingNamedKey::Escape) {
             self.capture = None;
             self.message = Some("Capture cancelled.".to_owned());
@@ -420,7 +420,7 @@ impl KeyRemapUi {
         }
         if is_bare(chord, KeyBindingNamedKey::Enter) {
             self.message =
-                Some("Enter is reserved as a control key — try a different chord.".to_owned());
+                Some("Enter is reserved as a control key. Try a different chord.".to_owned());
             return KeyRemapOutcome::Consumed;
         }
         // A global chord on a key that types text would take that key away from
@@ -433,10 +433,10 @@ impl KeyRemapUi {
             return KeyRemapOutcome::Consumed;
         }
         // Conflict check against the CURRENT EFFECTIVE bindings (defaults +
-        // working overrides), not the override vec alone — a chord that matches
-        // a DEFAULT of another action must still be caught (R3).
+        // working overrides), not the override vec alone - a chord that matches
+        // a DEFAULT of another action must still be caught.
         //
-        // C8: pane actions and flat actions occupy DISJOINT chord spaces — a
+        // Pane actions and flat actions occupy DISJOINT chord spaces - a
         // pane action's chord is a tmux-prefix second key that never collides
         // with a bare global chord at runtime. So resolve a pane action's
         // conflict within the prefix table (catching a clash with another pane
@@ -521,7 +521,7 @@ impl KeyRemapUi {
         KeyBindings::from_overrides(&self.overrides)
     }
 
-    /// The pane-action PREFIX view (C8): pane actions resolve their display chord
+    /// The pane-action PREFIX view: pane actions resolve their display chord
     /// and conflicts here, not through the flat `KeyBindings` table which never
     /// holds pane-action bindings.
     fn pane_prefix_bindings(&self) -> PanePrefixBindings {
@@ -606,14 +606,14 @@ impl KeyRemapUi {
                 )
             }),
             message: self.message.clone(),
-            // The full chord state of every row in one cheap digest — the rows
+            // The full chord state of every row in one cheap digest - the rows
             // repaint whenever any binding changes.
             bindings: key_bindings_config_value(&self.overrides),
         }
     }
 
     /// Hidden actions above / below the visible window, for the scroll
-    /// affordance (OVERLAY-SMALL-WINDOW). `(false, false)` when all fit, so a
+    /// affordance. `(false, false)` when all fit, so a
     /// normal window draws no arrows and stays byte-identical.
     pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
         let capacity = self.list_capacity(body_height);
@@ -651,7 +651,7 @@ impl KeyRemapUi {
             let chord_text = if self.capture == Some(*action) {
                 "press a chord…".to_owned()
             } else if action.is_pane_action() {
-                // C8: pane actions live in the prefix table, not the flat one.
+                // Pane actions live in the prefix table, not the flat one.
                 self.pane_action_chord_text(*action)
             } else {
                 let chords = bindings.chords_for_action(*action);
@@ -684,7 +684,7 @@ pub(super) struct KeyRemapLine {
     pub(super) focused: bool,
 }
 
-/// Repaint signature for the remap modal — everything that changes its pixels.
+/// Repaint signature for the remap modal - everything that changes its pixels.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct KeyRemapSignature {
     pub(super) selected: usize,
@@ -696,8 +696,8 @@ pub(super) struct KeyRemapSignature {
     pub(super) bindings: String,
 }
 
-/// Whether a chord is the named key with NO modifiers — the reserved-control
-/// test for `Esc`/`Enter` (D-KBR-5). A modified chord (e.g. `ctrl+enter`) is NOT
+/// Whether a chord is the named key with NO modifiers - the reserved-control
+/// test for `Esc`/`Enter`. A modified chord (e.g. `ctrl+enter`) is NOT
 /// reserved and may be bound freely.
 fn is_bare(chord: KeyChord, named: KeyBindingNamedKey) -> bool {
     let m = chord.modifiers;
@@ -750,7 +750,7 @@ mod tests {
 
     #[test]
     fn actions_list_covers_every_bindable_action() {
-        // The remap modal now offers the full `keybinds` config surface — every
+        // The remap modal now offers the full `keybinds` config surface - every
         // `BindableAction` variant. ACTIONS is `BindableAction::ALL`, whose
         // exhaustiveness is pinned by `all_bindable_actions_is_exhaustive` in the
         // settings tests; here we confirm the editor inherits the full set with
@@ -819,7 +819,7 @@ mod tests {
     #[test]
     fn conflict_surfaced_for_newly_added_action() {
         // Capturing CommandPalette's default chord (ctrl+shift+p) for a tab
-        // action must flag a conflict — the conflict path covers the expanded
+        // action must flag a conflict - the conflict path covers the expanded
         // set, not only the original 12.
         let mut ui = ui();
         select_action(&mut ui, BindableAction::NewTab);
@@ -860,7 +860,7 @@ mod tests {
             .iter()
             .find(|t| t.contains("[Enter]") && t.contains("[Esc]"))
             .expect("a line must carry the Enter/Esc hints");
-        // The hint line is dedicated — it does NOT also carry the long question,
+        // The hint line is dedicated - it does NOT also carry the long question,
         // so a tail clip of the question can never eat the hints.
         assert!(
             !hint_line.contains("is bound to"),
@@ -880,7 +880,7 @@ mod tests {
 
     /// Find the rendered row for `name` in a tall render (no scrolling).
     fn row_text_for(ui: &KeyRemapUi, name: &str) -> String {
-        // Action rows are `{cursor}{name:<18} {chord}` — match on the leading
+        // Action rows are `{cursor}{name:<18} {chord}` - match on the leading
         // name so the message banner (which may mention the same action) is not
         // picked up.
         ui.visible_lines(80, 100)
@@ -892,7 +892,7 @@ mod tests {
 
     #[test]
     fn c8_pane_action_row_shows_prefix_chord_not_unbound() {
-        // C8: a pane action's default binding is a tmux-prefix second key (ZoomPane
+        // A pane action's default binding is a tmux-prefix second key (ZoomPane
         // → prefix `z`). Before the fix the flat table returned None and the row
         // read "(unbound)"; now it shows the prefix second key.
         let ui = ui();
@@ -932,7 +932,7 @@ mod tests {
 
     #[test]
     fn c8_bound_pane_action_row_is_not_self_contradictory() {
-        // C8: binding a pane action must show the NEW prefix chord, never the
+        // Binding a pane action must show the NEW prefix chord, never the
         // self-contradictory "(unbound) *" (unbound text with the override marker)
         // the flat-table lookup produced.
         let mut ui = ui();
@@ -956,7 +956,7 @@ mod tests {
 
     #[test]
     fn c8_pane_action_conflict_resolves_in_prefix_space() {
-        // C8: a pane action's chord conflicts only with ANOTHER pane action (the
+        // A pane action's chord conflicts only with ANOTHER pane action (the
         // prefix space), which the flat table could never see. Capturing
         // ClosePane's default prefix key (`x`) for ZoomPane must flag ClosePane.
         let mut ui = ui();
@@ -995,7 +995,7 @@ mod tests {
 
     #[test]
     fn is_capturing_chord_false_when_idle() {
-        // R1: a freshly-opened (browsing) modal is NOT capturing — the App's
+        // A freshly-opened (browsing) modal is NOT capturing - the App's
         // bypass must stay dormant until a row is armed.
         let mut ui = ui();
         assert!(!ui.is_capturing_chord());
@@ -1023,8 +1023,8 @@ mod tests {
 
     #[test]
     fn capture_rejects_reserved_chords() {
-        // R4: bare Enter is reserved (stays capturing, no binding); bare Esc
-        // cancels; a normal chord is accepted — confirms the guard polarity is
+        // Bare Enter is reserved (stays capturing, no binding); bare Esc
+        // cancels; a normal chord is accepted - confirms the guard polarity is
         // not inverted (which would reject everything).
         let mut ui = ui();
         select_action(&mut ui, BindableAction::Hints);
@@ -1040,7 +1040,7 @@ mod tests {
     #[test]
     fn capture_none_keeps_capturing() {
         // Matrix 12: a key chord_from_winit cannot encode (bare modifier / IME)
-        // arrives as None — capture stays armed, nothing commits.
+        // arrives as None - capture stays armed, nothing commits.
         let mut ui = ui();
         select_action(&mut ui, BindableAction::Hints);
         ui.handle_input(OverlayInput::Activate);
@@ -1066,7 +1066,7 @@ mod tests {
 
     #[test]
     fn conflict_against_default_then_reassign() {
-        // R3: capturing ctrl+shift+f (Search's DEFAULT) for Copy must flag a
+        // Capturing ctrl+shift+f (Search's DEFAULT) for Copy must flag a
         // conflict even though there is no override for it; Enter reassigns.
         let mut ui = ui();
         select_action(&mut ui, BindableAction::Copy);
@@ -1164,8 +1164,8 @@ mod tests {
 
     #[test]
     fn open_preserves_existing_overrides() {
-        // R5: opening from settings that already carry an override must clone it
-        // into the working vector (not start empty — which would wipe the user's
+        // Opening from settings that already carry an override must clone it
+        // into the working vector (not start empty - which would wipe the user's
         // bindings on the next save).
         let mut settings = Settings::default();
         settings.key_bindings.push(KeyBindingOverride {
@@ -1194,7 +1194,7 @@ mod tests {
     fn click_row_selects_and_routes_activate_to_arm_capture() {
         // open() sets a help message, so row 0 is the message and action rows
         // start at row 1. Clicking row 1 selects ACTIONS[0]; routing Activate
-        // (as the overlay does) arms capture — a click selects + arms, exactly
+        // (as the overlay does) arms capture - a click selects + arms, exactly
         // like Enter.
         let mut ui = ui();
         assert!(ui.click_row(1, 60));
@@ -1265,7 +1265,7 @@ mod tests {
             "Esc on dirty shows the prompt"
         );
         assert!(ui.render_signature().pending_close_prompt);
-        // The captured chord survives — it is NOT silently discarded.
+        // The captured chord survives - it is NOT silently discarded.
         assert!(
             ui.overrides
                 .iter()

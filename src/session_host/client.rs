@@ -19,8 +19,7 @@ pub struct SessionHostClient {
     stream: UnixStream,
     /// Resumable frame reader: [`Self::read_frame`] polls with an absolute read deadline,
     /// and a timeout firing mid-frame must preserve the partial frame so the
-    /// caller's retry resumes it instead of desyncing on leftover payload bytes
-    /// (audit P1).
+    /// caller's retry resumes it instead of desyncing on leftover payload bytes.
     frame_reader: HostFrameReader,
     poisoned: bool,
 }
@@ -49,7 +48,7 @@ impl SessionHostClient {
         })
         .context("bound session-host client hello")?
         .context("write session-host client hello")?;
-        // C-2: bound the hello read. `connect` succeeds against a wedged host via
+        // Bound the hello read. `connect` succeeds against a wedged host via
         // the listen backlog even though the host never `accept()`s, so an
         // unbounded read here would freeze the calling thread forever. Scope the
         // deadline reader so the borrow ends before the stream is stored.
@@ -117,7 +116,7 @@ impl SessionHostClient {
     }
 
     /// Ask the host to terminate the whole session (manager "kill session").
-    /// Mirrors [`Self::detach`]; the host SIGHUPs its shell and tears down,
+    /// Mirrors [`Self::detach`]; the host kills its shell (SIGKILL to the process group) and tears down,
     /// unlinking the socket so the session disappears from the registry.
     pub fn shutdown(&mut self) -> Result<()> {
         self.write_bounded(|writer| write_client_frame(writer, &ClientFrame::Shutdown))

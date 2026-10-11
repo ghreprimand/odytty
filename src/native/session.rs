@@ -14,9 +14,13 @@
 //! | [`lifecycle`] | Bounded joins, close, shutdown, exit, removal, pane, tab and workspace lifecycle |
 //! | [`arrangement`] | Stacked and floating tab arrangements over the split tree |
 //! | [`persistence`] | Capture, restore, append, validation, fingerprint and rollback |
+//! | `reparent` | Moving a tab or workspace between windows |
+//! | `resize_retry` | Retrying a failed backend resize |
+//! | `upload_lifecycle` | Remote image-upload bookkeeping |
+//! | `window_merge` | Whole-workspace merge between windows |
 //!
 //! Dependency direction runs model first, then transport, presentation,
-//! lifecycle, and persistence.
+//! lifecycle, and persistence; the last four modules build on that spine.
 
 mod arrangement;
 mod lifecycle;

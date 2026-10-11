@@ -4,7 +4,7 @@
 //! [`VtDispatch`] sink that the terminal core implements.
 //!
 //! Public surface: [`OdyParser::new`] + [`OdyParser::advance`]. The shape is
-//! unchanged from the first-generation parser — `Screen` (the core dispatch
+//! unchanged from the first-generation parser - `Screen` (the core dispatch
 //! consumer) and parser fixtures exercise the internals through the same seam.
 //!
 //! ## Pipeline
@@ -38,7 +38,7 @@
 //!   realistic OSC 52 (clipboard base64) and OSC 8 (hyperlinks).
 //! - **APC**: [`MAX_APC_RAW`] = 1 MiB. Buffered because `apc_dispatch` delivers
 //!   the whole payload. Over-cap → mark overflow and **drop** (do not dispatch
-//!   a truncated payload — a corrupt partial base64 image is worse than none).
+//!   a truncated payload - a corrupt partial base64 image is worse than none).
 
 use super::VtDispatch;
 use super::action::Action;
@@ -132,7 +132,7 @@ impl OdyParser {
                     self.apply(sink, action);
                 }
                 i += 1;
-                // Only the APC cancel path leaves stale data behind — every
+                // Only the APC cancel path leaves stale data behind - every
                 // OSC exit (dispatched or cancelled) and every ApcEnd clears
                 // its buffer in `apply`. So
                 // the per-byte cleanup is one boolean check.
@@ -211,8 +211,8 @@ impl OdyParser {
     /// buffer instead of being consumed: the final slot then absorbs the rest
     /// of the payload verbatim at dispatch, so a payload with more than
     /// [`MAX_OSC_PARAMS`] fields (a semicolon-rich title or OSC 8 URL) is
-    /// delivered complete — consumers that rejoin parameters with `;`
-    /// reconstruct the exact original bytes — rather than silently losing its
+    /// delivered complete - consumers that rejoin parameters with `;`
+    /// reconstruct the exact original bytes - rather than silently losing its
     /// tail. The tail stays bounded by [`MAX_OSC_RAW`] like all OSC payload.
     fn osc_snapshot_param(&mut self) {
         let idx = self.osc_raw.len();
@@ -231,7 +231,7 @@ impl OdyParser {
     }
 
     /// Record the final parameter (the bytes between the last recorded
-    /// boundary and the terminator) — including any absorbed overflow tail.
+    /// boundary and the terminator) - including any absorbed overflow tail.
     fn osc_final_param(&mut self) {
         let idx = self.osc_raw.len();
         let param_idx = self.osc_num_params as usize;
@@ -256,7 +256,7 @@ impl OdyParser {
         let count = self.osc_num_params as usize;
         // `osc_snapshot_param` caps `osc_num_params` at `MAX_OSC_PARAMS`, so the
         // param slices always fit a fixed stack array. Filling it in place avoids
-        // a heap `Vec` allocation on every terminated OSC — shell integration
+        // a heap `Vec` allocation on every terminated OSC - shell integration
         // emits several OSC 133/7 per prompt, so this is a real parse-path cost.
         let empty: &[u8] = &[];
         let mut slices: [&[u8]; MAX_OSC_PARAMS] = [empty; MAX_OSC_PARAMS];

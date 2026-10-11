@@ -623,8 +623,8 @@ fn create_overlay_pipeline(
 }
 
 /// Render one frame through the full CRT+bloom post chain onto the swapchain,
-/// then (when `overlay` is `Some`) composite an opaque backing + the image in a
-/// `LoadOp::Load` pass — exactly the real post-then-overlay order. Returns the
+/// then (when `overlay` is `Some`) composite a 0.72-alpha scrim + the image in a
+/// `LoadOp::Load` pass - exactly the real post-then-overlay order. Returns the
 /// read-back swapchain pixels. All GPU resources stay alive until submit.
 fn render_overlay_frame(
     device: &wgpu::Device,
@@ -879,8 +879,8 @@ fn viewer_scrim_dims_whole_viewport() {
     let (device, queue) = (&gpu.device, &gpu.queue);
 
     // 8×6 opaque red image (fits centered at x∈[4,12), y∈[3,9) in the 16×12
-    // frame). The lightbox scrim must dim the WHOLE viewport — including the
-    // surround far from the fit-rect — while the image stays crisp on top.
+    // frame). The lightbox scrim must dim the WHOLE viewport - including the
+    // surround far from the fit-rect - while the image stays crisp on top.
     let mut img = vec![0u8; (8 * 6 * 4) as usize];
     for px in img.as_chunks_mut::<4>().0.iter_mut() {
         px[0] = 255; // red

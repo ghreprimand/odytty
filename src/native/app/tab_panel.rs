@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! F4-P1 unified tab **panel** + **seam** geometry — the background-segment
-//! quads that back the "Phosphor Flat v2" tab chrome (ODP-1 / ODP-2).
+//! F4-P1 unified tab **panel** + **seam** geometry - the background-segment
+//! quads that back the "Phosphor Flat v2" tab chrome.
 //!
 //! [`super::tab_chrome`] owns the *colors* (panel tint, wash alpha, seam color);
 //! this module owns the *geometry*: it turns a resolved [`PanelQuadSpec`] into
 //! the pixel-space [`SolidQuad`]s the integration layer splices into the
 //! background segment of the two GPU update paths (immediately after the NF11
 //! wallpaper edge-wash block, so the panel re-tints the padding strips and veils
-//! the fills, and the seam sits over the panel — both still under every glyph).
+//! the fills, and the seam sits over the panel - both still under every glyph).
 //!
 //! Two coupled quads, in this order:
-//! 1. **panel wash** — one translucent quad over the whole panel rect, at the
+//! 1. **panel wash** - one translucent quad over the whole panel rect, at the
 //!    [`super::tab_chrome::panel_wash_alpha`] that tops the band's cell fill
 //!    up to the strength-driven coverage target. Emitted only when `p > 0`;
 //!    when the cells already compose at or above the target, the
 //!    [`super::tab_chrome::panel_tint`] cell layer is the whole panel and no
 //!    wash is needed.
-//! 2. **seam** — one hairline flush inside the panel's content-facing edge,
+//! 2. **seam** - one hairline flush inside the panel's content-facing edge,
 //!    `max(1, round(scale))` px, at [`super::tab_chrome::SEAM_ALPHA`]. Emitted
 //!    only when a seam color is supplied (caller gates on the seam knob AND a
 //!    live panel).
@@ -65,8 +65,8 @@ pub(super) struct PanelQuadSpec {
     /// band is flush to the padding and the surface- and grid-derived edges
     /// coincide.
     pub(super) lead_cells: usize,
-    /// CHROME-GAP: extra pixels between the lead (content) cells and a RIGHT
-    /// rail band — the chrome-facing padding gap that shifts the band away from
+    /// Extra pixels between the lead (content) cells and a RIGHT
+    /// rail band - the chrome-facing padding gap that shifts the band away from
     /// the content columns. `0.0` for `Top`/`Left` bands and at zero padding,
     /// keeping those seams byte-identical.
     pub(super) lead_gap_px: f32,
@@ -146,7 +146,7 @@ fn seam_coord(spec: &PanelQuadSpec) -> f32 {
         // Grid-aligned to the rail's actual (left-aligned, grid-embedded) band
         // edge rather than surface-derived, so the seam sits exactly on the
         // rail↔content boundary regardless of the sub-cell horizontal remainder.
-        // CHROME-GAP: past the content columns the chrome-facing padding gap
+        // Past the content columns the chrome-facing padding gap
         // shifts the band (and thus its content-facing seam) further right;
         // `lead_gap_px == 0.0` reproduces the historical seam exactly.
         PanelAxis::Right => spec.pad[0] + spec.lead_cells as f32 * spec.cell[0] + spec.lead_gap_px,
@@ -293,20 +293,20 @@ pub(super) fn panel_quads(spec: &PanelQuadSpec) -> Vec<SolidQuad> {
     quads
 }
 
-/// Build the F4-P3 rail **auto-hide overlay** wash + seam, returned as two
-/// separate quads so the integration layer can layer them around the floating
-/// strip: the **wash draws UNDER** the strip cells (muting the live content the
-/// revealed rail floats over — CHROME-ALPHA: at the same shared panel-wash
-/// alpha as the pinned bands, so the band's translucency does not depend on
-/// the autohide state), and the **seam draws OVER** the strip (the
+/// Build the rail **auto-hide overlay** wash + seam, returned as two separate
+/// quads so the integration layer can layer them around the floating strip: the
+/// **wash** follows the strip's cell backgrounds and precedes the strip glyphs
+/// (muting the live content the revealed rail floats over, at the same shared
+/// panel-wash alpha as the pinned bands, so the band's translucency does not
+/// depend on the autohide state), and the **seam** is drawn after the strip (the
 /// content-facing edge line).
 ///
-/// Unlike [`panel_quads`], the overlay band is NOT grid-embedded — the caller
+/// Unlike [`panel_quads`], the overlay band is NOT grid-embedded - the caller
 /// supplies the resolved content-facing `seam_x` directly (a left band hugs the
 /// left padding; a right band hugs the right window edge), so this takes no
 /// `lead_cells` / `band_cells`. `axis` selects which side the band occupies
 /// (`Top` is not an auto-hide axis and yields nothing). Returns
-/// `(wash, seam)` — either may be `None` (zero alpha / no seam color / degenerate
+/// `(wash, seam)` - either may be `None` (zero alpha / no seam color / degenerate
 /// surface).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn overlay_band_quads(
@@ -372,7 +372,7 @@ mod tests {
             // Right-rail lead: content columns to the left of the band. In
             // this fixture the surface is exactly `pad + (lead + band)·cell + pad`
             // (800 = 4 + (83 + 16)·8 + 4), so the grid-aligned right seam lands at
-            // the same 668 px a surface-derived edge would — no remainder.
+            // the same 668 px a surface-derived edge would - no remainder.
             lead_cells: 83,
             lead_gap_px: 0.0,
             scale_factor: 1.0,
@@ -424,8 +424,8 @@ mod tests {
         // 5px remainder: surface 805 = pad 4 + (83 + 16)·8 + pad 4 + 5.
         spec.surface = [805.0, 600.0];
         let quads = panel_quads(&spec);
-        let grid_seam = 4.0 + 83.0 * 8.0; // 668 — the rail's real content edge
-        let surface_seam = 805.0 - 4.0 - 16.0 * 8.0; // 673 — the wrong, drifted edge
+        let grid_seam = 4.0 + 83.0 * 8.0; // 668 - the rail's real content edge
+        let surface_seam = 805.0 - 4.0 - 16.0 * 8.0; // 673 - the wrong, drifted edge
         assert_ne!(grid_seam, surface_seam, "the two derivations differ here");
         // Panel spans from the grid seam to the far window edge (covering the
         // rail glyphs plus the sub-cell remainder + right padding).
@@ -632,7 +632,7 @@ mod tests {
     #[test]
     fn wash_omitted_when_alpha_zero_but_seam_still_drawn() {
         // Opaque cells (p = 0): the tint cell layer is the panel, so no wash
-        // quad — but the seam still separates the panel from content.
+        // quad - but the seam still separates the panel from content.
         let mut spec = base(PanelAxis::Left);
         spec.wash_alpha = 0.0;
         let quads = panel_quads(&spec);
@@ -816,7 +816,7 @@ mod tests {
 
     /// CHROME-ALPHA regression: for the same wash alpha, the pinned band
     /// builder and the auto-hide overlay builder emit washes at EXACTLY that
-    /// alpha — neither path floors, scales, or otherwise diverges, so a chrome
+    /// alpha - neither path floors, scales, or otherwise diverges, so a chrome
     /// band composes the same effective translucency in both autohide states.
     /// (The old reveal path floored its wash at 0.85, which made toggling
     /// auto-hide visibly change the band's opacity under a translucent

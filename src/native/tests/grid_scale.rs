@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Grid-dimension and HiDPI (H3) scale-matrix tests. (M6 mechanical split from native/tests.rs).
+//! Grid-dimension and HiDPI scale-matrix tests. (M6 mechanical split from native/tests.rs).
 
 use super::*;
 
@@ -187,7 +187,7 @@ fn pending_nonzero_resize_still_updates_model_grid() {
 }
 
 // ---------------------------------------------------------------------------
-// H3: HiDPI scale-matrix validation
+// HiDPI scale-matrix validation
 // ---------------------------------------------------------------------------
 
 use super::super::gpu::physical_font_px;
@@ -378,7 +378,7 @@ fn h3_rebuild_invalidation_no_stale_slots_across_scale() {
         let slots_a = atlas_a.slot_count();
         let cell_a = atlas_a.cell;
 
-        // "Rebuild" at scale B — fresh atlas, no carry-over.
+        // "Rebuild" at scale B - fresh atlas, no carry-over.
         let atlas_b = GlyphAtlas::build(&font, px_b);
         assert_ne!(
             atlas_b.cell, cell_a,

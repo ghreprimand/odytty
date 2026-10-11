@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Native connection-manager overlay state (Phase 4).
+//! Native connection-manager overlay state.
 //!
 //! The overlay is presentation state only: it owns a frozen, decoupled list of
 //! local connection candidates (from [`crate::connection_hosts`]), a type-to-
 //! filter query, and a selection cursor. It never writes to the PTY and never
 //! mutates the live terminal model. Accepting a row returns a
 //! [`ConnectionOverlayOutcome::Connect`] carrying the chosen host for the App to
-//! act on after the overlay closes — the actual `ssh <host>` spawn lives in the
+//! act on after the overlay closes - the actual `ssh <host>` spawn lives in the
 //! App's connect action, not here.
 //!
 //! Privacy: this module never reads `~/.ssh` itself. It only displays whatever
@@ -30,9 +30,9 @@ use super::session::SessionToken;
 /// fuzzy ranking bounded regardless of how large the hosts list is).
 const MAX_RESULTS: usize = 40;
 
-/// FORM-DISCOVERABILITY: the always-visible affordance footer reserves the two
-/// bottom body rows of the connection manager — an actionable "+ Add
-/// connection…" row and a key-hint line — so the Add/Edit/save actions are
+/// The always-visible affordance footer reserves the two
+/// bottom body rows of the connection manager - an actionable "+ Add
+/// connection…" row and a key-hint line - so the Add/Edit/save actions are
 /// reachable by sight and by mouse, not only through invisible chords.
 /// The footer's fixed Add row; the wrapped key-hint rows are added on top of
 /// this. `FOOTER_ROWS` remains the single-hint-row baseline (Add + one hint) so
@@ -80,9 +80,9 @@ pub(super) struct ConnectionOverlay {
     filtered: Vec<FilteredRow>,
     /// Selection cursor into `filtered`. Clamped whenever `filtered` changes.
     selected: usize,
-    /// Scroll offset into `filtered` for the visible window on a short overlay
-    /// (OVERLAY-SMALL-WINDOW). Interior-mutable so the render pass — which is
-    /// the only place the live body height is known — can keep the selection in
+    /// Scroll offset into `filtered` for the visible window on a short overlay.
+    /// Interior-mutable so the render pass - which is
+    /// the only place the live body height is known - can keep the selection in
     /// view, mirroring the palette overlay's pattern. `0` whenever everything
     /// fits, so a tall overlay is byte-identical to before scrolling existed.
     scroll_offset: Cell<usize>,
@@ -93,12 +93,12 @@ pub(super) struct ConnectionOverlay {
     /// wrapped key-hint height the list drew (keyboard nav / clicks have no live
     /// body width). `0` until the first render keeps the single-hint baseline.
     last_body_width: Cell<usize>,
-    /// What accepting a row does (ODP-1B). Default `Connect` is the connection
+    /// What accepting a row does. Default `Connect` is the connection
     /// manager; a tagged purpose makes this the same list a shared picker for a
     /// pending menu action. Reset on every `open`.
     purpose: ConnectionPickerPurpose,
     /// Whether the always-visible "+ Add connection…" footer row is the current
-    /// selection (FORM-DISCOVERABILITY). Reached by `Down` past the last host or
+    /// selection. Reached by `Down` past the last host or
     /// a click on the row; `Enter` there opens the Add form. Reset on open and
     /// on any query change. Only meaningful in the `Connect` purpose (the footer
     /// is not shown for transient pickers).
@@ -112,7 +112,7 @@ pub(super) struct ConnectionOverlay {
 /// into the generic "menu item → seeded picker → tagged accept" mechanism: a
 /// context-menu item opens the picker seeded with saved hosts plus a pending
 /// action, and accepting a row hands the App the chosen host paired with that
-/// action to route — instead of connecting. New consumers (tab "Connect to
+/// action to route - instead of connecting. New consumers (tab "Connect to
 /// host", connection-row actions) add their own variant when they land; the
 /// mechanism does not change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -120,18 +120,18 @@ pub(super) enum ConnectionPickerPurpose {
     /// The connection manager: accept connects; ad-hoc save is offered.
     #[default]
     Connect,
-    /// Bind the active workspace to the chosen saved host (ODP-6B). Ad-hoc /
-    /// unsaved rows are not offered — a workspace binds by saved-host alias.
+    /// Bind the active workspace to the chosen saved host. Ad-hoc /
+    /// unsaved rows are not offered - a workspace binds by saved-host alias.
     BindWorkspace,
     /// Bind the workspace with this creation identity to the chosen saved
-    /// host (RAIL-BIND). Like [`Self::BindWorkspace`] but targets the CLICKED
+    /// host. Like [`Self::BindWorkspace`] but targets the CLICKED
     /// slot from the rail context menu instead of the active workspace; the
     /// identity, not the rail index, survives workspaces closing or moving
     /// while the picker is open.
     BindWorkspaceAt(SessionToken),
     /// Open the chosen saved host in a NEW tab positioned right after the tab
     /// that owns this token (ODP-5D "Connect to host ▸"). The clicked tab is
-    /// left untouched — the new remote tab reads as "connect from here".
+    /// left untouched - the new remote tab reads as "connect from here".
     ConnectTabAfter(SessionToken),
     /// Replace the tab that owns this token with the chosen saved host (ODP-5D
     /// "Replace this tab with ▸"). The App gates the destructive close behind a
@@ -151,7 +151,7 @@ pub(super) enum ConnectionOverlayOutcome {
     /// `hosts.conf`. Carried only from the synthetic "Connect to: …" row.
     ConnectAndSave(Box<ConnectionHost>),
     /// The user accepted a saved host while the picker was opened for a tagged
-    /// pending action (ODP-1B). The App routes the chosen host per the purpose
+    /// pending action. The App routes the chosen host per the purpose
     /// rather than connecting. Never emitted in the default `Connect` purpose.
     Pick(Box<ConnectionHost>, ConnectionPickerPurpose),
     /// Launch a new tab through the named-profile resolver (v0.14). Emitted only
@@ -197,7 +197,7 @@ impl ConnectionOverlay {
         self.open_for_purpose(entries, ConnectionPickerPurpose::Connect, Vec::new());
     }
 
-    /// Load a frozen candidate set for a tagged pending action (ODP-1B). The
+    /// Load a frozen candidate set for a tagged pending action. The
     /// list/filter/cursor behavior is identical to [`Self::open`]; only the
     /// meaning of accept differs (see [`ConnectionPickerPurpose`]).
     pub(super) fn open_for_purpose(
@@ -220,10 +220,10 @@ impl ConnectionOverlay {
         self.recompute();
     }
 
-    /// Body rows reserved at the bottom for the affordance footer
-    /// (FORM-DISCOVERABILITY). Only the connection-manager (`Connect`) purpose
+    /// Body rows reserved at the bottom for the affordance footer.
+    /// Only the connection-manager (`Connect`) purpose
     /// shows it, and only when the window has room for the query row, at least
-    /// one result row, and the two footer rows — a tiny window falls back to the
+    /// one result row, and the two footer rows - a tiny window falls back to the
     /// pre-footer layout so the list is never squeezed to nothing.
     fn footer_rows(&self, body_height: usize) -> usize {
         let needed = FOOTER_ADD_ROWS + self.hint_rows();
@@ -353,7 +353,7 @@ impl ConnectionOverlay {
         self.entries.get(entry_index)
     }
 
-    /// Whether the selection sits on the last (or no) host — the point from
+    /// Whether the selection sits on the last (or no) host - the point from
     /// which `Down` steps onto the "+ Add connection…" footer row.
     fn at_last_result(&self) -> bool {
         self.filtered.is_empty() || self.selected + 1 >= self.filtered.len()
@@ -386,7 +386,7 @@ impl ConnectionOverlay {
             }
             OverlayInput::Down => {
                 // Past the last host, `Down` steps onto the always-visible
-                // "+ Add connection…" footer row (FORM-DISCOVERABILITY) rather
+                // "+ Add connection…" footer row rather
                 // than sticking on the final host.
                 if self.footer_active() && !self.add_row_focused && self.at_last_result() {
                     self.add_row_focused = true;
@@ -445,7 +445,7 @@ impl ConnectionOverlay {
                     },
                 },
                 // Any tagged pending action (bind a workspace, connect from a
-                // tab, replace a tab): only a saved host is acceptable — these
+                // tab, replace a tab): only a saved host is acceptable - these
                 // pickers offer saved hosts only, so an empty selection is inert.
                 // The App routes the pick per the carried purpose.
                 ConnectionPickerPurpose::BindWorkspace
@@ -474,7 +474,7 @@ impl ConnectionOverlay {
                 }
             }
             // Tab opens the Add-connection form; `\u{2192}` opens the Edit form for a
-            // selected OdyTTY-owned row (P4). An `ssh-config`-imported row is
+            // selected OdyTTY-owned row. An `ssh-config`-imported row is
             // read-only, so `\u{2192}` there is inert. The footer add-row is not
             // an editable host, so `\u{2192}` there is inert too. Both are
             // connection-manager shortcuts: a tagged picker (bind a workspace,
@@ -520,7 +520,7 @@ impl ConnectionOverlay {
         self.follow_selection_for_known_body_height();
     }
 
-    /// Map a clicked body row to the selection cursor it represents — the
+    /// Map a clicked body row to the selection cursor it represents - the
     /// inverse of the [`Self::visible_lines`] windowing (UX4-P1 click→Activate).
     /// Row 0 is the `> query` prompt; host rows follow from the live
     /// `scroll_offset`. Returns `None` for the prompt row, the empty/"No
@@ -541,7 +541,7 @@ impl ConnectionOverlay {
 
     /// Map a right-clicked body row to `(filtered cursor, cloned host)` for the
     /// ODP-2C connection-row context menu. Returns `None` for the prompt row,
-    /// the empty/"No matches"/ad-hoc hint, or a click past the last host — a
+    /// the empty/"No matches"/ad-hoc hint, or a click past the last host - a
     /// menu only opens on a real saved-host row. Read-only: unlike `click_row`
     /// it never moves the selection, so right-click-for-menu leaves the keyboard
     /// cursor where it was.
@@ -562,7 +562,7 @@ impl ConnectionOverlay {
     /// selectable row so the caller can route the existing Activate. Parity with
     /// Down×N + Activate by construction.
     pub(super) fn click_row(&mut self, row_in_body: usize, body_height: usize) -> bool {
-        // FORM-DISCOVERABILITY: the pinned "+ Add connection…" footer row sits at
+        // The pinned "+ Add connection…" footer row sits at
         // `body_height - FOOTER_ROWS`; a click there focuses it so the caller's
         // routed Activate opens the Add form.
         let footer = self.footer_rows(body_height);
@@ -607,7 +607,7 @@ impl ConnectionOverlay {
         // reserves the same wrapped-hint height this pass draws.
         self.last_body_width.set(body_width);
         let scroll_offset = self.scroll_offset_for_body_height(body_height);
-        // FORM-DISCOVERABILITY: reserve the bottom rows for the pinned affordance
+        // Reserve the bottom rows for the pinned affordance
         // footer so it is always visible; content fills the space above it.
         let footer = self.footer_rows(body_height);
         let content_cap = body_height.saturating_sub(footer);
@@ -724,7 +724,7 @@ impl ConnectionOverlay {
     }
 
     /// Hidden result rows above / below the visible window, for the shared
-    /// scroll affordance (OVERLAY-SMALL-WINDOW). One body row is the query
+    /// scroll affordance. One body row is the query
     /// line, so the result viewport is `body_height - 1`. `(false, false)`
     /// whenever everything fits, so a tall overlay draws no arrows.
     pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
@@ -800,7 +800,7 @@ impl ConnectionOverlay {
         // classifying the frame `Retained` and freezing the list (the
         // cache-staleness lesson from the settings Level-1 list).
         self.scroll_offset.get().hash(&mut hasher);
-        // FORM-DISCOVERABILITY: toggling focus onto the "+ Add connection…"
+        // Toggling focus onto the "+ Add connection…"
         // footer row moves the highlight without changing query/selection, so
         // fold it in or the highlight would freeze on a `Retained` frame.
         self.add_row_focused.hash(&mut hasher);
@@ -854,7 +854,7 @@ fn profile_row_label(row: &ConnectionProfileRow) -> String {
 
 /// Build the searchable text for one host: alias plus host name and user so a
 /// user can fuzzy-match on any of them. Profile fields (theme/font/title) are
-/// not searched — they are display metadata, not connection identity.
+/// not searched - they are display metadata, not connection identity.
 fn match_text(entry: &ConnectionHost) -> String {
     let mut text = entry.alias.clone();
     if let Some(host_name) = entry.host_name.as_deref() {
@@ -1042,7 +1042,7 @@ mod tests {
 
     #[test]
     fn manager_renders_add_row_and_key_hint_footer() {
-        // FORM-DISCOVERABILITY: the manager pins a "+ Add connection…" row and a
+        // The manager pins a "+ Add connection…" row and a
         // key-hint line to the bottom of the body so the form is discoverable.
         let overlay = open(entries());
         let lines = overlay.visible_lines(80, 12);
@@ -1150,7 +1150,7 @@ mod tests {
     #[test]
     fn bind_picker_has_no_add_row_footer() {
         // A transient picker (bind a workspace) is a host chooser, not the
-        // manager — it shows no Add footer.
+        // manager - it shows no Add footer.
         let overlay = open_for_bind(entries());
         let lines = overlay.visible_lines(80, 12);
         let joined: String = lines.iter().map(|l| l.text.as_str()).collect();
@@ -1162,7 +1162,7 @@ mod tests {
 
     #[test]
     fn fuzzy_filter_ranks_matching_host_first() {
-        // FUZZY-FILTER-RANKS-ENTRIES: typing narrows and ranks by match quality.
+        // Typing narrows and ranks by match quality.
         let mut overlay = open(entries());
         type_query(&mut overlay, "web");
         let signature = overlay.render_signature();
@@ -1217,7 +1217,7 @@ mod tests {
 
     #[test]
     fn host_at_row_returns_row_host_and_ignores_non_host_rows() {
-        // ODP-2C: a right-click hit-test resolves a body row to (cursor, host)
+        // A right-click hit-test resolves a body row to (cursor, host)
         // for the connection-row menu; the prompt row and past-end rows yield
         // None, and the selection is never moved (read-only).
         let overlay = open(entries());
@@ -1582,7 +1582,7 @@ mod tests {
 
     #[test]
     fn connect_tab_after_purpose_emits_pick_with_token() {
-        // ODP-5D: the tab "Connect to host" picker returns Pick(host, purpose)
+        // The tab "Connect to host" picker returns Pick(host, purpose)
         // carrying the clicked tab's token, so the App opens the host in a new
         // tab adjacent to THAT tab. Ad-hoc rows are suppressed like every tagged
         // purpose.
@@ -1613,7 +1613,7 @@ mod tests {
 
     #[test]
     fn replace_tab_purpose_emits_pick_with_token() {
-        // ODP-5D: the "Replace this tab with" picker carries the target tab's
+        // The "Replace this tab with" picker carries the target tab's
         // token so the App knows which tab to replace after the pick.
         let token = SessionToken(3);
         let mut overlay = ConnectionOverlay::new();
@@ -1638,7 +1638,7 @@ mod tests {
         assert_eq!(overlay.entry_count(), 0);
         let lines = overlay.visible_lines(80, 10);
         assert!(lines[1].text.contains("No saved connections"));
-        // FORM-DISCOVERABILITY: even an empty manager shows the affordance
+        // Even an empty manager shows the affordance
         // footer so a first-time user can reach the Add form.
         let joined: String = lines.iter().map(|l| l.text.as_str()).collect();
         assert!(joined.contains("Add connection"), "add-row visible");

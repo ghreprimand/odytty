@@ -55,7 +55,7 @@ fn replay_overlay_never_mutates_live_terminal_state() {
 
 #[test]
 fn disabled_recorder_keeps_plain_path_state_free() {
-    // RECORDING-OFF: with recording disabled the pump-equivalent path records
+    // With recording disabled the pump-equivalent path records
     // nothing, so the ring stays empty and opening replay shows no frames.
     let mut term = Terminal::new(20, 4);
     let recorder = RecorderHandle::new();

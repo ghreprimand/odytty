@@ -42,7 +42,7 @@ fn perceptual_dim_delta_is_confined_to_dim_cells() {
     let mixed = composite(&row_snapshot(2, "M\x1b[2mM"), &atlas, CursorStyle::Block);
 
     // Confinement: the non-dim cell (col0) must be byte-identical between the
-    // two frames — the perceptual-dim change touches only cells with the dim
+    // two frames - the perceptual-dim change touches only cells with the dim
     // attribute, so the plain path stays pixel-identical.
     let (x0, y0, x1, y1) = plain.cell_bounds(0, 0);
     for y in y0..y1 {
@@ -89,9 +89,9 @@ fn focus_dim_off_is_pixel_identical_to_focused() {
     );
 }
 
-/// ID2 unfocused baseline: a non-zero focus-dim recedes the whole grid — both
-/// the background fill and the glyph ink lose luminance — and the dim is applied
-/// before the RV1 floor, so at a raised minimum contrast the text still clears
+/// ID2 unfocused baseline: a non-zero focus-dim recedes the whole grid - both
+/// the background fill and the glyph ink lose luminance - and the dim is applied
+/// before the minimum-contrast floor, so at a raised minimum contrast the text still clears
 /// the floor against the dimmed background (legibility wins by construction).
 #[test]
 fn unfocused_focus_dim_recedes_grid_and_floor_keeps_text_legible() {
@@ -101,7 +101,7 @@ fn unfocused_focus_dim_recedes_grid_and_floor_keeps_text_legible() {
     let unfocused = composite_focus_dim(&snapshot, &atlas, CursorStyle::Block, 0.3);
 
     // (a) The unfocused frame must differ from the focused one, and its total
-    // luminance must drop — the whole window (text + background) recedes.
+    // luminance must drop - the whole window (text + background) recedes.
     let mut any_diff = false;
     let (mut focused_lum, mut unfocused_lum) = (0.0f32, 0.0f32);
     for y in 0..focused.height {
@@ -118,7 +118,7 @@ fn unfocused_focus_dim_recedes_grid_and_floor_keeps_text_legible() {
         "unfocused total luminance {unfocused_lum} should drop below focused {focused_lum}"
     );
 
-    // (b) The dim runs before the RV1 floor: dimming both fg and bg perceptually,
+    // (b) The dim runs before the minimum-contrast floor: dimming both fg and bg perceptually,
     // then enforcing a raised contrast ratio, must still clear that ratio against
     // the dimmed background. Exercised at the color layer (lock-free) so the
     // process-global min_contrast floor is not mutated under parallel tests.
@@ -136,14 +136,14 @@ fn unfocused_focus_dim_recedes_grid_and_floor_keeps_text_legible() {
     );
 }
 
-/// RV1 floor at the *cursor-block under-glyph* resolve site, proven in
+/// minimum-contrast floor at the *cursor-block under-glyph* resolve site, proven in
 /// composited pixels (not just vertex colors). When a visible block cursor sits
 /// over a printable glyph, the under-cursor glyph is redrawn in the cell's
 /// background color through `text::enforce_contrast_rgba(bg, block_color)` (the
 /// second RV1 resolve site; the body site is the per-cell glyph). At the default
 /// floor of 1.0 that is exact passthrough, so after compositing the cell is
 /// dominated by the cursor block but the glyph's cut-out paints in the cell
-/// background — i.e. the under-glyph stays legible against the block. This is the
+/// background - i.e. the under-glyph stays legible against the block. This is the
 /// only pixel-smoke case that composites a *visible* block cursor over real
 /// glyph ink; the cursor-site seam is otherwise covered only at the grid vertex
 /// layer. Global-free: the process floor stays at its 1.0 default throughout.
@@ -227,7 +227,7 @@ fn block_cursor_floor_keeps_under_glyph_legible_in_composite() {
 
 /// ID2 × RV1 precondition, in live pixels: an unfocused window dims **both** the
 /// foreground ink and the background fill, and the dim is *perceptual* (OKLab),
-/// so a colored background recedes in luminance while keeping its hue — it does
+/// so a colored background recedes in luminance while keeping its hue - it does
 /// not wash toward gray. This is the load-bearing precondition behind the RV1
 /// re-lift claim: the floor only keeps text legible *because* it runs against a
 /// genuinely dimmed background, so proving the background actually dims (and

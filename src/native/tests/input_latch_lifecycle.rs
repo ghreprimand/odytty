@@ -60,7 +60,7 @@ macro_rules! app_or_skip {
 
 /// Arm a live grid selection drag: set an anchor cell and begin the selection
 /// (no trailing release), leaving `pointer_drag` in `Selecting` with the
-/// held-button flag set — the exact mid-drag state a switch must clear.
+/// held-button flag set - the exact mid-drag state a switch must clear.
 fn arm_drag(app: &mut App) {
     app.set_pointer_cell_for_test(0, 2);
     app.begin_selection_for_test();

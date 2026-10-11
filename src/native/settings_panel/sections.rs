@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Section-list model for the two-level settings overlay (SETTINGS-REDESIGN).
+//! Section-list model for the two-level settings overlay.
 //!
 //! Level 1 is a compact list of human-friendly sections; Level 2 drills into
 //! the filtered entry list for one section. This module owns the section table

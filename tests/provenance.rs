@@ -82,7 +82,7 @@ fn archive_token_substituted_is_accepted() {
 
 #[test]
 fn archive_token_unsubstituted_or_garbage_is_rejected() {
-    // A plain checkout keeps the literal placeholder — it still contains `$`.
+    // A plain checkout keeps the literal placeholder - it still contains `$`.
     assert_eq!(archive_subst_sha("$Format:%h$"), None);
     assert_eq!(archive_subst_sha("$Format:%h$\n"), None);
     assert_eq!(archive_subst_sha(""), None);
@@ -174,7 +174,7 @@ fn git_archive_substitutes_the_token_and_drops_dot_git() {
 
     // The working-tree copy is still the LITERAL placeholder (git substitutes
     // only inside a `git archive` stream), so the archive path is genuinely
-    // exercised — not the checkout that would win here.
+    // exercised - not the checkout that would win here.
     let worktree_token = fs::read_to_string(repo.join(".git_archival.txt")).unwrap();
     assert!(worktree_token.contains("$Format:"));
     assert_eq!(archive_subst_sha(&worktree_token), None);
@@ -192,7 +192,7 @@ fn git_archive_substitutes_the_token_and_drops_dot_git() {
     assert!(!expected.is_empty());
 
     // Produce the release-shaped source archive and extract it into a fresh
-    // directory with NO .git — the exact shape AUR/Homebrew build from.
+    // directory with NO .git - the exact shape AUR/Homebrew build from.
     let archive = repo.join("archive.tar");
     git(
         repo,
@@ -213,7 +213,7 @@ fn git_archive_substitutes_the_token_and_drops_dot_git() {
         .expect("run tar");
     assert!(tar.success(), "tar extraction failed");
 
-    // The archive carries no .git — a live git lookup is impossible here.
+    // The archive carries no .git - a live git lookup is impossible here.
     assert!(
         !extract.join(".git").exists(),
         "extracted source tarball must not contain a .git directory"

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Navigator pane-close regressions (acceptance: operator x on a
+//! Navigator pane-close regressions (acceptance: user x on a
 //! pane must not kill sibling panes).
 //!
 //! Desired contract for `close_navigator_target` after confirm:

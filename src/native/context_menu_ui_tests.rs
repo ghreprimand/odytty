@@ -38,7 +38,7 @@ fn multipane_menu() -> ContextMenuUi {
 }
 
 /// A synthetic resolved file with a line/col, for the path-present file
-/// section variants. No real filesystem — a fixed `Resolved`.
+/// section variants. No real filesystem - a fixed `Resolved`.
 fn resolved_file() -> Resolved {
     Resolved {
         abs: "/proj/src/main.rs".to_owned(),
@@ -65,7 +65,7 @@ fn menu_with_path() -> ContextMenuUi {
     m
 }
 
-/// A synthetic resolved IMAGE file (C4): drives the "Open in OdyTTY" item.
+/// A synthetic resolved IMAGE file: drives the "Open in OdyTTY" item.
 fn resolved_image() -> Resolved {
     Resolved {
         abs: "/proj/assets/diagram.png".to_owned(),
@@ -116,7 +116,7 @@ fn rect_clamps_to_fit_grid() {
 
 #[test]
 fn rect_clears_reserved_left_band() {
-    // MENU-Z-ORDER: a left-rail clearance keeps the whole box right of the
+    // A left-rail clearance keeps the whole box right of the
     // reserved band even when the spawn cell lands inside it (a right-click
     // on the floating rail).
     let mut m = menu(true, true);
@@ -133,7 +133,7 @@ fn rect_clears_reserved_left_band() {
 
 #[test]
 fn rect_clears_reserved_right_band() {
-    // MENU-Z-ORDER: a right-rail clearance keeps the box's right edge left of
+    // A right-rail clearance keeps the box's right edge left of
     // the reserved band, even when the spawn cell is near the right edge.
     let mut m = menu(true, true);
     m.spawn = CellPoint { row: 2, column: 78 };
@@ -269,7 +269,7 @@ fn focus_cycles_with_wrap() {
 
 #[test]
 fn copy_cut_delete_hidden_without_selection() {
-    // ODP-5: with no selection the content menu omits Copy/Cut/Delete
+    // With no selection the content menu omits Copy/Cut/Delete
     // entirely (rather than showing them dim); Paste/Select All remain the
     // editing anchors, so Paste leads the menu at body row 0.
     let m = menu(false, true);
@@ -289,7 +289,7 @@ fn copy_cut_delete_hidden_without_selection() {
 
 #[test]
 fn copy_present_and_hoisted_with_selection() {
-    // ODP-8: a selection surfaces Copy at the very top of the content menu.
+    // A selection surfaces Copy at the very top of the content menu.
     let m = menu(true, false);
     let rows = m.rows();
     assert_eq!(rows[0], item("Copy Text", true, true));
@@ -456,7 +456,7 @@ fn single_pane_menu_hides_close_pane() {
 
 #[test]
 fn no_path_menu_hides_the_file_section() {
-    // C3: with no resolved path under the click, the four file items are
+    // With no resolved path under the click, the four file items are
     // absent and the layout is the 33-row single-pane content menu (no
     // selection). This is the no-file-section guarantee.
     let m = menu(false, false);
@@ -474,8 +474,8 @@ fn no_path_menu_hides_the_file_section() {
     }
 }
 
-/// A single-pane content menu with the active workspace bound to a host
-/// (ODP-6B): the workspace section shows Unbind from Host instead of Bind.
+/// A single-pane content menu with the active workspace bound to a host:
+/// the workspace section shows Unbind from Host instead of Bind.
 fn menu_bound_workspace() -> ContextMenuUi {
     let mut m = ContextMenuUi::new();
     m.open_with_prompt_editing_hint(
@@ -498,7 +498,7 @@ fn menu_bound_workspace() -> ContextMenuUi {
 
 #[test]
 fn workspace_bind_toggle_is_conditional_on_bind_state() {
-    // ODP-6B: exactly one of the bind/unbind pair shows on the content menu,
+    // Exactly one of the bind/unbind pair shows on the content menu,
     // keyed to whether the active workspace is bound.
     let unbound = menu(true, true);
     let unbound_rows = unbound.rows();
@@ -551,7 +551,7 @@ fn workspace_bind_toggle_is_conditional_on_bind_state() {
 
 #[test]
 fn path_present_menu_appends_the_file_section() {
-    // UX-B: a resolved file shows only path actions plus pinned terminal
+    // A resolved file shows only path actions plus pinned terminal
     // Copy/Paste text actions. Global tab/split/settings rows are filtered
     // out; a separator reflows between the file section and text actions.
     let m = menu_with_path();
@@ -593,7 +593,7 @@ fn path_present_menu_appends_the_file_section() {
 
 #[test]
 fn non_image_path_hides_open_in_odytty() {
-    // C4: a resolved *non-image* file shows the path-scoped file section
+    // A resolved *non-image* file shows the path-scoped file section
     // but NOT "Open in OdyTTY".
     let m = menu_with_path();
     assert_eq!(
@@ -617,7 +617,7 @@ fn non_image_path_hides_open_in_odytty() {
 
 #[test]
 fn image_path_shows_open_in_odytty_after_open() {
-    // C4: a resolved image span adds "Open in OdyTTY" right after "Open" in
+    // A resolved image span adds "Open in OdyTTY" right after "Open" in
     // the path-scoped file section. "Open With…" follows "Open in OdyTTY".
     let m = menu_with_image();
     assert_eq!(
@@ -650,7 +650,7 @@ fn open_in_odytty_activates_on_press_for_an_image() {
 
 #[test]
 fn open_with_shows_for_a_file_activates_and_carries_no_accelerator() {
-    // C3b: "Open With…" is a file affordance; it activates on press and is
+    // "Open With…" is a file affordance; it activates on press and is
     // pointer-only (no chord).
     let mut m = menu_with_path();
     assert_eq!(
@@ -662,7 +662,7 @@ fn open_with_shows_for_a_file_activates_and_carries_no_accelerator() {
 
 #[test]
 fn open_with_hidden_for_a_directory_target() {
-    // C3b: a resolved *directory* keeps the C3 copy/reveal items but NOT
+    // A resolved *directory* keeps the C3 copy/reveal items but NOT
     // "Open With…" (a file-only affordance).
     let mut m = ContextMenuUi::new();
     m.open(
@@ -1098,7 +1098,7 @@ fn rows_report_label_focus_enabled() {
     );
     assert_eq!(rows[17], ContextMenuRow::Separator);
     // Workspace section sits between Split and Settings; an unbound
-    // workspace shows Bind to Host as its last row (ODP-6B).
+    // workspace shows Bind to Host as its last row.
     assert_eq!(rows[18], item("New Workspace", false, true));
     assert_eq!(
         rows[19],
@@ -1231,7 +1231,7 @@ fn duplicate_actions_render_their_default_accelerators() {
     );
 }
 
-/// Open a menu on a specific surface (F7) with the given tab-count state.
+/// Open a menu on a specific surface with the given tab-count state.
 /// Single-workspace (no `Move to Workspace` row); use
 /// [`open_surface_ws`] to exercise the multi-workspace composition.
 fn open_surface(surface: ContextMenuSurface, multi_tab: bool) -> ContextMenuUi {
@@ -1239,7 +1239,7 @@ fn open_surface(surface: ContextMenuSurface, multi_tab: bool) -> ContextMenuUi {
 }
 
 /// Open a menu on a specific surface with explicit tab- and workspace-count
-/// state (W4). `multi_workspace` drives the `Move to Workspace` row.
+/// state. `multi_workspace` drives the `Move to Workspace` row.
 fn open_surface_ws(
     surface: ContextMenuSurface,
     multi_tab: bool,
@@ -1269,9 +1269,9 @@ fn open_surface_ws(
 
 #[test]
 fn tab_slot_menu_is_tab_scoped() {
-    // F7: a tab right-click opens a tight, tab-scoped menu — no Copy / Split /
+    // F7: a tab right-click opens a tight, tab-scoped menu - no Copy / Split /
     // Settings / launcher tail. New Tab / Rename Tab · Close Tab / Close Other
-    // Tabs · Connect to Host / Replace with Host (ODP-5D) · New Window, split
+    // Tabs · Connect to Host / Replace with Host · New Window, split
     // by three separators.
     let m = open_surface(ContextMenuSurface::TabSlot(SessionToken(3)), true);
     let rows = m.rows();
@@ -1311,7 +1311,7 @@ fn tab_slot_menu_is_tab_scoped() {
     }
 }
 
-/// F6-W5: on a workspace bound to a host, the tab menu gains a "New Local
+/// On a workspace bound to a host, the tab menu gains a "New Local
 /// Tab" escape row beside New Tab; an unbound workspace's tab menu does not.
 #[test]
 fn tab_slot_new_local_tab_appears_only_when_workspace_bound() {
@@ -1360,7 +1360,7 @@ fn tab_slot_rename_is_enabled_and_targets_the_token() {
 
 #[test]
 fn move_to_workspace_row_hidden_with_one_workspace() {
-    // ODP-7: no destination workspace ⇒ no move row (single-workspace tab
+    // No destination workspace ⇒ no move row (single-workspace tab
     // menu is byte-identical to before W4).
     let m = open_surface_ws(ContextMenuSurface::TabSlot(SessionToken(3)), true, false);
     assert!(
@@ -1377,8 +1377,8 @@ fn move_to_workspace_row_hidden_with_one_workspace() {
 
 #[test]
 fn move_to_workspace_row_shown_and_bracketed_with_multiple_workspaces() {
-    // ODP-7: with >1 workspace the move row appears between the host-actions
-    // group (ODP-5D) and New Window, each in its own section (separators
+    // With >1 workspace the move row appears between the host-actions
+    // group and New Window, each in its own section (separators
     // bracket it).
     let m = open_surface_ws(ContextMenuSurface::TabSlot(SessionToken(3)), true, true);
     let rows = m.rows();
@@ -1491,10 +1491,10 @@ fn tab_strip_empty_menu_is_minimal() {
 
 #[test]
 fn workspace_slot_menu_offers_workspace_actions() {
-    // §3.5 / §7.4 + RAIL-BIND + LAYOUT-SURFACE + RAIL-SAVE-ALL: a
+    // §3.5 / §7.4 + a
     // workspace-slot right-click opens New / Rename / Close Workspace, the
     // host bind action in its own group, then the layout group below a
-    // separator — the whole-app "Save as Layout…" leading the single-
+    // separator - the whole-app "Save as Layout…" leading the single-
     // workspace "Save Workspace as Layout…" (targeting the CLICKED slot). An
     // unbound slot shows "Bind to Host…".
     let m = open_surface(ContextMenuSurface::WorkspaceSlot(0), true);
@@ -1520,7 +1520,7 @@ fn workspace_slot_menu_offers_workspace_actions() {
 
 #[test]
 fn workspace_slot_menu_gates_move_rows_by_position() {
-    // RAIL-REORDER: the Move Up / Move Down rows appear between Rename and
+    // The Move Up / Move Down rows appear between Rename and
     // the Close separator, gated by the clicked slot's position within the
     // total workspace count. First slot: Down only. Middle slot: both. Last
     // slot: Up only. The count is snapshotted via `set_workspace_count`
@@ -1577,8 +1577,8 @@ fn workspace_slot_menu_gates_move_rows_by_position() {
 
 #[test]
 fn workspace_slot_menu_shows_unbind_when_bound() {
-    // RAIL-BIND: a slot whose workspace is bound offers "Unbind from Host"
-    // in place of "Bind to Host…" — the same conditional pair as the
+    // A slot whose workspace is bound offers "Unbind from Host"
+    // in place of "Bind to Host…" - the same conditional pair as the
     // content-grid menu, keyed to the CLICKED slot's binding.
     let mut m = ContextMenuUi::new();
     m.open_with_prompt_editing_hint(
@@ -1616,7 +1616,7 @@ fn workspace_slot_menu_shows_unbind_when_bound() {
 
 #[test]
 fn workspace_rail_empty_menu_offers_new_workspace_and_open_layout() {
-    // §3.5 + LAYOUT-SURFACE + SAVE-ALL-LAYOUT: the empty rail area offers New
+    // §3.5 + the empty rail area offers New
     // Workspace, then the whole-app Save as Layout and Open Layout below a
     // separator (save/restore a full session from a bare rail).
     let m = open_surface(ContextMenuSurface::WorkspaceRailEmpty, true);
@@ -1806,7 +1806,7 @@ fn connection_row_odytty_shows_all_five_actions() {
 #[test]
 fn connection_row_ssh_config_hides_edit_and_remove() {
     // An ssh-config-imported row is read-only (OdyTTY never writes
-    // ~/.ssh/config), so Edit and Remove are hidden — only the three
+    // ~/.ssh/config), so Edit and Remove are hidden - only the three
     // non-mutating actions show.
     let mut m = ContextMenuUi::new();
     m.open_connection_row(

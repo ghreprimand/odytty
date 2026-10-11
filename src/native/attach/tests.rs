@@ -231,7 +231,7 @@ fn join_within<T: Send + 'static>(handle: JoinHandle<T>, what: &str) -> T {
         Ok(Ok(value)) => value,
         Ok(Err(panic)) => std::panic::resume_unwind(panic),
         Err(_) => panic!(
-            "{what} did not finish within {JOIN_DEADLINE:?} — the attach pump or \
+            "{what} did not finish within {JOIN_DEADLINE:?}: the attach pump or \
              fake host is wedged (never EOFed). Failing fast instead of hanging \
              the suite."
         ),
@@ -283,7 +283,7 @@ fn wait_until(mut cond: impl FnMut() -> bool) -> bool {
 /// Host-side teardown that holds the connection open until the attach client
 /// disconnects (a clean `Detach` frame or EOF), then returns so the stream drops.
 /// Because the host does not close until the client has finished, the client's
-/// read pump can never EOF mid-frame on a slow runner — every host-written frame
+/// read pump can never EOF mid-frame on a slow runner - every host-written frame
 /// is consumed before the socket closes (the ACK-based teardown the flaky fixed
 /// `sleep(150ms); drop` lacked).
 fn drain_until_disconnect(mut stream: UnixStream) {
@@ -293,7 +293,7 @@ fn drain_until_disconnect(mut stream: UnixStream) {
             // before the client's write half is dropped (the app's
             // `Session::close` sends `Detach` and then *joins* the pump before
             // the socket drops), so we must return here rather than waiting for
-            // EOF — otherwise the host never drops, the pump never EOFs, and the
+            // EOF - otherwise the host never drops, the pump never EOFs, and the
             // join deadlocks.
             Ok(ClientFrame::Detach) => return,
             // Input / resize before the detach: keep holding the link open.
@@ -444,7 +444,7 @@ fn live_output_incremental_repaint() {
 
 #[test]
 fn resized_frame_syncs_the_mirror_dimensions() {
-    // C-3: the mirror starts at the host's snapshot dims (20x4). A `Resized`
+    // The mirror starts at the host's snapshot dims (20x4). A `Resized`
     // frame from the host -- as broadcast when ANOTHER client resizes the shared
     // session -- must resize this client's mirror so it stops advancing at the
     // stale width, even though this client never resized its own window.
@@ -622,11 +622,11 @@ fn rejected_attach_errors_without_terminal() {
 
 #[test]
 fn wedged_host_that_never_accepts_fails_within_the_deadline() {
-    // C-2 regression: `UnixStream::connect` succeeds against a host that is bound
+    // Regression: `UnixStream::connect` succeeds against a host that is bound
     // but never `accept()`s (the listen backlog absorbs the connection), and the
     // client hello lands in the socket buffer. Before the fix, the subsequent
-    // `read_host_hello` had no timeout and blocked the calling thread — the MAIN
-    // thread, including launch restore — forever. The bounded hello read must now
+    // `read_host_hello` had no timeout and blocked the calling thread - the MAIN
+    // thread, including launch restore - forever. The bounded hello read must now
     // surface an error within the attach deadline instead of hanging.
     let dir = unique_runtime_dir();
     let socket_path = dir.path().join("attach.sock");
@@ -869,7 +869,7 @@ fn attached_input_writer_forwards_to_socket() {
         });
     let session = attached_session_over(&socket_path, "input-tab");
     // The app-side input path writes to `session.writer`; for an attached session
-    // that is the `AttachInputWriter`, so bytes arrive as an `Input` frame — the
+    // that is the `AttachInputWriter`, so bytes arrive as an `Input` frame - the
     // proof the input path is byte-identical (same `writer`, different sink).
     {
         let mut writer = session.writer.lock().expect("writer lock");
@@ -1031,7 +1031,7 @@ fn partial_write_timeout_tears_session_down() {
     let mut writer = AttachInputWriter { client };
 
     // Empty socket buffer + a frame far larger than it: the kernel accepts
-    // what fits, then the send times out mid-frame — partial progress.
+    // what fits, then the send times out mid-frame - partial progress.
     let oversized = vec![b'x'; 8 * 1024 * 1024];
     let err = writer
         .write(&oversized)
@@ -1042,7 +1042,7 @@ fn partial_write_timeout_tears_session_down() {
 
 /// Real link errors stay fatal: with the peer gone, `send_input` fails with
 /// `BrokenPipe`, which must surface so the writer loop tears the session
-/// down — only the bounded-timeout kinds are the drop-and-continue path.
+/// down - only the bounded-timeout kinds are the drop-and-continue path.
 #[test]
 fn broken_pipe_on_input_write_stays_fatal() {
     let (ours, theirs) = UnixStream::pair().expect("socketpair");
@@ -1112,7 +1112,7 @@ fn window_close_detaches_attached_tab_host_survives() {
         });
     let session = attached_session_over(&socket_path, "close-tab");
     let mut set = WorkspaceSet::new(session, None);
-    // Closing the (only) attached session sends a clean Detach, not a kill — the
+    // Closing the (only) attached session sends a clean Detach, not a kill - the
     // host keeps the session alive for later reattach.
     let was_last = set.close(SessionToken(0));
     assert!(was_last, "closing the only session reports last");
@@ -1160,7 +1160,7 @@ fn attach_dedup_finds_open_tab_and_switch_adds_no_tab() {
     join_within(host, "dedup fake host");
 }
 
-/// Cross-workspace dedup (ODP-10): an attached session living in a BACKGROUND
+/// Cross-workspace dedup: an attached session living in a BACKGROUND
 /// workspace is still located by `find_attached_tab` (the arena scan spans every
 /// workspace), and re-selecting it deep-switches the active workspace + tab +
 /// pane focus rather than appending a duplicate.
@@ -1333,7 +1333,7 @@ fn detach_switch_swap_closes_single_pane_original_and_focuses_managed() {
 }
 
 /// "Keep both": after the managed session is attached and focused, the original
-/// pane is left untouched — two tabs, managed focused, original still present.
+/// pane is left untouched - two tabs, managed focused, original still present.
 #[test]
 fn detach_switch_keep_both_leaves_original_and_adds_one() {
     let (sock, host) = spawn_fake_host(
@@ -1379,7 +1379,7 @@ fn attach_by_id_presents_live_tab_and_repaints() {
         write_host_hello(&mut stream, &HostHello::accepted()).expect("write host hello");
         write_host_frame(&mut stream, &HostFrame::Snapshot(snapshot)).expect("write snapshot");
         // Live output after the snapshot, then hold the link open until the
-        // client detaches — ACK-based teardown, never an abrupt drop that could
+        // client detaches - ACK-based teardown, never an abrupt drop that could
         // EOF the pump mid-frame on a slow runner.
         write_host_frame(&mut stream, &HostFrame::Output(b"XYZ".to_vec())).expect("write output");
         drain_until_disconnect(stream);
@@ -1421,7 +1421,7 @@ fn attach_by_id_presents_live_tab_and_repaints() {
     }
 
     // Live output repaints the mirror. Wait for the pump's redraw event AND
-    // poll the mirror until the appended bytes actually land — a redraw can be
+    // poll the mirror until the appended bytes actually land - a redraw can be
     // observed independently of the lock-ordering of the apply, so the content
     // poll is the deterministic gate (not a single assert after the first
     // event). Both together prove the pump signaled a redraw and the output was
@@ -1455,7 +1455,7 @@ fn attach_by_id_presents_live_tab_and_repaints() {
     join_within(handle, "fake host thread");
 }
 
-/// Regression: audit P1 — a mid-frame read timeout must not desync the snapshot
+/// Regression: a mid-frame read timeout must not desync the snapshot
 /// poll loop. A stateless `read_exact`-based reader loses the bytes consumed
 /// before a stall when a frame's payload arrives split, and a retry parses
 /// leftover payload as a fresh frame header (permanent desync). The writer here
@@ -1508,7 +1508,7 @@ fn initial_snapshot_survives_mid_frame_stall() {
     assert_eq!(bytes, expected, "snapshot payload must arrive intact");
 }
 
-/// A-U047-01: a peer that keeps delivering one frame in slices, each arriving
+/// A peer that keeps delivering one frame in slices, each arriving
 /// well inside any per-read timeout, must still be cut off at the absolute
 /// deadline. Before the fix the incremental frame read never returned control to
 /// the outer elapsed check, so the wait outlived its budget for as long as the
@@ -1548,7 +1548,7 @@ fn initial_snapshot_trickle_is_cut_off_at_the_absolute_deadline() {
     );
 }
 
-/// A-U047-01: a snapshot that completes after the deadline is refused, not
+/// A snapshot that completes after the deadline is refused, not
 /// returned as a success past the budget.
 #[test]
 fn initial_snapshot_completed_after_the_deadline_is_refused() {
@@ -1563,7 +1563,7 @@ fn initial_snapshot_completed_after_the_deadline_is_refused() {
     drop(writer_end);
 }
 
-/// A-U047-01: the hello exchange and the snapshot wait share one budget. A host
+/// The hello exchange and the snapshot wait share one budget. A host
 /// that spends most of the budget on the hello and the rest again on the
 /// snapshot used to pass (each phase got its own full clock); it must now fail
 /// within roughly one budget.
@@ -1598,7 +1598,7 @@ fn delayed_hello_and_delayed_snapshot_share_one_attach_budget() {
     );
 }
 
-/// H2: `resize` shares the one socket with input and detach. A partial write
+/// `resize` shares the one socket with input and detach. A partial write
 /// (`TruncatedWrite`) desyncs the stream, so a later resize must fail closed
 /// even after the peer drains, rather than writing another frame onto a stream
 /// that already carries a truncated one.
@@ -1639,7 +1639,7 @@ fn resize_truncated_write_poisons_client_against_further_writes() {
     drop(theirs);
 }
 
-/// H2: the same poison must make `detach` fail closed after a `TruncatedWrite`,
+/// The same poison must make `detach` fail closed after a `TruncatedWrite`,
 /// so the detach frame is never written onto a desynced stream.
 #[test]
 fn detach_truncated_write_poisons_client_against_further_writes() {

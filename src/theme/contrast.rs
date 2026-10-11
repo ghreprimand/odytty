@@ -14,9 +14,8 @@
 //! builder: a contrast number **shown** to the user (theme validation in TH3,
 //! the theme-builder readout) equals the contrast the renderer **enforces**, so
 //! an authored `.theme` and its rendered pixels agree. There is deliberately no
-//! second "display" formula here — that divergence (an 8-bit luminance path that
-//! used the older `0.03928` sRGB knee and `f64` math) has been retired in favor
-//! of the canonical linear primitives.
+//! second "display" formula here: the contrast is computed with the canonical
+//! linear primitives only.
 //!
 //! The byte form ([`Srgb`]) and `f64` return type are retained so existing
 //! callers (theme validation, the builder readout, the bloom-threshold seed) are
@@ -27,7 +26,7 @@ use super::Srgb;
 use crate::color;
 
 /// Decode an 8-bit sRGB triple to scene-linear RGB via the canonical transfer
-/// ([`crate::color::srgb_to_linear`]) — the same decode the render path uses, so
+/// ([`crate::color::srgb_to_linear`]) - the same decode the render path uses, so
 /// downstream luminance/contrast match the floor exactly.
 fn to_linear((r, g, b): Srgb) -> color::LinearRgb {
     [
@@ -51,8 +50,8 @@ pub fn relative_luminance(rgb: Srgb) -> f64 {
 ///
 /// `1.0` means the two colors are identical; `21.0` is pure black against pure
 /// white. The ratio is symmetric in its arguments. Byte-domain wrapper over
-/// [`crate::color::wcag_contrast`] — the single contrast metric the render floor
-/// enforces — so a shown contrast equals the enforced contrast.
+/// [`crate::color::wcag_contrast`] - the single contrast metric the render floor
+/// enforces - so a shown contrast equals the enforced contrast.
 pub fn contrast_ratio(a: Srgb, b: Srgb) -> f64 {
     f64::from(color::wcag_contrast(to_linear(a), to_linear(b)))
 }
@@ -81,7 +80,7 @@ mod tests {
 
     #[test]
     fn shown_contrast_equals_enforced_metric() {
-        // The load-bearing invariant for U2: the byte-domain readout this module
+        // The load-bearing invariant for the byte-domain readout this module
         // produces is the *same number* the render floor's metric
         // (color::wcag_contrast on linear inputs) computes for the same colors.
         // A divergent display metric would let the builder show a contrast the

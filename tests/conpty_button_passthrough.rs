@@ -5,10 +5,10 @@
 //! OdyTTY: ConPTY historically re-encodes the VT stream and has been known to
 //! drop or rewrite sequences it does not recognize, and passthrough behavior
 //! varies by Windows build. This probe answers the question empirically on the
-//! CI `windows-latest` leg (the authoritative Windows verification — there is
+//! CI `windows-latest` leg (the authoritative Windows verification - there is
 //! no local Windows machine): a Windows-native program running under the real
 //! ConPTY emits both button spellings, and the test asserts the sequences
-//! arrive at the terminal intact — i.e. the parse lands and the definitions
+//! arrive at the terminal intact - i.e. the parse lands and the definitions
 //! intern.
 //!
 //! If this test fails on a given Windows build, ConPTY is stripping the

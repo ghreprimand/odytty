@@ -186,7 +186,7 @@ impl PaletteOverlay {
         }
     }
 
-    /// Map a clicked body row to the result index it represents — the inverse of
+    /// Map a clicked body row to the result index it represents - the inverse of
     /// the [`Self::visible_lines`] windowing (UX4-P1 click→Activate). Row 0 is
     /// the `> query` prompt; results follow from the live `scroll_offset`.
     /// Returns `None` for the prompt row, the "No matches" hint, or a click past
@@ -360,14 +360,14 @@ pub(super) const WORKSPACE_BIND_ID_PREFIX: &str = "workspace-bind-";
 /// Stable id for the "Unbind Workspace From Host" row (only shown when the
 /// active workspace is currently bound).
 pub(super) const WORKSPACE_UNBIND_ID: &str = "workspace-unbind";
-/// Stable id for the "New Local Tab" escape-hatch row (F6-W5): opens a local
+/// Stable id for the "New Local Tab" escape-hatch row: opens a local
 /// shell even when the active workspace is bound to a host. Only shown when the
 /// active workspace is bound (an unbound workspace's New Tab is already local).
 pub(super) const WORKSPACE_NEW_LOCAL_TAB_ID: &str = "workspace-new-local-tab";
 /// Stable id for the "Save Workspace as Layout" row (WP3 / 8g): captures only
 /// the active workspace.
 pub(super) const LAYOUT_SAVE_ID: &str = "layout-save";
-/// Stable id for the "Save All Workspaces as Layout" row (SAVE-ALL-LAYOUT):
+/// Stable id for the "Save All Workspaces as Layout" row:
 /// captures every workspace as one named layout.
 pub(super) const LAYOUT_SAVE_ALL_ID: &str = "layout-save-all";
 /// Stable id prefix for the "Open Layout …" rows; the layout's index in the
@@ -428,13 +428,13 @@ pub(super) const MOVE_PANE_TO_WINDOW_ID: &str = "move-pane-to-window";
 
 /// The workspace-facing context the command palette needs to build its rows:
 /// the workspace names (switch rows, ODP-5), the known-host aliases (F6-W5 bind
-/// rows), and which host — if any — the active workspace is currently bound to
+/// rows), and which host - if any - the active workspace is currently bound to
 /// (drives the unbind + new-local-tab escape rows and the "(bound)" marker).
 pub(super) struct WorkspacePaletteContext<'a> {
     pub(super) names: &'a [String],
     pub(super) host_aliases: &'a [String],
     pub(super) bound_profile: Option<&'a str>,
-    /// The names of saved layouts (WP3), for the open/delete rows. Empty until a
+    /// The names of saved layouts, for the open/delete rows. Empty until a
     /// layout has been saved.
     pub(super) layout_names: &'a [String],
     /// Named launch profiles `(name, display label)` for New Tab / bind rows.
@@ -476,7 +476,7 @@ pub(in crate::native) struct MovePaletteRows {
 }
 
 impl<'a> WorkspacePaletteContext<'a> {
-    /// A context with only workspace names — no host binding or layout surface.
+    /// A context with only workspace names - no host binding or layout surface.
     /// Used by the test seams that predate F6-W5 / WP3.
     #[cfg(test)]
     pub(super) fn names_only(names: &'a [String]) -> Self {
@@ -496,10 +496,10 @@ impl<'a> WorkspacePaletteContext<'a> {
 }
 
 /// The workspace rows appended to the command palette: one "switch to …" row
-/// per workspace in rail order, then create and rename rows (ODP-5), then the
-/// F6-W5 host-binding surface — one "bind to …" row per known host, plus unbind
+/// per workspace in rail order, then create and rename rows, then the
+/// F6-W5 host-binding surface - one "bind to …" row per known host, plus unbind
 /// and "New Local Tab" escape rows when the active workspace is already bound.
-/// Pure — returns action entries with stable ids the App dispatches after the
+/// Pure - returns action entries with stable ids the App dispatches after the
 /// overlay closes.
 fn workspace_palette_entries(ctx: &WorkspacePaletteContext<'_>) -> Vec<PaletteEntry> {
     let mut entries = Vec::with_capacity(ctx.names.len() + ctx.host_aliases.len() + 4);
@@ -568,8 +568,8 @@ fn profile_palette_entries(ctx: &WorkspacePaletteContext<'_>) -> Vec<PaletteEntr
             format!("New Tab: Profile {label}"),
         ));
     }
-    for (idx, (_name, label)) in ctx.profile_names.iter().enumerate() {
-        let row_label = if ctx.bound_launch_profile == Some(_name.as_str()) {
+    for (idx, (name, label)) in ctx.profile_names.iter().enumerate() {
+        let row_label = if ctx.bound_launch_profile == Some(name.as_str()) {
             format!("Workspace Profile: {label} (bound)")
         } else {
             format!("Bind Workspace to Profile: {label}")
@@ -796,7 +796,7 @@ mod tests {
         (0..count).map(|index| format!("qqq {index:02}")).collect()
     }
 
-    /// F6-W5: the host-binding rows appear per known host, and the unbind +
+    /// The host-binding rows appear per known host, and the unbind +
     /// New Local Tab escape rows only show once the active workspace is bound.
     #[test]
     fn workspace_palette_entries_expose_host_binding() {
@@ -855,7 +855,7 @@ mod tests {
         assert!(labels.iter().any(|l| l == "New Local Tab"));
     }
 
-    /// SAVE-ALL-LAYOUT: the palette exposes BOTH a whole-app "Save All Workspaces
+    /// The palette exposes BOTH a whole-app "Save All Workspaces
     /// as Layout" row and the single-workspace "Save Workspace as Layout" row.
     #[test]
     fn workspace_palette_entries_expose_both_layout_saves() {

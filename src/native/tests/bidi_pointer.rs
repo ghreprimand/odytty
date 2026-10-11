@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! S3a: pointer hit testing and drag selection under the test-only bidi
+//! Pointer hit testing and drag selection under the test-only bidi
 //! display gate, through the real pointer path of a headless single-pane App.
 //! The pointer over a screen column addresses the logical cell drawn there;
 //! selection endpoints and copied text stay logical.

@@ -107,7 +107,7 @@ impl SettingsPanel {
     }
 
     /// Whether the body has hidden rows above / below the visible window, for
-    /// the scroll affordance (OVERLAY-SMALL-WINDOW). Approximate but stable:
+    /// the scroll affordance. Approximate but stable:
     /// `(false, false)` whenever everything fits, so a normal window draws no
     /// arrows and stays byte-identical. Level 1 reserves one body row for the
     /// footer hint; Level 2 / search compares the entry scroll against the count.
@@ -130,14 +130,14 @@ impl SettingsPanel {
             );
         }
         let total = self.entries.len();
-        // SETTINGS-COMPACT: the fixed help footer steals body rows, so compare
+        // The fixed help footer steals body rows, so compare
         // the entry scroll against the shrunk content window, not the full body.
         let window = body_height.saturating_sub(settings_detail_footer_reserve(body_height));
         (self.scroll > 0, self.scroll + window < total)
     }
 
     /// Keep the selected section inside the Level-1 visible window by adjusting
-    /// `section_scroll` (OVERLAY-SMALL-WINDOW). Without this, ArrowDown on a
+    /// `section_scroll`. Without this, ArrowDown on a
     /// short window walked the selection off-screen while the view stayed put.
     /// The footer hint consumes one body row when there is room, so the section
     /// viewport is `last_body_height - 1` rows (min 1).
@@ -184,13 +184,13 @@ impl SettingsPanel {
             return;
         }
         self.selected = self.selected.min(self.entries.len() - 1);
-        // SLIDER-SCROLL-STABILITY: scroll MINIMALLY, only when the selected row
+        // Scroll MINIMALLY, only when the selected row
         // is genuinely off-screen. Never recenter a row that is already visible
         // (the old `visible_slack` reframe yanked the viewport on every press of
-        // any row below the top third — that is what jumped a slider to the
+        // any row below the top third - that is what jumped a slider to the
         // bottom on adjust). Scroll up to reveal a selection above the window;
         // scroll DOWN one row at a time only until the selection becomes visible
-        // (preserves keyboard follow-visible without recentering — see the
+        // (preserves keyboard follow-visible without recentering - see the
         // [follow-lag] trap).
         if self.selected < self.scroll {
             self.scroll = self.selected;

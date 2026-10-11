@@ -48,15 +48,15 @@ impl ContextMenuUi {
         if self.item_enabled(item) {
             ContextMenuOutcome::Activate(item)
         } else {
-            // A disabled focused item swallows the activation (D-IN2-6).
+            // A disabled focused item swallows the activation.
             ContextMenuOutcome::Consumed
         }
     }
 
     /// Handle a keyboard event: Esc closes; Up/Down cycle focus with wrap
-    /// (skipping the separator — focus cycles only through selectable items);
+    /// (skipping the separator - focus cycles only through selectable items);
     /// Enter/Space activate the focused item; everything else is swallowed so
-    /// nothing leaks to the PTY behind the menu (D-IN2-8).
+    /// nothing leaks to the PTY behind the menu.
     pub(in crate::native) fn handle_input(&mut self, input: OverlayInput) -> ContextMenuOutcome {
         match input {
             OverlayInput::Close => ContextMenuOutcome::Close,
@@ -79,7 +79,7 @@ impl ContextMenuUi {
     /// [`Self::scroll_offset`] to reach the true body row. Activation happens on
     /// PRESS. A press past the visible window, on the separator row, or past the
     /// last body row is inert. The pressed item also takes focus. Disabled items
-    /// swallow the press (D-IN2-6). Only the left button activates, as on the
+    /// swallow the press. Only the left button activates, as on the
     /// sibling overlay rows and the overflow marks: any other button on a body
     /// row is inert and leaves focus where it was.
     pub(in crate::native) fn handle_press(
@@ -272,7 +272,7 @@ impl ContextMenuUi {
         moved
     }
 
-    /// Move focus to the item under a hovering pointer (D-IN2-6). `row_in_body`
+    /// Move focus to the item under a hovering pointer. `row_in_body`
     /// is `None` when the pointer is on the border / off a body row, leaving
     /// focus unchanged. `body_height` is the box-clamped visible row count; the
     /// hovered row is offset by the current [`Self::scroll_offset`] to reach the

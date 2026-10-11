@@ -126,8 +126,8 @@ fn placement_geometry_is_offset_by_reserved_top_rows() {
 
 #[test]
 fn placement_geometry_is_offset_by_reserved_left_cols() {
-    // F4-V2 (F4V2-NF3): the vertical rail reserves COLUMNS off the left, so a
-    // left rail shifts every image placement RIGHT by `reserved_cols` cells —
+    // The vertical rail reserves COLUMNS off the left, so a
+    // left rail shifts every image placement RIGHT by `reserved_cols` cells -
     // the column-axis sibling of the top-bar row offset above. `reserved_rows`
     // stays 0 for a rail (it reserves columns, not rows), so Y is unshifted.
     let mut placement = placement(2, 3, StoredImageId(7));
@@ -406,7 +406,7 @@ fn overlay_fit_height_bound_image() {
 #[test]
 fn overlay_fit_is_robust_to_degenerate_dims() {
     // Zero dims must not divide-by-zero / NaN; the quad stays finite and inside
-    // the viewport (defensive — the decode path never yields a zero dimension).
+    // the viewport (defensive - the decode path never yields a zero dimension).
     let quad = overlay_fit_quad(0, 0, 800.0, 600.0);
     for v in quad.rect {
         assert!(
@@ -501,7 +501,7 @@ fn placement_with_origin_carries_pixel_offsets() {
 #[test]
 fn two_panes_same_origin_math_differ_only_by_origin() {
     // The SAME placement rendered in two panes with different origins produces
-    // quads that differ only by the origin delta — the per-pane path never mixes
+    // quads that differ only by the origin delta - the per-pane path never mixes
     // one pane's placement into another's coordinate space.
     let placement = placement(0, 0, StoredImageId(9));
     let cell = CellSize {

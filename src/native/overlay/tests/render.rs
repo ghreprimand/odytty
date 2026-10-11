@@ -132,8 +132,8 @@ fn replay_overlay_draws_into_snapshot_copy_only() {
 
 #[test]
 fn closed_replay_overlay_is_pixel_inert() {
-    // OVERLAY-CLOSED-BYTE-IDENTICAL: once closed, the replay overlay paints
-    // nothing — the frame is byte-identical to the input.
+    // Once closed, the replay overlay paints
+    // nothing - the frame is byte-identical to the input.
     let mut overlay = OverlayUi::default();
     overlay.open_replay(vec![replay_frame(40, 6, "alpha")]);
     overlay.close();
@@ -165,7 +165,7 @@ fn empty_replay_overlay_opens_with_hint() {
 
 #[test]
 fn connection_row_menu_renders_manager_underneath() {
-    // MENU-OVER-MANAGER: opening the row menu must NOT blank the manager —
+    // Opening the row menu must NOT blank the manager -
     // the manager panel paints underneath the menu box so it stays visible.
     // Render the composed overlay and assert the manager's title row (above
     // the spawn cell, so never covered by the menu) survives.
@@ -312,7 +312,7 @@ fn navigator_row_menu_apply_overlay_keeps_navigator_title() {
 fn navigator_row_menu_production_crop_must_retain_navigator_underlay() {
     // MENU-OVER-NAVIGATOR (compositing): multi-pane `build_overlay_top` paints
     // via apply_overlay then crops. Cropping to the ContextMenu box alone drops
-    // the SessionAttach underlay (operator: navigator vanishes, terminal shows
+    // the SessionAttach underlay (user: navigator vanishes, terminal shows
     // through). The composited top must retain the navigator title: crop to the
     // composite rect (the union of underlay panel + menu box).
     let mut overlay = open_navigator_menu_for_render();
@@ -331,7 +331,7 @@ fn navigator_row_menu_production_crop_must_retain_navigator_underlay() {
     );
 
     // Cropping to the ContextMenu box alone (the plain `overlay_rect`) drops the
-    // navigator underlay - the bug the operator saw. The production crop instead
+    // navigator underlay - the bug the user saw. The production crop instead
     // uses `overlay_composite_rect`, the union of underlay panel + menu box.
     let menu_rect = overlay_rect(&overlay, cols, rows).expect("menu rect");
     let menu_only = crate::native::app::crop_snapshot(
@@ -395,8 +395,8 @@ fn connection_overlay_draws_into_snapshot_copy_only() {
 
 #[test]
 fn closed_connection_overlay_is_pixel_inert() {
-    // OVERLAY-CLOSED-BYTE-IDENTICAL: once closed, the connection overlay
-    // paints nothing — the frame is byte-identical to the input.
+    // Once closed, the connection overlay
+    // paints nothing - the frame is byte-identical to the input.
     let mut overlay = OverlayUi::default();
     overlay.open_connections(vec![connection_host("web1")], Vec::new());
     overlay.close();
@@ -453,8 +453,8 @@ fn session_attach_overlay_draws_into_snapshot_copy_only() {
 
 #[test]
 fn closed_session_attach_overlay_is_pixel_inert() {
-    // OVERLAY-CLOSED-BYTE-IDENTICAL: once closed, the session-attach overlay
-    // paints nothing — the frame is byte-identical to the input.
+    // Once closed, the session-attach overlay
+    // paints nothing - the frame is byte-identical to the input.
     let mut overlay = OverlayUi::default();
     overlay.open_session_attach(vec![listed_session("s-0001-aaaa", "build")]);
     overlay.close();
@@ -520,7 +520,7 @@ fn onboarding_opens_renders_and_dismisses() {
 #[test]
 fn image_view_opens_renders_caption_and_dismisses() {
     // C4 + Phase 13c lightbox: the image-viewer overlay opens in its own
-    // mode and paints ONLY a minimal caption (no bordered panel — the image
+    // mode and paints ONLY a minimal caption (no bordered panel - the image
     // + dimming scrim are composited on the GPU). It dismisses on Esc / Enter
     // while swallowing every other key (no PTY leak behind the overlay).
     let mut overlay = OverlayUi::default();
@@ -553,7 +553,7 @@ fn image_view_opens_renders_caption_and_dismisses() {
     }
 }
 
-/// OVERLAY-SIZE: on a large terminal the panel must be substantially wider
+/// On a large terminal the panel must be substantially wider
 /// and taller than the old 22-row / 64-col-min caps. Also verifies that the
 /// hit-map still aligns 1:1 with visible_lines after the resize (their shared
 /// `build_visible_rows` walker guarantees this by construction).
@@ -562,7 +562,7 @@ fn overlay_rect_is_wider_and_taller_on_large_terminal() {
     let mut overlay = OverlayUi::default();
     overlay.open_settings();
 
-    // 120×50 grid — large enough to show the effect of the raised caps.
+    // 120×50 grid - large enough to show the effect of the raised caps.
     let rect = overlay_rect(&overlay, 120, 50).expect("rect");
 
     // Width: must be substantially wider than the old 64-col floor.

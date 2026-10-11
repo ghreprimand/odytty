@@ -249,10 +249,10 @@ fn is_visible_pane_covers_every_pane_of_the_active_tab_only() {
 
 #[test]
 fn visible_pane_rebuild_flag_helpers_span_the_whole_active_tab() {
-    // NF21-7: the render gate ORs `needs_rebuild` across every visible pane
+    // The render gate ORs `needs_rebuild` across every visible pane
     // of the active tab (not just the focused one), and the multi-pane
     // rebuild clears every visible pane's flag. A dirtied NON-focused split
-    // pane must therefore be both SEEN by the OR and CLEARED by the sweep —
+    // pane must therefore be both SEEN by the OR and CLEARED by the sweep -
     // otherwise its output freezes (gate never opens) or storms (flag never
     // clears).
     let mut set = WorkspaceSet::new(build_session(), None);

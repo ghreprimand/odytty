@@ -1,26 +1,26 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! F4-P3 rail auto-hide state machine (ODP-4) — pure, GPU-free, clock-injected.
+//! F4-P3 rail auto-hide state machine - pure, GPU-free, clock-injected.
 //!
 //! When `tab_rail_autohide` is on and the tab chrome is a side rail, the rail
 //! reserves **no** content columns (one reflow at toggle time) and draws only
-//! as a **floating overlay** at its window edge when revealed — content never
+//! as a **floating overlay** at its window edge when revealed - content never
 //! reflows on reveal/hide (the survey's load-bearing rule: reveal is an overlay,
 //! hide has a generous grace, show is near-instant).
 //!
 //! This module owns only the *timing state machine*; the App owns the geometry
 //! (which pixels are the reveal edge / band) and the render (building the
 //! overlay strip). The state machine is driven by three inputs:
-//! - **pointer** — [`RailAutohide::on_pointer`] with two booleans the App
-//!   derives from the live pointer: `in_edge` (the pointer is in — or its motion
-//!   *segment* crossed — the trigger zone within `TAB_RAIL_REVEAL_PX` of the
+//! - **pointer** - [`RailAutohide::on_pointer`] with two booleans the App
+//!   derives from the live pointer: `in_edge` (the pointer is in - or its motion
+//!   *segment* crossed - the trigger zone within `TAB_RAIL_REVEAL_PX` of the
 //!   window edge; motion-aware so a fast approach that jumps over a static point
 //!   zone still arms) and `in_band` (a point test: the pointer is *now* anywhere
-//!   from the window edge through the revealed band to the seam — the
+//!   from the window edge through the revealed band to the seam - the
 //!   *keep-alive* region, which by construction contains the edge zone).
-//! - **keyboard flash** — [`RailAutohide::flash`] reveals the rail for
+//! - **keyboard flash** - [`RailAutohide::flash`] reveals the rail for
 //!   [`FLASH`] after a tab-switch / new-tab / close action (ODP-4 SHOULD), so a
 //!   chord's effect is confirmed even with the pointer away from the edge.
-//! - **suspend** — [`RailAutohide::set_suspend`] holds the hide timer while a
+//! - **suspend** - [`RailAutohide::set_suspend`] holds the hide timer while a
 //!   rail-anchored context menu / drag is active (the popup-tracking rule).
 //!
 //! Timers are advanced by [`RailAutohide::poll`] from the event loop's
@@ -32,7 +32,7 @@ use std::time::{Duration, Instant};
 
 /// Show debounce: a short confirm window between the first trigger sample and
 /// the reveal, so a single incidental crossing (a window drag sweeping the edge)
-/// does not summon the rail. Kept small — a live pointer trace showed the reveal
+/// does not summon the rail. Kept small - a live pointer trace showed the reveal
 /// read as "won't open": a longer dwell, combined with the old abort-on-any-out-
 /// of-band sample, killed deliberate fast approaches mid-debounce. The reveal now
 /// arms on the motion-aware trigger (the pointer *segment* crossing the edge
@@ -47,7 +47,7 @@ pub(super) const HIDE_GRACE: Duration = Duration::from_millis(600);
 /// Keyboard-action flash duration (Zen's new-tab flash): a tab chord reveals the
 /// rail this long regardless of pointer position.
 pub(super) const FLASH: Duration = Duration::from_millis(1000);
-// CHROME-ALPHA: the revealed overlay used to carry its own near-opaque
+// The revealed overlay used to carry its own near-opaque
 // panel-wash floor (`max(p, 0.85)`, ODP-4 / ODP-6) so live content never
 // showed through the floating band. That made the revealed band ignore the
 // window's translucency and visibly diverge from the pinned band and the tab
@@ -80,7 +80,7 @@ enum Phase {
 #[derive(Debug, Clone)]
 pub(super) struct RailAutohide {
     phase: Phase,
-    /// Last pointer sample: the pointer is in — or its motion segment crossed —
+    /// Last pointer sample: the pointer is in - or its motion segment crossed -
     /// the edge trigger zone. The App derives this motion-aware so a fast
     /// approach that jumps over a static point zone still arms (see
     /// `reveal_edge_segment_crosses`).
@@ -92,8 +92,8 @@ pub(super) struct RailAutohide {
     /// While `true` the hide-grace timer never fires (rail-anchored popup/drag).
     suspend_hide: bool,
     /// The visibility the machine last committed to, so a transition a
-    /// same-instant before/after comparison cannot see — most notably a flash
-    /// expiring exactly at its deadline wake — is still reported as a change (the
+    /// same-instant before/after comparison cannot see - most notably a flash
+    /// expiring exactly at its deadline wake - is still reported as a change (the
     /// frame that dropped the flash must repaint). Updated by every mutator.
     last_visible: bool,
 }
@@ -122,8 +122,8 @@ impl RailAutohide {
         flashing || matches!(self.phase, Phase::Revealed | Phase::HideGrace(_))
     }
 
-    /// Feed a fresh pointer sample. `in_edge` = the pointer is in — or its motion
-    /// segment crossed — the reveal trigger zone at the window edge; `in_band` =
+    /// Feed a fresh pointer sample. `in_edge` = the pointer is in - or its motion
+    /// segment crossed - the reveal trigger zone at the window edge; `in_band` =
     /// pointer anywhere in the keep-alive region (edge zone ∪ revealed band).
     /// Returns `true` when visibility changed (the caller should redraw).
     pub(super) fn on_pointer(&mut self, in_edge: bool, in_band: bool, now: Instant) -> bool {
@@ -223,9 +223,9 @@ impl RailAutohide {
             }
             Phase::Revealing(since) => {
                 if !self.in_edge && !self.in_band {
-                    // Pointer decisively away before the debounce elapsed —
+                    // Pointer decisively away before the debounce elapsed -
                     // neither still sweeping the trigger edge (motion-aware
-                    // `in_edge`) nor over the keep-alive band — so the arm never
+                    // `in_edge`) nor over the keep-alive band - so the arm never
                     // flashed. A single fast follow-through that overshoots past
                     // the seam (the live trace's 7.9px → 214px in 74 ms) keeps
                     // `in_edge` set via segment-crossing, so a deliberate quick
@@ -308,8 +308,8 @@ mod tests {
     fn fast_follow_through_past_the_seam_does_not_abort_the_arm() {
         // Live-trace regression (the 7.9px → 214px in 74 ms abort): an arm at the
         // edge followed within the debounce by one fast sample that overshoots
-        // past the seam — `in_edge` still set by segment-crossing, but no longer
-        // `in_band` — must NOT abort. It promotes at the debounce. The old
+        // past the seam - `in_edge` still set by segment-crossing, but no longer
+        // `in_band` - must NOT abort. It promotes at the debounce. The old
         // `!in_band` abort dropped it, so a deliberate quick approach "wouldn't
         // open".
         let start = t0();
@@ -320,7 +320,7 @@ mod tests {
         let follow = start + SHOW_DEBOUNCE / 3;
         assert!(
             !m.on_pointer(true, false, follow),
-            "no flip yet — still confirming, not aborted"
+            "no flip yet, still confirming, not aborted"
         );
         // At the debounce boundary it promotes rather than aborting.
         let revealed = start + SHOW_DEBOUNCE;

@@ -10,7 +10,7 @@ use crate::harness::*;
 
 /// U1 byte-identical guarantee at the default floor. A frame mixing a 256-color
 /// foreground, a truecolor foreground, and an explicit SGR-58 underline color
-/// must composite with each color *unchanged* at `min_contrast = 1.0` — the new
+/// must composite with each color *unchanged* at `min_contrast = 1.0` - the new
 /// underline-color enforce call is a verifiable visual no-op on the plain path.
 ///
 /// The underline decoration is a solid (alpha = 1) quad, so the underline-band
@@ -142,7 +142,7 @@ fn box_drawing_horizontal_joins_across_the_cell_seam() {
     };
 
     // Across the full two-cell width, every column on the stroke row must be
-    // inked — no gap, including the two columns straddling the seam.
+    // inked - no gap, including the two columns straddling the seam.
     let mut gaps = Vec::new();
     for x in 0..frame.width {
         if !differs(frame.pixel(x, row), bg) {
@@ -203,7 +203,7 @@ fn wide_char_spans_two_cells_without_double_draw() {
 
 #[test]
 fn wide_glyph_inks_across_the_seam() {
-    // W1: a width-2 glyph rasterizes into a two-cell slot and inks across the
+    // A width-2 glyph rasterizes into a two-cell slot and inks across the
     // cell seam, not clipped at the lead cell's right edge. The bundled face has
     // no CJK or fullwidth glyph, so the project-authored bidi fixture face
     // (two-cell U+754C, a block-pattern 'M') supplies one; the test always runs.

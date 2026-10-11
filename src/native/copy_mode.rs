@@ -33,7 +33,7 @@ pub enum SelectKind {
     Line,
 }
 
-/// A partially-entered multi-key motion. Only `gg` (go-to-top) needs one in v1;
+/// A partially-entered multi-key motion. Only `gg` (go-to-top) needs one;
 /// numeric counts are deferred.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pending {
@@ -54,39 +54,39 @@ pub enum CopyModeKey {
     MoveUp,
     /// `l` / Right.
     MoveRight,
-    /// `0` — column 0.
+    /// `0` - column 0.
     ColumnZero,
-    /// `^` — first non-blank column of the cursor row.
+    /// `^` - first non-blank column of the cursor row.
     FirstNonBlank,
-    /// `$` — last non-blank column of the cursor row.
+    /// `$` - last non-blank column of the cursor row.
     LineEnd,
-    /// `w` — start of the next word.
+    /// `w` - start of the next word.
     WordForward,
-    /// `b` — start of the previous word.
+    /// `b` - start of the previous word.
     WordBackward,
-    /// `e` — end of the next word.
+    /// `e` - end of the next word.
     WordEnd,
-    /// `g` — leading key of the `gg` go-to-top motion.
+    /// `g` - leading key of the `gg` go-to-top motion.
     GPrefix,
-    /// `G` — bottom of the buffer (live).
+    /// `G` - bottom of the buffer (live).
     GotoBottom,
-    /// `Ctrl-u` — half page up.
+    /// `Ctrl-u` - half page up.
     HalfPageUp,
-    /// `Ctrl-d` — half page down.
+    /// `Ctrl-d` - half page down.
     HalfPageDown,
-    /// `Ctrl-b` / PageUp — full page up.
+    /// `Ctrl-b` / PageUp - full page up.
     PageUp,
-    /// `Ctrl-f` / PageDown — full page down.
+    /// `Ctrl-f` / PageDown - full page down.
     PageDown,
-    /// `v` — toggle character-wise selection.
+    /// `v` - toggle character-wise selection.
     ToggleCharSelect,
-    /// `V` — toggle line-wise selection.
+    /// `V` - toggle line-wise selection.
     ToggleLineSelect,
-    /// `o` — swap the cursor and anchor ends of the selection.
+    /// `o` - swap the cursor and anchor ends of the selection.
     SwapEnds,
-    /// `y` / Enter — yank: the host copies [`CopyModeState::range`] then exits.
+    /// `y` / Enter - yank: the host copies [`CopyModeState::range`] then exits.
     Yank,
-    /// `Esc` / `q` — clear the selection if any, else exit copy mode.
+    /// `Esc` / `q` - clear the selection if any, else exit copy mode.
     Cancel,
 }
 
@@ -111,11 +111,11 @@ pub struct CopyModeContext<'a> {
     pub viewport_offset: usize,
     /// Number of scrollback rows above the live screen.
     pub scrollback_len: usize,
-    /// C24: character at an absolute cell NOT currently on screen (scrollback
+    /// Character at an absolute cell NOT currently on screen (scrollback
     /// above the viewport, or live rows below it while scrolled back), so
     /// word/line motions resolve against the whole buffer instead of stopping
     /// at the viewport edges. `None` (or a provider returning `None`) keeps
-    /// off-screen cells opaque — word scans then treat them as non-word
+    /// off-screen cells opaque - word scans then treat them as non-word
     /// content and stop, which is the safe degradation.
     pub offscreen_cell: Option<&'a dyn Fn(AbsoluteCellPoint) -> Option<char>>,
 }
@@ -139,7 +139,7 @@ impl CopyModeContext<'_> {
     }
 
     /// Last absolute row that holds content (the live screen's bottom row).
-    /// Independent of the scroll offset — total content height is
+    /// Independent of the scroll offset - total content height is
     /// `scrollback_len + rows`.
     fn max_row(&self) -> usize {
         (self.scrollback_len + self.rows()).saturating_sub(1)
@@ -157,7 +157,7 @@ impl CopyModeContext<'_> {
     }
 
     /// Character at an absolute cell, if the cell is in bounds. On-screen cells
-    /// read the viewport snapshot; off-screen cells (C24) go through the
+    /// read the viewport snapshot; off-screen cells go through the
     /// `offscreen_cell` provider so motions can resolve against the absolute
     /// buffer. Without a provider, off-screen cells are opaque (`None`).
     fn cell_char(&self, p: AbsoluteCellPoint) -> Option<char> {
@@ -214,7 +214,7 @@ impl CopyModeContext<'_> {
     }
 
     /// Next cell in row-major order within the absolute buffer, or `None` at
-    /// the end of content (C24: no longer stops at the viewport bottom).
+    /// the end of content (no longer stops at the viewport bottom).
     fn step_forward(&self, p: AbsoluteCellPoint) -> Option<AbsoluteCellPoint> {
         let cols = self.columns();
         if cols == 0 {
@@ -236,7 +236,7 @@ impl CopyModeContext<'_> {
     }
 
     /// Previous cell in row-major order within the absolute buffer, or `None`
-    /// at the start of content (C24: no longer stops at the viewport top).
+    /// at the start of content (no longer stops at the viewport top).
     fn step_back(&self, p: AbsoluteCellPoint) -> Option<AbsoluteCellPoint> {
         if p.column > 0 {
             Some(AbsoluteCellPoint {
@@ -291,7 +291,7 @@ impl CopyModeState {
 
     /// Enter copy mode with the caret at `cursor` (absolute coords; the host
     /// typically seeds it at the live cursor or viewport bottom). No selection
-    /// is anchored yet — the caret is free to navigate first.
+    /// is anchored yet - the caret is free to navigate first.
     pub fn new(cursor: AbsoluteCellPoint) -> Self {
         Self {
             cursor,
@@ -327,7 +327,7 @@ impl CopyModeState {
     /// `None` when nothing is anchored. Character-wise uses the shared
     /// [`normalize_absolute_range`] (a caret on the anchor is the one-cell
     /// range); line-wise spans full rows with the
-    /// [`LINE_END_COLUMN`] sentinel the host clamps. Pure function of state —
+    /// [`LINE_END_COLUMN`] sentinel the host clamps. Pure function of state -
     /// it does not consult the viewport, so it survives scrollback growth.
     pub fn range(&self) -> Option<AbsoluteSelectionRange> {
         let anchor = self.anchor?;
@@ -512,7 +512,7 @@ impl CopyModeState {
         ctx.cell_char(p).is_some_and(is_selection_word_char)
     }
 
-    /// `w` — advance to the start of the next word.
+    /// `w` - advance to the start of the next word.
     fn word_forward(&mut self, ctx: &CopyModeContext) {
         let mut p = self.cursor;
         if Self::is_word(ctx, p) {
@@ -539,7 +539,7 @@ impl CopyModeState {
         self.cursor = p;
     }
 
-    /// `b` — retreat to the start of the previous word.
+    /// `b` - retreat to the start of the previous word.
     fn word_backward(&mut self, ctx: &CopyModeContext) {
         let mut p = match ctx.step_back(self.cursor) {
             Some(n) => n,
@@ -566,7 +566,7 @@ impl CopyModeState {
         self.cursor = p;
     }
 
-    /// `e` — advance to the end of the next word.
+    /// `e` - advance to the end of the next word.
     fn word_end(&mut self, ctx: &CopyModeContext) {
         // Step from the end of the glyph under the caret, so a wide lead does
         // not stop on its own spacer.
@@ -611,7 +611,7 @@ impl CopyModeState {
         }
     }
 
-    /// `o` — swap the caret and the anchor, jumping to the other end of the
+    /// `o` - swap the caret and the anchor, jumping to the other end of the
     /// selection. No-op when nothing is anchored.
     fn swap_ends(&mut self) {
         if let Some(anchor) = self.anchor {
@@ -818,7 +818,7 @@ mod tests {
 
     #[test]
     fn word_forward_crosses_rows() {
-        // Padded to 4 cols: row 0 = "foo ", row 1 = "bar " — the trailing pad
+        // Padded to 4 cols: row 0 = "foo ", row 1 = "bar " - the trailing pad
         // is the separator, so the next word starts on the following row.
         let snap = snapshot(&["foo", "bar"], 4);
         let c = ctx(&snap);
@@ -827,7 +827,7 @@ mod tests {
         assert_eq!(s.cursor(), at(1, 0)); // wraps to 'b' on next row
     }
 
-    /// C24: `w` at the end of the viewport's LAST visible row continues into
+    /// `w` at the end of the viewport's LAST visible row continues into
     /// the live row BELOW the viewport (scrolled back, live content below).
     /// Pre-fix, `step_forward` stopped at the viewport bottom and the caret
     /// stuck on the last visible word.
@@ -851,7 +851,7 @@ mod tests {
         assert_eq!(s.cursor(), at(2, 0), "w continues onto the off-screen row");
     }
 
-    /// C24: `b` at the start of the viewport's FIRST visible row continues into
+    /// `b` at the start of the viewport's FIRST visible row continues into
     /// the scrollback row ABOVE the viewport. Pre-fix, `step_back` stopped at
     /// the viewport top.
     #[test]
@@ -877,7 +877,7 @@ mod tests {
         );
     }
 
-    /// C24 degradation: without a provider, off-screen cells are opaque — a
+    /// C24 degradation: without a provider, off-screen cells are opaque - a
     /// word scan stops rather than walking blind.
     #[test]
     fn word_motion_without_provider_stops_at_opaque_rows() {
@@ -1139,7 +1139,7 @@ mod tests {
 
         // Scrollback grows by 4 rows (background output) while copy mode is
         // open: the range is a pure function of absolute state, so it is
-        // unchanged — the selection stays pinned to content.
+        // unchanged - the selection stays pinned to content.
         let grown = CopyModeContext {
             snapshot: &snap,
             viewport_offset: 7,

@@ -93,7 +93,7 @@ impl App {
             .map(str::to_owned);
         self.reset_pointer_state_for_overlay();
         let workspaces = self.sessions.workspace_names();
-        // F6-W5: offer the known-host aliases for binding, and the current
+        // Offer the known-host aliases for binding, and the current
         // binding so the palette can show the unbind + New Local Tab escape rows.
         let host_aliases: Vec<String> = self
             .load_connection_entries()

@@ -68,13 +68,13 @@ impl CursorComparison {
 /// applied inside the drain (it needs the token->tab mapping).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(in crate::native) struct BellSweep {
-    /// The active-visible focused pane rang this pass — drives today's viewport
+    /// The active-visible focused pane rang this pass - drives today's viewport
     /// flash (byte-identical single-pane behavior).
     pub(in crate::native) focused_bell: bool,
     /// The active-visible focused pane's prompt marks changed AND the
-    /// command-status gutter is on — drives the prompt-marks epoch bump.
+    /// command-status gutter is on - drives the prompt-marks epoch bump.
     pub(in crate::native) focused_prompt_changed: bool,
-    /// At least one NON-focused session rang — drives window urgency
+    /// At least one NON-focused session rang - drives window urgency
     /// (`request_user_attention`); the specific tabs are latched in the drain.
     pub(in crate::native) background_bell: bool,
     /// An explicitly armed pane bell monitor fired.
@@ -133,7 +133,7 @@ impl TabBarSource for WorkspaceSet {
 /// `TabHit::Switch(idx)` then dispatches to [`WorkspaceSet::switch_workspace`]
 /// instead of `switch`; `TabHit::NewTab` (the `+` slot) creates a workspace.
 /// Presentation-only: it reads `workspaces` directly, so it carries no per-tab
-/// title-override or session lookup — a workspace's label is its `name`.
+/// title-override or session lookup - a workspace's label is its `name`.
 pub(in crate::native) struct WorkspaceRailSource<'a> {
     set: &'a WorkspaceSet,
 }
@@ -214,8 +214,8 @@ impl Session {
         self.viewport.offset()
     }
 
-    /// Settle the cursor-animation timers — blink phase, ID1 easing fade, VE4
-    /// slide — to their at-rest identity with no scheduled wake. These are the
+    /// Settle the cursor-animation timers - blink phase, ID1 easing fade, VE4
+    /// slide - to their at-rest identity with no scheduled wake. These are the
     /// timers whose consumer is the focused render path's per-frame poll
     /// (`cursor_blink.poll` / `update_cursor_easing` / `update_cursor_motion`),
     /// so a pane with no render consumer strands its past toggle deadline in
@@ -238,7 +238,7 @@ impl Session {
 
     /// Settle every timer of a never-rendered (background) pane: the cursor
     /// timers above PLUS the synchronized-output hold. A background pane is
-    /// never rendered, so none of these has a consumer (NF20-B). The
+    /// never rendered, so none of these has a consumer. The
     /// synchronized-output hold is parked ONLY here: unlike the cursor timers it
     /// is consumed by `should_hold` in the render path (once for a single-pane
     /// tab, per visible pane in `rebuild_multipane`) and its 150 ms deadline is
@@ -359,9 +359,9 @@ impl Session {
 
     /// Drop the transient pointer-input latches so an active-session change
     /// cannot leave them stranded on the outgoing session or phantom-hovering on
-    /// the incoming one (NF21-8 / NF21-9). Unlike
+    /// the incoming one. Unlike
     /// [`Self::invalidate_layout_dependent_state`] this deliberately leaves the
-    /// selection, viewport, search, hints and copy-mode state untouched — a tab
+    /// selection, viewport, search, hints and copy-mode state untouched - a tab
     /// or workspace switch is not a reflow, so a made selection must survive to
     /// be copied on switch-back. Only the in-flight drag and the last hover cell
     /// are cleared: a mid-drag switch must not resurrect a buttonless
@@ -379,10 +379,10 @@ impl Session {
 impl WorkspaceSet {
     /// Park the animation / render-hold timers of every pane that has no render
     /// consumer this frame, matching the fan-out of the `next_wake_deadline`
-    /// sources with a consumer of equal reach (NF20-B / NF21-1).
+    /// sources with a consumer of equal reach.
     ///
     /// Consumer scope (§5 rule 2): the only pane with live animation timers is
-    /// the focused pane of the active tab of the ACTIVE WORKSPACE — everything
+    /// the focused pane of the active tab of the ACTIVE WORKSPACE - everything
     /// else (all background workspaces, all background tabs, all non-focused
     /// panes) is parked, except that the visible panes of a split tab keep
     /// their synchronized-output holds. Collectors iterate the flat arena (§5 rule 1), never
@@ -418,7 +418,7 @@ impl WorkspaceSet {
     /// True when any currently visible pane of the active tab has its
     /// `needs_rebuild` flag set. The render gate ORs this across the whole tab so
     /// output streaming into a non-focused split pane repaints even while the
-    /// focused pane is idle (NF21-7) — `self.needs_rebuild` alone is the focused
+    /// focused pane is idle - `self.needs_rebuild` alone is the focused
     /// pane's flag (the `Deref` target). For a single-pane tab this is exactly
     /// the focused pane's flag, so the single-pane gate decision is unchanged.
     pub(in crate::native) fn any_visible_pane_needs_rebuild(&self) -> bool {
@@ -440,9 +440,9 @@ impl WorkspaceSet {
 
     /// Clear `needs_rebuild` on every visible pane of the active tab. Paired with
     /// [`Self::any_visible_pane_needs_rebuild`]: `rebuild_multipane` snapshots
-    /// every visible pane, so it must clear every visible pane's flag — clearing
+    /// every visible pane, so it must clear every visible pane's flag - clearing
     /// only the focused pane's would leave a dirtied background pane's flag set
-    /// and re-open the (now tab-wide) gate every frame, a rebuild storm (NF21-7).
+    /// and re-open the (now tab-wide) gate every frame, a rebuild storm.
     pub(in crate::native) fn clear_visible_pane_rebuild_flags(&mut self) {
         for token in self.active_visible_tokens() {
             if let Some(session) = self.sessions.get_mut(&token) {
@@ -468,7 +468,7 @@ impl WorkspaceSet {
     /// outgoing session (whose in-flight drag must not survive), the incoming
     /// session (whose stale hover cell must not paint), and every background
     /// session across all workspaces in one pass. Selection and viewport state
-    /// are intentionally preserved — see [`Session::clear_input_latches`].
+    /// are intentionally preserved - see [`Session::clear_input_latches`].
     pub(in crate::native) fn clear_all_input_latches(&mut self) {
         for session in self.sessions.values_mut() {
             session.clear_input_latches();
@@ -501,7 +501,7 @@ impl WorkspaceSet {
         }
     }
 
-    /// True when `token` is a currently visible pane of the **active** tab —
+    /// True when `token` is a currently visible pane of the **active** tab -
     /// i.e. its output should drive a redraw even when it is not the focused
     /// pane (design doc §2.5 audit row #4: redraw suppression must key on "any
     /// visible pane of the active tab", not just the focused one). For a
@@ -526,13 +526,13 @@ impl WorkspaceSet {
     /// first render after switching back counts the accumulated row pushes
     /// (all the backgrounded growth at once) and `anchor_after_growth` yanks a
     /// scrolled-up viewport toward the top of scrollback, stranding fresh output
-    /// offscreen below — the user returns to a tab "stuck scrolled up" with new
+    /// offscreen below - the user returns to a tab "stuck scrolled up" with new
     /// output invisible. Treating the backgrounded growth as already-past
     /// preserves the pane's scroll position across the switch: a pane at the
     /// live bottom (offset 0) stays live, and a scrolled-up pane keeps its
     /// offset relative to the now-current bottom rather than jumping into deep
     /// history. This is the viewport analogue of the new-output-fade
-    /// discontinuity the activation path already clears (NF21-12). A no-op for a
+    /// discontinuity the activation path already clears. A no-op for a
     /// tab that was never backgrounded (its baseline already equals its current
     /// length). Platform-neutral: viewport/scrollback bookkeeping is identical
     /// on Unix and Windows.
@@ -555,7 +555,7 @@ impl WorkspaceSet {
 
     /// The (token, pixel-rect) layout of the **active** tab's panes within
     /// `content`, for the multi-pane render dispatch. Single-pane tabs yield one
-    /// entry spanning the whole content rect — identical geometry to the
+    /// entry spanning the whole content rect - identical geometry to the
     /// single-pane path, which never calls this.
     ///
     /// `cell` is the cell size in pixels `(width, height)`: floating panes are
@@ -650,7 +650,7 @@ impl WorkspaceSet {
     /// divider, `RowResize` for a row split's horizontal one). Mirrors
     /// [`Self::active_divider_at_point`]'s zoom and hit-test gating so hover and
     /// grab agree. A single-pane tab has no dividers, so this is always `None`
-    /// there — the byte-identical path never sees a resize cursor.
+    /// there - the byte-identical path never sees a resize cursor.
     pub(in crate::native) fn active_divider_axis_at_point(
         &self,
         content: PaneRect,
@@ -777,13 +777,13 @@ impl WorkspaceSet {
     }
 
     /// Drain the bell and prompt-marks-changed latches of EVERY session over the
-    /// flat arena (design §5 rule 1 — never a hierarchy walk), routing each per
+    /// flat arena (design §5 rule 1 - never a hierarchy walk), routing each per
     /// NF21-6:
     ///
     /// - The active-visible focused pane keeps today's behavior: its bell drives
     ///   the viewport flash and its prompt-marks change (when the gutter is on)
-    ///   bumps the epoch. The single-pane render fast path no longer drains —
-    ///   this does — so that path stays byte-identical.
+    ///   bumps the epoch. The single-pane render fast path no longer drains -
+    ///   this does - so that path stays byte-identical.
     /// - Any OTHER session that rang pings window urgency and latches its owning
     ///   tab's activity flag, UNLESS that tab is the active-visible one (a bell
     ///   in a background pane of the tab you are already viewing is "seen").

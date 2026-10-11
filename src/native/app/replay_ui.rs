@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! App-side output-replay integration (Phase 2).
+//! App-side output-replay integration.
 //!
 //! The overlay owns the scrub state over a frozen clone of the focused
 //! session's recorded frames. This module owns only the act of opening it: it
 //! snapshots the recorder ring (a decoupled clone) and hands it to the overlay.
-//! Replay is presentation-only — opening it never writes to the PTY and never
+//! Replay is presentation-only - opening it never writes to the PTY and never
 //! mutates the live terminal model.
 
 use super::*;

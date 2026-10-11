@@ -25,7 +25,7 @@ pub fn snippet(kind: ShellKind) -> &'static str {
     }
 }
 
-// The prompt-start (`133;A`) carries `click_events=1` unconditionally — there is
+// The prompt-start (`133;A`) carries `click_events=1` unconditionally - there is
 // deliberately no separate setting gating its emission. Advertising click-events
 // only tells the terminal the shell CAN reposition on a click; the actual
 // click-to-position action is gated on the consumer side by the `sh_click`
@@ -33,28 +33,28 @@ pub fn snippet(kind: ShellKind) -> &'static str {
 // settings default on. Threading a settings value through these static const
 // snippets would be strictly worse for no behavioral gain. Re-asserting it on
 // every prompt (`A`, not just once) keeps it correct across resets.
-// PROMPT_COMMAND coexistence (NF1/NF1-B): a user's pre-existing PROMPT_COMMAND
+// PROMPT_COMMAND coexistence: a user's pre-existing PROMPT_COMMAND
 // helper (git-prompt, powerline, ...) is loaded from `.bashrc` BEFORE this
 // snippet, so OdyTTY must not assume it owns PROMPT_COMMAND. Two hazards, both
 // fixed here:
-//   * exit-status masking (NF1-B) — the user helper runs first and clobbers
+//   * exit-status masking - the user helper runs first and clobbers
 //     `$?` before the reporter can read it, so `133;D` would report the
 //     helper's status (0), not the real command's. Fixed by PREPENDING
 //     `__odytty_status_capture`, which snapshots `$?` at the very start of the
 //     PROMPT_COMMAND chain into `__ODYTTY_LAST_STATUS`; the appended reporter
 //     reads the snapshot.
-//   * array-valued PROMPT_COMMAND (Fedora/systemd) — assigning index zero would
+//   * array-valued PROMPT_COMMAND (Fedora/systemd) - assigning index zero would
 //     place both OdyTTY hooks before the remaining array elements. A later
 //     prompt helper then trips DEBUG and stamps `C` after `D`/`A`, erasing the
 //     completed block's exit before PS1 stamps `B`. Array values are therefore
 //     prepended/appended as array elements so the prompt-phase guard spans the
 //     entire chain and the reporter is the final helper.
-//   * phantom OutputStart (NF1) — the DEBUG trap fires before the user helper
+//   * phantom OutputStart - the DEBUG trap fires before the user helper
 //     (a top-level PROMPT_COMMAND command) and would emit a spurious `133;C`.
 //     Fixed with a state flag (`__ODYTTY_PROMPT_EXECUTING`, the kitty/ghostty
 //     pattern): the capturer arms it, the reporter clears it, and the trap
 //     suppresses `133;C` while armed. That excludes ALL PROMPT_COMMAND-internal
-//     commands by state — robust against arbitrary user helper names — while
+//     commands by state - robust against arbitrary user helper names - while
 //     the capturer itself, which runs before the flag is armed, stays covered
 //     by the internal-name `case` filter.
 pub(super) const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
@@ -475,7 +475,7 @@ fi
 //     `prompt_marks::tests::doubled_fish_style_marks_derive_one_coherent_block`.
 // Suppression was rejected: fish's native `133;A` does NOT carry
 // `click_events=1`, so dropping the snippet's marks would forfeit the
-// click-to-position advertisement (SH-CLICK) while keeping the doubling on the
+// click-to-position advertisement while keeping the doubling on the
 // C/D side. Tolerating keeps click-to-move working and the mark stream stable.
 pub(super) const FISH_SNIPPET: &str = r#"if not set -q ODYTTY_SHELL_INTEGRATION
     set -gx ODYTTY_SHELL_INTEGRATION 1
@@ -572,7 +572,7 @@ end
 // carries `$PWD.ProviderPath` (the native filesystem path) rather than
 // `$PWD.Path`: on a non-FileSystem PSDrive (registry `HKLM:`, cert, env) there
 // is no filesystem cwd, so emitting one manufactured a bogus directory
-// (`/HKLM:/SOFTWARE`) that later seeded a broken spawn (audit D-1); gating on the
+// (`/HKLM:/SOFTWARE`) that later seeded a broken spawn; gating on the
 // provider leaves cwd tracking untouched there instead. The path is
 // percent-encoded (`%` -> `%25`) so a directory whose name contains `%` cannot
 // produce a malformed escape that the parser would reject, freezing cwd

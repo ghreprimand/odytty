@@ -10,7 +10,7 @@ impl Settings {
     /// theme name, preserved so a file-loaded theme re-reads its file rather
     /// than the non-resolving `"custom"` placeholder), else the resolved
     /// theme's own name. Shared by `to_edit_values` and `setting_info` so the
-    /// writeback baseline and the displayed value never diverge (C4).
+    /// writeback baseline and the displayed value never diverge.
     pub(crate) fn theme_config_value(&self) -> String {
         if self.theme_is_system {
             crate::settings::SYSTEM_THEME_NAME.to_owned()
@@ -29,7 +29,7 @@ impl Settings {
         values.insert(THEME_ENV, self.theme_config_value());
         values.insert(VISUAL_ENV, self.visual.as_str().to_owned());
         // The `font` config key reflects the RAW explicit override, never the
-        // face resolved from `font_family` (RC4): a family pick must not make the
+        // face resolved from `font_family`: a family pick must not make the
         // writeback baseline carry a `font` value.
         if let Some(path) = self.explicit_font_path.as_ref() {
             values.insert(FONT_ENV, path.display().to_string());

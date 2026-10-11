@@ -102,7 +102,7 @@ pub(crate) fn composite_image_quad(
 /// Composite the image layer for one z-segment: `below = true` keeps `z < 0`
 /// placements (drawn under glyphs), `below = false` keeps `z >= 0` (over
 /// glyphs). Placements arrive already sorted by `(z_index, generation)`, so
-/// iterating in order preserves equal-z stacking — same as `draw_filtered`.
+/// iterating in order preserves equal-z stacking - same as `draw_filtered`.
 pub(crate) fn composite_image_layer(
     frame: &mut Frame,
     scene: &ImageScene,

@@ -704,7 +704,7 @@ fn nano_enter_edit_quit_restores_primary_screen() -> Result<()> {
     if !nano_is_gnu(&nano) {
         eprintln!(
             "skipping nano alt-screen smoke: `{}` is not GNU nano (likely Apple pico, \
-             which inserts via IRM — not implemented here)",
+             which inserts via IRM, not implemented here)",
             nano.display()
         );
         return Ok(());

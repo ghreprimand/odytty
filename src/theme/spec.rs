@@ -5,7 +5,7 @@
 //! *superset* of the runtime [`Theme`](super::Theme): it carries the same color
 //! payload (default fg/bg/clear, the full 16-color ANSI palette, and the TH1
 //! semantic roles) plus authoring-only metadata that the runtime `Theme` does
-//! not need yet — a light/dark [`Appearance`] flag, optional font hints, and an
+//! not need yet - a light/dark [`Appearance`] flag, optional font hints, and an
 //! optional bundled visual-effect profile. Those extra fields are parsed,
 //! serialized, and round-tripped now (forward-compat) but only the color
 //! payload is projected into the runtime `Theme` via [`ThemeSpec::to_theme`];
@@ -22,7 +22,7 @@
 //! * Unknown keys are **ignored with a warning**, never fatal, so a theme
 //!   written for a newer OdyTTY still loads on an older one.
 //! * A malformed value (bad hex, bad number) warns and leaves that one field at
-//!   its default — a single bad line never aborts the whole theme.
+//!   its default - a single bad line never aborts the whole theme.
 //!
 //! Colors are `#RRGGBB` or `#RGB` (a leading `#` is optional). Recognized keys:
 //!
@@ -189,7 +189,7 @@ impl ThemeSpec {
 
     /// Parse a theme file. Missing keys keep the [`plain`](Theme::PLAIN)
     /// default for that slot, so partial theme files are valid. Unknown keys
-    /// and malformed values warn (via `warn`) but never abort — the worst case
+    /// and malformed values warn (via `warn`) but never abort - the worst case
     /// is a theme that falls back to plain defaults for the offending fields.
     pub fn parse(contents: &str, mut warn: impl FnMut(String)) -> ThemeSpec {
         // Start from plain defaults but with no name yet; a file without an

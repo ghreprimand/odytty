@@ -44,12 +44,11 @@
 //! "stale", event-loop serialization of a concurrent close) live in the router;
 //! this module owns only the arena-level transaction.
 
-// The model-layer transaction for the v0.15.0 keyboard window merge. Its
-// within-`native` surface is exercised by the headless regression suite
-// (`session/tests/window_merge.rs`) and is consumed by the same-process window
-// router / merge UI, which lands as a separate reviewable step. Allow the
-// transaction API to exist ahead of that wiring without tripping the
-// deny-warnings gate on the non-test build; the tests keep it honest meanwhile.
+// The model-layer transaction for the keyboard window merge. The window router
+// consumes `preflight_merge_from` and `commit_merge_from`; a few helpers
+// (`merge_from`, the plan's count accessors) are referenced only from the
+// headless regression suite (`session/tests/window_merge.rs`), so the module
+// opts out of `dead_code`.
 #![allow(dead_code)]
 
 use std::collections::HashSet;

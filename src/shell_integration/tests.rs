@@ -169,8 +169,8 @@ fn bash_snippet_snapshots_exit_status_before_user_prompt_command() {
 #[test]
 fn bash_snippet_guards_debug_trap_with_prompt_executing_flag() {
     // NF1 (phantom 133;C): the DEBUG trap must suppress OutputStart for
-    // every command run *inside* PROMPT_COMMAND via a state flag — robust
-    // against arbitrary user helper names — not the name-only `case` filter
+    // every command run *inside* PROMPT_COMMAND via a state flag - robust
+    // against arbitrary user helper names - not the name-only `case` filter
     // (which cannot enumerate user helpers).
     let bash = snippet(ShellKind::Bash);
     assert!(
@@ -685,7 +685,7 @@ fn bash_encodes_hostile_osc7_cwd_end_to_end() {
     // pass through the interactive readline (which would mangle a `cd`
     // argument that literally contained an ESC); bash builds the exact bytes
     // internally. The base dir is ASCII, so single-quoting it is safe. The
-    // octal escapes spell `a b <BEL> <ESC> ]2;INJECT <BEL> é` — byte-for-byte
+    // octal escapes spell `a b <BEL> <ESC> ]2;INJECT <BEL> é` - byte-for-byte
     // the `name` created above.
     let input = format!(
         "cd \"$(printf '%s/a b\\007\\033]2;INJECT\\007\\303\\251' '{}')\"\nexit\n",
@@ -701,7 +701,7 @@ fn bash_encodes_hostile_osc7_cwd_end_to_end() {
 
     // The OSC 7 payload must be exactly one well-formed sequence that
     // decodes back to the real path. bash emits an OSC 7 at the first prompt
-    // (the initial cwd) before `cd` runs, so take the LAST occurrence — the
+    // (the initial cwd) before `cd` runs, so take the LAST occurrence - the
     // prompt after the `cd` into the hostile directory.
     let marker = "\x1b]7;file://";
     let start = out.rfind(marker).expect("OSC 7 emitted");
@@ -1321,7 +1321,7 @@ fn fish_injection_prepends_vendor_conf_data_dir() {
 #[cfg(windows)]
 #[test]
 fn windows_shell_kind_detects_powershell_programs() {
-    // D-12: the Windows `from_program` arm classifies the PowerShell family
+    // The Windows `from_program` arm classifies the PowerShell family
     // (by basename, case-insensitively) and rejects cmd.exe, which has no
     // OSC 133 hook surface. Runs on the windows-latest leg.
     assert_eq!(
@@ -1347,7 +1347,7 @@ fn windows_shell_kind_detects_powershell_programs() {
 #[cfg(windows)]
 #[test]
 fn windows_apply_spawn_integration_injects_powershell_snippet() {
-    // D-12: spawning a PowerShell attaches `-NoExit -Command <snippet>` with
+    // Spawning a PowerShell attaches `-NoExit -Command <snippet>` with
     // the profile that installs the OSC 133 hooks. There IS Windows
     // spawn-time injection (the old "no Windows injection" seam comment was
     // stale).
@@ -1365,7 +1365,7 @@ fn windows_apply_spawn_integration_injects_powershell_snippet() {
 #[cfg(windows)]
 #[test]
 fn windows_apply_spawn_integration_skips_cmd() {
-    // D-12: cmd.exe is unsupported, so no integration args are attached.
+    // Cmd.exe is unsupported, so no integration args are attached.
     let mut command = CommandBuilder::new("cmd.exe");
     apply_spawn_integration(&mut command);
     assert!(command.args_for_test().is_empty());

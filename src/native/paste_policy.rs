@@ -19,8 +19,8 @@ const MAX_ONE_LINE_PASTE_BYTES: usize = 32 * 1024 * 1024;
 pub(in crate::native) enum PasteSource {
     Clipboard,
     Primary,
-    /// Reserved for the external text-drop route when that platform event is
-    /// added. Keeping the source in this policy prevents a future bypass.
+    /// The external text-drop route. Keeping the source in this policy keeps
+    /// the route inside the same paste assessment.
     ExternalTextDrop,
     /// Reserved for explicitly authorized local automation paste requests.
     Automation,

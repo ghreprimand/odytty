@@ -11,18 +11,18 @@
 //! responsibility modules and preserves the
 //! `crate::native::gpu::*` paths the rest of the native layer uses:
 //!
-//! * [`types`] — pane, cursor, overlay, and frame input contracts, plus the
+//! * [`types`] - pane, cursor, overlay, and frame input contracts, plus the
 //!   pure geometry helpers that turn them into vertex data.
-//! * [`pipeline_policy`] — surface format, composite alpha, blend state,
+//! * [`pipeline_policy`] - surface format, composite alpha, blend state,
 //!   device limits, and adapter selection policy.
-//! * [`pipelines`] — pipeline construction, rebuild, and target-format
+//! * [`pipelines`] - pipeline construction, rebuild, and target-format
 //!   synchronization.
-//! * [`resources`] — `GpuState` itself, initialization, and the device,
+//! * [`resources`] - `GpuState` itself, initialization, and the device,
 //!   surface, binding, buffer, and atlas resource seams.
-//! * [`scene`] — snapshot, pane, cell, image, cursor, and overlay vertex
+//! * [`scene`] - snapshot, pane, cell, image, cursor, and overlay vertex
 //!   construction and upload.
-//! * [`recovery`] — surface resize, reconfigure, and recreation.
-//! * [`frame`] — draw order, pass encoding, acquire, submit, present, and the
+//! * [`recovery`] - surface resize, reconfigure, and recreation.
+//! * [`frame`] - draw order, pass encoding, acquire, submit, present, and the
 //!   frame outcome the event loop acts on.
 //!
 //! Background, font, image, and post-processing support remain leaf modules.

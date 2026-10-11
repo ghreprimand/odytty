@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Component-level tests for [`super::segmenter`] — the Layer-1 Ground sweep
+//! Component-level tests for [`super::segmenter`] - the Layer-1 Ground sweep
 //! and UTF-8 partial-codepoint carry in isolation. Parser golden and
 //! self-consistency tests cover the full corpus + every byte split; these focus
 //! on specific cells.
@@ -176,7 +176,7 @@ fn reset_clears_partial() {
     assert!(!s.has_partial());
 }
 
-/// A garbage-heavy chunk — many consecutive invalid subparts before an ESC —
+/// A garbage-heavy chunk - many consecutive invalid subparts before an ESC -
 /// dispatches every replacement in order and still hands off at the ESC. This
 /// pins the hoisted-ESC-scan restructuring: the invalid-subpart loop consumes
 /// within one chunk without rescanning, and the chunk boundary semantics are

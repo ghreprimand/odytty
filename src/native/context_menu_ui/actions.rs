@@ -22,17 +22,17 @@ pub(in crate::native) enum ContextMenuItem {
     /// Open the named-profile picker to spawn a new tab (v0.14). Catalog load is
     /// on-demand when the picker opens; plain New Tab stays one-click.
     NewTabWithProfile,
-    /// Launch another top-level OdyTTY window (F1). Same action as the
+    /// Launch another top-level OdyTTY window. Same action as the
     /// `Ctrl+Shift+N` chord; a fresh process instance, not a tab.
     NewWindow,
     RenameTab,
     CloseTab,
-    /// Close every tab except the right-clicked one (F7). Tab-scoped: shown only
+    /// Close every tab except the right-clicked one. Tab-scoped: shown only
     /// on the `TabSlot` surface, targeting the clicked tab's token. Disabled
     /// when only one tab exists (nothing else to close).
     CloseOtherTabs,
     /// Open the "Move to Workspace" destination picker for the right-clicked
-    /// tab (W4-v2). Tab-scoped: shown only on the `TabSlot` surface and only when
+    /// tab. Tab-scoped: shown only on the `TabSlot` surface and only when
     /// more than one workspace exists. The item closes the menu and opens a
     /// type-to-filter picker seeded with every workspace but the source; the
     /// chosen destination drives a `Tab` value splice, the sessions never leave
@@ -76,11 +76,11 @@ pub(in crate::native) enum ContextMenuItem {
     ReorderRtlTextChecked,
     /// Open the settings panel (always enabled, D-IN2-SETTINGS).
     Settings,
-    /// Open the key-remap editor overlay directly (F3). Always enabled; same
+    /// Open the key-remap editor overlay directly. Always enabled; same
     /// destination as Settings → Input → "keybinds" (`OverlayMode::KeyBindings`),
     /// surfaced here for discoverability. Placed first in the launcher section
     /// (right below Settings) so it groups with the other overlay-openers. No
-    /// default chord — the editor is a config surface, not a daily action.
+    /// default chord - the editor is a config surface, not a daily action.
     KeyboardShortcuts,
     /// Open the connection manager overlay (v0.3.1 discoverability). Always
     /// enabled; same destination as the `Ctrl+Shift+S` chord.
@@ -91,32 +91,32 @@ pub(in crate::native) enum ContextMenuItem {
     /// Open the session-replay overlay (v0.3.1 discoverability). Always enabled;
     /// same destination as the `Ctrl+Shift+R` chord.
     SessionReplay,
-    /// Open the session-attach summon overlay (Phase 5 / B2). Always enabled;
+    /// Open the session-attach summon overlay. Always enabled;
     /// same destination as the `Ctrl+Shift+A` chord.
     SessionAttach,
-    /// Open the resolved interactive path under the click (Phase 8 / C3). Shown
+    /// Open the resolved interactive path under the click. Shown
     /// only when a path resolved at the click cell; dispatches through the same
     /// argv-only open the Ctrl+click path uses.
     OpenPath,
-    /// Open a resolved **image** span in the in-terminal viewer (Phase 9 / C4).
+    /// Open a resolved **image** span in the in-terminal viewer.
     /// Shown only when the resolved path is an image file (extension in
     /// [`crate::paths::IMAGE_EXTENSIONS`]); decodes + renders it through the GPU
     /// image layer as a presentation-only overlay.
     OpenInOdytty,
-    /// Open the resolved file with a chosen application (Phase 8b / C3b). Shown
+    /// Open the resolved file with a chosen application. Shown
     /// only when the resolved path is a regular file; activating it opens the
     /// "Open With…" app-picker overlay (`OverlayMode::OpenWith`).
     OpenWith,
-    /// Copy the resolved absolute path to the clipboard as text (C3).
+    /// Copy the resolved absolute path to the clipboard as text.
     CopyPath,
-    /// Copy a `file://<abs>` URI to the clipboard as text (C3).
+    /// Copy a `file://<abs>` URI to the clipboard as text.
     CopyFile,
-    /// Reveal the resolved path in the desktop file manager (C3).
+    /// Reveal the resolved path in the desktop file manager.
     RevealPath,
     /// Convert the focused pane into a fresh **managed** session in the same cwd
     /// and switch to it (Detach & switch). Always available (there is
     /// always a focused pane). HONEST framing: this is a SPAWN of a new shell in
-    /// the same directory, not a live-process migration — the running shell is
+    /// the same directory, not a live-process migration - the running shell is
     /// the window's child and cannot be losslessly handed to a survivable host.
     /// Activating it reads the focused pane's cwd and opens a 3-way choice
     /// dialog (Swap / Keep both / Cancel). Placed last in [`Self::ALL`] so the
@@ -133,41 +133,41 @@ pub(in crate::native) enum ContextMenuItem {
     /// Rename the right-clicked workspace in place. Workspace-scoped
     /// (`WorkspaceSlot`); opens the shared rename field targeting the slot.
     RenameWorkspace,
-    /// Close the right-clicked workspace entirely — every tab, every pane.
+    /// Close the right-clicked workspace entirely - every tab, every pane.
     /// Workspace-scoped (`WorkspaceSlot`). Closing the last workspace exits.
     CloseWorkspace,
-    /// Move the right-clicked workspace one slot toward the front of the rail
-    /// (RAIL-REORDER). Workspace-scoped (`WorkspaceSlot`); shown only when the
+    /// Move the right-clicked workspace one slot toward the front of the rail.
+    /// Workspace-scoped (`WorkspaceSlot`); shown only when the
     /// slot is not already first. Appended last in [`Self::ALL`] so existing
     /// accelerator-array indices stay stable; carries no chord.
     MoveWorkspaceUp,
-    /// Move the right-clicked workspace one slot toward the back of the rail
-    /// (RAIL-REORDER). Workspace-scoped (`WorkspaceSlot`); shown only when the
+    /// Move the right-clicked workspace one slot toward the back of the rail.
+    /// Workspace-scoped (`WorkspaceSlot`); shown only when the
     /// slot is not already last. Appended last in [`Self::ALL`]; carries no chord.
     MoveWorkspaceDown,
-    /// Bind the active workspace to a saved host (F6-W5 / ODP-6B). Content-grid
+    /// Bind the active workspace to a saved host. Content-grid
     /// workspace section, shown ONLY when the active workspace is unbound;
-    /// activating it opens the shared host picker (ODP-1B) so New Tab there
+    /// activating it opens the shared host picker so New Tab there
     /// routes through the SSH connect path. No default chord.
     BindWorkspaceToHost,
-    /// Unbind the active workspace (ODP-6B), returning its New Tab to a local
+    /// Unbind the active workspace, returning its New Tab to a local
     /// shell. Content-grid workspace section, shown ONLY when the active
-    /// workspace is bound — the conditional counterpart to Bind to Host.
+    /// workspace is bound - the conditional counterpart to Bind to Host.
     UnbindWorkspace,
-    /// Save the WHOLE application (every workspace) as one named layout
-    /// (SAVE-ALL-LAYOUT). This is the primary "Save as Layout" surface — a layout
+    /// Save the WHOLE application (every workspace) as one named layout.
+    /// This is the primary "Save as Layout" surface - a layout
     /// means the whole session. Shown on the content-grid workspace section and
     /// the empty rail; opens the "Layout name:" prompt, then the whole-app save
     /// path writes the file. No chord.
     SaveAllLayout,
-    /// Save a SINGLE workspace as a named layout (LAYOUT-SURFACE). Workspace-
+    /// Save a SINGLE workspace as a named layout. Workspace-
     /// scoped: on a `WorkspaceSlot` it saves the CLICKED workspace; in the
     /// content-grid workspace section it saves the ACTIVE one. Labelled "Save
     /// Workspace as Layout…" to distinguish it from the whole-app save. Opens the
     /// "Layout name:" prompt (the rename-modal idiom); the WP3 save path writes
     /// the file. No chord.
     SaveAsLayout,
-    /// Open a saved layout by name (LAYOUT-SURFACE). Shown on the empty rail, the
+    /// Open a saved layout by name. Shown on the empty rail, the
     /// empty tab strip, and the content-grid workspace section; opens the shared
     /// picker seeded with the saved layout names. Instantiating APPENDS a new
     /// workspace (never clobbers). Stays visible with no saved layouts so the
@@ -181,7 +181,7 @@ pub(in crate::native) enum ContextMenuItem {
     NewLocalTab,
     /// Duplicate the right-clicked tab: open a new local tab in the active
     /// pane's working directory (F1 cwd inheritance). HONEST framing: this is a
-    /// fresh shell in the same directory, not a process fork — scrollback and the
+    /// fresh shell in the same directory, not a process fork - scrollback and the
     /// running program are not copied. Tab-scoped (`TabSlot`); bindable via
     /// [`BindableAction::DuplicateTab`]. Appended last in [`Self::ALL`] so the
     /// existing accelerator-array indices stay stable.
@@ -196,33 +196,33 @@ pub(in crate::native) enum ContextMenuItem {
     DuplicateWorkspace,
     /// Open a saved host in a NEW tab positioned right after the right-clicked
     /// tab (ODP-5D "Connect to host ▸"). Tab-scoped: shown only on the `TabSlot`
-    /// surface. Activating it opens the shared host picker (ODP-1B) seeded with
+    /// surface. Activating it opens the shared host picker seeded with
     /// the clicked tab's token; the picked host spawns adjacent to that tab, so
     /// it reads as "connect from here" and never disturbs the clicked shell.
     ConnectToHost,
     /// Replace the right-clicked tab with a saved host (ODP-5D "Replace this tab
     /// with ▸"). Tab-scoped (`TabSlot`). Opens the same shared host picker for
     /// the clicked tab's token; on pick, the App closes that tab and opens the
-    /// remote in its slot — gated behind a confirm when the tab holds a running
+    /// remote in its slot - gated behind a confirm when the tab holds a running
     /// foreground child (idle shells replace directly, no confirm).
     ReplaceTabWithHost,
     /// Open the right-clicked connection-manager row's host in a NEW tab in the
-    /// current workspace (ODP-2C). Connection-row-scoped: shown only on the
+    /// current workspace. Connection-row-scoped: shown only on the
     /// `ConnectionRow` surface. Routes through the same connect path the manager
     /// itself uses; the manager closes.
     ConnRowOpenInTab,
     /// Open the right-clicked connection-manager row's host in a NEW workspace
-    /// pre-bound to that host (ODP-2C): the fresh workspace's first tab connects
+    /// pre-bound to that host: the fresh workspace's first tab connects
     /// and its `default_profile` is set, so New Tab there routes remote.
     ConnRowOpenInWorkspace,
     /// Bind the CURRENT workspace to the right-clicked connection-manager row's
-    /// host (ODP-2C). Reuses the frozen `set_active_workspace_default_profile`
+    /// host. Reuses the frozen `set_active_workspace_default_profile`
     /// path and emits the bind toast; the host is already chosen (the clicked
     /// row), so no picker is needed.
     ConnRowBindWorkspace,
     /// Open the Add/Edit connection form pre-filled from the right-clicked
     /// connection-manager row (ODP-2C, defers to the P4 form). Shown ONLY for
-    /// OdyTTY-owned rows — an ssh-config-imported row is read-only and never
+    /// OdyTTY-owned rows - an ssh-config-imported row is read-only and never
     /// offers Edit (OdyTTY never writes `~/.ssh/config`).
     ConnRowEdit,
     /// Remove the right-clicked connection-manager row's `hosts.conf` block
@@ -294,7 +294,7 @@ pub(in crate::native) enum ContextMenuItem {
 }
 
 impl ContextMenuItem {
-    /// The full item set in display order — the accelerator-array order the App
+    /// The full item set in display order - the accelerator-array order the App
     /// fills. `ClosePane` is included here but filtered out of the *visible*
     /// list in a single-pane tab (see [`ContextMenuUi::visible_items`]).
     pub(in crate::native) const ALL: [ContextMenuItem; CONTEXT_MENU_ITEMS] = [
@@ -343,11 +343,11 @@ impl ContextMenuItem {
         Self::NewWorkspaceWithProfile,
         Self::RenameWorkspace,
         Self::CloseWorkspace,
-        // ODP-6B: the conditional bind/unbind pair sits in the workspace section
+        // The conditional bind/unbind pair sits in the workspace section
         // (exactly one is ever visible), right after Close Workspace.
         Self::BindWorkspaceToHost,
         Self::UnbindWorkspace,
-        // LAYOUT-SURFACE: Save/Open Layout round out the workspace section, so
+        // Save/Open Layout round out the workspace section, so
         // on the content surface they render right after the bind/unbind row. The
         // whole-app "Save as Layout" leads the single-workspace variant.
         Self::SaveAllLayout,
@@ -384,14 +384,14 @@ impl ContextMenuItem {
         Self::ConnRowBindWorkspace,
         Self::ConnRowEdit,
         Self::ConnRowRemove,
-        // DUPLICATE-TAB: appended last so every existing accelerator-array index
+        // Appended last so every existing accelerator-array index
         // stays stable (its accelerator is filled from the flat table).
         Self::DuplicateTab,
-        // RAIL-REORDER: workspace move actions; appended last so every existing
+        // Workspace move actions; appended last so every existing
         // accelerator-array index stays stable (both carry no chord).
         Self::MoveWorkspaceUp,
         Self::MoveWorkspaceDown,
-        // DUPLICATE-WORKSPACE: appended last so every existing accelerator-array
+        // Appended last so every existing accelerator-array
         // index stays stable (its accelerator is filled from the flat table).
         Self::DuplicateWorkspace,
         // NAVIGATOR-ROW actions; appended after every existing item so every
@@ -448,7 +448,7 @@ impl ContextMenuItem {
             | Self::PullWindowIntoThis
             // Tab-scoped host actions; grouped with the tab section for the
             // global fallback (they are TabSlot-only, so this only matters for
-            // section() completeness — section_of gives them their own group).
+            // section() completeness - section_of gives them their own group).
             | Self::ConnectToHost
             | Self::ReplaceTabWithHost => 1,
             Self::SplitColumns
@@ -477,13 +477,13 @@ impl ContextMenuItem {
             | Self::MoveWorkspaceDown
             | Self::BindWorkspaceToHost
             | Self::UnbindWorkspace
-            // LAYOUT-SURFACE: Save/Open Layout live in the workspace section.
+            // Save/Open Layout live in the workspace section.
             | Self::SaveAllLayout
             | Self::SaveAsLayout
             | Self::OpenLayout
             // ODP-2C connection-row actions; grouped with the workspace section
             // for the global fallback (they are ConnectionRow-only, so this only
-            // matters for section() completeness — section_of gives them their
+            // matters for section() completeness - section_of gives them their
             // own tight groups).
             | Self::ConnRowOpenInTab
             | Self::ConnRowOpenInWorkspace
@@ -669,7 +669,7 @@ impl ContextMenuItem {
                 Some(BindableAction::ToggleBroadcast)
             }
             Self::StopBroadcast => Some(BindableAction::StopBroadcast),
-            // Close Pane has no chord in the flat global table — it resolves only
+            // Close Pane has no chord in the flat global table - it resolves only
             // on the multiplexer prefix (`Ctrl-b x`), which the flat
             // `chord_for_action` lookup cannot represent. The App fills its
             // accelerator slot specially from the prefix table, so this returns
@@ -688,7 +688,7 @@ impl ContextMenuItem {
             | Self::CopyPath
             | Self::CopyFile
             | Self::RevealPath
-            // Keyboard Shortcuts (F3) has no default chord — the editor is a
+            // Keyboard Shortcuts has no default chord - the editor is a
             // config surface reached from Settings, so its accelerator slot is
             // intentionally empty.
             | Self::KeyboardShortcuts
@@ -701,10 +701,10 @@ impl ContextMenuItem {
             // The profile-choosing New rows have no bindable action.
             | Self::NewTabWithProfile
             | Self::NewWorkspaceWithProfile
-            // RAIL-REORDER: reorder actions are menu-only; no chord.
+            // Reorder actions are menu-only; no chord.
             | Self::MoveWorkspaceUp
             | Self::MoveWorkspaceDown
-            // Workspace host bind/unbind (ODP-6B); reached from the menu, no chord.
+            // Workspace host bind/unbind; reached from the menu, no chord.
             | Self::BindWorkspaceToHost
             | Self::UnbindWorkspace
             // New Local Tab is the F6-W5 escape hatch; no default chord.

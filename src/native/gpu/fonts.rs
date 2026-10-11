@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Style-face resolution and symbol/Nerd-font fallback helpers.
-//!
-//! Extracted byte-identical from `gpu.rs` to keep that file under the
-//! modularity cap. Holds the [`StyleFonts`] four-face set plus the free
-//! functions that resolve the optional symbol fallback face and the SYMMAP
-//! per-codepoint font overrides. No behavior change from the in-`gpu.rs`
-//! version — only the module location and the visibility qualifiers (now
-//! `pub(in crate::native)` / `pub(super)` to span the extra module depth).
+//! Style-face resolution and symbol/Nerd-font fallback helpers for the GPU
+//! renderer: the four-face [`StyleFonts`] set, the symbol chain and
+//! per-codepoint symbol-map overrides, and the one-inventory startup
+//! coordinator.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -49,21 +45,13 @@ impl StyleFonts {
         )
     }
 
-    /// Resolve the four style faces for the configured family.
-    ///
-    /// RV7 / FONT-WEIGHT-FIX: `font_weight` is an optional weight-variant
-    /// suffix. When empty (the default) the regular face is loaded via
-    /// [`text::load_font_with_path`] exactly as before — byte-identical off
-    /// path. When set, the weight face is selected directly within the family by
-    /// [`text::resolve_font_weight_face`], which scans for the file whose stem
-    /// carries both the family and the weight term WITHOUT the regular-face
-    /// filter (the old `"{family} {weight}"`-concat path was self-defeating: the
-    /// regular-face filter excluded the very Bold file the query found, so every
-    /// weight silently fell back to regular). A missing weight face warns and
-    /// falls back to the plain regular face (real faces only — never synthetic
-    /// emboldening/thinning). Bold/italic discovery ALWAYS uses the plain
-    /// `font_family` (not the weight query), so the SGR bold attribute stays
-    /// visually distinct from the chosen base weight.
+    /// Resolve the four style faces for the configured family and optional
+    /// weight. An empty `font_weight` loads the regular face through
+    /// [`text::load_font_with_path`]; otherwise the weight face is chosen within
+    /// the family by [`text::resolve_font_weight_face`]. A missing weight face
+    /// warns and falls back to the regular face (real faces only, never
+    /// synthetic weight). Bold and italic always come from the plain
+    /// `font_family`, so SGR bold stays distinct from the base weight.
     ///
     /// An explicit `font` file (`font_path_explicit`) always wins: it supplies
     /// every style slot, and neither the weight nor the family is searched, so
@@ -213,7 +201,7 @@ impl StyleFonts {
 
     /// Which styles have **no real face** loaded and must be synthesized from the
     /// Regular outline. Returns `(bold, italic, bold_italic)`, each `true` when
-    /// that style slot is still the very same `Arc` as Regular — which is exactly
+    /// that style slot is still the very same `Arc` as Regular - which is exactly
     /// the state [`StyleFonts::regular`] leaves a slot in until `load_from`
     /// replaces it with a real face from disk. Drives
     /// [`GlyphAtlas::set_synthetic_styles`].
@@ -387,7 +375,7 @@ pub(super) fn install_runtime_symbol_resolver(atlas: &mut text::GlyphAtlas, enab
 /// Each rule's family name is resolved against the host font search dirs; on
 /// success the regular face is loaded and paired with the rule's inclusive
 /// codepoint range. A family that does not resolve (missing, or not a monospace
-/// face) is **skipped with a warning** — the range falls through to normal font
+/// face) is **skipped with a warning** - the range falls through to normal font
 /// resolution rather than crashing, mirroring the resilient `symbol_fallback`
 /// path. An empty map resolves to an empty `Vec` (the identity / off path).
 pub(super) fn resolve_symbol_map_fonts(

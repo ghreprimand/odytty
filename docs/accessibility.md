@@ -34,8 +34,8 @@ changed. A colour that does not is lifted along its own hue by the smallest
 lightness step that reaches the floor. Very saturated colours (for example ANSI
 red and magenta on the default theme at `17.0`) cannot reach the floor by
 lightness alone without turning near-white, so they keep their hue and a lighter
-shade that can display below the target; lowering `min_contrast` brings every
-colour inside the floor.
+shade that can display below the target; a lower `min_contrast` lets more of
+them meet it.
 
 Note: the `render_quality = plain` fast path turns the floor **off** (it forces
 `min_contrast` to `1.0`). If you want a calmer, effect-free look *and* the

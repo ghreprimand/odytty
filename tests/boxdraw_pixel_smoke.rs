@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Pixel-smoke coverage for geometric box-drawing (RV2), exercised through the
+//! Pixel-smoke coverage for geometric box-drawing, exercised through the
 //! real glyph atlas rather than the pure geometry module.
 //!
 //! These prove the wiring end-to-end: with the geometric path enabled, a covered
 //! codepoint is rasterized from cell-aligned geometry into its atlas slot, so a
 //! box corner and a horizontal line meet across the shared cell boundary with no
 //! gap, and a full block fills its entire cell. They also confirm the off path
-//! is distinct from the geometric one — i.e. disabling the feature leaves the
+//! is distinct from the geometric one - i.e. disabling the feature leaves the
 //! font-glyph path untouched.
 //!
 //! The text face is compiled in, so no case depends on a system font and none
@@ -52,7 +52,7 @@ fn geometric_box_corner_joins_line_seamlessly() {
     let (font, mut atlas) = setup(true);
     let (w, h) = (atlas.cell.width, atlas.cell.height);
     // For every row where the corner '┌' inks its right edge, the line '─' must
-    // ink its left edge — so the two adjacent cells meet with no gap.
+    // ink its left edge - so the two adjacent cells meet with no gap.
     let mut joined = false;
     for y in 0..h {
         let corner = cell_coverage(&mut atlas, &font, '\u{250C}', w - 1, y).unwrap();

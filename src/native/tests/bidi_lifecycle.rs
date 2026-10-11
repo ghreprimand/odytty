@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! S3c: lifecycle surfaces under the test-only bidi display gate. The map is
+//! Lifecycle surfaces under the test-only bidi display gate. The map is
 //! planned per frame from the rows on screen plus the paragraph above them,
 //! so a width change, a history scroll, and a restored session place cells
 //! exactly as a terminal that shows the same rows directly; export stays

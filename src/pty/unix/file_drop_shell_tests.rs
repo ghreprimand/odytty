@@ -2,8 +2,8 @@
 //! Real-PTY coverage for local file-drop shell authority.
 //!
 //! Authority requires both an idle launch process group and a current launch
-//! executable matching the launch-time shell family. No terminal output or
-//! `/proc` child snapshot participates in that decision.
+//! executable matching the launch-time shell family. No terminal output
+//! participates in that decision.
 
 use super::*;
 use std::time::{Duration, Instant};
@@ -259,7 +259,7 @@ fn traced_group_members_are_seen_and_unparsable_stats_refuse() {
 #[cfg(target_os = "linux")]
 #[test]
 fn foreground_group_scan_stays_true_for_idle_bash_under_proc_churn() {
-    // Evidence probe: while many short-lived processes churn /proc, an idle
+    // While many short-lived processes churn /proc, an idle
     // sole-member Bash group must keep returning true. A transient non-ENOENT/
     // ESRCH read_dir or stat error would fail closed and flip this false.
     let shell = bash("while IFS= read -r line; do :; done");
@@ -307,7 +307,7 @@ fn foreground_group_scan_stays_true_for_idle_bash_under_proc_churn() {
     );
     assert_eq!(
         false_hits, 0,
-        "foreground_group_is_launch_child_only flipped false {false_hits}/{samples} times under /proc churn; investigate non-ENOENT/ESRCH scan errors"
+        "foreground_group_is_launch_child_only flipped false {false_hits}/{samples} times under /proc churn; check for non-ENOENT/ESRCH scan errors"
     );
     assert_eq!(
         shell.session.file_drop_shell(),

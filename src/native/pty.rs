@@ -12,9 +12,9 @@ use super::session::SessionToken;
 
 /// Events the PTY pump thread sends to wake the `winit` event loop.
 ///
-/// The loop otherwise sleeps (`ControlFlow::Wait`) with no input wired
-/// yet, so these proxy events are what drive redraws as shell output
-/// arrives and what signals a clean exit when the shell ends.
+/// The loop otherwise sleeps (`ControlFlow::Wait`), so these proxy events are
+/// what drive redraws as shell output arrives and what signals a clean exit
+/// when the shell ends.
 // Not `Copy`: the `ImageUploaded` variant carries an owned `String`. Every
 // send/handle site constructs a fresh event and moves it once, so dropping
 // `Copy` costs nothing.
@@ -27,7 +27,7 @@ pub(super) enum UserEvent {
     GpuDeviceStateChanged,
     /// The shell's PTY reached EOF (shell exited): exit the loop.
     ShellExited { session: SessionToken },
-    /// F6-i7: a background image upload finished successfully. The worker sends
+    /// A background image upload finished successfully. The worker sends
     /// this so the MAIN thread can post the in-pane notice and copy the remote
     /// path to the local clipboard -- clipboard I/O is main-thread/UI-bound on
     /// some platforms and the upload worker never touches it.
@@ -167,12 +167,14 @@ impl UserEvent {
 /// The single PTY master writer, shared behind a lock.
 ///
 /// The pump thread uses it to send host responses (query replies), and the App
-/// uses its clone to send encoded keystrokes — both write to the single PTY
+/// uses its clone to send encoded keystrokes - both write to the single PTY
 /// master.
 pub(super) type PtyWriter = Arc<Mutex<Box<dyn Write + Send>>>;
 
 pub(super) const PASTE_CHUNK_SIZE: usize = 16 * 1024;
 
+/// Write `chunks` through the shared PTY writer and flush once. The production
+/// writer only enqueues, so this does not park the caller on the PTY fd.
 pub(super) fn write_chunks_blocking(writer: &PtyWriter, chunks: &[Vec<u8>]) -> std::io::Result<()> {
     // A poisoned writer lock is a failed write, never a reported delivery.
     let Ok(mut writer) = writer.lock() else {
@@ -207,8 +209,8 @@ pub(super) fn spawn_pty_pump(
     diagnostic: Option<Arc<Mutex<Option<String>>>>,
 ) -> std::io::Result<JoinHandle<()>> {
     // `diagnostic` is the Windows ConPTY backend's one-shot startup-failure slot
-    // (always `None` on Unix). On reader EOF — which the backend's child-waiter
-    // thread induces by closing the pseudoconsole after recording the line — the
+    // (always `None` on Unix). On reader EOF - which the backend's child-waiter
+    // thread induces by closing the pseudoconsole after recording the line - the
     // pump writes any recorded diagnostic into the pane exactly once, just before
     // signalling `ShellExited`, so a shell that died during its own init surfaces
     // a reason instead of a blank pane. The `None`/Unix path is byte-identical.
@@ -234,8 +236,8 @@ pub(super) fn spawn_pty_pump(
                     }
                     Ok(len) => {
                         let host_output = {
-                            // P0-3: a poison from any unrelated hot-path panic must
-                            // not stall the reader thread — recover and keep output
+                            // A poison from any unrelated hot-path panic must
+                            // not stall the reader thread - recover and keep output
                             // flowing. Byte-identical when healthy.
                             let mut term = super::lock_recover(&terminal);
                             term.advance(&buffer[..len]);
@@ -278,7 +280,7 @@ mod windows_tests {
 
     #[test]
     fn take_pending_diagnostic_drains_once() {
-        // D-12: the ConPTY startup-failure slot is drained exactly once on EOF
+        // The ConPTY startup-failure slot is drained exactly once on EOF
         // so a recorded loader/DLL-init message reaches the pane and is not
         // replayed. Runs on the windows-latest leg.
         let slot: Option<Arc<Mutex<Option<String>>>> =

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Per-session output recording for the scrubbable replay overlay (Phase 2).
+//! Per-session output recording for the scrubbable replay overlay.
 //!
 //! A [`RecorderHandle`] is a cheap, clonable handle to one session's bounded
 //! ring of recorded screen [`Snapshot`]s. The PTY pump thread writes frames
 //! into it as output lands; the App reads a decoupled clone of the ring when the
 //! user opens the replay overlay. Recording is **opt-in** (`session_replay`,
-//! default off) and **local-only**: frames never leave memory — they are not
+//! default off) and **local-only**: frames never leave memory - they are not
 //! written to disk, logged, or sent anywhere, and the ring is dropped when the
 //! session closes or recording is turned off.
 //!
@@ -107,7 +107,7 @@ thread_local! {
 
 /// A cheap, clonable handle to one session's recorder. The `enabled` flag lives
 /// outside the mutex as an atomic so the hot pump path can skip locking (and
-/// skip building a snapshot) entirely when recording is off — making the
+/// skip building a snapshot) entirely when recording is off - making the
 /// default-off path zero-overhead and byte-identical.
 #[derive(Debug, Clone)]
 pub(super) struct RecorderHandle {
@@ -130,7 +130,7 @@ impl RecorderHandle {
         }
     }
 
-    /// Whether recording is currently on. Single relaxed atomic load — the
+    /// Whether recording is currently on. Single relaxed atomic load - the
     /// pump's gate before it does any snapshot work.
     pub(super) fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::Relaxed)
@@ -152,7 +152,7 @@ impl RecorderHandle {
     /// built `snapshot` (typically under the terminal lock it already holds), so
     /// this only locks the ring briefly to push + evict. It also re-checks
     /// [`Self::is_enabled`] as defense-in-depth so a disabled handle never
-    /// buffers. A poisoned lock drops the frame silently — recording is
+    /// buffers. A poisoned lock drops the frame silently - recording is
     /// best-effort and never load-bearing.
     pub(super) fn record(&self, snapshot: Snapshot) {
         if !self.is_enabled() {
@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn disabled_handle_records_nothing() {
-        // RECORDING-OFF-IS-BYTE-IDENTICAL: a disabled recorder never buffers a
+        // A disabled recorder never buffers a
         // frame even if `record` is called, so the default-off path holds no
         // state. (The pump additionally never calls `record` while disabled.)
         let handle = RecorderHandle::new();
@@ -250,7 +250,7 @@ mod tests {
         // TOCTOU regression: `record` checks `is_enabled` once before locking,
         // and `set_enabled(false)` swaps the flag false BEFORE it locks + clears.
         // A `record` that passed its pre-lock gate but is still blocked on the
-        // ring lock when the disable+clear runs must NOT push its frame — a
+        // ring lock when the disable+clear runs must NOT push its frame - a
         // survivor would leak into the next session (whose re-enable skips the
         // clear). The under-lock re-check guarantees the ring ends empty.
         let handle = RecorderHandle::new();

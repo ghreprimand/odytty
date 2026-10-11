@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
+//! Post-processing resources: the offscreen HDR scene target, the bloom
+//! bright-pass and separable blur, and the composite plus CRT pass.
 use wgpu::util::DeviceExt;
 
 pub(in crate::native) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;

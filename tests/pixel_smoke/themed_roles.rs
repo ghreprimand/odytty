@@ -148,7 +148,7 @@ fn legacy_search_colors_remain_black_on_yellow_and_inverse() {
 }
 
 /// Themed selection + cursor roles resolved from **real built-in themes** at two
-/// extremes — a dark theme (`odyssey`, dark selection/cursor) and a light theme
+/// extremes - a dark theme (`odyssey`, dark selection/cursor) and a light theme
 /// (`odyssey-light`, light selection/cursor). The earlier role tests use ad-hoc
 /// colors; this one pins that the semantic-role colors actually shipped by the
 /// theme library resolve through the live highlight/cursor paths, and that the

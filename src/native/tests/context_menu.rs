@@ -2,9 +2,9 @@
 //! IN2 App-level right-click context-menu tests. These drive a real `App` (with
 //! a one-shot PTY, skipped when none is available) through the production
 //! `handle_mouse_input` routing, pinning the load-bearing traps from the
-//! ratified design: the TUI passthrough gate (T1), the Shift override (T2),
-//! main-overlay precedence (T3), off-path identity (T4), Copy gating (T5), and
-//! the full activation → action path. Exhaustive `match` arms (T6) are enforced
+//! ratified design: the TUI passthrough gate, the Shift override,
+//! main-overlay precedence, off-path identity, Copy gating, and
+//! the full activation → action path. Exhaustive `match` arms are enforced
 //! by the compiler; the per-item gating/focus logic is unit-tested in
 //! `context_menu_ui`.
 
@@ -73,7 +73,7 @@ fn app_with_recording_writer(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>
 
 /// RC-19b: same as [`app_with_recording_writer`], but also hands back the
 /// `Terminal` handle so a test can read the live absolute cursor row
-/// (`scrollback_len() + cursor().row`) before and after a resize — needed to
+/// (`scrollback_len() + cursor().row`) before and after a resize - needed to
 /// re-point a screen-space selection at the prompt's new row across a
 /// width-change reflow.
 #[allow(clippy::type_complexity)]
@@ -93,7 +93,7 @@ fn app_with_recording_writer_and_terminal(
 /// Click the open context-menu item whose rendered row contains `needle`,
 /// resolving its grid row from the live composited menu at the App's real grid
 /// dims (so the rect/edge-clamp matches the click path exactly) and clicking at
-/// the rect-derived body column. Robust to layout shifts — the v0.3.1 launcher
+/// the rect-derived body column. Robust to layout shifts - the v0.3.1 launcher
 /// section changed item rows and the edge-clamped top, so hardcoded grid rows
 /// would silently drift onto the wrong item.
 fn click_menu_item(app: &mut App, needle: &str) {
@@ -103,7 +103,7 @@ fn click_menu_item(app: &mut App, needle: &str) {
     // offset. Drive focus down until the needle scrolls into view, bounded by
     // the visible item count so a genuinely-absent item still panics.
     let mut grid_row = None;
-    // Bounded by the total body-row count — a genuinely-absent needle still
+    // Bounded by the total body-row count - a genuinely-absent needle still
     // panics after exhausting every scroll position.
     for _ in 0..=CONTEXT_MENU_BODY_ROWS {
         let rendered = app.render_overlay_rows_for_test(cols, rows);
@@ -299,7 +299,7 @@ fn separator_grid_row(app: &mut App, nth: usize) -> usize {
 
 fn enable_tui_mouse_reporting(terminal: &Arc<Mutex<Terminal>>) {
     let mut t = terminal.lock().expect("terminal");
-    // DECSET 1000 + SGR 1006 — the mode where a no-overlay press reports to PTY.
+    // DECSET 1000 + SGR 1006 - the mode where a no-overlay press reports to PTY.
     t.advance(b"\x1b[?1000h\x1b[?1006h");
 }
 
@@ -458,7 +458,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
             ..
         }
     ));
-    // ODP-6B: an unbound workspace shows Bind to Host as the workspace section's
+    // An unbound workspace shows Bind to Host as the workspace section's
     // last row, right before the workspace|Settings separator.
     assert!(matches!(
         rows[22],
@@ -468,7 +468,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
             ..
         }
     ));
-    // LAYOUT-SURFACE + SAVE-ALL-LAYOUT: the whole-app Save as Layout, the single-
+    // The whole-app Save as Layout, the single-
     // workspace Save Workspace as Layout, and Open Layout round out the workspace
     // section, right before the workspace|Settings separator.
     assert!(matches!(
@@ -604,7 +604,7 @@ fn context_menu_open_replaces_the_grid_i_beam_immediately() {
 
 #[test]
 fn right_click_over_resolved_path_shows_file_section() {
-    // C3: right-clicking over a resolved interactive path (feature on) re-detects
+    // Right-clicking over a resolved interactive path (feature on) re-detects
     // the path at the click cell and surfaces the file section. Synthetic only:
     // the stat-gate is a MapProbe over a fixed map; `/proj/...` is fabricated.
     let Some((mut app, terminal)) = app_for_test() else {
@@ -621,7 +621,7 @@ fn right_click_over_resolved_path_shows_file_section() {
         "/proj/src/main.rs",
         crate::paths::FsKind::File,
     )]));
-    // Pointer at row 0, col 5 — inside the path span.
+    // Pointer at row 0, col 5 - inside the path span.
     app.set_pointer_cell_for_test(0, 5);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
 
@@ -753,7 +753,7 @@ fn right_click_with_no_pointer_cell_does_not_open() {
     assert!(!app.context_menu_open_for_test());
 }
 
-/// T1 — in a TUI with mouse reporting active, right-click is reported to the
+/// In a TUI with mouse reporting active, right-click is reported to the
 /// PTY (report gate, step 6) and the menu never opens (step 7 unreached).
 #[test]
 fn tui_right_click_reports_and_does_not_open_menu() {
@@ -779,7 +779,7 @@ fn tui_right_click_reports_and_does_not_open_menu() {
     );
 }
 
-/// T2 — Shift+right-click bypasses the report gate (Shift is excluded from
+/// Shift+right-click bypasses the report gate (Shift is excluded from
 /// `should_report_mouse_to_pty`), so the menu opens even inside a TUI.
 #[test]
 fn shift_right_click_opens_menu_even_in_a_tui() {
@@ -806,7 +806,7 @@ fn shift_right_click_opens_menu_even_in_a_tui() {
     );
 }
 
-/// T3 — with the settings overlay already open, a right-click is routed to the
+/// With the settings overlay already open, a right-click is routed to the
 /// overlay handler (step 1), never reaching the context-menu open step.
 #[test]
 fn right_click_while_settings_overlay_open_does_not_open_context_menu() {
@@ -830,7 +830,7 @@ fn right_click_while_settings_overlay_open_does_not_open_context_menu() {
     assert!(!app.context_menu_open_for_test());
 }
 
-/// T4 — off-path identity: a fresh App has the menu closed and its sub-signature
+/// Off-path identity: a fresh App has the menu closed and its sub-signature
 /// at the default, so the closed-overlay render is byte-identical to today.
 #[test]
 fn off_path_signature_is_default_and_closed() {
@@ -847,7 +847,7 @@ fn off_path_signature_is_default_and_closed() {
     );
 }
 
-/// T5 — Copy is gated on a live selection: disabled with none, enabled with one.
+/// Copy is gated on a live selection: disabled with none, enabled with one.
 #[test]
 fn copy_gating_reflects_live_selection() {
     let Some((mut app, _terminal)) = app_for_test() else {
@@ -980,7 +980,7 @@ fn delete_selected_input_sends_shell_edit_bytes_without_copying() {
     );
 }
 
-/// SELDEL-KEY: pressing Delete with a selection on the editable prompt input
+/// Pressing Delete with a selection on the editable prompt input
 /// deletes that selection through the same shell-edit-byte path as the menu's
 /// Delete item, and clears the stale visual selection.
 #[test]
@@ -1011,8 +1011,8 @@ fn delete_key_deletes_editable_selection_like_menu() {
     );
 }
 
-/// SELDEL-KEY: Backspace behaves the same as Delete for an editable selection
-/// (the universal GUI convention — either key removes the selection).
+/// Backspace behaves the same as Delete for an editable selection
+/// (the universal GUI convention - either key removes the selection).
 #[test]
 fn backspace_key_deletes_editable_selection() {
     let Some((mut app, bytes)) = app_with_recording_writer(
@@ -1064,13 +1064,13 @@ fn delete_key_with_missing_prompt_mark_clears_selection_and_hints() {
 }
 
 /// SELDEL-KEY off path: a Delete with a selection that is NOT on editable input
-/// (prompt-only) falls through to the normal key encode — byte-identical to
-/// before the feature — and never touches the selection via the editable path.
+/// (prompt-only) falls through to the normal key encode - byte-identical to
+/// before the feature - and never touches the selection via the editable path.
 #[test]
 fn delete_key_on_input_row_outside_input_no_ops_with_hint() {
     // B-DESIGN ladder default: a selection ON the input row but entirely over
     // non-input cells (here the prompt "$"; same rung as a right-aligned
-    // decoration) must consume the key as a hinted no-op — never forward a
+    // decoration) must consume the key as a hinted no-op - never forward a
     // blind Delete byte that would eat a character at the cursor.
     let Some((mut app, bytes)) = app_with_recording_writer(
         b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
@@ -1100,7 +1100,7 @@ fn delete_key_on_input_row_outside_input_no_ops_with_hint() {
 
 /// SELDEL-KEY off path: a Delete with a selection that does not touch the
 /// input region at all (here: a scrolled-out output row) falls through to the
-/// normal key encode — byte-identical to before the feature.
+/// normal key encode - byte-identical to before the feature.
 #[test]
 fn delete_key_falls_through_when_selection_not_on_input_region() {
     let Some((mut app, bytes)) = app_with_recording_writer(
@@ -1137,11 +1137,11 @@ fn delete_key_without_selection_still_falls_through() {
     assert!(!app.click_hint_shown_for_test());
 }
 
-/// B2/T3/T5: a right-aligned decoration on the input row (RPROMPT, fish
+/// A right-aligned decoration on the input row (RPROMPT, fish
 /// duration, git status) renders as ordinary non-blank cells, indistinguishable
 /// from input on the wire. With the shell's edit-region report bounding the
 /// buffer exactly, selecting the decoration and pressing Delete must be a
-/// hinted no-op — before this slice the last-non-blank heuristic claimed the
+/// hinted no-op - before this slice the last-non-blank heuristic claimed the
 /// decoration as deletable input and sent motion+delete bytes for it.
 #[test]
 fn right_aligned_decoration_is_not_deletable_as_input() {
@@ -1166,8 +1166,8 @@ fn right_aligned_decoration_is_not_deletable_as_input() {
     assert!(app.click_hint_shown_for_test());
 }
 
-/// B2/T2: a whole-row selection over input + decoration deletes ONLY the real
-/// input span reported by the shell — the exact right edge clamps the
+/// A whole-row selection over input + decoration deletes ONLY the real
+/// input span reported by the shell - the exact right edge clamps the
 /// selection, so the decoration cells contribute no motion and no deletes.
 #[test]
 fn whole_row_selection_deletes_only_the_reported_input() {
@@ -1190,7 +1190,7 @@ fn whole_row_selection_deletes_only_the_reported_input() {
     assert!(app.selection_range_for_test().is_none());
 }
 
-/// B2/T2: cursor mid-input — the reported cursor offset must reconcile against
+/// Cursor mid-input - the reported cursor offset must reconcile against
 /// the real grid cursor for the region to be Exact, and the synthesized motion
 /// starts from the true cursor cell.
 #[test]
@@ -1217,8 +1217,8 @@ fn mid_input_cursor_reconciles_and_deletes_exactly() {
 }
 
 /// NF14-R (Option R, replacing the B2/T14 ODP-3 pin): input
-/// with a `133;B` mark but NO edit-region report — bash always, PowerShell,
-/// zsh/fish before their snippets update — is a single-row `RightEdgeUnknown`
+/// with a `133;B` mark but NO edit-region report - bash always, PowerShell,
+/// zsh/fish before their snippets update - is a single-row `RightEdgeUnknown`
 /// region, and Delete falls back to the pre-B2 heuristic delete (last
 /// non-blank right edge) instead of the strict no-op that had turned
 /// select+Delete off for every shell without the private OSC.
@@ -1249,9 +1249,9 @@ fn input_without_edit_region_report_deletes_single_row_heuristically() {
     );
 }
 
-/// NF14-R: a PowerShell-shaped prompt (the Windows default shell; its snippet
+/// A PowerShell-shaped prompt (the Windows default shell; its snippet
 /// emits OSC 133 marks but no `odytty-edit` report) gets the same single-row
-/// heuristic delete — this is the case that made select+Delete a complete
+/// heuristic delete - this is the case that made select+Delete a complete
 /// no-op on Windows under the strict ODP-3 gate.
 #[test]
 fn powershell_prompt_without_report_deletes_single_row_heuristically() {
@@ -1276,13 +1276,13 @@ fn powershell_prompt_without_report_deletes_single_row_heuristically() {
 }
 
 /// NF14-R boundary pin (the ODP-3 remainder): a MULTI-ROW region without an
-/// edit-region report stays a hinted no-op — without a trustworthy right
+/// edit-region report stays a hinted no-op - without a trustworthy right
 /// edge, row joins cannot anchor a synthesized multi-row edit. Option R
 /// restores only the single-row heuristic.
 #[test]
 fn multi_row_input_without_report_stays_a_hinted_no_op() {
     // 78 bytes fill row 0 from column 2 to the 80-column right edge, so the
-    // input soft-wraps onto row 1 — a two-row region with no signal.
+    // input soft-wraps onto row 1 - a two-row region with no signal.
     let content = wrapped_input_content(&[b'a'; 78], b"bbb", b"");
     let Some((mut app, bytes)) = app_with_recording_writer(&content) else {
         return;
@@ -1302,8 +1302,8 @@ fn multi_row_input_without_report_stays_a_hinted_no_op() {
         app.click_hint_shown_for_test(),
         "the multi-row degradation still surfaces a no-op hint"
     );
-    // NF17: integration IS on here (the input mark is present, region computed
-    // to multi-row RightEdgeUnknown) — the hint must NOT tell the user to
+    // Integration IS on here (the input mark is present, region computed
+    // to multi-row RightEdgeUnknown) - the hint must NOT tell the user to
     // enable something already enabled. It reports unavailable geometry.
     assert_eq!(
         app.click_hint_text_for_test(),
@@ -1314,7 +1314,7 @@ fn multi_row_input_without_report_stays_a_hinted_no_op() {
 
 /// NF14-R accepted-risk documentation: WITHOUT an edit-region
 /// report, a right-aligned decoration on the input row is indistinguishable
-/// from input, so the restored heuristic treats it as deletable — selecting
+/// from input, so the restored heuristic treats it as deletable - selecting
 /// the decoration and pressing Delete sends motion+delete bytes for it. This
 /// was shipped behavior for the feature's whole pre-B2 life and is the
 /// bounded risk Option R deliberately re-accepts in exchange for the feature
@@ -1323,7 +1323,7 @@ fn multi_row_input_without_report_stays_a_hinted_no_op() {
 #[test]
 fn no_signal_decoration_is_heuristically_deletable_by_design() {
     // Prompt + "abc" (cursor restored to column 5), decoration at columns
-    // 15..19 — and NO edit-region report.
+    // 15..19 - and NO edit-region report.
     let content = b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b7\x1b[1;16H23.1s\x1b8";
     let Some((mut app, bytes)) = app_with_recording_writer(content) else {
         return;
@@ -1377,8 +1377,8 @@ fn wrapped_input_content(first: &[u8], second: &[u8], report: &[u8]) -> Vec<u8> 
     content
 }
 
-/// B1/T8 (R5): a soft-wrapped command is ONE logical line; a selection
-/// crossing the wrap boundary flattens to horizontal-only motion — Left to the
+/// A soft-wrapped command is ONE logical line; a selection
+/// crossing the wrap boundary flattens to horizontal-only motion - Left to the
 /// selection start (summed across the wrap), then Delete per selected glyph.
 #[test]
 fn wrapped_selection_crossing_wrap_deletes_exactly() {
@@ -1415,8 +1415,8 @@ fn wrapped_selection_crossing_wrap_deletes_exactly() {
     );
 }
 
-/// B1 (R5): cursor repositioned mid-input BEFORE the wrap with the selection
-/// after it — motion must run Right across the wrap boundary, never a line
+/// Cursor repositioned mid-input BEFORE the wrap with the selection
+/// after it - motion must run Right across the wrap boundary, never a line
 /// motion.
 #[test]
 fn wrapped_cursor_before_wrap_synthesizes_right_motion() {
@@ -1445,7 +1445,7 @@ fn wrapped_cursor_before_wrap_synthesizes_right_motion() {
     );
 }
 
-/// B1/T9 (A4): a wide glyph that did not fit at the right edge leaves a
+/// A wide glyph that did not fit at the right edge leaves a
 /// display-only wrap-filler blank. The filler is NOT a buffer character: the
 /// motion/delete counts must skip it exactly.
 #[test]
@@ -1479,7 +1479,7 @@ fn wide_glyph_straddling_wrap_counts_exactly() {
 
 /// B1/T10 (ODP-2 default): a multi-line buffer (hard newlines, e.g. fish
 /// `begin…end` or a zsh continuation) reports `nl=` offsets; the region is
-/// Unknown and Delete over a selection touching it is a hinted no-op — no
+/// Unknown and Delete over a selection touching it is a hinted no-op - no
 /// vertical motion is ever synthesized.
 #[test]
 fn hard_newline_report_no_ops_with_hint() {
@@ -1529,7 +1529,7 @@ fn wrapped_selection_beyond_input_end_no_ops() {
     assert!(app.click_hint_shown_for_test());
 }
 
-/// D-IN2-CUT-SAFE: if `write_text` returns `None`, Cut must NOT delete the
+/// If `write_text` returns `None`, Cut must NOT delete the
 /// editable input and must NOT clear the selection. The menu closes (item was
 /// activated) but the text and selection survive intact.
 #[test]
@@ -1556,14 +1556,14 @@ fn cut_clipboard_failure_leaves_input_and_selection_intact() {
         "menu closes on Cut click"
     );
 
-    // No PTY bytes written — the delete step was skipped.
+    // No PTY bytes written - the delete step was skipped.
     let written = bytes.lock().expect("bytes").clone();
     assert!(
         written.is_empty(),
         "clipboard failure: no PTY bytes should be written"
     );
 
-    // Selection preserved — not cleared by the failed Cut.
+    // Selection preserved - not cleared by the failed Cut.
     assert!(
         app.selection_range_for_test().is_some(),
         "clipboard failure: selection must remain intact"
@@ -1708,7 +1708,7 @@ fn clicking_close_tab_closes_active_session_and_keeps_neighbor_active() {
     assert_eq!(app.active_session_id_for_test(), 0);
 }
 
-/// D-IN2-SETTINGS: clicking the Settings item closes the context menu and
+/// Clicking the Settings item closes the context menu and
 /// opens the settings panel. Settings is below the split section; the item is
 /// always enabled. The exact grid row is resolved from the live menu so the
 /// v0.3.1 launcher section (which sits below Settings) cannot shift this test
@@ -1783,7 +1783,7 @@ fn workspace_menu_settings_opens_tabs_and_panes() {
     assert_eq!(app.settings_active_section_for_test(), Some("Layout"));
 }
 
-/// D-IN2-SETTINGS: clicking either separator row is inert — the separator is
+/// Clicking either separator row is inert - the separator is
 /// inside the rect so the press is consumed and the menu stays open; no action
 /// is taken.
 #[test]
@@ -1935,10 +1935,10 @@ fn clicking_session_replay_opens_the_replay_overlay() {
     );
 }
 
-/// Phase 5 / B2: clicking the Manage Sessions launcher item closes the menu and
+/// Clicking the Manage Sessions launcher item closes the menu and
 /// opens the session-attach overlay through the production outcome→App apply
 /// path. The test runtime has no live sessions, so the overlay opens in its
-/// empty-list hint state — the assertion is on the overlay mode switch.
+/// empty-list hint state - the assertion is on the overlay mode switch.
 #[test]
 fn clicking_attach_session_opens_the_session_attach_overlay() {
     let Some((mut app, _terminal)) = app_for_test() else {
@@ -1959,7 +1959,7 @@ fn clicking_attach_session_opens_the_session_attach_overlay() {
 
 /// Clicking the "Detach & switch" menu item closes the menu and opens
 /// the 3-way choice dialog. The test terminal has no OSC 7 cwd, so the dialog
-/// names the default directory — the assertion is on the overlay mode switch.
+/// names the default directory - the assertion is on the overlay mode switch.
 #[test]
 fn clicking_detach_switch_opens_the_choice_dialog() {
     let Some((mut app, _terminal)) = app_for_test() else {
@@ -1979,7 +1979,7 @@ fn clicking_detach_switch_opens_the_choice_dialog() {
 }
 
 /// Failure guard: a spawn failure during Detach & switch surfaces a
-/// transient notice and leaves the original pane untouched — never close the
+/// transient notice and leaves the original pane untouched - never close the
 /// original before the new managed session is confirmed live.
 #[test]
 #[cfg(unix)]
@@ -1994,7 +1994,7 @@ fn detach_switch_spawn_failure_raises_notice_and_keeps_panes() {
         "clean start: no notice"
     );
     // Drive the full orchestration with a spawner that always fails (swap=true,
-    // the destructive path — proves the original is NOT closed on failure).
+    // the destructive path - proves the original is NOT closed on failure).
     app.detach_switch_spawn_failure_for_test(true);
     assert!(
         app.open_notice_message_for_test().is_some(),
@@ -2003,15 +2003,15 @@ fn detach_switch_spawn_failure_raises_notice_and_keeps_panes() {
     assert_eq!(
         app.session_count_for_test(),
         before,
-        "a spawn failure adds no session and closes none — original untouched"
+        "a spawn failure adds no session and closes none: original untouched"
     );
 }
 
 /// RC-19b: app-level regression lock for RC-19 (commit 6d2baaf). The CORE-
 /// level test (`input_start_is_reanchored_through_a_width_change_resize` in
 /// `src/core/tests/osc_prompt.rs`) pins the screen invariant in isolation;
-/// this test pins the actual consumer the bug bit — the right-click/Delete
-/// gate `editable_input_selection_for_context_menu` — through a real
+/// this test pins the actual consumer the bug bit - the right-click/Delete
+/// gate `editable_input_selection_for_context_menu` - through a real
 /// width-change resize driven the same way a side-by-side split drives it
 /// (`App::resize_grid` -> `resize_all_panes` -> `Terminal::resize`).
 #[test]
@@ -2028,7 +2028,7 @@ fn editable_input_selection_survives_a_width_change_resize() {
         content.extend_from_slice(long_line.as_bytes());
         content.extend_from_slice(b"\r\n");
     }
-    // A fresh prompt with an input mark on the live input row — same `$ ` /
+    // A fresh prompt with an input mark on the live input row - same `$ ` /
     // `abc` shape as the other single-pane gate tests above.
     content.extend_from_slice(
         b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
@@ -2053,14 +2053,14 @@ fn editable_input_selection_survives_a_width_change_resize() {
         "precondition: the gate passes before any resize (single-pane today)"
     );
 
-    // Apply a width-change resize (narrower) — the side-by-side-split
-    // scenario — through the exact same model path a real split drives.
+    // Apply a width-change resize (narrower) - the side-by-side-split
+    // scenario - through the exact same model path a real split drives.
     let resized = app.resize_grid(cell(8, 16), 40 * 8, 24 * 16);
     assert!(resized, "narrower width must be a genuine grid change");
 
     // The selection is screen-space (an absolute row), and the resize above
     // rewrapped scrollback, so the prompt's absolute row moved. Re-point the
-    // SAME logical selection ("abc") at the NEW live input row — this
+    // SAME logical selection ("abc") at the NEW live input row - this
     // isolates exactly what RC-19 fixed: whether the cached prompt-input
     // anchor (`active_prompt_input_start`) was re-anchored to track that
     // move. If it was not (RC-19 reverted), the gate's `input_row !=
@@ -2078,7 +2078,7 @@ fn editable_input_selection_survives_a_width_change_resize() {
     );
 }
 
-// ── FIX-A: right-click freeze (no blocking clipboard/stat on the loop thread) ──
+// ── right-click freeze (no blocking clipboard/stat on the loop thread) ──
 
 /// FIX-A helper: a left-rail App with two workspaces, so a right-press on rail
 /// slot 0 opens the `WorkspaceSlot` context menu through the real
@@ -2211,7 +2211,7 @@ fn a_stale_press_burst_into_a_fresh_workspace_menu_activates_nothing() {
 
 #[test]
 fn workspace_slot_action_follows_the_clicked_workspace_identity() {
-    // RAIL-REVALIDATE (F3): a WorkspaceSlot menu freezes a bare rail index at
+    // RAIL-REVALIDATE: a WorkspaceSlot menu freezes a bare rail index at
     // open time. The action follows the clicked workspace's immutable
     // identity: a rename keeps it, a rail shift re-resolves it, and a closed
     // workspace drops the action.

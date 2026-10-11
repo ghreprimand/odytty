@@ -132,8 +132,9 @@ impl FloatLayout {
     }
 
     /// Convert the current tiled geometry into floating rectangles that cover
-    /// the same area, snapped to whole cells and clamped. Non-overlapping when
-    /// the source tiles are, and visually the same at the moment of switching.
+    /// the same area, snapped to whole cells and clamped. Non-overlapping unless a
+    /// tile is below the minimum floating size (`MIN_FLOAT_COLS` x
+    /// `MIN_FLOAT_ROWS`), which grows and can overlap its neighbors.
     pub(super) fn from_tiled(
         tiles: &[(SessionToken, PaneRect)],
         content: PaneRect,
@@ -622,7 +623,7 @@ mod tests {
         }
         let at = layout.rect_of(&l, tok(0), tok(0), grid.0, grid.1).unwrap();
         assert_eq!((at.cols, at.rows), (80, 24));
-        // The other pane's rectangle did not change.
+        // Moving a token that is not a pane reports no change.
         assert!(!layout.move_by(&l, tok(0), tok(9), 1, 0, grid));
     }
 

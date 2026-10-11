@@ -7,7 +7,7 @@ use crate::core::Attrs;
 /// Mutation: bypass `safe_http_href` or `put_escaped` in `html_span`.
 /// Every rejected scheme must remain visible text without active markup.
 #[test]
-fn phase9_mixed_image_and_link_document_stays_inert() {
+fn mixed_image_and_link_document_stays_inert() {
     let mut lines = vec![text_line("header"), ExportLine::Image];
     for target in [
         "javascript:alert(1)",
@@ -45,7 +45,7 @@ fn phase9_mixed_image_and_link_document_stays_inert() {
 /// Mutation: change the encoder's byte check to character count, or omit
 /// HTML suffix bytes from `reserve`. Refusal must include the whole document.
 #[test]
-fn phase9_multibyte_and_image_markup_use_encoded_byte_limits() {
+fn multibyte_and_image_markup_use_encoded_byte_limits() {
     let lines = vec![text_line("\u{1f680}<&"), ExportLine::Image];
     for html in [None, Some(palette())] {
         let expected = encode_lines(&lines, html);
@@ -69,7 +69,7 @@ fn phase9_multibyte_and_image_markup_use_encoded_byte_limits() {
 /// Mutation: remove `validate_text` from the shared atomic writer. An
 /// oversized export must never replace an existing destination on any OS.
 #[test]
-fn phase9_32_mib_refusal_keeps_the_existing_export_unchanged() {
+fn refusal_at_32_mib_keeps_the_existing_export_unchanged() {
     use super::super::command_export::{MAX_COMMAND_EXPORT_BYTES, write_plain_text};
     use std::time::{SystemTime, UNIX_EPOCH};
     assert_eq!(MAX_COMMAND_EXPORT_BYTES, 32 * 1024 * 1024);

@@ -41,10 +41,7 @@ impl OverlayRect {
     }
 }
 
-/// Compute the open overlay's cell geometry for a grid of `columns`×`rows`, or
-/// `None` when the overlay is closed or the grid is empty. The math is the exact
-/// rect [`apply_overlay`] draws into, so render and hit-test stay in lockstep.
-/// Fixed body width (cells) for the close-confirmation dialog (CLOSE-CONFIRM).
+/// Fixed body width (cells) for the close-confirmation dialog.
 /// Wide enough for the longest static line plus the panel border inset; the
 /// `.max(36)` floor in [`overlay_rect`] keeps small grids sane.
 pub(super) const CONFIRM_CLOSE_WIDTH: usize = 52;
@@ -61,7 +58,7 @@ pub(super) const RISKY_PASTE_ACTION_LINE_NO_ONE_LINE: &str =
 pub(super) const CONFIRM_CLOSE_ACTION_LINE: &str =
     "Close anyway?   [Enter / Y] Yes     [Esc / N] No";
 
-/// Fixed body width (cells) for the attach-choice dialog (Phase 14). Sized for
+/// Fixed body width (cells) for the attach-choice dialog. Sized for
 /// the longest static line plus the panel border inset; the `.max(36)` floor in
 /// [`overlay_rect`] keeps small grids sane.
 pub(super) const ATTACH_CHOICE_WIDTH: usize = 52;
@@ -103,7 +100,7 @@ pub(super) const DETACH_SWITCH_WIDTH: usize = 64;
 pub(super) const DETACH_SWITCH_ACTION_LINE: &str =
     "Swap closes this.  [S] Swap   [K] Keep both   [Esc] Cancel";
 
-/// Fixed body width (cells) for the replace-tab confirm dialog (ODP-5D). Sized
+/// Fixed body width (cells) for the replace-tab confirm dialog. Sized
 /// so the body (`width - 4` in [`overlay_rect`]) is at least as wide as the
 /// 54-column action line, which the non-wrapping `write_text` would otherwise
 /// truncate; the `.max(36)` floor in [`overlay_rect`] keeps small grids sane.
@@ -117,7 +114,7 @@ pub(super) const CONFIRM_REPLACE_TAB_WIDTH: usize = 58;
 pub(super) const CONFIRM_REPLACE_TAB_ACTION_LINE: &str =
     "Replace it?   [Enter / Y] Replace     [Esc / N] Cancel";
 
-/// Fixed body width (cells) for the remove-host confirm dialog (ODP-2C). Sized
+/// Fixed body width (cells) for the remove-host confirm dialog. Sized
 /// for the longest static line plus the panel border inset; the `.max(36)` floor
 /// in [`overlay_rect`] keeps small grids sane.
 pub(super) const CONFIRM_REMOVE_HOST_WIDTH: usize = 56;
@@ -130,8 +127,8 @@ pub(super) const CONFIRM_REMOVE_HOST_WIDTH: usize = 56;
 pub(super) const CONFIRM_REMOVE_HOST_ACTION_LINE: &str =
     "Remove it?   [Enter / Y] Remove     [Esc / N] Cancel";
 
-/// Fixed body width (cells) for the overwrite-layout confirm dialog
-/// (OVERWRITE-WARN). Sized for the three-way action line plus the panel border
+/// Fixed body width (cells) for the overwrite-layout confirm dialog.
+/// Sized for the three-way action line plus the panel border
 /// inset; the `.max(36)` floor in [`overlay_rect`] keeps small grids sane.
 pub(super) const CONFIRM_OVERWRITE_LAYOUT_WIDTH: usize = 62;
 
@@ -144,7 +141,7 @@ pub(super) const CONFIRM_OVERWRITE_LAYOUT_WIDTH: usize = 62;
 pub(super) const CONFIRM_OVERWRITE_LAYOUT_ACTION_LINE: &str =
     "Overwrite?   [Enter] Replace   [R] Rename   [Esc] Cancel";
 
-/// Fixed body width (cells) for the open-layout mode dialog (LAYOUT-OPEN-MODE).
+/// Fixed body width (cells) for the open-layout mode dialog.
 /// Sized so the body (`width - 4` in [`overlay_rect`]) is at least as wide as
 /// the 61-column three-way action line, which the non-wrapping `write_text`
 /// would otherwise truncate; the `.max(36)` floor in [`overlay_rect`] keeps
@@ -160,6 +157,9 @@ pub(super) const CONFIRM_OPEN_LAYOUT_WIDTH: usize = 66;
 pub(super) const CONFIRM_OPEN_LAYOUT_ACTION_LINE: &str =
     "Open onto current?   [Enter] Replace   [A] Add   [Esc] Cancel";
 
+/// Compute the open overlay's cell geometry for a grid of `columns`×`rows`, or
+/// `None` when the overlay is closed or the grid is empty. The math is the exact
+/// rect [`apply_overlay`] draws into, so render and hit-test stay in lockstep.
 pub(in crate::native) fn overlay_rect(
     overlay: &OverlayUi,
     columns: usize,
@@ -169,7 +169,7 @@ pub(in crate::native) fn overlay_rect(
         return None;
     }
     // The context menu spawns at the pointer cell (not centered) and is sized to
-    // its three items, so it bypasses the centered-panel geometry below (IN2).
+    // its visible items, so it bypasses the centered-panel geometry below.
     if overlay.mode == OverlayMode::ContextMenu {
         return Some(overlay.context_menu.rect(columns, rows));
     }
@@ -189,37 +189,37 @@ pub(in crate::native) fn overlay_rect(
         OverlayMode::OpenWith => overlay.open_with.desired_width(columns),
         OverlayMode::WorkspacePicker => overlay.workspace_picker.desired_width(columns),
         OverlayMode::ProfilePicker => overlay.profile_picker.desired_width(columns),
-        // The image viewer (C4) uses a full-width backdrop panel; the decoded
+        // The image viewer uses a full-width backdrop panel; the decoded
         // image is drawn centered over it by the GPU image layer, so the panel
         // is just the dimmed frame behind the picture.
         OverlayMode::ImageView => columns,
         // Unreachable: handled by the early return above.
         OverlayMode::ContextMenu => overlay.context_menu.menu_width(),
         // Static two-line dialog; the `.max(36)` floor below gives it room and
-        // the body text fits comfortably (CLOSE-CONFIRM).
+        // the body text fits comfortably.
         OverlayMode::ConfirmClose => CONFIRM_CLOSE_WIDTH,
         OverlayMode::RiskyPaste => RISKY_PASTE_WIDTH,
-        // Static choice dialog (Phase 14); same fixed-width/floor treatment.
+        // Static choice dialog; same fixed-width/floor treatment.
         OverlayMode::AttachChoice => ATTACH_CHOICE_WIDTH,
         // Static kill-confirmation dialog (Manage Sessions); same treatment.
         OverlayMode::ConfirmKillSession => CONFIRM_KILL_SESSION_WIDTH,
         OverlayMode::ConfirmNavigatorClose => CONFIRM_KILL_SESSION_WIDTH,
         // Static Detach & switch choice dialog; same treatment.
         OverlayMode::DetachSwitchChoice => DETACH_SWITCH_WIDTH,
-        // Static replace-tab confirm dialog (ODP-5D); same treatment.
+        // Static replace-tab confirm dialog; same treatment.
         OverlayMode::ConfirmReplaceTab => CONFIRM_REPLACE_TAB_WIDTH,
-        // Static remove-host confirm dialog (ODP-2C); same treatment.
+        // Static remove-host confirm dialog; same treatment.
         OverlayMode::ConfirmRemoveHost => CONFIRM_REMOVE_HOST_WIDTH,
-        // Static overwrite-layout confirm dialog (OVERWRITE-WARN); same treatment.
+        // Static overwrite-layout confirm dialog; same treatment.
         OverlayMode::ConfirmOverwriteLayout => CONFIRM_OVERWRITE_LAYOUT_WIDTH,
-        // Static open-layout mode dialog (LAYOUT-OPEN-MODE); same treatment.
+        // Static open-layout mode dialog; same treatment.
         OverlayMode::ConfirmOpenLayout => CONFIRM_OPEN_LAYOUT_WIDTH,
     }
     .max(36)
     .min(columns);
     // Target ~80 % of rows so the panel is tall enough to show many settings
     // at once; still capped at `rows - 2` to leave at least one terminal row
-    // above/below, and floored at 22 for small terminals (OVERLAY-SIZE).
+    // above/below, and floored at 22 for small terminals.
     let height = (rows * 4 / 5).max(22).min(rows.saturating_sub(2)).max(1);
     let left = (columns - width) / 2;
     let top = (rows.saturating_sub(height)) / 2;

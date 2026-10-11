@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! MOUSE-RECT App-level tests: Alt+drag builds a rectangular/column (block)
 //! selection that copies a column band rather than wrapped lines, a plain drag
-//! without Alt stays the wrapped selection byte-identical, and — the
-//! load-bearing trap — Alt+drag in a mouse-reporting app reports to the PTY
+//! without Alt stays the wrapped selection byte-identical, and - the
+//! load-bearing trap - Alt+drag in a mouse-reporting app reports to the PTY
 //! instead of becoming a local selection (Shift stays the only
 //! selection-vs-passthrough seam; Alt layers block on top of the local path
 //! only). These drive a real `App` over a one-shot PTY (skipped when none is
@@ -85,7 +85,7 @@ fn alt_drag_builds_a_block_column_selection_and_copies_a_column() {
 
     app.extend_drag_to_cell_for_test(2, 4);
 
-    // The column band [2, 4] is copied on every row — NOT the wrapped run.
+    // The column band [2, 4] is copied on every row - NOT the wrapped run.
     assert_eq!(
         app.selection_text_for_test().as_deref(),
         Some("12e\n34i\n56m"),
@@ -218,7 +218,7 @@ fn shift_alt_drag_in_a_reporting_app_makes_a_local_block_selection() {
 
 #[test]
 fn shift_alt_starts_a_fresh_block_and_does_not_extend_an_existing_selection() {
-    // Product call: Alt always begins a FRESH block at the press cell — it wins
+    // Product call: Alt always begins a FRESH block at the press cell - it wins
     // over Shift-extend. With an existing selection and `selection_drag_extend`
     // enabled, a plain Shift+press would extend (keep the old anchor); an
     // Alt+press (with or without Shift) must instead ignore the old anchor and

@@ -51,8 +51,8 @@ const CLIENT_EVENT_QUEUE_CAP: usize = DEFAULT_MAX_CLIENTS * 2;
 const MAX_CLIENT_EVENTS_PER_TICK: usize = CLIENT_EVENT_QUEUE_CAP;
 /// Grace window between observing the hosted child has exited (via a direct
 /// `try_wait`) and forcing host shutdown. It lets the PTY reader thread flush any
-/// final buffered output and deliver its own EOF — the normal, in-order exit path
-/// — before the fallback fires. On a healthy host the EOF path always wins this
+/// final buffered output and deliver its own EOF - the normal, in-order exit path -
+/// before the fallback fires. On a healthy host the EOF path always wins this
 /// race well inside the grace, so the fallback never triggers; it exists only so
 /// that a delayed or missing PTY-master EOF (observed on macOS/BSD under load, or
 /// if another process transiently holds the slave fd open) can never wedge the
@@ -204,7 +204,7 @@ pub enum HostExitReason {
     SessionExited,
     DetachedIdleTimeout,
     /// A client asked the host to terminate via [`ClientFrame::Shutdown`] (the
-    /// manager's "kill session"). The shell is SIGHUP'd and reaped, and the
+    /// manager's "kill session"). The shell is killed (SIGKILL to its process group) and reaped, and the
     /// socket + lock are cleaned up through the same teardown the other exit
     /// reasons use, so the session disappears from the registry.
     Killed,
@@ -254,8 +254,8 @@ pub fn spawn_host_on_demand(config: &HostConfig) -> Result<SpawnedHost> {
     })
 }
 
-/// Wait for the just-spawned host child's socket to come up. If it never does
-/// (audit C26), the child is killed and reaped before the error surfaces —
+/// Wait for the just-spawned host child's socket to come up. If it never does,
+/// the child is killed and reaped before the error surfaces -
 /// previously the `Child` was dropped on the error path, leaking a live orphan
 /// host process (or a zombie, if it had already exited) that nothing would ever
 /// `wait()` on. Kill-then-wait is safe on both outcomes: `kill` on an
@@ -280,9 +280,9 @@ pub fn run_internal_host_from_args(args: &[String]) -> Result<()> {
     run_host(config).map(|_| ())
 }
 
-/// Unlinks the session socket on ANY exit from [`run_host`] — including the `?`
-/// error paths and a panic — so a stale `<id>.sock` never lingers to confuse
-/// `resolve_session_socket` into a misleading connect error (audit C-5). The
+/// Unlinks the session socket on ANY exit from [`run_host`] - including the `?`
+/// error paths and a panic - so a stale `<id>.sock` never lingers to confuse
+/// `resolve_session_socket` into a misleading connect error. The
 /// four normal `Ok` exits also unlink explicitly (harmlessly redundant with this
 /// guard); this catches the error and panic exits that previously leaked it.
 struct SocketUnlinkGuard {
@@ -309,7 +309,7 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
 
     let paths = config.runtime_paths()?;
     let (listener, _lock) = bind_listener(&paths.socket, &paths.lock)?;
-    // C-5: guarantee the socket is unlinked on every exit, including the `?`
+    // Guarantee the socket is unlinked on every exit, including the `?`
     // error paths and a panic, not only the four explicit `Ok` teardowns.
     let _socket_guard = SocketUnlinkGuard {
         socket: paths.socket.clone(),
@@ -319,7 +319,7 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
     terminal.set_local_hostname(crate::local_hostname::get());
     terminal.set_scrollback_limit(config.snapshot_limits.max_scrollback_rows);
     let mut session = config.command.spawn(config.dimensions)?;
-    // C-1: the raw master fd is a BLOCKING writer. Writing to it inline from the
+    // The raw master fd is a BLOCKING writer. Writing to it inline from the
     // single host loop lets a hosted job that stopped reading its stdin wedge the
     // whole host (no broadcast, no accept, no Shutdown drain). Route every
     // PTY-master write through a bounded writer thread so the loop only enqueues.
@@ -377,7 +377,7 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
         // The normal exit path is `PtyEvent::Eof` from the reader thread (handled
         // in `drain_pty_events` above), which delivers the child's final output in
         // order and then flips `session_alive`. But a PTY-master read does not
-        // always observe EOF promptly when the child exits — on macOS/BSD under
+        // always observe EOF promptly when the child exits - on macOS/BSD under
         // scheduler pressure, or whenever another process transiently holds a
         // slave fd open, that EOF can lag badly or never arrive, which would hang
         // the reader and any caller awaiting this host. So we also poll the child
@@ -419,7 +419,7 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
         )?;
 
         if shutdown_requested {
-            // Manager "kill session": SIGHUP + reap the shell, then fall through
+            // Manager "kill session": kill + reap the shell, then fall through
             // the same socket-unlink teardown the idle-timeout path uses so the
             // registry row disappears. The lock file is released when `_lock`
             // drops on return.
@@ -454,8 +454,7 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
 /// Accept at most [`MAX_ACCEPTS_PER_TICK`] connections without reading from
 /// any of them. Each becomes a [`PendingHandshake`] whose hello is read by
 /// [`advance_handshakes`] without blocking, so a peer that connects and never
-/// finishes its hello cannot hold the loop (audit C6 still applies: a failure
-/// concerns only that one connection).
+/// finishes its hello cannot hold the loop; a failure concerns only that one connection.
 fn accept_pending_clients(
     listener: &std::os::unix::net::UnixListener,
     pending: &mut Vec<PendingHandshake>,
@@ -663,7 +662,7 @@ where
     }
 }
 
-/// Reap the hosted child within a bounded grace after PTY-master EOF (audit C-6).
+/// Reap the hosted child within a bounded grace after PTY-master EOF.
 ///
 /// EOF means all slave fds closed, which is normally the child exiting but can
 /// also be a process that closed its controlling tty and lingers. Poll
@@ -699,7 +698,7 @@ fn drain_pty_events(
                 terminal.advance(&bytes);
                 let host_output = terminal.take_host_output();
                 if !host_output.is_empty() {
-                    // Non-blocking enqueue (C-1): never park the host loop on the fd.
+                    // Non-blocking enqueue: never park the host loop on the fd.
                     pty_writer.write(&host_output);
                 }
                 broadcast(clients, &HostFrame::Output(bytes));
@@ -712,7 +711,7 @@ fn drain_pty_events(
             }
             PtyEvent::Eof => {
                 if *session_alive {
-                    // C-6: master EOF means every slave fd closed, NOT necessarily
+                    // Master EOF means every slave fd closed, NOT necessarily
                     // that the child exited. A process that closes its controlling
                     // tty and lingers (a daemonizing wrapper) delivers EOF while it
                     // stays alive, so an unbounded `wait()` here would park the whole
@@ -793,7 +792,7 @@ fn drain_client_events(
         match event {
             ClientEvent::Frame(id, ClientFrame::Input(bytes)) => {
                 if has_client(clients, *id) {
-                    // Non-blocking enqueue (C-1): a client flooding input at a job
+                    // Non-blocking enqueue: a client flooding input at a job
                     // that stopped reading stdin can no longer wedge the loop.
                     pty_writer.write(bytes);
                 }
@@ -820,7 +819,7 @@ fn drain_client_events(
         apply_resize(terminal, dimensions, |dimensions| {
             session.resize(dimensions)
         });
-        // C-3: broadcast the applied dimensions to EVERY client, not just the one
+        // Broadcast the applied dimensions to EVERY client, not just the one
         // that requested the resize. A bare `Invalidate` only triggers a repaint;
         // the peers' mirrors would keep advancing at their old width against
         // output the host now formats for `dimensions`. `Resized` carries the new
@@ -889,7 +888,7 @@ fn broadcast(clients: &mut Vec<ClientConnection>, frame: &HostFrame) {
         // A failed write evicts the client, but dropping the write-side clone
         // alone leaves the reader thread's clone open: that thread would spin
         // on its idle-timeout poll forever, orphaning a thread and two fds
-        // every time a client is evicted here — repeatable past the client
+        // every time a client is evicted here - repeatable past the client
         // cap. shutdown(Both) closes the shared socket, so the reader
         // observes the disconnect and exits, releasing thread and fds.
         let _ = client.stream.shutdown(std::net::Shutdown::Both);
@@ -935,7 +934,7 @@ fn spawn_pty_reader(mut reader: Box<dyn Read + Send>, tx: SyncSender<PtyEvent>) 
 
 /// Spawn the per-client frame reader. Fallible: this runs in the host main
 /// loop AFTER the handshake accepted the client, so a thread-spawn failure
-/// under resource exhaustion must reject only this client — a panic here
+/// under resource exhaustion must reject only this client - a panic here
 /// would take down the hosted shell for every attached client at exactly the
 /// moment the machine is under stress.
 fn spawn_client_reader(
@@ -1252,12 +1251,12 @@ mod hardening_tests {
         ));
     }
 
-    // ---- C-5: socket unlink guard ----
+    // ---- socket unlink guard ----
 
     #[test]
     fn socket_unlink_guard_removes_the_socket_on_drop() {
         // The guard must unlink the socket on ANY exit, so a stale <id>.sock never
-        // lingers after an error/panic exit to confuse the next connect (C-5).
+        // lingers after an error/panic exit to confuse the next connect.
         let dir = std::env::temp_dir().join(format!(
             "odytty-c5-{}-{}",
             std::process::id(),
@@ -1285,7 +1284,7 @@ mod hardening_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ---- C-6: bounded child wait on PTY EOF ----
+    // ---- bounded child wait on PTY EOF ----
 
     #[test]
     fn poll_child_exit_returns_the_code_once_the_child_is_gone() {
@@ -1310,7 +1309,7 @@ mod hardening_tests {
     fn poll_child_exit_times_out_on_a_lingering_child_instead_of_hanging() {
         // A process that closed its controlling tty but stays alive delivers EOF
         // while `try_wait` keeps reporting Alive; the poll must return None within
-        // the grace rather than blocking the host loop forever (C-6).
+        // the grace rather than blocking the host loop forever.
         let start = Instant::now();
         let code = poll_child_exit(
             || ChildWaitState::Alive,
@@ -1335,7 +1334,7 @@ mod hardening_tests {
         assert_eq!(code, None);
     }
 
-    // ---- F20: resize coalescing ----
+    // ---- resize coalescing ----
 
     #[test]
     fn resize_burst_coalesces_to_the_latest_dimensions() {
@@ -1459,7 +1458,7 @@ mod hardening_tests {
         }
     }
 
-    // ---- F9: total-handshake deadline ----
+    // ---- total-handshake deadline ----
 
     #[test]
     fn slow_handshake_hello_is_abandoned_at_the_total_deadline() {
@@ -1530,7 +1529,7 @@ mod hardening_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ---- F19: post-handshake reader timeout ----
+    // ---- post-handshake reader timeout ----
 
     #[test]
     fn withheld_frame_payload_surfaces_as_a_partial_timeout() {

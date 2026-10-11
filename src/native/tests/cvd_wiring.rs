@@ -4,7 +4,7 @@
 //! renderer publish, while the off path leaves it byte-identical to the
 //! authored theme (the pixel-identical guarantee at the wiring level). These
 //! drive a real `App` over a one-shot PTY (skipped when none is available, as in
-//! CI sandboxes), exercising the production apply path — no GPU needed, since
+//! CI sandboxes), exercising the production apply path - no GPU needed, since
 //! the effective theme is observable before any surface exists.
 
 use super::*;

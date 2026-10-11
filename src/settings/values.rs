@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Private value parsers and display helpers extracted from `settings.rs`.
+//! Private value parsers and display helpers for the settings module.
 //!
 //! Every `parse_*` function here mirrors a single config/env knob; the
 //! matching `*_display` and `format_*` helpers format values back to the
 //! human-readable form used by the overlay and config writeback.
 //!
-//! Visibility: items called only from `settings.rs` (the parent) are
-//! `pub(super)`. Items only called within this module are private. Nothing
-//! here is pub to the crate — callers outside this file reach the helpers
-//! through `settings`'s own scope (which imports this module via
-//! `use self::values::*;`).
+//! Visibility: items called from the parent `settings` module are
+//! `pub(super)`. Items only called within this module are private. Callers
+//! outside this file reach the helpers through `settings`'s own scope (which
+//! imports this module via `use self::values::*;`).
 
 use std::ffi::OsStr;
 use std::time::Duration;
@@ -208,7 +207,7 @@ fn format_key(key: KeyBindingKey) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Pub(super) helpers — called from settings.rs and/or sibling submodules
+// Pub(super) helpers - called from settings.rs and/or sibling submodules
 // ---------------------------------------------------------------------------
 
 /// Parse `ODYTTY_CURSOR_STYLE`, falling back to the default block shape with one
@@ -470,7 +469,7 @@ pub(super) fn parse_inactive_pane_dim(raw: Option<&OsStr>, warn: &mut impl FnMut
     parsed.clamp(MIN_INACTIVE_PANE_DIM, MAX_INACTIVE_PANE_DIM)
 }
 
-/// Parse the mouse-wheel scroll multiplier (MOUSE-WHEEL-SPEED). Mirrors the other
+/// Parse the mouse-wheel scroll multiplier. Mirrors the other
 /// numeric parsers: an absent/blank value yields the default; a non-finite or
 /// unparseable value warns and falls back; otherwise it is clamped to
 /// `[MIN_SCROLL_WHEEL_LINES, MAX_SCROLL_WHEEL_LINES]`.
@@ -524,11 +523,11 @@ pub(super) fn parse_scroll_pixel_speed(raw: Option<&OsStr>, warn: &mut impl FnMu
     parsed.clamp(MIN_SCROLL_PIXEL_SPEED, MAX_SCROLL_PIXEL_SPEED)
 }
 
-/// Parse the scrollback retention cap (SCROLLBACK-CAP). Mirrors the other numeric
+/// Parse the scrollback retention cap. Mirrors the other numeric
 /// parsers: absent/blank yields the default; a non-finite or unparseable value
 /// warns and falls back; otherwise it is clamped to
 /// `[MIN_SCROLLBACK_LINES, MAX_SCROLLBACK_LINES]`. `0` is a valid value meaning
-/// "unbounded" — the cap is then disabled.
+/// "unbounded" - the cap is then disabled.
 pub(super) fn parse_scrollback_lines(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     let Some(raw) = raw else {
         return DEFAULT_SCROLLBACK_LINES;
@@ -853,12 +852,12 @@ fn parse_clamped_f32(
     }
 }
 
-/// Parse the vertical rail width mode (F4-P4): `auto | <cols>`.
+/// Parse the vertical rail width mode: `auto | <cols>`.
 ///
 /// - absent / blank → the default (`Auto`);
 /// - `"auto"` (any case) → `Auto`;
 /// - a finite number → `Manual`, rounded and clamped to the absolute widget
-///   bounds `[MIN_TAB_RAIL_WIDTH, MAX_TAB_RAIL_WIDTH]` — this is the migration
+///   bounds `[MIN_TAB_RAIL_WIDTH, MAX_TAB_RAIL_WIDTH]` - this is the migration
 ///   path for old numeric configs, which keep their exact width;
 /// - anything else → warn and fall back to `Auto`.
 pub(super) fn parse_tab_rail_width(
@@ -927,7 +926,7 @@ pub(super) fn parse_tab_bar_height(
     }
 }
 
-/// Parse the `auto`-mode upper clamp in cells (F4-P4).
+/// Parse the `auto`-mode upper clamp in cells.
 pub(super) fn parse_tab_rail_max_width(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     parse_clamped_f32(
         raw,
@@ -940,7 +939,7 @@ pub(super) fn parse_tab_rail_max_width(raw: Option<&OsStr>, warn: &mut impl FnMu
     )
 }
 
-/// Parse the inter-slot gap in rows (F4-P1).
+/// Parse the inter-slot gap in rows.
 pub(super) fn parse_tab_rail_gap(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     parse_clamped_f32(
         raw,
@@ -966,7 +965,7 @@ pub(super) fn parse_tab_rail_slot_rows(raw: Option<&OsStr>, warn: &mut impl FnMu
     )
 }
 
-/// Parse the unified tab-panel strength (F4-P1).
+/// Parse the unified tab-panel strength.
 pub(super) fn parse_tab_panel_strength(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     parse_clamped_f32(
         raw,

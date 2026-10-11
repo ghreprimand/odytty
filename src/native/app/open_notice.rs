@@ -3,19 +3,19 @@
 //!
 //! v0.4.0 swallowed every `Command::spawn()` error at the single
 //! [`super::interactive_paths::spawn_detached`] point, so a missing or broken
-//! opener (`xdg-open`/`open`) was indistinguishable from "feature off" — the
+//! opener (`xdg-open`/`open`) was indistinguishable from "feature off" - the
 //! user clicked and nothing happened, with no explanation. This surface fixes
 //! that: when an open/reveal spawn fails, the App raises a short message that
 //! paints as a one-row banner over the top of the grid and auto-expires. Routine
 //! security status can reuse the same bounded surface with a neutral tone.
 //!
 //! Design constraints (from the Phase-2 ruling):
-//! * NON-BLOCKING — it never captures focus, pauses the loop, or eats input;
+//! * NON-BLOCKING - it never captures focus, pauses the loop, or eats input;
 //!   it is purely a painted row plus a wake deadline, modelled on the existing
 //!   bell-flash overlay plumbing.
 //! * OPEN FAILURES REMAIN FAILURE-ONLY - [`App::spawn_open_or_notice`] sets its
 //!   notice from the `Err` arm only; the success path never touches it.
-//! * BYTE-IDENTICAL WHEN ABSENT — both the painter ([`App::paint_open_notice_cells`])
+//! * BYTE-IDENTICAL WHEN ABSENT - both the painter ([`App::paint_open_notice_cells`])
 //!   and the cache signature ([`App::open_notice_overlay_signature`]) early-out
 //!   when `open_notice` is `None`, so a no-error / feature-off frame is
 //!   unchanged from before this surface existed.
@@ -60,17 +60,17 @@ impl OpenNotice {
 
 impl App {
     /// Spawn an open/reveal `argv` through the single argv-only spawn point and,
-    /// on failure, raise a transient [`OpenNotice`] (P0-2). The success path is
-    /// a pure spawn with NO notice — byte-identical to the old behaviour. A
+    /// on failure, raise a transient [`OpenNotice`]. The success path is
+    /// a pure spawn with NO notice - byte-identical to the old behaviour. A
     /// missing opener (`xdg-open`/`open` not found) is the common failure and is
     /// reported with the program name so the user knows what to install/repair.
     pub(in crate::native) fn spawn_open_or_notice(&mut self, argv: &[String]) {
         if let Err(error) = spawn_detached(argv) {
             let program = argv.first().map(String::as_str).unwrap_or("opener");
             let message = if error.kind() == std::io::ErrorKind::NotFound {
-                format!("Couldn't open — '{program}' not found (is it installed?)")
+                format!("Couldn't open: '{program}' not found (is it installed?)")
             } else {
-                format!("Couldn't open — {program} failed: {error}")
+                format!("Couldn't open: {program} failed: {error}")
             };
             self.raise_open_notice(message);
         }
@@ -131,7 +131,7 @@ impl App {
     }
 
     /// The next wake instant while a notice is visible (its expiry), or `None`
-    /// when none is in flight — so an at-rest terminal schedules no extra wakes.
+    /// when none is in flight - so an at-rest terminal schedules no extra wakes.
     pub(in crate::native) fn open_notice_deadline(&self) -> Option<Instant> {
         self.open_notice
             .as_ref()
@@ -158,7 +158,8 @@ impl App {
         }
     }
 
-    /// Paint the notice as a single inverse-video banner row across the top of
+    /// Paint the notice as a single banner row of direct foreground and
+    /// background colors across the top of
     /// the grid. No-op when no notice is in flight (the default path emits
     /// nothing, so the frame is byte-identical). Overwrites only row 0 for the
     /// notice's lifetime; the shell content underneath is untouched in the model
@@ -195,7 +196,8 @@ impl App {
     }
 }
 
-/// Banner attributes: an inverse, attention-colored bar. Indexed colors keep it
+/// Banner attributes: a direct foreground/background pair (no inverse bit) in
+/// an attention color. Indexed colors keep it
 /// theme-portable (the active palette supplies the actual RGB).
 fn notice_attrs(tone: NoticeTone) -> Attrs {
     let mut attrs = Attrs::default();

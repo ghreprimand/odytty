@@ -330,8 +330,8 @@ pub const MIN_TEXT_GAMMA: f32 = 0.5;
 pub const MAX_TEXT_GAMMA: f32 = 3.0;
 
 /// Stem-darkening strength (`ODYTTY_STEM_DARKEN`): a coverage boost applied at
-/// glyph raster time so light-on-dark body text holds weight at small sizes
-/// (RV5). `0.0` disables it and is pixel-identical to the pre-feature renderer;
+/// glyph raster time so light-on-dark body text holds weight at small sizes.
+/// `0.0` disables it and is pixel-identical to the pre-feature renderer;
 /// `1.0` is the strongest boost. Ships default-on at `0.7` for a visible
 /// light-on-dark weight boost. Setting `0.0` is the opt-out and fully restores
 /// the classic, pre-feature raster.
@@ -341,7 +341,7 @@ pub const MAX_STEM_DARKEN: f32 = 1.0;
 
 /// Minimum fg/bg contrast floor (`ODYTTY_MIN_CONTRAST`): a configurable WCAG
 /// contrast ratio that every cell's foreground is lifted to meet, so no app can
-/// render illegibly low-contrast text (RV1). The default is an assertive
+/// render illegibly low-contrast text. The default is an assertive
 /// readability floor; `1.0` disables the floor and is pixel-identical to the
 /// pre-feature renderer. The lift moves only perceptual lightness, preserving hue.
 pub const DEFAULT_MIN_CONTRAST: f32 = 17.0;
@@ -349,8 +349,8 @@ pub const MIN_MIN_CONTRAST: f32 = 1.0;
 pub const MAX_MIN_CONTRAST: f32 = 21.0;
 
 /// Focus dimming amount (`ODYTTY_FOCUS_DIM`): how much the whole grid (both text
-/// and background) recedes perceptually while the window is unfocused (ID2). The
-/// dim runs at color-resolution time before the RV1 minimum-contrast floor, so
+/// and background) recedes perceptually while the window is unfocused. The
+/// dim runs at color-resolution time before the minimum-contrast floor, so
 /// legibility is preserved by construction. `0.0` disables it and is
 /// pixel-identical to the pre-feature renderer; higher values dim further. The
 /// focused window is never dimmed regardless of this value, so focused frames
@@ -362,7 +362,7 @@ pub const MAX_FOCUS_DIM: f32 = 1.0;
 /// Inactive-pane dimming (`ODYTTY_INACTIVE_PANE_DIM`): a subtle dim applied to
 /// the non-focused panes of a multi-pane tab so the focused pane stands out, in
 /// OKLab so hue is preserved. `0.0` (the default) disables it and is
-/// byte-identical to the pre-feature multi-pane renderer — every pane renders
+/// byte-identical to the pre-feature multi-pane renderer - every pane renders
 /// undimmed exactly as today. Higher values dim the inactive panes further. The
 /// focused pane is never dimmed, and single-pane tabs are never affected.
 pub const DEFAULT_INACTIVE_PANE_DIM: f32 = 0.0;
@@ -392,7 +392,7 @@ pub const DEFAULT_AUTOMATION_ENDPOINT: bool = false;
 /// default, so the pointer path never scans terminal text for paths and the
 /// plain hover path is byte-identical. When on, hovering a path-looking span
 /// that resolves to a real entry shows the pointer (hand) cursor; detection is
-/// local-only — nothing is logged, persisted, or sent anywhere, and the single
+/// local-only - nothing is logged, persisted, or sent anywhere, and the single
 /// `stat` happens only on a hovered candidate. Hover detection runs on the
 /// focused pane only (v1 bound, shared with OSC 8 hyperlink hover).
 pub const DEFAULT_INTERACTIVE_PATHS: bool = false;
@@ -403,7 +403,7 @@ pub const DEFAULT_INTERACTIVE_PATHS: bool = false;
 /// allowlisted-scheme) URL that an application printed without an OSC 8 escape
 /// shows the pointer (hand) cursor and a Ctrl+hover armed underline, and
 /// Ctrl+click opens it through the same argv-only, scheme-allowlisted dispatch
-/// as OSC 8 hyperlinks — never auto-opened, never shell-interpolated. Off makes
+/// as OSC 8 hyperlinks - never auto-opened, never shell-interpolated. Off makes
 /// the bare-URL hover scan never run, so the hover path is byte-identical to a
 /// build without the feature. Independent of `interactive_paths`: URL opening
 /// and filesystem-path detection toggle separately. Explicit OSC 8 hyperlinks
@@ -421,7 +421,7 @@ pub const DEFAULT_INTERACTIVE_PATHS_BAREWORDS: bool = true;
 /// (`ODYTTY_INTERACTIVE_PATHS_CLICK_HINT`). On by default behind the global
 /// `interactive_paths` gate. When on, two plain mis-clicks on a resolved path
 /// within a short window raise a transient bottom-left "Ctrl+click to open"
-/// hint. Off silences only the hint — the hand cursor, Ctrl+hover underline, and
+/// hint. Off silences only the hint - the hand cursor, Ctrl+hover underline, and
 /// Ctrl+click open all still work. The global `interactive_paths` gate is still
 /// off by default, so nothing shows until paths are enabled.
 pub const DEFAULT_INTERACTIVE_PATHS_CLICK_HINT: bool = true;
@@ -446,7 +446,7 @@ pub const MAX_WINDOW_PADDING_PX: f32 = 64.0;
 /// cells fully opaque so the cell-vertex output is byte-identical to before,
 /// with the `image` treatment then showing only in the window padding. Values
 /// `< 1.0` make cells translucent so a background image shows through behind
-/// text; the RV1 floor stays safe at any opacity via the readability scrim.
+/// text; the minimum-contrast floor stays safe at any opacity via the readability scrim.
 pub const DEFAULT_CELL_BG_OPACITY: f32 = 0.8;
 pub const MIN_CELL_BG_OPACITY: f32 = 0.0;
 pub const MAX_CELL_BG_OPACITY: f32 = 1.0;
@@ -456,7 +456,7 @@ pub const MAX_CELL_BG_OPACITY: f32 = 1.0;
 /// the theme's default background (prompt powerline segments, hyperlink button
 /// chips, app-painted status/highlight blocks). At low window opacity a single
 /// uniform cell alpha washes those blocks out along with the empty backdrop;
-/// this floor keeps them strong while the default background stays glassy —
+/// this floor keeps them strong while the default background stays glassy -
 /// the "keep background colors opaque" behaviour familiar from other
 /// terminals, made continuous. A colored cell composites at
 /// `cell_bg_opacity * max(window_opacity_alpha, floor)`, so `0.0` disables the
@@ -490,7 +490,7 @@ pub const MAX_SELECTION_OPACITY: f32 = 1.5;
 /// toward white in linear space with a soft knee, for legibility over a busy
 /// backdrop at low window opacity. Per channel `c' = 1 - (1 - c)^b`, so
 /// near-white ink cannot clip flat, colors never fully desaturate, and the
-/// lift is monotonic in the knob. `1.0` (default) is exact identity —
+/// lift is monotonic in the knob. `1.0` (default) is exact identity -
 /// byte-identical vertex output. Applied AFTER the RV1 min-contrast floor (it
 /// cannot undo a contrast fix) and independent of the new-output fade, which
 /// ramps alpha while this shifts color. Color emoji keep their intrinsic
@@ -532,7 +532,7 @@ pub fn bundled_background_path() -> std::path::PathBuf {
 
 /// Bounds for the explicit background-image scrim override
 /// (`ODYTTY_BACKGROUND_IMAGE_SCRIM`). When unset the scrim is auto-computed to
-/// guarantee the RV1 floor; an explicit value is clamped to this range.
+/// guarantee the minimum-contrast floor; an explicit value is clamped to this range.
 pub const MIN_BACKGROUND_IMAGE_SCRIM: f32 = 0.0;
 pub const MAX_BACKGROUND_IMAGE_SCRIM: f32 = 1.0;
 
@@ -559,7 +559,7 @@ pub const MAX_LINE_HEIGHT: f32 = 2.0;
 /// DPI-derived default. `1.0` (default) reproduces the historical stroke widths
 /// byte-identically (multiplying the light weight by `1.0` is exact in `f32`);
 /// values below `1.0` draw thinner rules and above `1.0` draw heavier rules.
-/// Only affects the renderer's own geometric box-drawing path — inert when
+/// Only affects the renderer's own geometric box-drawing path - inert when
 /// geometric box-drawing is off or when a symbol-map override wins.
 pub const DEFAULT_BOX_THICKNESS: f32 = 1.0;
 pub const MIN_BOX_THICKNESS: f32 = 0.5;
@@ -573,8 +573,8 @@ pub const MAX_BOX_THICKNESS: f32 = 3.0;
 /// (3) remains the fixed base only for the overlay free-scroll and the
 /// notch-reporting / pixel-conversion paths. Stored as `f32` to ride the shared
 /// numeric-setting model (slider / keyboard step / range label); the wheel path
-/// rounds it to a `usize >= 1`. Full mouse-reporting TUIs still own the wheel —
-/// their report carries direction, not magnitude — and continuous (touchpad
+/// rounds it to a `usize >= 1`. Full mouse-reporting TUIs still own the wheel -
+/// their report carries direction, not magnitude - and continuous (touchpad
 /// pixel) deltas are never multiplied.
 pub const DEFAULT_SCROLL_WHEEL_LINES: f32 = 6.0;
 pub const MIN_SCROLL_WHEEL_LINES: f32 = 1.0;
@@ -584,7 +584,7 @@ pub const MAX_SCROLL_WHEEL_LINES: f32 = 10.0;
 /// logical (hard-terminated) lines kept in history before the oldest are
 /// evicted. Bounds steady-state memory so a process streaming unbounded output
 /// cannot grow OdyTTY until the OS OOM-kills it. The default matches the common
-/// terminal default; `0` means unbounded (no cap — use with care). Stored as
+/// terminal default; `0` means unbounded (no cap - use with care). Stored as
 /// `f32` to ride the shared numeric-setting model; the core rounds it to a
 /// `usize`. Live-reloadable: lowering it trims existing history immediately.
 pub const DEFAULT_SCROLLBACK_LINES: f32 = 10_000.0;
@@ -601,7 +601,7 @@ pub const MAX_AUTOSCROLL_ROWS: usize = 8;
 
 /// Copy-on-select (`ODYTTY_COPY_ON_SELECT`, MOUSE-COPYSELECT): when on, finishing
 /// a local selection also writes the CLIPBOARD (in addition to the PRIMARY
-/// selection it always writes). Off by default — PRIMARY and middle-click paste
+/// selection it always writes). Off by default - PRIMARY and middle-click paste
 /// already work regardless, so the off path is byte-identical to before.
 pub const DEFAULT_COPY_ON_SELECT: bool = false;
 
@@ -629,7 +629,7 @@ pub const DEFAULT_CURSOR_MOTION: bool = true;
 /// Underline geometry in the resolved cursor color. On by default; while off
 /// no aura geometry is emitted. Purely presentational; never affects cell
 /// semantics or the logical cursor position. The aura alpha is capped low
-/// enough that adjacent-cell text contrast stays within the RV1 floor.
+/// enough that adjacent-cell text contrast stays within the minimum-contrast floor.
 pub const DEFAULT_CURSOR_GLOW: bool = true;
 
 /// Cursor glow strength (`ODYTTY_CURSOR_GLOW_INTENSITY`, ID1): a user-facing
@@ -731,7 +731,7 @@ pub const DEFAULT_QUICK_TERMINAL_PROFILE: &str = "";
 /// New-output fade-in (`ODYTTY_NEW_OUTPUT_FADE`, VE4): when on, the TEXT of
 /// freshly arrived output rows at the live tail fades in over a short ease-out
 /// ramp instead of appearing instantly. Implemented as a per-row foreground
-/// alpha ramp — glyphs, decorations, and emoji rise from a visible floor to
+/// alpha ramp - glyphs, decorations, and emoji rise from a visible floor to
 /// full strength while cell backgrounds render exactly as normal from the
 /// first frame (a background veil read as a dark flash on translucent
 /// windows). On by default now that the ramp is text-only and never darkens a
@@ -815,20 +815,20 @@ pub const DEFAULT_BIDI_REORDER: bool = false;
 /// content. The border is painted as overlay quads within the existing window
 /// padding band, so it never eats cell area; its thickness is specified in
 /// logical pixels and scaled by the surface DPI factor, and the frame tracks the
-/// content rect on resize. Off by default — while off no border quads are
+/// content rect on resize. Off by default - while off no border quads are
 /// emitted and the render path is byte-identical to before. Purely
 /// presentational; never affects cell semantics.
 pub const DEFAULT_WINDOW_BORDER: bool = false;
 
 /// Show window decorations (`ODYTTY_WINDOW_DECORATIONS`, WIN-DECOR): when on, the
 /// window keeps its title bar and borders; when off, OdyTTY requests a borderless
-/// surface. On by default — `true` reproduces the historical window-attribute
+/// surface. On by default - `true` reproduces the historical window-attribute
 /// chain (`WindowAttributes::default()` already sets `decorations = true`), so the
 /// default startup is pixel-identical. The toggle applies both at window creation
 /// and live on a settings change. Effect depends on the environment: Wayland
 /// compositors remove the title bar reliably (client-side decorations), while on
 /// X11 the request is sent to the window manager as a hint and is honored on a
-/// best-effort basis — never a hard guarantee.
+/// best-effort basis - never a hard guarantee.
 pub const DEFAULT_WINDOW_DECORATIONS: bool = true;
 /// Window transparency master toggle (TRANSPARENCY). On by default: the default
 /// presentation draws the terminal background at `DEFAULT_WINDOW_OPACITY`, so the
@@ -845,7 +845,7 @@ pub const DEFAULT_WINDOW_TRANSPARENCY: bool = true;
 pub const DEFAULT_WINDOW_OPACITY: f32 = 80.0;
 /// Minimum window opacity percent: a deliberate deep-transparency floor (20%)
 /// for maximum desktop bleed-through. Text, cursor, and selection stay legible
-/// regardless — only the background scales toward this value, and the
+/// regardless - only the background scales toward this value, and the
 /// readability scrim keeps glyphs readable independent of it.
 pub const MIN_WINDOW_OPACITY: f32 = 20.0;
 /// Maximum window opacity percent (fully opaque).
@@ -855,14 +855,14 @@ pub const MAX_WINDOW_OPACITY: f32 = 100.0;
 /// high-resolution wheels and touchpads that emit pixel deltas scroll the
 /// viewport by a continuous sub-row amount tracking physical travel, instead of
 /// quantizing to whole notches. On by default. It only affects pixel-precise
-/// input — classic detented wheels (line deltas) keep the notch path unchanged
+/// input - classic detented wheels (line deltas) keep the notch path unchanged
 /// whether this is on or off, and at rest the render path is byte-identical.
 pub const DEFAULT_PIXEL_SCROLL: bool = true;
 
 /// Animated scrollback glide between discrete wheel notches
 /// (`ODYTTY_SCROLL_GLIDE`): when on, a wheel notch moves the
 /// integer viewport offset instantly (as always) but the RENDERED viewport
-/// eases toward it over a few frames — a forward-chase follower that only ever
+/// eases toward it over a few frames - a forward-chase follower that only ever
 /// moves in the scroll direction, so continuous notches cannot sawtooth.
 /// Discrete wheels emit whole notches with no sub-step data, so this is the
 /// only source of smoothness for them; high-resolution / touchpad devices use
@@ -883,7 +883,7 @@ pub const MAX_SCROLL_PIXEL_SPEED: f32 = 4.0;
 /// OS-THEME): when on, OdyTTY switches between the `os_theme_dark` and
 /// `os_theme_light` themes based on the desktop's color-scheme signal (delivered
 /// live by the compositor on Wayland; seeded from `ODYTTY_APPEARANCE` on X11
-/// where no live signal exists). Off by default — while off the OS signal is
+/// where no live signal exists). Off by default - while off the OS signal is
 /// ignored entirely and the authored `theme` drives presentation exactly as
 /// before. When on but a direction's theme name is unset (or unknown), that
 /// direction keeps the authored theme rather than guessing.
@@ -897,7 +897,7 @@ pub const DEFAULT_FOLLOW_EXTERNAL_PALETTE: bool = false;
 /// [`Settings::follow_os_theme`] and maps the OS dark signal to the default
 /// dark Odyssey theme and the OS light signal to the default light Odyssey
 /// theme. The individual `os_theme_dark`/`os_theme_light` settings remain
-/// available for custom overrides. This is a config-layer alias only — it never
+/// available for custom overrides. This is a config-layer alias only - it never
 /// extracts the desktop palette or accent colors.
 pub const SYSTEM_THEME_NAME: &str = "system";
 
@@ -912,7 +912,7 @@ pub const DEFAULT_OS_THEME_LIGHT: &str = "odyssey-light";
 /// Confirm before closing while a foreground job is running (`ODYTTY_CONFIRM_CLOSE`,
 /// CLOSE-CONFIRM): when on, a close request (window close button / WM close)
 /// while a program is actively running in the terminal opens a confirmation
-/// dialog instead of exiting immediately. On by default — the dialog only ever
+/// dialog instead of exiting immediately. On by default - the dialog only ever
 /// appears when data would actually be lost: an idle shell (no foreground job)
 /// always closes silently, exactly as before, and any query error or dead PTY
 /// also takes the silent-close path. Off restores unconditional close-on-request.
@@ -933,7 +933,7 @@ pub const DEFAULT_SELECTION_DRAG_EXTEND: bool = true;
 
 /// Draggable scroll thumb (`ODYTTY_SCROLLBAR_DRAG`, MOUSE-SCROLLBAR): when on, a
 /// left press on the right-edge scroll indicator grabs it as a thumb and the
-/// drag scrubs through scrollback. On by default — the thumb only renders while
+/// drag scrubs through scrollback. On by default - the thumb only renders while
 /// scrolled back into history, so the grab is inert at the live tail and the
 /// off path (and the live-tail path) leave press routing byte-identical. Local
 /// only; never affects TUI mouse reporting (a press off the thumb still reports
@@ -942,7 +942,7 @@ pub const DEFAULT_SCROLLBAR_DRAG: bool = true;
 
 /// Ctrl+wheel font-size zoom (`ODYTTY_WHEEL_ZOOM`, MOUSE-WHEEL): when on,
 /// Ctrl+wheel up grows the font and Ctrl+wheel down shrinks it, within
-/// [`MIN_FONT_SIZE_PX`]..[`MAX_FONT_SIZE_PX`]. On by default — it only fires on
+/// [`MIN_FONT_SIZE_PX`]..[`MAX_FONT_SIZE_PX`]. On by default - it only fires on
 /// the explicit Ctrl+wheel gesture while mouse reporting is off, so a plain
 /// wheel (and the wheel inside a TUI mouse-reporting app) is byte-identical.
 /// Off restores Ctrl+wheel to plain scrollback movement.
@@ -952,7 +952,7 @@ pub const DEFAULT_WHEEL_ZOOM: bool = true;
 /// on, a thin coloured bar at the left edge of each finished command's prompt
 /// row reads green for an explicit `exit 0` and red for a non-zero exit, sourced
 /// from the OSC 133 command blocks and coloured from the active ANSI palette.
-/// On by default — command-boundary marks ship on out of the box, so the verdict
+/// On by default - command-boundary marks ship on out of the box, so the verdict
 /// bars appear wherever an integrated shell emits them. While off the gutter
 /// draws nothing and the render path is pixel-identical to a plain margin. With
 /// shell integration absent no command marks exist, so the gutter is empty
@@ -960,11 +960,11 @@ pub const DEFAULT_WHEEL_ZOOM: bool = true;
 pub const DEFAULT_COMMAND_STATUS_GUTTER: bool = true;
 
 /// Always show the tab bar (`ODYTTY_ALWAYS_SHOW_TAB_BAR`, F4 ODP-7): when on,
-/// the tab strip renders even with a single tab. Off by default — with one
+/// the tab strip renders even with a single tab. Off by default - with one
 /// unnamed tab the bar stays hidden and the render path is byte-identical to
 /// today. Independent of this setting, a lone tab that carries a custom name
 /// (`title_override`) shows the bar regardless, so a named single "workflow"
-/// tab is never invisible (F4-NF1).
+/// tab is never invisible.
 pub const DEFAULT_ALWAYS_SHOW_TAB_BAR: bool = false;
 
 /// Top tab-bar height in text rows (`ODYTTY_TAB_BAR_HEIGHT`). The classic bar is
@@ -973,7 +973,7 @@ pub const DEFAULT_ALWAYS_SHOW_TAB_BAR: bool = false;
 /// Parsed as `auto | <rows>` ([`super::TabBarHeight`]) exactly like the rail
 /// width, so the draggable bottom seam and a numeric config both pin a `Manual`
 /// height clamped to `[MIN_TAB_BAR_ROWS, MAX_TAB_BAR_ROWS]`; double-clicking the
-/// seam resets to `Auto` (one row). `MIN` is the operator's hard floor of one
+/// seam resets to `Auto` (one row). `MIN` is the hard floor of one
 /// text row; `MAX` caps the chrome so the bar cannot swallow the content.
 pub const DEFAULT_TAB_BAR_ROWS: f32 = 1.0;
 pub const MIN_TAB_BAR_ROWS: f32 = 1.0;
@@ -981,7 +981,7 @@ pub const MAX_TAB_BAR_ROWS: f32 = 5.0;
 
 /// Vertical tab-rail band width in cells (`ODYTTY_TAB_RAIL_WIDTH`, F4-P1/P4).
 /// The rail widget's VISUAL width (the rail↔content wallpaper gap is reserved
-/// separately). Hot-reloadable so the operator can tune it live. Only affects
+/// separately). Hot-reloadable so the user can tune it live. Only affects
 /// the `left`/`right` rail placements; the top bar ignores it.
 ///
 /// F4-P4 turned this into an `auto | <cols>` mode ([`super::TabRailWidth`]):
@@ -1052,7 +1052,7 @@ pub const DEFAULT_TAB_RAIL_AUTOHIDE: bool = false;
 /// Rail auto-hide reveal-zone width in **logical** px (`ODYTTY_TAB_RAIL_REVEAL_PX`,
 /// F4-P3): how close to the rail's window edge the pointer must come to summon
 /// an auto-hidden rail. Logical (scaled by the display scale factor at the
-/// comparison site) so the zone is a consistent physical size across displays —
+/// comparison site) so the zone is a consistent physical size across displays -
 /// a physical-px zone shrinks under fractional/HiDPI scaling and the rail
 /// became unreachably thin. Default raised to 16: at 8 the trigger band was too
 /// thin to catch a normal-speed approach (a fast pointer's samples skip over it
@@ -1065,11 +1065,11 @@ pub const MAX_TAB_RAIL_REVEAL_PX: f32 = 32.0;
 
 /// Click-to-position-cursor (`ODYTTY_SH_CLICK`, SH-CLICK/F2): when on, a plain
 /// left click on the live shell input moves the shell's cursor to the clicked
-/// position by emitting the matching number of Left/Right cursor keys —
+/// position by emitting the matching number of Left/Right cursor keys -
 /// the click slice of OSC 133 `click_events`, never a shell-input takeover.
 /// ON by default since F2: it stays inert unless a
 /// cooperating shell has advertised `click_events=1` on its prompt, so a
-/// non-integrated shell never triggers it — the blast radius of the default is
+/// non-integrated shell never triggers it - the blast radius of the default is
 /// exactly the shells whose integration opted in. While off (or without an
 /// advertising shell) the pointer path emits no bytes and changes no pixel.
 pub const DEFAULT_SH_CLICK: bool = true;
@@ -1079,7 +1079,7 @@ pub const DEFAULT_SH_CLICK: bool = true;
 /// `133;P;odytty-button` label runs and iTerm2 `1337;Button=` point buttons)
 /// and clicking a live button reports its integer code back to the program as
 /// `CSI ? 1337 ; code ~`. When off, the sequences are parsed and discarded,
-/// nothing is stored or rendered, and clicks never emit a report — the off path
+/// nothing is stored or rendered, and clicks never emit a report - the off path
 /// is byte-identical to plain output. The gate is enforced at the parser and
 /// again at the pointer, so turning it off also deadens buttons already on
 /// screen. When on, `ODYTTY_BUTTONS=1` is injected into new terminal sessions'
@@ -1183,7 +1183,7 @@ pub const DEFAULT_REMOTE_REUSE: bool = true;
 pub const DEFAULT_REMOTE_TMUX: bool = false;
 
 /// Ceiling on the PNG-encoded size of a clipboard image uploaded through
-/// image paste-through (F6-i7). A pasted image whose encoded size exceeds this
+/// image paste-through. A pasted image whose encoded size exceeds this
 /// is refused with a one-line notice rather than uploaded, so a pathological
 /// clipboard can never ship tens of megabytes over the link or fill the remote
 /// `/tmp`. Fixed at 10 MiB for now; the confirm prompt shows the encoded size so
@@ -1192,8 +1192,8 @@ pub const REMOTE_IMAGE_PASTE_MAX_BYTES: usize = 10 * 1024 * 1024;
 
 /// Restore the previous workspace/tab/pane SHAPE at launch
 /// (`ODYTTY_RESTORE_WORKSPACES`): when on, a bare `odytty` launch reopens the
-/// last saved layout — workspace names, tab titles/order, and each pane's
-/// split tree at its captured cwd — landing a fresh interactive shell in each
+/// last saved layout - workspace names, tab titles/order, and each pane's
+/// split tree at its captured cwd - landing a fresh interactive shell in each
 /// pane. Never restores grid content, scrollback, or commands. Off by default;
 /// any CLI argument suppresses restore for that launch, and that process never
 /// writes the snapshot, so the saved layout survives it. The shape autosave of
@@ -1246,7 +1246,7 @@ pub const MAX_CRT_CURVATURE: f32 = 0.12;
 /// Colour-vision-deficiency adaptation strength (`ODYTTY_CVD_STRENGTH`, U4): how
 /// strongly the palette is daltonised toward separability for the selected
 /// [`crate::settings::CvdMode`]. `1.0` (default) is the full correction; `0.0`
-/// is an exact passthrough. Inert while the mode is `off` — the off mode is the
+/// is an exact passthrough. Inert while the mode is `off` - the off mode is the
 /// primary pixel-identical guarantee, and `0.0` strength is a second net. The
 /// adaptation is palette-scope (the 16 ANSI colours plus the cursor/selection/
 /// search roles), re-floored to stay readable; app truecolour is not remapped.

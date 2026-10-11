@@ -12,7 +12,7 @@
 /// override font identifier.
 ///
 /// The font identifier is the same query string the family resolver
-/// ([`try_resolve_font_family`]) accepts — either a direct `.ttf`/`.otf` path or
+/// ([`try_resolve_font_family`]) accepts - either a direct `.ttf`/`.otf` path or
 /// a font-family name. This core layer stores the identifier verbatim and does
 /// not resolve or load it; resolution happens at the glyph call site.
 ///
@@ -31,7 +31,7 @@ impl SymbolMapRule {
     /// Construct a rule for the inclusive range `start..=end`.
     ///
     /// Returns `None` for a **degenerate** range (`start > end`) so a malformed
-    /// rule can never enter a [`SymbolMap`] — there is no panic path. A
+    /// rule can never enter a [`SymbolMap`] - there is no panic path. A
     /// single-codepoint rule (`start == end`) is valid.
     pub fn new(start: u32, end: u32, font: impl Into<String>) -> Option<Self> {
         if start > end {
@@ -68,13 +68,13 @@ impl SymbolMapRule {
 /// one. Callers that want a more-specific rule to win should insert it first.
 ///
 /// **Empty map = identity.** With no rules, every lookup returns `None`, which
-/// the glyph path treats as "use the normal font family" — i.e. the default /
+/// the glyph path treats as "use the normal font family" - i.e. the default /
 /// off path is byte-identical to font resolution without SYMMAP. This is the
 /// always-available bypass.
 ///
-/// This is the thin core the glyph-resolution path will call; it does not load
-/// or validate fonts (that is the call site's job) and has no settings or render
-/// wiring yet.
+/// This is the thin core the glyph-resolution path calls; it does not load or
+/// validate fonts (that is the call site's job). The `ODYTTY_SYMBOL_MAP` setting
+/// parses into it and the atlas and GPU font loader consume it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SymbolMap {
     rules: Vec<SymbolMapRule>,

@@ -7,7 +7,7 @@
 //!
 //! Headless (no GPU/window): the App runs over a PTY whose writer is a
 //! recording buffer, so the report the child WOULD receive is observable
-//! byte-for-byte — an empty buffer proves a click was consumed or cancelled
+//! byte-for-byte - an empty buffer proves a click was consumed or cancelled
 //! without writing, and the envelope test pins the exact bytes the terminal
 //! composes (`CSI ? 1337 ; code ~`, never emitter-supplied bytes). Driven
 //! through `dispatch_mouse_button_for_test` so the ladder precedence (report
@@ -129,7 +129,7 @@ fn build_app_seeded(
 
 /// REGRESSION (launch-session gate seeding): with the `buttons` setting on,
 /// the launch session must honor button sequences WITHOUT any manual
-/// `set_buttons_enabled` — the gate arrives purely through the shared launch
+/// `set_buttons_enabled` - the gate arrives purely through the shared launch
 /// seeding that `run_native` and this harness both call. The shipped bug:
 /// new tabs/panes/attaches seeded the gate but the launch pane did not, and
 /// no test noticed because every fixture set the gate by hand.
@@ -198,7 +198,7 @@ fn launch_seeding_activates_buttons_at_default_settings() {
 }
 
 /// REGRESSION (chip/overlay layering): a button chip whose cells fall under an
-/// open overlay panel must be FULLY occluded — no fill, outline, or glyph
+/// open overlay panel must be FULLY occluded - no fill, outline, or glyph
 /// re-style may bleed through. Chips once painted after the overlay slot and
 /// survived on top of the settings panel. This runs the production cell-paint
 /// order (chips at the content layer, then the panel) and asserts the panel's
@@ -393,7 +393,7 @@ fn drag_off_the_span_cancels_without_writing() {
 #[test]
 fn gate_off_leaves_the_click_path_byte_identical() {
     // Same stream, master gate off (default): the label prints as plain text
-    // and a click is an ordinary selection gesture — nothing on the wire.
+    // and a click is an ordinary selection gesture - nothing on the wire.
     let (mut app, _terminal, bytes) = build_app(T2_BUTTON, false);
     settle_focus_click(&mut app, &bytes);
     move_to_cell(&mut app, 0, 3);
@@ -405,7 +405,7 @@ fn gate_off_leaves_the_click_path_byte_identical() {
 #[test]
 fn turning_the_gate_off_kills_clickability_of_existing_spans() {
     // The partial-gate hole class: definitions accepted while the gate was on
-    // must go inert the moment it turns off — enforced at the pointer arm's
+    // must go inert the moment it turns off - enforced at the pointer arm's
     // hit-test, independent of the OSC arm.
     let (mut app, terminal, bytes) = build_app(T2_BUTTON, true);
     settle_focus_click(&mut app, &bytes);
@@ -421,7 +421,7 @@ fn turning_the_gate_off_kills_clickability_of_existing_spans() {
 
 #[test]
 fn settings_apply_pushes_the_button_gates_to_the_terminal_live() {
-    // BUTTONS-SETTINGS: the user-facing knobs reach the terminal through the
+    // The user-facing knobs reach the terminal through the
     // same settings-apply seam the panel and config reload use. Start from a
     // buttons-off settings (app state and terminal gate consistent), turn
     // `buttons` on via a live apply, and the previously-inert stream becomes
@@ -505,7 +505,7 @@ fn a_mouse_reporting_tui_wins_the_plain_click() {
 fn shift_click_reaches_the_button_under_mouse_reporting() {
     // Shift is the established local-content override while a TUI owns the
     // mouse (same convention as selection); over a chip it activates the
-    // button — the explicit UI element wins the tie.
+    // button - the explicit UI element wins the tie.
     let (mut app, _terminal, bytes) = build_app(T2_BUTTON, true);
     settle_focus_click(&mut app, &bytes);
     app.enable_mouse_reporting_for_test();
@@ -552,8 +552,8 @@ fn the_window_activating_click_never_fires_a_button() {
 #[test]
 fn sticky_click_is_suppressed_while_the_prompt_is_active() {
     // The B3 suppression decision: at an active prompt (OSC 133 A, no C/D
-    // yet) nothing can act on a sticky button's report — the shell's line
-    // editor would just eat (or mangle) the bytes — so nothing is sent. Once
+    // yet) nothing can act on a sticky button's report - the shell's line
+    // editor would just eat (or mangle) the bytes - so nothing is sent. Once
     // the prompt phase ends, the same button reports normally.
     let stream = b"$ \x1b]133;P;odytty-button;code=7;scope=sticky\x07Run!\
 \x1b]133;P;odytty-button;end\x07";

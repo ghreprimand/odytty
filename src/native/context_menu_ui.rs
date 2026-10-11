@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Right-click context menu (IN2). A small, cell-rendered popup offering Copy /
+//! Right-click context menu. A small, cell-rendered popup offering Copy /
 //! Cut / Paste / Delete / Select All / New Tab / Close Tab / Settings and the
 //! v0.3.1 launcher section (Connection Manager / Command Palette / Session
 //! Replay), spawned at the pointer cell and edge-clamped to the grid.
 //!
-//! The menu is *always available* — there is no `context_menu` enable bool. The
+//! The menu is *always available* - there is no `context_menu` enable bool. The
 //! TUI mouse-reporting passthrough guard in [`super::app`] is the effective off
 //! switch: inside a TUI that requests mouse reporting, a right-click is reported
 //! to the PTY and the menu never opens (the report gate returns before the
-//! menu-open step). Shift+right-click bypasses that gate — exactly as Shift+drag
-//! overrides reporting for local selection — so the menu is still reachable in a
-//! TUI when the user explicitly asks for it (D-IN2-1, D-IN2-3).
+//! menu-open step). Shift+right-click bypasses that gate - exactly as Shift+drag
+//! overrides reporting for local selection - so the menu is still reachable in a
+//! TUI when the user explicitly asks for it.
 //!
 //! Like every other [`super::overlay::OverlayMode`], the menu never blocks the
 //! PTY: the terminal stays live behind it. It is off-path-identical when no
-//! right-click has occurred — the `ContextMenu` mode is simply never entered, so
+//! right-click has occurred - the `ContextMenu` mode is simply never entered, so
 //! the default render path is byte-for-byte unchanged.
 //!
-//! Item gating (D-IN2-6): Copy is enabled only when a selection exists, Cut and
+//! Item gating: Copy is enabled only when a selection exists, Cut and
 //! Delete only when that selection intersects editable prompt input, Paste only
 //! when the clipboard holds text, and Rename Tab only when the menu was opened
 //! from a specific tab; states are snapshotted at open time. Select All, New
@@ -33,11 +33,11 @@
 //! overlay launchers (5), and the file/path composition (6, shown only on a
 //! path right-click). A separator is drawn wherever consecutive *visible* items
 //! cross a section boundary; separators occupy body rows but are neither
-//! selectable nor focusable (D-IN2-SETTINGS).
+//! selectable nor focusable.
 //!
 //! Pane-count gating: the **Close Pane** item is shown only when the active tab
 //! is multi-pane (the App passes `multi_pane` at open time). In a single-pane
-//! tab it is hidden entirely — not rendered, not navigable — so the single-pane
+//! tab it is hidden entirely - not rendered, not navigable - so the single-pane
 //! menu layout (and its render cache signature) is byte-identical to before the
 //! item existed. The item set, separator placement, focus cycling, and body-row
 //! mapping are all derived from the visible item list, so the layout reflows
@@ -74,13 +74,13 @@ use crate::settings::BindableAction;
 /// Split Down / Close Pane / Settings / Connection Manager / Command Palette /
 /// Session Replay / Manage Sessions / Detach & switch / Open / Open in OdyTTY /
 /// Open With… / Copy Path / Copy File / Reveal in File Manager / Connect to
-/// Host / Replace with Host) plus the F3 "Keyboard Shortcuts" launcher item —
+/// Host / Replace with Host) plus the F3 "Keyboard Shortcuts" launcher item -
 /// the size of the accelerator array the App fills in `ALL` order. NOT the
 /// number of *visible* items: Close Pane is
 /// hidden in a single-pane tab; path-scoped menus show only file actions plus
 /// pinned Copy/Paste text actions; "Open in OdyTTY" is shown only when the
-/// resolved path is an image file (C4); and "Open With…" is shown only when the
-/// resolved path is a regular file (C3b). With no path and a selection the
+/// resolved path is an image file; and "Open With…" is shown only when the
+/// resolved path is a regular file. With no path and a selection the
 /// single-pane content menu shows 23 visible items (New / Rename / Close
 /// Workspace sit in their own section after Split, followed by the conditional
 /// Bind-to-Host XOR Unbind row, then Save as Layout / Open Layout); multi-pane
@@ -186,7 +186,7 @@ pub(super) const SHELL_INTEGRATION_DISABLED_HINT: &str = "Enable shell integrati
 /// consumes them. This generalizes the pre-existing path-vs-global branch in
 /// [`ContextMenuUi::visible_items`] to the tab and empty-strip surfaces, fixing
 /// the "full global menu on a tab" and "grid menu leaking over the empty bar"
-/// findings (F7).
+/// findings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum ContextMenuSurface {
     /// A specific tab slot (top bar; and the vertical rail in the current build
@@ -196,11 +196,11 @@ pub(super) enum ContextMenuSurface {
     TabSlot(SessionToken),
     /// Empty region of the tab strip / rail (the `+` button area, gaps).
     TabStripEmpty,
-    /// The terminal content grid — the selection/path/pane-aware menu.
+    /// The terminal content grid - the selection/path/pane-aware menu.
     #[default]
     Content,
 
-    /// The inter-pane divider (ODP-7). Reserved; not constructed yet.
+    /// The inter-pane divider. Reserved; not constructed yet.
     #[allow(dead_code)]
     PaneDivider,
     /// A workspace slot in the rail-as-workspaces sidebar (§7.4 / NF-F7-4).
@@ -208,11 +208,11 @@ pub(super) enum ContextMenuSurface {
     WorkspaceSlot(usize),
     /// Empty area of the workspace rail (the `+` slot, gaps). New Workspace.
     WorkspaceRailEmpty,
-    /// A saved-host row inside the connection-manager overlay (ODP-2C). Carries
+    /// A saved-host row inside the connection-manager overlay. Carries
     /// the row's cursor index into the filtered list; the clicked host itself is
     /// snapshotted separately (see [`ContextMenuUi::connection_target`]) so the
     /// composition can gate Edit/Remove on its source. This is the only
-    /// menu-over-overlay surface — the menu spawns while the connection manager
+    /// menu-over-overlay surface - the menu spawns while the connection manager
     /// stays loaded underneath, and dismissing it returns to the manager.
     ConnectionRow(usize),
     /// A row inside the unified session navigator (SessionAttach overlay). Like
@@ -228,12 +228,12 @@ pub(super) enum ContextMenuSurface {
 
 impl ContextMenuSurface {
     /// A stable discriminant for the render-cache signature so a surface change
-    /// repaints the menu. The `TabSlot` token is not part of it — the rendered
+    /// repaints the menu. The `TabSlot` token is not part of it - the rendered
     /// rows are identical across tokens (only Rename/Close targeting differs,
     /// which the spawn cell already distinguishes).
     fn discriminant(self) -> u8 {
         // `Content` is 0 so a default (closed) menu's signature equals
-        // `ContextMenuSignature::default()` — the off-path identity invariant.
+        // `ContextMenuSignature::default()` - the off-path identity invariant.
         match self {
             Self::Content => 0,
             Self::TabSlot(_) => 1,
@@ -365,7 +365,7 @@ pub(super) struct ContextMenuSignature {
     /// item's visibility on the tab surface, so a workspace-count change
     /// repaints).
     pub(super) multi_workspace: bool,
-    /// Whether the active workspace is bound to a host (F6-W5): drives the
+    /// Whether the active workspace is bound to a host: drives the
     /// `New Local Tab` escape row's visibility on the tab surface, so a
     /// bind/unbind must repaint the menu.
     pub(super) bound_workspace: bool,
@@ -379,7 +379,7 @@ pub(super) struct ContextMenuSignature {
     /// is on: they select the broadcast rows, so a change must repaint.
     pub(super) pane_broadcast: bool,
     pub(super) broadcast_active: bool,
-    /// The total workspace count at open time (RAIL-REORDER): drives the Move
+    /// The total workspace count at open time: drives the Move
     /// Up/Down items' visibility on a `WorkspaceSlot` menu (a slot can move down
     /// only when it is not last), so a workspace-count change must repaint.
     pub(super) workspace_count: usize,
@@ -387,22 +387,22 @@ pub(super) struct ContextMenuSignature {
     /// `workspace_count` it selects the Move Up/Down rows, so two slots with the
     /// same count still repaint differently.
     pub(super) workspace_slot: usize,
-    /// The surface discriminant (F7): a surface change swaps the whole
+    /// The surface discriminant: a surface change swaps the whole
     /// composition, so it must repaint.
     pub(super) surface: u8,
     /// Whether a resolved interactive path sits under the click (drives the file
     /// section's visibility, so its presence must repaint the menu). The
-    /// resolved path itself is not part of the signature — the labels are
+    /// resolved path itself is not part of the signature - the labels are
     /// static, so a bool fully describes the layout change.
     pub(super) has_path_target: bool,
     /// Whether the resolved path is an image file (drives the "Open in OdyTTY"
     /// item's visibility, so its presence must repaint the menu). C4.
     pub(super) is_image_target: bool,
     /// Whether the resolved path is a regular file (drives the "Open With…"
-    /// item's visibility — file-only — so a file-vs-directory target repaints
+    /// item's visibility - file-only - so a file-vs-directory target repaints
     /// the menu). C3b.
     pub(super) is_file_target: bool,
-    /// Whether the connection-row target is OdyTTY-owned (ODP-2C): drives the
+    /// Whether the connection-row target is OdyTTY-owned: drives the
     /// Edit/Remove rows' visibility, so an OdyTTY-vs-ssh-config row repaints the
     /// menu even though both share the `ConnectionRow` surface discriminant.
     pub(super) connection_is_odytty: bool,
@@ -459,9 +459,9 @@ pub(super) struct ContextMenuUi {
     /// Whether more than one workspace exists, snapshotted at open time. Gates
     /// the visibility of `Move to Workspace` on the tab surface -- with a
     /// single workspace there is nowhere to move a tab, so the item is hidden
-    /// (W4-v2: hide the move item when only one workspace exists).
+    /// (hide the move item when only one workspace exists).
     multi_workspace: bool,
-    /// Whether the active workspace is bound to a host (F6-W5). Drives the
+    /// Whether the active workspace is bound to a host. Drives the
     /// `New Local Tab` escape row on the tab surface.
     bound_workspace: bool,
     /// Whether the focused pane is read-only, applied by the App right after a
@@ -478,13 +478,13 @@ pub(super) struct ContextMenuUi {
     pane_broadcast: bool,
     /// Whether any broadcast receiver exists. Reset on every open.
     broadcast_active: bool,
-    /// The total workspace count, snapshotted at open time (RAIL-REORDER). On a
+    /// The total workspace count, snapshotted at open time. On a
     /// `WorkspaceSlot(idx)` menu it decides whether the clicked slot can move
     /// down (`idx + 1 < workspace_count`); `move up` keys off `idx > 0`. The App
     /// sets it via [`Self::set_workspace_count`] right after opening a rail menu;
     /// every other surface leaves it at `0` (no Move rows there anyway).
     workspace_count: usize,
-    /// Which surface the right-click landed on (F7). Selects the menu
+    /// Which surface the right-click landed on. Selects the menu
     /// composition; defaults to [`ContextMenuSurface::Content`] (the historical
     /// single menu) so a bare `open` keeps today's behavior.
     surface: ContextMenuSurface,
@@ -493,7 +493,7 @@ pub(super) struct ContextMenuUi {
     /// shows the file section (Open / Copy Path / Copy File / Reveal); `None`
     /// hides it entirely so the menu is byte-identical to before C3.
     path_target: Option<Resolved>,
-    /// The saved host under the right-clicked connection-manager row (ODP-2C),
+    /// The saved host under the right-clicked connection-manager row,
     /// snapshotted at open time on the `ConnectionRow` surface. `Some` gates
     /// Edit/Remove on its source (OdyTTY-owned only) and supplies the host to
     /// each connection-row outcome; `None` on every other surface, so the menu
@@ -514,8 +514,8 @@ pub(super) struct ContextMenuUi {
     /// across surfaces.
     window_actions: WindowMenuActions,
     /// Immutable identity of the workspace under the right-clicked rail slot,
-    /// snapshotted at open time on the `WorkspaceSlot` surface
-    /// (RAIL-REVALIDATE). The surface carries a bare rail index; a background
+    /// snapshotted at open time on the `WorkspaceSlot` surface.
+    /// The surface carries a bare rail index; a background
     /// workspace closing while the menu (or the host picker it opens) is up
     /// shifts every later index, and workspace names are renameable and not
     /// unique. The App re-resolves this identity to its live index before
@@ -527,11 +527,11 @@ pub(super) struct ContextMenuUi {
     /// [`Self::set_accelerators`] from the live `KeyBindings`.
     accelerators: [Option<String>; CONTEXT_MENU_ITEMS],
     /// Column bands to keep the menu box clear of, on the left and right edges
-    /// respectively (MENU-Z-ORDER). A rail-anchored menu opened while the
+    /// respectively. A rail-anchored menu opened while the
     /// auto-hide workspace rail is revealed must not paint UNDER the floating
     /// rail band (the rail composites topmost, so it would occlude the menu's
     /// edge). Reserving the rail band's columns positions the box beside the
-    /// rail instead of under it — the rail stays visible (RAIL-PIN) and the menu
+    /// rail instead of under it - the rail stays visible and the menu
     /// is fully clickable. `0`/`0` (every non-rail open) is byte-identical to
     /// the pre-clearance layout.
     reserved_cols_left: usize,

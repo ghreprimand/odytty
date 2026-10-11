@@ -28,7 +28,7 @@ impl WindowPadding {
         self.physical_px as f32
     }
 
-    /// CHROME-GAP: test-only since the production grid fit derives from
+    /// Test-only since the production grid fit derives from
     /// `pane_content_rect` (the seam that also folds in the chrome-facing
     /// gap); the legacy cell arithmetic remains as the parity oracle in tests.
     #[cfg(test)]
@@ -42,7 +42,7 @@ pub(super) fn grid_dimensions_for(width_px: u32, height_px: u32, cell: CellSize)
     grid_dimensions_for_with_padding(width_px, height_px, cell, WindowPadding::ZERO)
 }
 
-/// CHROME-GAP: test-only legacy grid fit (see `content_extent` above).
+/// Test-only legacy grid fit (see `content_extent` above).
 #[cfg(test)]
 pub(super) fn grid_dimensions_for_with_padding(
     width_px: u32,
@@ -58,8 +58,8 @@ pub(super) fn grid_dimensions_for_with_padding(
 const WHEEL_STEP_LINES: usize = 3;
 const SCROLL_INDICATOR_WIDTH_PX: f32 = 3.0;
 const SCROLL_INDICATOR_MIN_HEIGHT_PX: f32 = 8.0;
-/// Width (physical px) of the grab band for the draggable scroll thumb
-/// (MOUSE-SCROLLBAR). Wider than the 3px visual thumb so the thumb is actually
+/// Width (physical px) of the grab band for the draggable scroll thumb.
+/// Wider than the 3px visual thumb so the thumb is actually
 /// grabbable with a pointer; the drawn thumb is unchanged. The band only ever
 /// captures a press while scrolled back into history (`offset > 0`) and within
 /// the thumb's vertical extent, so it never steals right-margin clicks at the
@@ -153,7 +153,7 @@ const MAX_WHEEL_NOTCHES: f32 = 1000.0;
 /// bottom. Line deltas map each notch to [`WHEEL_STEP_LINES`] rows; pixel deltas
 /// convert by the cell height. Thin wrapper over [`wheel_lines_scaled`] at the
 /// fixed step, used by the direction-only reporting path and the overlay
-/// free-scroll — paths that own their own magnitude and so deliberately ignore
+/// free-scroll - paths that own their own magnitude and so deliberately ignore
 /// the user's `scroll_wheel_lines` multiplier. Local scrollback and
 /// alternate-scroll arrow emulation instead go through [`wheel_lines_scaled`]
 /// with the configured multiplier.
@@ -163,7 +163,7 @@ pub(super) fn wheel_lines(delta: MouseScrollDelta, cell_height: u32) -> isize {
 
 /// As [`wheel_lines`], but with a caller-supplied notch multiplier
 /// (`step_lines`, floored at 1) so the local viewport scroll path can honor the
-/// `scroll_wheel_lines` setting (MOUSE-WHEEL-SPEED). Only discrete wheel-notch
+/// `scroll_wheel_lines` setting. Only discrete wheel-notch
 /// (`LineDelta`) input is multiplied; continuous (touchpad `PixelDelta`) input
 /// is already row-accurate and is never scaled. `step_lines == WHEEL_STEP_LINES`
 /// is byte-identical to the historical behavior.
@@ -213,7 +213,7 @@ fn wheel_delta_notches(delta: MouseScrollDelta, cell_height: u32) -> f64 {
 /// Add a fresh notch delta onto a fractional carry, dropping the stale carry on
 /// a direction reversal (T-accum). Without the reversal reset a built-up
 /// remainder in one direction would partially cancel a fresh scroll the other
-/// way — and the carry could oscillate without ever settling. A zero delta
+/// way - and the carry could oscillate without ever settling. A zero delta
 /// leaves the carry untouched (no phantom motion).
 pub(super) fn carry_add(accum: f64, delta: f64) -> f64 {
     if accum != 0.0 && delta != 0.0 && accum.signum() != delta.signum() {
@@ -227,7 +227,7 @@ pub(super) fn carry_add(accum: f64, delta: f64) -> f64 {
 ///
 /// High-resolution mice / touchpads on Wayland/libinput fire a **burst** of
 /// small sub-notch events per physical detent. The historical per-event mapping
-/// turned one physical notch into many row/zoom steps — runaway scrollback and
+/// turned one physical notch into many row/zoom steps - runaway scrollback and
 /// uncontrollable Ctrl+wheel zoom (the WHEEL-SENS friction blocker). This
 /// accumulator integrates the fractional notches of a burst and emits a single
 /// synthesized discrete notch only once a whole notch-equivalent has built up,
@@ -270,7 +270,7 @@ impl WheelAccumulator {
 
     /// Feed a raw wheel delta into the zoom carry. Returns a synthesized
     /// single-notch `LineDelta` (magnitude 1, sign of travel) at most ONCE per
-    /// accumulated notch-equivalent — debouncing a burst of sub-notch events
+    /// accumulated notch-equivalent - debouncing a burst of sub-notch events
     /// into one font step (the cap-one-step-per-notch rule). The carry resets to
     /// zero after a step fires so a fast swipe can never leap across many sizes.
     pub(super) fn coalesce_zoom(
@@ -303,11 +303,11 @@ impl WheelAccumulator {
 /// cell-heights. Deliberately several times the one-cell threshold the terminal
 /// scroll path uses (one notch ≈ one cell-height), so a single deliberate
 /// two-finger detent advances ~one item rather than flying. This is the Phase 6
-/// (P1-8) feel constant flagged as having no portable-correct value — it starts
+/// feel constant flagged as having no portable-correct value - it starts
 /// conservative and is dialed in during the macOS 26.5 hands-on exercise.
 const OVERLAY_DETENT_CELLS: f64 = 3.0;
 
-/// Per-detent damper for the **macOS overlay wheel path** (P1-8).
+/// Per-detent damper for the **macOS overlay wheel path**.
 ///
 /// macOS trackpads / Magic Mouse deliver overlay scroll as a `PixelDelta` burst
 /// with a decaying inertial tail that keeps firing after the finger lifts; winit
@@ -374,11 +374,11 @@ impl OverlayWheelDamper {
     }
 }
 
-/// Convert a wheel delta into a signed font-size step count for Ctrl+wheel zoom
-/// (MOUSE-WHEEL): positive = wheel up = larger font, negative = smaller. One
+/// Convert a wheel delta into a signed font-size step count for Ctrl+wheel zoom:
+/// positive = wheel up = larger font, negative = smaller. One
 /// discrete wheel notch maps to one step; continuous touchpad input maps by
 /// sign only (magnitude 1) so a single swipe does not leap across many sizes.
-/// Independent of cell height — the caller applies the step in pixels and
+/// Independent of cell height - the caller applies the step in pixels and
 /// clamps to the supported range. Returns 0 for a zero delta (note: Rust's
 /// `0.0_f64.signum()` is `+1.0`, so the zero case is guarded explicitly).
 pub(super) fn wheel_zoom_steps(delta: MouseScrollDelta) -> i32 {
@@ -408,8 +408,8 @@ pub(super) fn wheel_zoom_steps(delta: MouseScrollDelta) -> i32 {
 /// ([`scroll_indicator_hit_with_padding`]), and the drag inverse
 /// ([`scrollbar_offset_for_drag_with_padding`]) so the draggable thumb can never
 /// diverge from the drawn thumb. The thumb height / travel / x-band depend only
-/// on `scrollback_len`, the grid dimensions, the cell size, and padding — never
-/// on the live `viewport_offset` — so an in-progress drag stays valid even as
+/// on `scrollback_len`, the grid dimensions, the cell size, and padding - never
+/// on the live `viewport_offset` - so an in-progress drag stays valid even as
 /// the offset passes through 0 (the live tail) on the way back up.
 struct ScrollbarGeometry {
     scrollback_len: usize,
@@ -571,13 +571,13 @@ pub(super) fn scroll_indicator_quad_with_padding(
         .map(|geometry| geometry.thumb_quad(viewport_offset, color))
 }
 
-/// Hit-test a pointer press (screen px) against the draggable scroll thumb
-/// (MOUSE-SCROLLBAR). Returns the grab offset within the thumb when the press
+/// Hit-test a pointer press (screen px) against the draggable scroll thumb.
+/// Returns the grab offset within the thumb when the press
 /// lands on the visible thumb's grab band, or `None` otherwise.
 ///
 /// Mirrors the render gate: the thumb is hidden (and therefore not grabbable) at
 /// the live tail (`viewport_offset == 0`) and without scrollback, so a press
-/// there is never captured — keeping the plain/fast press path byte-identical.
+/// there is never captured - keeping the plain/fast press path byte-identical.
 #[cfg(test)]
 pub(super) fn scroll_indicator_hit(
     x: f32,
@@ -617,8 +617,8 @@ pub(super) fn scroll_indicator_hit_with_padding(
     )
 }
 
-/// Map an in-progress scroll-thumb drag to a target scrollback offset
-/// (MOUSE-SCROLLBAR). `grab_dy` is the value returned by
+/// Map an in-progress scroll-thumb drag to a target scrollback offset.
+/// `grab_dy` is the value returned by
 /// [`scroll_indicator_hit_with_padding`] when the drag began. Returns `None`
 /// only when there is no scrollback / zero-area track; unlike the render and
 /// hit-test paths it does **not** gate on `viewport_offset`, so a drag stays

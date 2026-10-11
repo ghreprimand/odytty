@@ -247,7 +247,7 @@ pub enum HostFrame {
     },
     /// The host applied a resize (its own TIOCSWINSZ + model reflow) and the new
     /// grid dimensions must propagate to EVERY attached client, not just the one
-    /// that requested it (audit C-3). Without this a peer's resize silently
+    /// that requested it. Without this a peer's resize silently
     /// garbles the other clients' mirrors, which keep advancing at their old
     /// width against output the host formatted for the new width. Carries the
     /// post-resize dimensions plus the same `render_revision` an `Invalidate`
@@ -283,8 +283,8 @@ pub enum ClientFrame {
     /// run loop, and unlink the socket + lock so the session disappears from the
     /// registry. Emitted by "kill session" from the manager (kind 104, empty
     /// payload). A host from an OLDER binary that predates this frame decodes it
-    /// as [`ProtocolError::InvalidFrameKind`] and drops the client without dying
-    /// — acceptable degradation; the idle timeout still reaps it.
+    /// as [`ProtocolError::InvalidFrameKind`] and drops the client without dying -
+    /// acceptable degradation; the idle timeout still reaps it.
     Shutdown,
 }
 
@@ -484,7 +484,7 @@ fn write_frame(writer: &mut impl Write, kind: u8, payload: &[u8]) -> Result<(), 
     // was written before an error, but that distinction is load-bearing here.
     // A send timeout with zero progress leaves the stream clean (nothing on
     // the wire; callers may drop the frame and retry later), while a timeout
-    // AFTER partial progress leaves a truncated frame on the peer's wire —
+    // AFTER partial progress leaves a truncated frame on the peer's wire -
     // the stream is permanently desynced and must be torn down, so it
     // surfaces as the distinct [`ProtocolError::TruncatedWrite`] that no
     // caller treats as transient.
@@ -540,12 +540,12 @@ const FRAME_HEADER_LEN: usize = 5;
 ///
 /// The stateless [`read_host_frame`] frames with sequential `read_exact` calls,
 /// and `std::io::Read::read_exact` DISCARDS the bytes it already consumed when it
-/// errors partway through a buffer — e.g. when `SO_RCVTIMEO` fires mid-frame. A
+/// errors partway through a buffer - e.g. when `SO_RCVTIMEO` fires mid-frame. A
 /// caller that treats the timeout as "no frame yet" and retries on the same
 /// stream then parses leftover payload bytes as a fresh frame header, silently
-/// and permanently desyncing the stream (audit P1). That is safe only for
-/// blocking readers with no read timeout (`run_attach_pump`), where `read_exact`
-/// waits for the whole payload.
+/// and permanently desyncing the stream. The stateless path is safe only for a
+/// blocking reader with no read timeout, where `read_exact` waits for the whole
+/// payload.
 ///
 /// This reader keeps partial progress across calls: a `WouldBlock`/`TimedOut`
 /// error preserves every byte read so far, and the next call resumes exactly
@@ -639,7 +639,7 @@ pub enum ClientFramePoll {
     /// received. The caller may bound how long a frame is allowed to stay in
     /// this state before reclaiming the connection.
     PartialTimeout,
-    /// The read timed out (or would block) with no frame in progress — the peer
+    /// The read timed out (or would block) with no frame in progress - the peer
     /// is simply idle between frames, which is legitimate and must not detach.
     IdleTimeout,
 }
@@ -913,7 +913,7 @@ mod tests {
 
     /// A scripted `Write`: accepts a fixed byte budget then reports the
     /// bounded send timeout, modeling `SO_SNDTIMEO` firing after a partial
-    /// kernel write. Deterministic — no sockets, no sleeps.
+    /// kernel write. Deterministic - no sockets, no sleeps.
     struct StallingWriter {
         accept: usize,
         written: Vec<u8>,
@@ -1012,7 +1012,7 @@ mod tests {
 
     /// A scripted `Read`: replays a fixed sequence of byte chunks and
     /// `WouldBlock` timeouts, modeling a socket with `SO_RCVTIMEO` whose peer
-    /// stalls mid-frame. Deterministic — no sockets, no sleeps.
+    /// stalls mid-frame. Deterministic - no sockets, no sleeps.
     enum Step {
         Bytes(Vec<u8>),
         Timeout,
@@ -1134,7 +1134,7 @@ mod tests {
         assert!(resized(clamped.columns as u32, clamped.rows as u32).is_ok());
     }
 
-    /// Regression: audit C-3 -- the `Resized` host frame round-trips its
+    /// Regression: the `Resized` host frame round-trips its
     /// dimensions and render revision through the wire codec, and an older
     /// client (one that predates kind 6) rejects it as an unknown frame kind
     /// rather than misdecoding it as another frame.
@@ -1166,7 +1166,7 @@ mod tests {
         ));
     }
 
-    /// Regression: audit P1 — a read timeout firing mid-frame must not desync
+    /// Regression: a read timeout firing mid-frame must not desync
     /// the stream. The stateless reader loses the bytes `read_exact` already
     /// consumed and the retry decodes leftover payload as a frame header; the
     /// resumable reader keeps partial progress, so the poll-retry pattern
@@ -1177,7 +1177,7 @@ mod tests {
         let second = HostFrame::Invalidate { render_revision: 7 };
         let first_bytes = encoded_host_frame(&first);
         // Stall points: mid-header (after 3 of 5 header bytes) and mid-payload
-        // (after 5 of 10 payload bytes) — both read_exact loss sites.
+        // (after 5 of 10 payload bytes) - both read_exact loss sites.
         let mut reader = ScriptedReader {
             steps: [
                 Step::Bytes(first_bytes[..3].to_vec()),
@@ -1230,7 +1230,7 @@ mod tests {
             }
         }
         // The retry parsed payload bytes "hALF!" as a frame header: kind 0x68
-        // ('h') with a bogus multi-GB length — never the real Output frame.
+        // ('h') with a bogus multi-GB length - never the real Output frame.
         assert!(
             matches!(
                 outcome.as_slice(),

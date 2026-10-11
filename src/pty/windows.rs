@@ -23,8 +23,8 @@
 //! rendered to VT sequences on the output pipe, so output can differ from a raw
 //! Unix PTY. Echo and line discipline are owned by the console host, not POSIX
 //! termios. `kill` terminates the whole child tree via a per-session Job
-//! Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (WIN-JOB) — the ConPTY
-//! answer to the missing POSIX process-group kill — degrading to root-only
+//! Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` - the ConPTY
+//! answer to the missing POSIX process-group kill - degrading to root-only
 //! `TerminateProcess` if job creation/assignment failed at spawn.
 
 use core::ffi::c_void;
@@ -101,21 +101,21 @@ pub struct PtySession {
     /// Shell family captured from the actual spawn command, never from terminal output.
     launch_shell: Option<crate::shell_integration::ShellKind>,
     /// The pseudoconsole handle plus its close state, shared with the
-    /// child-waiter thread. P2-FIX: `ResizePseudoConsole` and
+    /// child-waiter thread. `ResizePseudoConsole` and
     /// `ClosePseudoConsole` are serialized under the [`PconShared`] mutex so a
     /// UI-thread resize can never overlap the waiter's asynchronous close of
     /// the same HPCON (a use-after-free inside conhost). Also carries the
-    /// original close-exactly-once guarantee across the three closers —
+    /// original close-exactly-once guarantee across the three closers -
     /// natural child exit (waiter), explicit `kill`, and `Drop`.
     pcon: Arc<PconShared>,
-    /// WIN-JOB: kill-on-close Job Object containing the child and every
+    /// Kill-on-close Job Object containing the child and every
     /// descendant it spawns. The child is created suspended and assigned to
     /// the job before its first instruction runs, so nothing it launches can
     /// escape. `kill` terminates the whole tree via [`TerminateJobObject`];
     /// dropping this last job handle is the OS-level backstop
     /// (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) that reaps any survivors even
     /// if the explicit kill failed. `None` when job creation or assignment
-    /// failed at spawn — the session then degrades to the old root-only
+    /// failed at spawn - the session then degrades to the old root-only
     /// `TerminateProcess` behavior.
     job: Option<OwnedHandle>,
     /// The child process handle. Owned: closed when the session drops.
@@ -135,7 +135,7 @@ pub struct PtySession {
     /// (e.g. the user types `exit`) close its tab without an explicit `kill`.
     waiter: Option<JoinHandle<()>>,
     /// One-shot slot for a startup-failure diagnostic. If the child exits
-    /// abnormally *shortly* after spawn (a loader/DLL-init failure — see
+    /// abnormally *shortly* after spawn (a loader/DLL-init failure - see
     /// [`describe_immediate_exit`]), the child-waiter thread records a
     /// human-readable line here before closing the pseudoconsole. The PTY pump
     /// drains it on the resulting reader EOF and writes it into the pane exactly
@@ -277,14 +277,14 @@ impl PtySession {
 
             // 2. Create the pseudoconsole. It consumes `input_read` (its stdin)
             //    and `output_write` (its stdout); it duplicates them internally,
-            //    so the parent copies are dropped immediately after — REQUIRED,
+            //    so the parent copies are dropped immediately after - REQUIRED,
             //    or the output reader never sees EOF.
             let size = coord(dimensions);
             let hpcon =
                 CreatePseudoConsole(size, handle_of(&input_read), handle_of(&output_write), 0)
                     .context("CreatePseudoConsole")?;
             // Guard the pseudoconsole so any `?` early return below (attribute
-            // setup or `CreateProcessW`) closes it instead of leaking it — Drop
+            // setup or `CreateProcessW`) closes it instead of leaking it - Drop
             // for PtySession only runs once `Self` is constructed at the bottom.
             let hpcon_guard = HpconGuard(hpcon);
             drop(input_read);
@@ -308,8 +308,8 @@ impl PtySession {
             // `cbSize = sizeof(HPCON)`. Passing `&hpcon` instead hands the kernel
             // a stack address in place of the pseudoconsole handle; the child
             // then attaches to a garbage pseudoconsole and dies during console
-            // wireup in DLL init with exit code 0xC0000142 (STATUS_DLL_INIT_FAILED)
-            // — while our direct conhost child (created correctly by
+            // wireup in DLL init with exit code 0xC0000142 (STATUS_DLL_INIT_FAILED) -
+            // while our direct conhost child (created correctly by
             // CreatePseudoConsole) stays alive. `HPCON` is `HPCON(pub isize)` in
             // the `windows` crate, so `hpcon.0` is the handle value; reinterpret
             // it as the `lpValue` pointer exactly as the C samples pass `hPC`.
@@ -334,7 +334,7 @@ impl PtySession {
             //    handles into a console-subsystem child whenever inheritance is
             //    disabled, no `STARTF_USESTDHANDLES` is set, and none of
             //    `CREATE_NEW_CONSOLE`/`CREATE_NO_WINDOW`/`DETACHED_PROCESS` is
-            //    given — a legacy compatibility path that predates ConPTY. The
+            //    given - a legacy compatibility path that predates ConPTY. The
             //    OS closes those copied handles at pseudoconsole attach ONLY
             //    when they are console handles; when the parent's std handles
             //    are pipes or files (any redirected parent: CI runners, `odytty
@@ -364,17 +364,17 @@ impl PtySession {
             //    Environment: we hand the child a PER-CHILD merged environment
             //    block (see [`build_env_block`]) and pass `lpEnvironment` pointing
             //    at it with `CREATE_UNICODE_ENVIRONMENT`. The block is THIS
-            //    process's full environment as reported by `GetEnvironmentStringsW`
-            //    — which (unlike Rust's `std::env::vars_os`) preserves the loader-
+            //    process's full environment as reported by `GetEnvironmentStringsW` -
+            // which (unlike Rust's `std::env::vars_os`) preserves the loader-
             //    critical hidden `=`-prefixed per-drive working-directory variables
             //    (`=C:=…`) and the leading `=::=::\` marker, whose absence makes a
             //    child fail DLL initialization with `0xC0000142`
-            //    (STATUS_DLL_INIT_FAILED) — with OdyTTY's constant terminal-
+            //    (STATUS_DLL_INIT_FAILED) - with OdyTTY's constant terminal-
             //    identification overrides (TERM/COLORTERM/TERM_PROGRAM[_VERSION])
             //    applied on top. Building a per-child block (rather than mutating
             //    our OWN process env via `SetEnvironmentVariableW` and inheriting)
             //    keeps every override scoped to the child it targets, with no
-            //    global process-env mutation — the latent cross-session leak/race
+            //    global process-env mutation - the latent cross-session leak/race
             //    the moment any per-session env (per-profile TERM, SSH-in-a-tab)
             //    exists. `env_block` must outlive the `CreateProcessW` call below.
             let env_block = build_env_block(&command.env, &command.env_remove);
@@ -388,9 +388,9 @@ impl PtySession {
                 None => PCWSTR::null(),
             };
 
-            // 6. WIN-JOB: create the kill-on-close Job Object BEFORE the child
+            // 6. create the kill-on-close Job Object BEFORE the child
             //    so the child can be created suspended and assigned to it
-            //    before its first instruction runs — otherwise a fast shell
+            //    before its first instruction runs - otherwise a fast shell
             //    could spawn a descendant in the gap and that descendant would
             //    escape the job. Best-effort: on failure the session degrades
             //    to the old root-only `TerminateProcess` teardown.
@@ -435,9 +435,9 @@ impl PtySession {
             )
             .context("CreateProcessW")?;
 
-            // 8. WIN-JOB: assign the (suspended) child to the job, then resume
-            //    it. Assignment failure is non-fatal — drop the job and degrade
-            //    to root-only kill — but the child MUST still be resumed, and a
+            // 8. assign the (suspended) child to the job, then resume
+            //    it. Assignment failure is non-fatal - drop the job and degrade
+            //    to root-only kill - but the child MUST still be resumed, and a
             //    resume failure is fatal (a permanently-frozen shell is a hung
             //    blank pane; terminate it and surface the spawn error instead).
             //    A held spawn is the exception: it stays suspended here and is
@@ -525,7 +525,7 @@ impl PtySession {
     }
 
     /// No-op on Windows: `ResizePseudoConsole` carries only a `COORD`
-    /// (columns × rows) — a ConPTY has no pixel-geometry field to populate.
+    /// (columns × rows) - a ConPTY has no pixel-geometry field to populate.
     /// Present for cross-platform API parity so the native layer can call
     /// `pty.set_cell_metrics(..)` unconditionally (the Unix backend uses it to
     /// fill `ws_xpixel`/`ws_ypixel` on TIOCSWINSZ).
@@ -534,7 +534,7 @@ impl PtySession {
     pub fn resize(&self, dimensions: Dimensions) -> Result<()> {
         #[cfg(test)]
         self.resize_calls.fetch_add(1, Ordering::Relaxed);
-        // P2-FIX: serialized against `ClosePseudoConsole` inside `PconShared`;
+        // Serialized against `ClosePseudoConsole` inside `PconShared`;
         // a resize racing the child-waiter's asynchronous close is either
         // ordered before it (valid handle) or after it (clean no-op).
         self.pcon.resize(coord(dimensions))
@@ -604,7 +604,7 @@ impl PtySession {
     /// cursor positioning on every resize. True for ConPTY: `ResizePseudoConsole`
     /// makes conhost reflow its own screen buffer and re-emit an absolute `CUP`
     /// on every resize, independent of the foreground app. So OdyTTY must NOT
-    /// translate the cursor itself — doing so fights conhost's repaint and
+    /// translate the cursor itself - doing so fights conhost's repaint and
     /// flings the cursor rows away from where PSReadLine places it. The terminal
     /// defers cursor placement to the shell when this is true.
     pub fn shell_repaints_on_resize(&self) -> bool {
@@ -632,7 +632,7 @@ impl PtySession {
     }
 
     /// ConPTY has no POSIX foreground process group, so this is always
-    /// [`ForegroundJob::Unknown`] — the contract's safe "indeterminate" default
+    /// [`ForegroundJob::Unknown`] - the contract's safe "indeterminate" default
     /// (callers treat it as safe-to-close, never prompting).
     pub fn foreground_job(&self) -> ForegroundJob {
         ForegroundJob::Unknown
@@ -685,7 +685,7 @@ impl PtySession {
     }
 
     pub fn kill(&mut self) -> Result<()> {
-        // D-5: signal deliberate teardown BEFORE terminating so the child-waiter
+        // Signal deliberate teardown BEFORE terminating so the child-waiter
         // thread does not misreport the forced-termination exit code as a
         // startup failure (e.g. closing a fresh tab within the startup window).
         self.pcon.request_teardown();
@@ -693,7 +693,7 @@ impl PtySession {
         // signals the process group, after which the master read returns
         // EIO→EOF once the slave closes), a ConPTY child's death does NOT close
         // the pseudoconsole's pipe ends. So after terminating we must also close
-        // the pseudoconsole here — that is the only thing that releases ConPTY's
+        // the pseudoconsole here - that is the only thing that releases ConPTY's
         // internal copy of the output pipe's write end and lets a blocked output
         // reader observe EOF. Without it the session-close path's
         // `pump_thread.join()` blocks forever on a reader that never completes
@@ -701,8 +701,8 @@ impl PtySession {
         // not only when `TerminateProcess` fires).
         let outcome = (|| -> Result<()> {
             if let Some(job) = &self.job {
-                // WIN-JOB: terminate the WHOLE tree — the shell and everything
-                // it spawned — in one call. Safe against already-exited
+                // Terminate the WHOLE tree - the shell and everything
+                // it spawned - in one call. Safe against already-exited
                 // members, so no `try_wait` pre-check is needed. Dropping the
                 // job handle later is the kill-on-close backstop.
                 // SAFETY: live owned job handle.
@@ -721,8 +721,8 @@ impl PtySession {
             }
             Ok(())
         })();
-        // Always close the pseudoconsole — even if the poll/terminate above
-        // failed — so a blocked output reader still observes EOF and the close
+        // Always close the pseudoconsole - even if the poll/terminate above
+        // failed - so a blocked output reader still observes EOF and the close
         // path's `pump_thread.join()` cannot deadlock.
         self.close_pcon();
         outcome
@@ -730,8 +730,8 @@ impl PtySession {
 
     /// Close the pseudoconsole exactly once, releasing ConPTY's internal copy of
     /// the output pipe's write end so any blocked output reader observes EOF.
-    /// Idempotent across all three closers — the child-waiter thread, `kill`,
-    /// and `Drop` — and serialized against `resize` (see [`PconShared`]).
+    /// Idempotent across all three closers - the child-waiter thread, `kill`,
+    /// and `Drop` - and serialized against `resize` (see [`PconShared`]).
     fn close_pcon(&mut self) {
         self.pcon.close_once();
     }
@@ -751,7 +751,7 @@ impl PtySession {
     /// *succeed* and then exits a moment later, so the spawn returns `Ok` yet the
     /// pane would otherwise stay blank. The child-waiter thread detects that
     /// abnormal-and-immediate exit, records a human-readable line into this slot
-    /// (and echoes it to stderr), then closes the pseudoconsole — which makes the
+    /// (and echoes it to stderr), then closes the pseudoconsole - which makes the
     /// pump's output reader observe EOF. The pump takes the line from here on
     /// that EOF and writes it into the pane exactly once, replacing the old
     /// synchronous 250 ms spawn-path wait with a zero-cost path that surfaces the
@@ -799,10 +799,10 @@ impl Drop for PtySession {
 /// P2-FIX (confirmed by P6-REPRO trace): the child-waiter closes the HPCON
 /// asynchronously the instant the child self-exits, while a UI-thread resize
 /// (window resize / divider drag) can be in flight on the still-alive
-/// `PtySession` — `ResizePseudoConsole` racing `ClosePseudoConsole` on the
+/// `PtySession` - `ResizePseudoConsole` racing `ClosePseudoConsole` on the
 /// same HPCON is a use-after-free inside conhost (ConPTY does not document
 /// thread-safety for concurrent Resize/Close). A flag-only check would be
-/// TOCTOU — the waiter can close between the load and the resize call — so
+/// TOCTOU - the waiter can close between the load and the resize call - so
 /// the mutex spans the Win32 calls themselves: `resize` and `close_once` can
 /// never overlap, and resize observes a definitively open-or-closed handle.
 ///
@@ -818,11 +818,11 @@ struct PconShared {
     /// critical sections span the `ResizePseudoConsole`/`ClosePseudoConsole`
     /// calls (see the type docs for why a bare atomic is not enough).
     closed: Mutex<bool>,
-    /// D-5: set once the session is being torn down deliberately (explicit
+    /// Set once the session is being torn down deliberately (explicit
     /// `kill` or `Drop`). The child-waiter thread reads it to avoid misreporting
     /// the forced-termination exit code as a startup failure when a fresh tab is
     /// closed within [`STARTUP_FAILURE_WINDOW`]. A plain latch (never cleared),
-    /// so a bare atomic is sufficient — it needs none of the resize/close
+    /// so a bare atomic is sufficient - it needs none of the resize/close
     /// serialization the `closed` mutex provides.
     teardown_requested: AtomicBool,
     /// Test-only counter of `ResizePseudoConsole` calls that actually reached
@@ -853,7 +853,7 @@ impl PconShared {
             .unwrap_or_else(|poison| poison.into_inner())
     }
 
-    /// D-5: mark that this session is being torn down deliberately (explicit
+    /// Mark that this session is being torn down deliberately (explicit
     /// `kill`/`Drop`), so the child-waiter thread suppresses the startup-failure
     /// diagnostic for the resulting forced-termination exit code. Latches; never
     /// cleared.
@@ -875,7 +875,7 @@ impl PconShared {
         if *closed {
             // The pseudoconsole is already torn down (the session is on its
             // way out through reader-EOF teardown); a late resize is a no-op,
-            // not an error — the caller's pane is about to disappear.
+            // not an error - the caller's pane is about to disappear.
             return Ok(());
         }
         #[cfg(test)]
@@ -902,11 +902,11 @@ impl PconShared {
     }
 }
 
-/// WIN-JOB: create a Job Object configured with
+/// Create a Job Object configured with
 /// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so that closing the last handle to
 /// the job terminates every process assigned to it. Combined with creating
 /// the child suspended and assigning it before resume, this contains the
-/// shell and every descendant it spawns — the ConPTY equivalent of the Unix
+/// shell and every descendant it spawns - the ConPTY equivalent of the Unix
 /// backend's process-group kill. Returns `None` if any step fails (the
 /// session then degrades to root-only termination rather than failing spawn).
 fn create_kill_on_close_job() -> Option<OwnedHandle> {
@@ -939,9 +939,9 @@ fn create_kill_on_close_job() -> Option<OwnedHandle> {
 /// a generous bound that still excludes any genuine interactive session.
 const STARTUP_FAILURE_WINDOW: Duration = Duration::from_millis(500);
 
-/// D-5: decide whether an abnormal child exit should surface as a startup
+/// Decide whether an abnormal child exit should surface as a startup
 /// failure. A deliberate teardown (`kill`/`Drop` force-terminates the child
-/// with [`KILL_EXIT_CODE`]) must NOT be reported — closing a fresh tab within
+/// with [`KILL_EXIT_CODE`]) must NOT be reported - closing a fresh tab within
 /// [`STARTUP_FAILURE_WINDOW`], or a legitimate fast one-shot the caller tore
 /// down, would otherwise trip the "could not start a usable shell" diagnostic.
 /// Only a non-zero, non-`STILL_ACTIVE` exit within the window that the session
@@ -957,14 +957,14 @@ fn should_report_startup_failure(code: u32, elapsed: Duration, teardown_requeste
 ///
 /// It owns a *duplicated* process handle (so it never races `try_wait`/`wait`/
 /// `Drop` on the session's own handle) and performs a single, blocking,
-/// zero-CPU `WaitForSingleObject(.., INFINITE)` — NOT a poll/sleep loop — that
+/// zero-CPU `WaitForSingleObject(.., INFINITE)` - NOT a poll/sleep loop - that
 /// wakes exactly once when the child exits. On wake it:
 ///   1. reads the child's exit code and, if it exited *abnormally and within*
 ///      [`STARTUP_FAILURE_WINDOW`] of the moment it began running (its spawn,
 ///      or its resume for a held child), records a startup-failure line into
 ///      `diagnostic` and echoes it to stderr (this folds the former synchronous
 ///      250 ms `diagnose_immediate_exit` spawn-path wait into the wait that
-///      already exists — no startup tax); then
+///      already exists - no startup tax); then
 ///   2. closes the pseudoconsole (idempotent via the shared flag), which makes
 ///      the pump's blocked output reader observe EOF; the app then tears the
 ///      session down through its single existing `ShellExited` path, and the
@@ -1089,14 +1089,14 @@ impl Read for PtyReader {
 
 /// `ERROR_BROKEN_PIPE` (109): the pipe has been ended (read or write end closed).
 const ERROR_BROKEN_PIPE: i32 = 109;
-/// `ERROR_NO_DATA` (232): "The pipe is being closed" — returned to a writer when
+/// `ERROR_NO_DATA` (232): "The pipe is being closed" - returned to a writer when
 /// the ConPTY/child read end has gone away.
 const ERROR_NO_DATA: i32 = 232;
 
-/// Input-pipe writer that normalizes a dead-pipe write — surfaced by Windows as
+/// Input-pipe writer that normalizes a dead-pipe write - surfaced by Windows as
 /// `ERROR_BROKEN_PIPE` (109, already `io::ErrorKind::BrokenPipe`) or the less
 /// obvious `ERROR_NO_DATA` (232, "the pipe is being closed", which Rust does NOT
-/// classify) — into a single canonical `io::ErrorKind::BrokenPipe` error.
+/// classify) - into a single canonical `io::ErrorKind::BrokenPipe` error.
 ///
 /// This mirrors [`PtyReader`]'s `EIO`/broken-pipe → EOF mapping on the read
 /// side, giving the writer honest, consistent error semantics: a write to a
@@ -1104,7 +1104,7 @@ const ERROR_NO_DATA: i32 = 232;
 /// `ERROR_NO_DATA` ("the pipe is being closed") that Rust would otherwise leave
 /// unclassified. Session teardown on child exit is owned by the child-waiter
 /// thread (it closes the pseudoconsole, the reader hits EOF, and the single
-/// `ShellExited` fires) — not by this wrapper; the normalization simply ensures
+/// `ShellExited` fires) - not by this wrapper; the normalization simply ensures
 /// any code that inspects a write error sees the correct `ErrorKind` instead of
 /// a confusing OS-specific one.
 struct PtyWriter {
@@ -1146,7 +1146,7 @@ struct HpconGuard(HPCON);
 impl Drop for HpconGuard {
     fn drop(&mut self) {
         // SAFETY: `self.0` came from a successful `CreatePseudoConsole` and is
-        // closed exactly once — only reached when the spawn errors out before
+        // closed exactly once - only reached when the spawn errors out before
         // ownership transfers to `PtySession` (which `forget`s this guard).
         unsafe {
             ClosePseudoConsole(self.0);
@@ -1200,11 +1200,11 @@ fn shell_command_builder(command: &str) -> CommandBuilder {
 
 /// Resolve the default interactive shell, preferring PowerShell so OdyTTY
 /// matches Windows Terminal's command surface out of the box (so `ls`, `cat`,
-/// and other modern commands work — `cmd.exe` only has `dir` and friends).
+/// and other modern commands work - `cmd.exe` only has `dir` and friends).
 /// Precedence:
-///   1. `pwsh.exe` (PowerShell 7) — found on `%PATH%`, else the well-known
+///   1. `pwsh.exe` (PowerShell 7) - found on `%PATH%`, else the well-known
 ///      `%ProgramFiles%\PowerShell\7\pwsh.exe`. Often absent.
-///   2. `powershell.exe` (Windows PowerShell 5.1) — resolved by its fixed
+///   2. `powershell.exe` (Windows PowerShell 5.1) - resolved by its fixed
 ///      absolute path under `%SystemRoot%\System32\WindowsPowerShell\v1.0\`,
 ///      which is present on every Windows install (do not trust `%PATH%` alone).
 ///   3. `%ComSpec%`, else `%SystemRoot%\System32\cmd.exe` - last resort, always
@@ -1315,7 +1315,7 @@ fn find_on_path(exe: &str) -> Option<OsString> {
     find_exe_in_dirs(std::env::split_paths(&path), exe)
 }
 
-/// D-6: resolve `exe` against each `dir`, accepting only an ABSOLUTE existing
+/// Resolve `exe` against each `dir`, accepting only an ABSOLUTE existing
 /// file. Empty `%PATH%` segments (`;;`, a trailing `;`) and any relative entry
 /// (`.`, a bare name) are skipped so a `pwsh.exe` planted in the process
 /// working directory can never be resolved and handed to `CreateProcessW`
@@ -1328,7 +1328,7 @@ fn find_exe_in_dirs<I: IntoIterator<Item = PathBuf>>(dirs: I, exe: &str) -> Opti
         .map(PathBuf::into_os_string)
 }
 
-/// Format a diagnostic line for an abnormal *immediate* child exit — a shell
+/// Format a diagnostic line for an abnormal *immediate* child exit - a shell
 /// that `CreateProcessW` created successfully but that then died during its own
 /// startup (loader/DLL init), leaving an otherwise-blank pane. It surfaces ANY
 /// such early failure as text; the `match` only decodes the few NT status codes
@@ -1337,9 +1337,9 @@ fn find_exe_in_dirs<I: IntoIterator<Item = PathBuf>>(dirs: I, exe: &str) -> Opti
 /// model.
 fn describe_immediate_exit(code: u32) -> String {
     let detail = match code {
-        0xC0000142 => " — STATUS_DLL_INIT_FAILED, a DLL failed to initialize",
-        0xC0000135 => " — STATUS_DLL_NOT_FOUND, a required DLL is missing",
-        0xC0000139 => " — STATUS_ENTRYPOINT_NOT_FOUND",
+        0xC0000142 => ": STATUS_DLL_INIT_FAILED, a DLL failed to initialize",
+        0xC0000135 => ": STATUS_DLL_NOT_FOUND, a required DLL is missing",
+        0xC0000139 => ": STATUS_ENTRYPOINT_NOT_FOUND",
         _ => "",
     };
     format!(
@@ -1485,12 +1485,12 @@ fn build_command_line(command: &CommandBuilder) -> Vec<u16> {
 
 /// Append a single argument to a command line, quoting per the standard MSVC
 /// `CommandLineToArgvW` backslash/quote escaping rules. The argument is
-/// surrounded by double quotes only when it needs them — it is empty, or it
+/// surrounded by double quotes only when it needs them - it is empty, or it
 /// contains a space, tab, or double quote. A separator-free token (a switch
 /// like `/C`, a path with no spaces) is emitted bare.
 ///
-/// D-8: bare emission matters for the `%ComSpec%` / `cmd.exe` fallback, whose
-/// parser does NOT follow the `CommandLineToArgvW` quoting rules — it must
+/// Bare emission matters for the `%ComSpec%` / `cmd.exe` fallback, whose
+/// parser does NOT follow the `CommandLineToArgvW` quoting rules - it must
 /// receive `/C` verbatim, not `"/C"`. `CommandLineToArgvW` (the PowerShell
 /// path) parses the bare and quoted forms of a separator-free token
 /// identically, so conditional quoting is safe for every consumer while
@@ -1539,15 +1539,15 @@ fn append_arg(line: &mut Vec<u16>, arg: &OsStr) {
 /// The base is taken from [`current_process_env`] (`GetEnvironmentStringsW`),
 /// NOT `std::env::vars_os`, because the former preserves the loader-critical
 /// hidden `=`-prefixed per-drive working-directory variables (`=C:=…`) and the
-/// `=::=::\` marker that the latter silently drops — their absence makes a child
+/// `=::=::\` marker that the latter silently drops - their absence makes a child
 /// fail DLL initialization with `0xC0000142` (STATUS_DLL_INIT_FAILED). Any
 /// existing variable whose name matches an override (case-insensitively, as
 /// Windows env names are) is dropped so the override replaces it rather than
 /// duplicating it; the hidden `=`-prefixed vars never match a normal override
 /// name and are carried through verbatim.
 ///
-/// Building a per-child block — rather than mutating this process's own
-/// environment and inheriting — keeps every override scoped to the child it
+/// Building a per-child block - rather than mutating this process's own
+/// environment and inheriting - keeps every override scoped to the child it
 /// targets, eliminating the global-mutation cross-session leak/race that would
 /// appear the moment per-session env (per-profile TERM, SSH-in-a-tab) exists.
 ///
@@ -1605,10 +1605,10 @@ fn build_env_block(overrides: &[(OsString, OsString)], removals: &[OsString]) ->
         entries.push(entry);
     }
 
-    // D-7: `CreateProcessW` with `CREATE_UNICODE_ENVIRONMENT` requires the block
+    // `CreateProcessW` with `CREATE_UNICODE_ENVIRONMENT` requires the block
     // to be sorted case-insensitively by variable name (Unicode order,
     // locale-independent). `GetEnvironmentStringsW` returns the base already
-    // sorted, but appending the TERM* overrides at the end broke that order —
+    // sorted, but appending the TERM* overrides at the end broke that order -
     // re-sort by key so each override lands in its correct position. The hidden
     // `=`-prefixed per-drive variables sort ahead of ordinary names (their keys
     // begin with `=`), matching how Windows itself orders them.

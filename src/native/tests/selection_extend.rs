@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! MOUSE-EXTEND App-level tests: drag-extend selection by word/line, Shift+click
-//! extend, and — crucially, because the feature ships DEFAULT ON — the inverted
+//! extend, and - crucially, because the feature ships DEFAULT ON - the inverted
 //! parity proof that `selection_drag_extend = false` reproduces the historical
 //! click-to-finish behavior byte-identically. These drive a real `App` over a
 //! one-shot PTY (skipped when none is available, as in CI sandboxes), exercising
@@ -45,7 +45,7 @@ fn off_branch_double_click_finalizes_byte_identically() {
 
     multiclick(&mut app, 0, 2, 2);
 
-    // OFF parity: the double-click finalizes exactly as before — no live drag,
+    // OFF parity: the double-click finalizes exactly as before - no live drag,
     // the clicked word is selected.
     assert!(
         !app.selecting_for_test(),
@@ -119,7 +119,7 @@ fn on_plain_double_click_does_not_arm_primary_write() {
     multiclick(&mut app, 0, 2, 2);
 
     // The drag is live, but a plain double-click that never dragged stays
-    // no-write — byte-identical to the historical finalize (which wrote nothing
+    // no-write - byte-identical to the historical finalize (which wrote nothing
     // to PRIMARY on a multiclick).
     assert!(app.selecting_for_test());
     assert!(
@@ -188,13 +188,13 @@ fn off_branch_shift_click_starts_new_selection() {
     app.finish_selection_for_test();
     assert_eq!(app.selection_text_for_test().as_deref(), Some("hello"));
 
-    // OFF: Shift+click does NOT extend — it falls through to the historical
+    // OFF: Shift+click does NOT extend - it falls through to the historical
     // click-count dispatch (a fresh single-click drag at the click cell).
     app.set_shift_modifier_for_test(true);
     app.set_pointer_cell_for_test(0, 16);
     app.begin_selection_for_test();
     // A fresh single click begins an empty drag (anchor == focus), so no range
-    // spans yet — proving it did not extend the prior "hello" selection.
+    // spans yet - proving it did not extend the prior "hello" selection.
     assert!(app.selecting_for_test());
     assert_eq!(
         app.selection_text_for_test(),

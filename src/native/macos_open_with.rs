@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! macOS-native "Open With…" enumeration (Phase 17).
+//! macOS-native "Open With…" enumeration.
 //!
 //! The Linux enumeration in `crate::desktop::enumerate_open_with` is 100%
 //! freedesktop (`.desktop` / `mimeapps.list` / `mimeinfo.cache`); none of those

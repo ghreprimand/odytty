@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Driver-level integration tests for [`OdyParser`] — feed bytes and assert
+//! Driver-level integration tests for [`OdyParser`] - feed bytes and assert
 //! the recorded [`VtDispatch`] action stream matches expectation. These
 //! exercise the full Layer 1 → Layer 2 → adapter path; parser golden and
 //! self-consistency tests cover the full corpus.
@@ -539,7 +539,7 @@ fn invalid_utf8_emits_fffd() {
     );
 }
 
-/// I-6: the OSC dispatch path must not heap-allocate per terminated OSC. Shell
+/// The OSC dispatch path must not heap-allocate per terminated OSC. Shell
 /// integration emits several OSC 133/7 per prompt; the previous code built a
 /// `Vec<&[u8]>` on every dispatch. A process-wide counting allocator (active
 /// only while a per-thread guard is set) proves a warmed parser dispatches a

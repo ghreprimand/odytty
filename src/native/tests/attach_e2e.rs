@@ -12,12 +12,12 @@
 //! 1. spawn a real `odytty session-host` subprocess owning a real PTY child;
 //! 2. attach with the real `AttachClient`, restore the snapshot (full
 //!    pre-attach scrollback), and drive input the child echoes;
-//! 3. drop the client (clean detach — the window-close path) and assert the
+//! 3. drop the client (clean detach - the window-close path) and assert the
 //!    host process SURVIVES with its PTY + scrollback intact;
 //! 4. reattach by id with a fresh client and assert the restored snapshot
 //!    carries the scrollback produced before + during the first attach, plus
 //!    the mid-attach output (proving it landed in the host's terminal model);
-//! 5. end the child and assert the host process reaps cleanly — no orphaned
+//! 5. end the child and assert the host process reaps cleanly - no orphaned
 //!    daemon and no stale socket.
 //!
 //! Hermetic: a synthetic runtime base under a short socket directory (the host creates
@@ -45,7 +45,7 @@ fn odytty_bin() -> PathBuf {
         }
     }
     panic!(
-        "odytty binary not found near {} — run `cargo build` first (cargo test builds it automatically)",
+        "odytty binary not found near {}: run `cargo build` first (cargo test builds it automatically)",
         profile.display()
     );
 }
@@ -134,7 +134,7 @@ fn wait_until(timeout: Duration, mut cond: impl FnMut() -> bool) -> bool {
 /// passes; otherwise cleanly detach and return `None`. A connect/snapshot error
 /// (e.g. the previous client's detach not yet processed, or a transient
 /// snapshot read hiccup on a slow runner) also maps to `None` so the poll
-/// retries rather than failing — the read is repeated against fresh host state
+/// retries rather than failing - the read is repeated against fresh host state
 /// instead of trusting a single timing-sensitive attempt.
 fn try_attach_matching(
     socket: &Path,
@@ -153,7 +153,7 @@ fn try_attach_matching(
 /// Poll [`try_attach_matching`] until the restored snapshot satisfies `accept`
 /// or the deadline elapses. This is the deterministic replacement for "sleep a
 /// fixed amount, then attach once and hope the host's terminal model already
-/// reflects the expected state" — host-side work (the child printing, or an echo
+/// reflects the expected state" - host-side work (the child printing, or an echo
 /// of mid-attach input folding into the model) is observed by re-reading the
 /// snapshot until it appears, not by a fixed wait. Sequential attaches only
 /// (each fully detached before the next), so the single-client host invariant

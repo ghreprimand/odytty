@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! INTERACTIVE-URLS: App-level wiring tests for bare-URL hover + Ctrl+click open.
+//! App-level wiring tests for bare-URL hover + Ctrl+click open.
 //!
 //! These drive the production pointer/hover path headlessly to pin the WIRING:
 //! that an openable bare URL under the pointer latches `hovered_url` when the
@@ -10,7 +10,7 @@
 //! `crate::hints`; this only pins the App glue.
 //!
 //! Synthetic only: a bare URL is printed into the grid and resolved against the
-//! in-memory snapshot — no network, no filesystem. Skipped when no PTY is
+//! in-memory snapshot - no network, no filesystem. Skipped when no PTY is
 //! available (CI sandboxes).
 
 use super::*;
@@ -21,7 +21,7 @@ const ROWS: usize = 24;
 const CELL_W: u32 = 8;
 const CELL_H: u32 = 10;
 
-// "see https://example.com here" — the URL occupies columns 4..=22.
+// "see https://example.com here" - the URL occupies columns 4..=22.
 const LINE: &[u8] = b"see https://example.com here";
 const URL: &str = "https://example.com";
 const URL_START_COL: usize = 4;

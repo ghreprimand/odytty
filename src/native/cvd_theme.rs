@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Native CVD theme-wiring layer (U4): turn the authored presentation theme
+//! Native CVD theme-wiring layer: turn the authored presentation theme
 //! into the *effective* theme that is actually published to the renderer when a
 //! colour-vision-deficiency mode is active.
 //!
@@ -9,8 +9,8 @@
 //!
 //! ## What it adapts (palette scope)
 //!
-//! [`effective_theme`] adapts the palette payload only — the 16 ANSI colours
-//! plus the cursor / selection / search role colours — via
+//! [`effective_theme`] adapts the palette payload only - the 16 ANSI colours
+//! plus the cursor / selection / search role colours - via
 //! [`crate::cvd::adapt_palette`], which also re-floors the result so it stays
 //! readable. Indexed-256 colours and application truecolour are **not** remapped
 //! (a per-cell output lens is a deferred horizon, recorded so it is not lost);
@@ -18,7 +18,7 @@
 //!
 //! ## Off is the pixel-identical baseline
 //!
-//! When the mode is [`CvdMode::Off`] — the default — or the strength is `<= 0`,
+//! When the mode is [`CvdMode::Off`] - the default - or the strength is `<= 0`,
 //! [`effective_theme`] returns the authored theme **unchanged** (a `Copy`), so
 //! every downstream publish sees byte-identical colours and the plain path is
 //! preserved exactly. The off short-circuit (not [`crate::cvd::adapt_palette`]'s
@@ -36,7 +36,7 @@
 //! ## Builder bypass seam (available, not yet routed)
 //!
 //! [`effective_theme`] is exposed so the theme builder's live preview can be
-//! routed *around* adaptation in a later step — keeping authoring WYSIWYG-to-file
+//! routed *around* adaptation in a later step - keeping authoring WYSIWYG-to-file
 //! by publishing the authored theme directly. That bypass is not wired yet: today
 //! the builder preview flows through the normal settings-apply path like any
 //! other theme application, so with a CVD mode active a preview is adapted too.
@@ -64,7 +64,7 @@ fn cvd_type(mode: CvdMode) -> Option<CvdType> {
     }
 }
 
-/// Classify a theme's appearance from its background luminance (D-U4-2): do not
+/// Classify a theme's appearance from its background luminance: do not
 /// trust [`ThemeSpec::from_theme`]'s `Dark` default, which would mis-exempt a
 /// light theme's neutrals during the re-floor.
 fn appearance_from_background(background: Srgb) -> Appearance {
@@ -86,7 +86,7 @@ fn appearance_from_background(background: Srgb) -> Appearance {
 ///
 /// Pure and deterministic: identical inputs yield identical output. This is the
 /// seam a later step can route the theme builder's preview *around* for WYSIWYG
-/// authoring (not yet wired — preview currently flows through adaptation).
+/// authoring (not yet wired - preview currently flows through adaptation).
 pub(crate) fn effective_theme(base: &Theme, mode: CvdMode, strength: f32) -> Theme {
     let Some(ty) = cvd_type(mode) else {
         return *base;
@@ -99,7 +99,7 @@ pub(crate) fn effective_theme(base: &Theme, mode: CvdMode, strength: f32) -> The
     cvd::adapt_palette(&spec, ty, strength).to_theme()
 }
 
-/// One-entry cache for the effective theme (D-U4-4).
+/// One-entry cache for the effective theme.
 ///
 /// [`effective_theme`] re-floors the whole palette, which is non-trivial, and
 /// `apply_settings` can fire repeatedly (e.g. while a slider is dragged). The

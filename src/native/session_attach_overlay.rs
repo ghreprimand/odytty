@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Native session-attach summon overlay (Phase 5 / B2).
+//! Native session-attach summon overlay.
 //!
 //! The in-window analogue of `odytty attach`: a presentation-only overlay that
 //! lists the live, detached session-host sessions, type-to-filters them, and on
@@ -12,7 +12,7 @@
 //! Privacy / safety: the overlay only displays whatever the App handed it
 //! through [`crate::session_host::list_live_sessions`]; it reads
 //! nothing itself. Session names carry the user-supplied `--title`, so they are
-//! control-char-sanitized before display exactly like host names — a malformed
+//! control-char-sanitized before display exactly like host names - a malformed
 //! title can never inject escape sequences into the overlay's plain-text rows.
 
 use std::cell::Cell;
@@ -62,9 +62,9 @@ pub(super) struct SessionAttachOverlay {
     /// legend rows so a single-window session never offers a merge that could
     /// only open an empty, refused picker. `false` by default.
     merge_targets_available: bool,
-    /// Scroll offset into `filtered` for the visible window on a short overlay
-    /// (OVERLAY-SMALL-WINDOW). Interior-mutable so the render pass — the only
-    /// place the live body height is known — can keep the selection in view,
+    /// Scroll offset into `filtered` for the visible window on a short overlay.
+    /// Interior-mutable so the render pass - the only
+    /// place the live body height is known - can keep the selection in view,
     /// mirroring the connection/palette overlays. `0` whenever everything fits,
     /// so a tall overlay is byte-identical to before scrolling existed.
     scroll_offset: Cell<usize>,
@@ -312,7 +312,7 @@ impl SessionAttachOverlay {
         self.follow_selection_for_known_body_height();
     }
 
-    /// Map a clicked body row to the selection cursor it represents — the
+    /// Map a clicked body row to the selection cursor it represents - the
     /// inverse of the [`Self::visible_lines`] windowing (UX4-P1 click→Activate).
     /// Row 0 is the `> query` prompt; results follow from the live
     /// `scroll_offset`. Returns `None` for the prompt row, the empty/"No
@@ -480,7 +480,7 @@ impl SessionAttachOverlay {
     }
 
     /// Hidden result rows above / below the visible window, for the shared
-    /// scroll affordance (OVERLAY-SMALL-WINDOW). One body row is the query line
+    /// scroll affordance. One body row is the query line
     /// and the selected entry's opt-in preview block is reserved, so the result
     /// viewport is [`Self::result_viewport`] (`body_height - 1` with preview
     /// off). `(false, false)` whenever everything fits, so a tall overlay draws
@@ -867,7 +867,7 @@ mod tests {
     fn click_row_zero_is_the_query_prompt_not_a_row() {
         let mut overlay = open(entries());
         let _ = overlay.visible_lines(80, 10);
-        // Row 0 is the `> query` prompt — never a selectable row.
+        // Row 0 is the `> query` prompt - never a selectable row.
         assert!(overlay.row_at(0, 10).is_none());
         assert!(!overlay.click_row(0, 10));
     }

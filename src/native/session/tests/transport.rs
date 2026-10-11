@@ -295,14 +295,14 @@ fn spawn_inherits_an_explicit_working_directory() {
 
 #[test]
 fn resize_all_panes_honors_shell_owns_cursor_through_app_entry_point() {
-    // END-TO-END guard for the path the OPERATOR'S window actually drives.
+    // END-TO-END guard for the path the USER'S window actually drives.
     // The Screen-unit `shell_owns_cursor_setter_getter_behavior_tie` proves
     // `Terminal::resize` honors the flag; this proves the flag survives and
-    // is honored when the resize is driven through `resize_all_panes` — the
+    // is honored when the resize is driven through `resize_all_panes` - the
     // exact entry point the App calls on every `Resized` event. It closes
     // the gap between "the flag is SET on the session terminal at creation"
     // (the spawned-pane wire test) and "the flag is HONORED in the resize
-    // the operator sees," which the Windows on-device cursor-translation
+    // the user sees," which the Windows on-device cursor-translation
     // trace put in question.
     //
     // Both arms set up the identical wrapped buffer at 4x3 ("$ hello" →
@@ -332,7 +332,7 @@ fn resize_all_panes_honors_shell_owns_cursor_through_app_entry_point() {
     };
 
     // DEFAULT (false): the App resize path TRANSLATES the cursor to
-    // end-of-content — the historical Linux/POSIX behavior and the exact
+    // end-of-content - the historical Linux/POSIX behavior and the exact
     // symptom captured on Windows on-device when the flag is not live at
     // resize time.
     let (mut translate, incoming) = setup(false);
@@ -355,7 +355,7 @@ fn resize_all_panes_honors_shell_owns_cursor_through_app_entry_point() {
     );
 
     // SHELL-OWNS (true, the ConPTY/Windows capability): the App resize path
-    // must DEFER — keep the incoming cursor clamped to the new dims for the
+    // must DEFER - keep the incoming cursor clamped to the new dims for the
     // shell's absolute repaint to own. This is the assertion that fails if
     // any layer between the wired terminal and `resize_all_panes` drops or
     // ignores the flag.
@@ -435,7 +435,7 @@ fn classify_remote_exit_maps_255_to_reconnect_and_everything_else_to_close() {
     // connection failures, so 255 (and only 255) offers reconnect.
     assert_eq!(classify_remote_exit(Some(255)), ExitDisposition::Reconnect);
     // Clean exit, ordinary remote-command failures, and a signal/unknown
-    // (`None` — Unix signal death or a Windows post-EOF STILL_ACTIVE
+    // (`None` - Unix signal death or a Windows post-EOF STILL_ACTIVE
     // sentinel) all close normally.
     for code in [Some(0), Some(1), Some(126), Some(127), Some(130), None] {
         assert_eq!(
@@ -476,7 +476,7 @@ fn ssh_session_stores_reconnect_anchor_but_a_local_shell_does_not() {
     assert!(sessions.close(SessionToken(0)));
 }
 
-/// RESTORE-UPLOAD: image paste-through (F6-i7) is a remote *integrated*
+/// Image paste-through is a remote *integrated*
 /// feature, so the shared upload-descriptor builder engages only when
 /// integration is on and yields the ssh destination; a plain-ssh host leaves
 /// it unset. Pure logic, so it also covers the Windows client (where
@@ -554,8 +554,8 @@ fn restored_integrated_remote_pane_exposes_its_upload_target() {
     assert!(sessions.close(SessionToken(0)));
 }
 
-/// RESTORE-UPLOAD: a restored plain-ssh (integration-off) remote pane leaves
-/// paste-through unset — byte-identical to before — so a restored pane never
+/// A restored plain-ssh (integration-off) remote pane leaves
+/// paste-through unset - byte-identical to before - so a restored pane never
 /// gains a capability its freshly-connected twin lacks.
 #[cfg_attr(
     target_os = "macos",
@@ -612,7 +612,7 @@ fn arm_reconnect_holds_the_tab_open_on_a_255_drop_and_paints_the_banner() {
         .expect("ssh stub session");
     // Poll until the child has exited (255): while it is still running,
     // `try_wait` returns `Ok(None)` non-destructively, so a `false` here just
-    // means "not dead yet" — retry. Once dead, the code is captured once and
+    // means "not dead yet" - retry. Once dead, the code is captured once and
     // the tab is held open.
     let armed = (0..200).any(|_| {
         if sessions.try_arm_reconnect(ssh) {
@@ -660,7 +660,7 @@ fn arm_reconnect_declines_a_clean_exit() {
         .spawn_ssh_command_in_new_tab_for_test(Dimensions::new(20, 8), exit_code_command(0))
         .expect("ssh stub session");
     // Reap the child up-front so its status is consumed; the subsequent
-    // `try_arm_reconnect` sees an unknown (`None`) code — which, like the
+    // `try_arm_reconnect` sees an unknown (`None`) code - which, like the
     // clean 0 it exited with, must NOT arm reconnect.
     let _ = sessions
         .get(ssh)
@@ -751,7 +751,7 @@ fn reconnect_resets_stale_input_reporting_modes() {
     // A pre-drop remote shell (or a TUI) latches bracketed paste on the
     // reused model. Reconnect must clear it so a paste into the FRESH shell
     // is not wrapped in \e[200~/\e[201~ markers the new readline never
-    // enabled — otherwise they echo literally into the command line.
+    // enabled - otherwise they echo literally into the command line.
     crate::native::lock_recover(&sessions.get(ssh).expect("ssh session").terminal)
         .advance(b"\x1b[?2004h");
     assert!(
@@ -801,7 +801,7 @@ fn default_session_source_is_local() {
 #[cfg(unix)]
 fn local_session_resize_routes_to_pty_unchanged() {
     // BYTE-IDENTITY GUARD: resizing a local session must push the exact same
-    // TIOCSWINSZ to the concrete PTY as before Phase 2 — the `Local` match
+    // TIOCSWINSZ to the concrete PTY as before Phase 2 - the `Local` match
     // arm is the identical `pty.lock().resize(...)` call.
     let mut set = WorkspaceSet::new(build_local_session_with_id(SessionToken(0)), None);
     let content = PaneRect::new(0.0, 0.0, 800.0, 400.0);

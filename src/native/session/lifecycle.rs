@@ -17,12 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
-/// The one-line in-pane notice painted when a remote link drops. Written into
-/// the terminal model on its own line (leading/trailing CRLF) using standard SGR
-/// so it renders in every theme's palette, and kept short enough for a narrow
-/// pane. The prompt actions (Enter / Esc) are handled by the App's key path
-/// while the session is awaiting reconnect.
-/// CLOSE-HANG: the bounded wall-clock budget the whole-app shutdown teardown
+/// The bounded wall-clock budget the whole-app shutdown teardown
 /// waits for every session's child to be reaped and its pump thread joined
 /// before it detaches the reaper and lets the process exit anyway. Healthy
 /// sessions reap in well under this (the wait returns the instant the reaper
@@ -48,8 +43,8 @@ const CLOSE_JOIN_POLL: std::time::Duration = std::time::Duration::from_millis(10
 /// slave fd is closed. `kill` SIGKILLs the child's process group, but a
 /// `setsid`'d grandchild in a foreign group (e.g. an `ssh` ControlMaster /
 /// ControlPersist mux, or a disowned daemon) that inherited the slave is out of
-/// reach, so the master never EOFs and a plain `join` — plus this reaper, the
-/// pump thread, the writer thread, and the master fds — would block forever.
+/// reach, so the master never EOFs and a plain `join` - plus this reaper, the
+/// pump thread, the writer thread, and the master fds - would block forever.
 /// After [`CLOSE_READER_JOIN_GRACE`] the reader is forced to EOF through the
 /// session's wake pipe, so the pump exits and the join completes; nothing leaks
 /// even on the grandchild-holds-the-slave case.
@@ -101,7 +96,7 @@ pub(super) fn held_exit_banner(code: Option<i32>) -> String {
 
 impl Session {
     /// Fire a best-effort remote cleanup for any images this session uploaded
-    /// during its life (F6-i7). Closing the upload ledger also hands cleanup
+    /// during its life. Closing the upload ledger also hands cleanup
     /// ownership to any upload still in flight: when it finishes it removes
     /// its own remote file. The `rm -f` runs over a detached `ssh` (reusing
     /// the live `ControlMaster` when available) with a bounded lifetime, so
@@ -134,16 +129,16 @@ impl Session {
         let pump_thread = self.pump_thread.take();
         match self.source {
             SessionSource::Local { pty } => {
-                // Kill promptly on the calling (main) thread — SIGKILL delivery
+                // Kill promptly on the calling (main) thread - SIGKILL delivery
                 // never waits for the child to actually die.
                 if let Ok(mut guard) = pty.lock() {
                     let _ = guard.kill();
                 }
                 // Defer the blocking reap (`wait`) + reader join to a detached
-                // thread. CLOSE-HANG-2: a ControlPersist mux master (or any
+                // thread. a ControlPersist mux master (or any
                 // `setsid`'d grandchild in a foreign process group) can hold the
                 // PTY slave open after the child is killed, so the reader never
-                // sees EOF on its own and a plain join would block forever —
+                // sees EOF on its own and a plain join would block forever -
                 // leaking this reaper, the pump thread, the writer thread, and
                 // the master fds. `bounded_pump_join` bounds the join and, if the
                 // reader is still wedged after the grace, forces it to EOF via the
@@ -210,7 +205,7 @@ impl Session {
             }
             // The host child already exited (or the link dropped). Detach is
             // best-effort network I/O and the reader is ending on its own, but a
-            // wedged control socket could still stall an inline detach + join —
+            // wedged control socket could still stall an inline detach + join -
             // run both off the main thread, matching the Local arm.
             #[cfg(unix)]
             SessionSource::Attached { client } => {
@@ -237,26 +232,26 @@ impl Session {
     }
 
     /// Whole-app shutdown teardown for one session. SIGKILL the child *now*
-    /// (synchronous but non-blocking — signal delivery never waits) so no
+    /// (synchronous but non-blocking - signal delivery never waits) so no
     /// runaway shell or `ssh` client survives the process, then return the
     /// blocking reap (`wait`) + pump-thread join as a deferred closure the
     /// caller runs OFF the main thread under a single bounded deadline
     /// ([`WorkspaceSet::shutdown_all`]). This is the CLOSE-HANG fix: a wedged
-    /// remote — an `ssh` client parked in a dead-socket syscall whose `wait()`
+    /// remote - an `ssh` client parked in a dead-socket syscall whose `wait()`
     /// blocks for the kernel's network timeout, or a reader thread that never
-    /// sees EOF — must never delay window teardown. The process is exiting, so
+    /// sees EOF - must never delay window teardown. The process is exiting, so
     /// if the deferred reaper outlives the deadline the OS reaps the orphaned
     /// child and the detached thread dies with the process. [`Self::close`]
     /// (single-tab close in a long-lived process) uses the same off-main-thread
-    /// deferral, but its reaper runs to completion — reaping the zombie and
-    /// joining the reader — rather than leaning on process exit, so a live
+    /// deferral, but its reaper runs to completion - reaping the zombie and
+    /// joining the reader - rather than leaning on process exit, so a live
     /// process leaks neither.
     pub(super) fn shutdown(mut self) -> Box<dyn FnOnce() + Send> {
         self.fire_upload_cleanup();
         let pump_thread = self.pump_thread.take();
         match self.source {
             SessionSource::Local { pty } => {
-                // Kill promptly on the calling thread — SIGKILL is delivered
+                // Kill promptly on the calling thread - SIGKILL is delivered
                 // without waiting for the child to actually die.
                 if let Ok(mut guard) = pty.lock() {
                     let _ = guard.kill();
@@ -296,8 +291,8 @@ impl Session {
 
 /// Workspace-level operations (design doc §3.1, ODP-3/-10). These are the model
 /// half of the workspace layer: create / switch / rename / close a workspace and
-/// query the workspace list. The keyboard/palette layer (W3) wires these in; the
-/// rail chrome (W2) reuses them. None of them run until a second workspace
+/// query the workspace list. The keyboard/palette layer wires these in; the
+/// rail chrome reuses them. None of them run until a second workspace
 /// exists, so single-workspace behavior is untouched.
 impl WorkspaceSet {
     /// Remove the workspace at `ws_idx` (its last tab just closed - no empty
@@ -318,14 +313,14 @@ impl WorkspaceSet {
         false
     }
 
-    /// Whole-app shutdown (CLOSE-HANG): drain every session, SIGKILL each child
+    /// Whole-app shutdown: drain every session, SIGKILL each child
     /// promptly on the calling thread, then reap + join them OFF the calling
     /// thread under a single bounded `deadline`. Draining first means
     /// [`Self::is_empty`] holds the instant this returns. A wedged remote can no
     /// longer freeze teardown: the blocking `wait()`/join runs on a detached
     /// reaper thread, and the caller waits at most `deadline` before letting the
     /// process exit (the OS reaps any orphaned child). Healthy sessions reap
-    /// well within the budget — the wait returns as soon as the reaper signals,
+    /// well within the budget - the wait returns as soon as the reaper signals,
     /// not after the full deadline. Replaces the old serial per-session
     /// `pty.wait()` + `pump_thread.join()` on the main thread, which blocked
     /// indefinitely on a hung `ssh` client and produced the Super+Q
@@ -350,7 +345,7 @@ impl WorkspaceSet {
                 }
                 let _ = tx.send(());
             });
-        // If even the reaper thread fails to spawn, don't block — the process is
+        // If even the reaper thread fails to spawn, don't block - the process is
         // exiting and the OS reaps. Otherwise wait up to the deadline for a
         // clean reap, then detach.
         if spawned.is_ok() {
@@ -435,29 +430,29 @@ impl WorkspaceSet {
         }
     }
 
-    /// Close the **entire active tab** — reap every leaf session in its layout
-    /// tree and remove the tab from the strip — regardless of how many panes it
+    /// Close the **entire active tab** - reap every leaf session in its layout
+    /// tree and remove the tab from the strip - regardless of how many panes it
     /// holds. This is the deliberate "Close Tab" semantics: closing a
     /// tab closes the tab you are in even when it holds multiple panes, and it
     /// must not behave like "Close Pane".
     ///
     /// Distinct from [`Self::close`] / `close_focused_pane`, which collapse a
     /// single leaf into its sibling and keep a multi-pane tab alive. For a
-    /// single-pane tab this reaps the one session and removes the tab —
+    /// single-pane tab this reaps the one session and removes the tab -
     /// byte-identical to the old `close(active_id())` path (the `None` branch of
     /// [`Self::close_with`]).
     ///
     /// Returns `true` iff no workspaces remain afterward, i.e. the last tab of
     /// the last workspace was closed and the caller should signal app exit. A
-    /// workspace's last tab closing closes that workspace (ODP-3); only the last
+    /// workspace's last tab closing closes that workspace; only the last
     /// workspace closing exits. Exit keys on the last tab of the last
     /// **workspace**, never on the last pane.
     pub(in crate::native) fn close_active_tab(&mut self) -> bool {
         self.close_tab_at(self.active_workspace().active_tab)
     }
 
-    /// Close the tab at strip index `tab_idx` — reap every leaf session in its
-    /// layout tree and remove the tab — regardless of pane count. This is the
+    /// Close the tab at strip index `tab_idx` - reap every leaf session in its
+    /// layout tree and remove the tab - regardless of pane count. This is the
     /// index-aware reap shared by every "Close Tab" entry point: the menu /
     /// keyboard ([`Self::close_active_tab`], which delegates here with the
     /// active index) and the tab-strip `×` button, which can target a
@@ -467,10 +462,10 @@ impl WorkspaceSet {
     /// closed tab was the active one (or to its left) the active index shifts so
     /// it still points at a live tab; closing a tab to the right of the active
     /// one leaves the active index unchanged. When the closed tab was the
-    /// workspace's last, the workspace is removed too (ODP-3); returns `true`
+    /// workspace's last, the workspace is removed too; returns `true`
     /// iff no workspaces remain (signal app exit).
     ///
-    /// For a single-pane tab this reaps the one session and removes the tab —
+    /// For a single-pane tab this reaps the one session and removes the tab -
     /// byte-identical to the old `close(token)` path the `×` button used.
     pub(in crate::native) fn close_tab_at(&mut self, tab_idx: usize) -> bool {
         // The tab strip shows the active workspace, so a strip index resolves
@@ -500,7 +495,7 @@ impl WorkspaceSet {
         ws.tabs.remove(tab_idx);
         if ws.tabs.is_empty() {
             // Last tab of the workspace closed -> close the workspace; the last
-            // workspace closing signals app exit (ODP-3).
+            // workspace closing signals app exit.
             return self.remove_workspace(ws_idx);
         }
         // Mirror `close_with`'s `None` branch: clamp the active tab index when
@@ -530,7 +525,7 @@ impl WorkspaceSet {
             let _ = close_session(session);
         }
         // Remove the pane leaf, collapsing its split parent into the sibling.
-        // For a single-pane tab this yields `None`, i.e. the tab closes — the
+        // For a single-pane tab this yields `None`, i.e. the tab closes - the
         // byte-identical analogue of removing a session from the old Vec.
         let ws = &mut self.workspaces[ws_idx];
         match ws.tabs[tab_idx].layout.clone().close_leaf(token) {
@@ -539,7 +534,7 @@ impl WorkspaceSet {
                 ws.tabs.remove(tab_idx);
                 if ws.tabs.is_empty() {
                     // Last tab of the workspace closed -> close the workspace;
-                    // the last workspace closing signals app exit (ODP-3).
+                    // the last workspace closing signals app exit.
                     return self.remove_workspace(ws_idx);
                 }
                 if was_active {
@@ -588,7 +583,7 @@ impl WorkspaceSet {
     /// session at `grid` for the new pane and giving it focus (tmux semantics:
     /// the new pane becomes `second` and is focused). Returns the new session's
     /// token. A no-op-and-error if there is no active tab or spawn fails. The
-    /// new pane shares the tab — no new tab-strip entry is added.
+    /// new pane shares the tab - no new tab-strip entry is added.
     pub(in crate::native) fn split_active(
         &mut self,
         axis: SplitAxis,
@@ -628,7 +623,7 @@ impl WorkspaceSet {
             let layout = std::mem::replace(&mut tab.layout, PaneNode::leaf(tab.focused));
             tab.layout = layout.equalized();
             // Equalize re-tiles every pane, so a zoom (which hides all but one)
-            // is cleared — the user asked to see the balanced layout.
+            // is cleared - the user asked to see the balanced layout.
             tab.zoomed = false;
         }
     }
@@ -636,7 +631,7 @@ impl WorkspaceSet {
     /// Toggle zoom (tmux `Ctrl-b z`) on the active tab. A no-op on a single-pane
     /// tab (zoom is meaningless), where it returns `false` so the caller skips
     /// the reflow/redraw. Returns `true` when the zoom state flipped. The layout
-    /// tree is never mutated — only the `zoomed` flag — so un-zoom restores the
+    /// tree is never mutated - only the `zoomed` flag - so un-zoom restores the
     /// prior geometry exactly.
     pub(in crate::native) fn toggle_active_zoom(&mut self) -> bool {
         let Some(tab) = self.active_tab_mut() else {
@@ -680,8 +675,8 @@ impl WorkspaceSet {
         true
     }
 
-    /// Bind (or, with `None`, unbind) the active workspace to a host alias
-    /// (F6-W5). Idempotent; the binding is captured in the shape snapshot so it
+    /// Bind (or, with `None`, unbind) the active workspace to a host alias.
+    /// Idempotent; the binding is captured in the shape snapshot so it
     /// survives restore. Returns the previous binding.
     pub(in crate::native) fn set_active_workspace_default_profile(
         &mut self,
@@ -698,8 +693,8 @@ impl WorkspaceSet {
         std::mem::replace(&mut self.active_workspace_mut().launch_profile, profile)
     }
 
-    /// Bind (or, with `None`, unbind) the workspace at rail index `idx`
-    /// (RAIL-BIND). Same semantics as the active-workspace form, but targets a
+    /// Bind (or, with `None`, unbind) the workspace at rail index `idx`.
+    /// Same semantics as the active-workspace form, but targets a
     /// specific slot so the rail menu can bind a workspace without first
     /// switching to it. Returns the previous binding; an out-of-range index is a
     /// no-op returning `None`.
@@ -819,7 +814,7 @@ impl WorkspaceSet {
     }
 
     /// Move the workspace at rail index `idx` one slot toward the front (`up`)
-    /// or the back of the rail (RAIL-REORDER). An adjacent swap: the ACTIVE
+    /// or the back of the rail. An adjacent swap: the ACTIVE
     /// workspace follows by identity, so reordering never changes which
     /// workspace is focused -- if the active slot is one of the two swapped, its
     /// index moves with it. No-op (returns `false`) when the move would run off
@@ -886,9 +881,9 @@ impl WorkspaceSet {
         }
     }
 
-    /// Close the ENTIRE active workspace — reap every session of every tab and
-    /// remove the workspace from the rail — regardless of tab/pane count. The
-    /// "Close Workspace" action (ODP-3). Returns `true` iff no workspaces remain,
+    /// Close the ENTIRE active workspace - reap every session of every tab and
+    /// remove the workspace from the rail - regardless of tab/pane count. The
+    /// "Close Workspace" action. Returns `true` iff no workspaces remain,
     /// i.e. the last workspace was closed and the caller should signal app exit
     /// (the App-level guard that avoids emptying the arena before teardown, as in
     /// `close_active_tab`, is wired when the keybinding/menu lands).
@@ -913,7 +908,7 @@ impl WorkspaceSet {
 
     /// Move the tab that owns `token` out of its workspace and append it to the
     /// workspace at `dest_idx` (ODP-7, "Move to workspace"). This is a `Tab`
-    /// VALUE splice between two `Workspace.tabs` vecs — the sessions never leave
+    /// VALUE splice between two `Workspace.tabs` vecs - the sessions never leave
     /// the global arena, so pump-thread lookup by token is untouched. The
     /// destination's active tab is left as-is (v1: move without following), and
     /// the active workspace is unchanged unless the SOURCE workspace empties, in
@@ -934,11 +929,11 @@ impl WorkspaceSet {
             return (false, false);
         }
         // Splice the tab value out of the source and append it to the
-        // destination. Both indices are still valid here — no workspace is
+        // destination. Both indices are still valid here - no workspace is
         // removed until after the move.
         let tab = self.workspaces[src_idx].tabs.remove(tab_idx);
         self.workspaces[dest_idx].tabs.push(tab);
-        // Source bookkeeping: an empty source workspace closes (ODP-3);
+        // Source bookkeeping: an empty source workspace closes;
         // otherwise clamp its active-tab index exactly like a tab close.
         if self.workspaces[src_idx].tabs.is_empty() {
             let closed = self.remove_workspace(src_idx);
@@ -957,7 +952,7 @@ impl WorkspaceSet {
         (true, false)
     }
 
-    /// The destination candidates for the "Move to Workspace" picker (W4-v2):
+    /// The destination candidates for the "Move to Workspace" picker:
     /// every workspace EXCEPT the one that owns `token`, as `(original rail
     /// index, name)` pairs. The index is the [`Self::move_tab_to_workspace`]
     /// target. Empty when the token is unknown or it is the only workspace
@@ -980,7 +975,7 @@ impl WorkspaceSet {
     /// Move the just-appended, currently-active tab so it sits immediately after
     /// the tab that owns `anchor` in the active workspace (ODP-5D "Connect to
     /// host ▸": the new remote tab reads as opening from the clicked tab). The
-    /// moved tab is assumed to be the last strip entry — the state left by
+    /// moved tab is assumed to be the last strip entry - the state left by
     /// `connect_ssh_in_new_tab` + `switch`. A no-op when the anchor is missing,
     /// is itself the last tab, or the moved tab is already directly after it. On
     /// success `active_tab` follows the moved tab to its new index so it stays
@@ -992,7 +987,7 @@ impl WorkspaceSet {
             return;
         };
         // Anchor is the last tab (or the moved tab itself), or the moved tab is
-        // already the neighbour just after the anchor — nothing to reorder.
+        // already the neighbour just after the anchor - nothing to reorder.
         if anchor_idx + 1 >= last {
             return;
         }
@@ -1024,7 +1019,7 @@ impl WorkspaceSet {
 
     /// Whether a shell exit on `token` would close its ENTIRE workspace: the
     /// session is the sole pane of the sole tab of its workspace, so reaping it
-    /// empties the workspace (SHELL-EXIT-CLOSES). Drives the App-mode exit
+    /// empties the workspace. Drives the App-mode exit
     /// setting, which escalates a workspace-closing shell exit into an app quit.
     /// `false` when the token is unknown, its tab has sibling panes, or its
     /// workspace has sibling tabs -- those exits close only the pane or tab.
@@ -1036,8 +1031,8 @@ impl WorkspaceSet {
         ws.tabs.len() == 1 && ws.tabs[tab_idx].layout.leaves().len() == 1
     }
 
-    /// Whether any session OTHER than `token` has a running foreground job
-    /// (SHELL-EXIT-CLOSES). The App-mode exit quit reuses the window-close
+    /// Whether any session OTHER than `token` has a running foreground job.
+    /// The App-mode exit quit reuses the window-close
     /// confirmation when this is true, so quitting on a shell exit cannot
     /// silently kill a live job in another workspace. The exiting session itself
     /// is excluded because it has already ended. Attached sessions report

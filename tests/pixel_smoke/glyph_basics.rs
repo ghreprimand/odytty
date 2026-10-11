@@ -28,7 +28,7 @@ fn placeholder_char_emits_no_glyph_ink() {
     // U+10EEEE stays in the Snapshot for copy/paste, but must not paint tofu.
     let mut terminal = Terminal::new(4, 2);
     terminal.advance(format!("{}", odytty::core::PLACEHOLDER_CHAR).as_bytes());
-    // Diacritics on a placeholder encode Kitty ids — also not ink.
+    // Diacritics on a placeholder encode Kitty ids - also not ink.
     terminal.advance(format!("\r\n{}\u{0305}\u{0305}", odytty::core::PLACEHOLDER_CHAR).as_bytes());
     let snapshot = terminal.snapshot();
     let frame = composite(&snapshot, &atlas, CursorStyle::Block);

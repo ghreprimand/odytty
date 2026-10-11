@@ -22,7 +22,7 @@ use super::render::*;
 use super::state::*;
 use crate::core::{Dimensions, Position};
 
-// --- C22/C23: a failed save must disarm the close-after-save latches ---
+// --- a failed save must disarm the close-after-save latches ---
 
 mod context_menu_overflow;
 mod input;
@@ -122,13 +122,13 @@ fn listed_session(id: &str, name: &str) -> ListedSession {
     }
 }
 
-// --- UX4-P1: pointer entry (handle_pointer / overlay_rect) ---
+// --- pointer entry (handle_pointer / overlay_rect) ---
 
 fn theme_value_cell(rect: OverlayRect) -> CellPoint {
     // Row 0 of the body is the first group header ("Theme"); row 1 is the
-    // theme value line. SETTINGS-CLICKZONES: the compact row splits into a
+    // theme value line. the compact row splits into a
     // focus-only NAME zone and an action VALUE zone; the "Theme" name is 5
-    // columns, so the value zone begins at body column 9 — click inside it.
+    // columns, so the value zone begins at body column 9 - click inside it.
     CellPoint {
         row: rect.body_top + 1,
         column: rect.body_left + 12,

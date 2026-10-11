@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! First-run onboarding overlay (ONBOARD). A static welcome card shown once on
-//! the very first launch — when no `odytty.conf` exists yet — to surface the
+//! the very first launch - when no `odytty.conf` exists yet - to surface the
 //! settings/theme overlay and a few key shortcuts, then get out of the way.
 //!
-//! There is no telemetry and no "seen" flag on disk (U6): first-run memory is
+//! There is no telemetry and no "seen" flag on disk: first-run memory is
 //! simply the existence of the user-owned config file, which materialises the
 //! first time the user saves any setting. The App opens this panel at startup
 //! iff the config path resolves to a file that does not yet exist (or the
@@ -14,7 +14,7 @@
 //! rebind and reflects the user's actual config.
 //!
 //! Like every other [`super::overlay::OverlayMode`], this panel never blocks the
-//! PTY: the terminal stays live behind it, and any key dismisses or is swallowed
+//! PTY: the terminal stays live behind it, and Esc, Enter or Space dismisses it while other keys are swallowed
 //! (`super::overlay::OverlayUi::handle_onboarding_input`). It is off-path-
 //! identical when not first-run: the `Onboarding` mode is simply never entered,
 //! so the default render path is byte-for-byte unchanged.
@@ -40,7 +40,7 @@ pub(super) struct OnboardingSignature {
 }
 
 /// The first-run welcome card. Holds the resolved content lines (built from the
-/// live key bindings at construction / `refresh`), nothing more — it is a static
+/// live key bindings at construction / `refresh`), nothing more - it is a static
 /// info panel with no navigation or scroll state.
 #[derive(Debug, Clone)]
 pub(super) struct OnboardingPanel {
@@ -78,7 +78,7 @@ impl OnboardingPanel {
     }
 
     /// The rendered body lines, clipped to the visible body box. No line is
-    /// "focused" — the card is static, with no selectable rows.
+    /// "focused" - the card is static, with no selectable rows.
     pub(super) fn visible_lines(
         &self,
         body_width: usize,
@@ -104,7 +104,7 @@ impl OnboardingPanel {
     }
 }
 
-/// Build the static welcome content with live-chord shortcut hints (D-OB-3).
+/// Build the static welcome content with live-chord shortcut hints.
 fn build_lines(settings: &Settings) -> Vec<String> {
     let bindings = KeyBindings::from_overrides(&settings.key_bindings);
     let hint = |action: BindableAction, label: &str| {
@@ -116,7 +116,7 @@ fn build_lines(settings: &Settings) -> Vec<String> {
     };
 
     vec![
-        "Welcome to OdyTTY — your own custom terminal.".to_owned(),
+        "Welcome to OdyTTY: your own custom terminal.".to_owned(),
         String::new(),
         "This looks like your first launch. A few shortcuts to begin:".to_owned(),
         String::new(),
@@ -128,7 +128,7 @@ fn build_lines(settings: &Settings) -> Vec<String> {
         String::new(),
         "In Settings, press  /  to search settings by name.".to_owned(),
         "Right-click a tab and choose Rename Tab to name a workflow.".to_owned(),
-        "OdyTTY writes your config when you save changes — no hand-editing.".to_owned(),
+        "OdyTTY writes your config when you save changes, no hand-editing.".to_owned(),
         String::new(),
         "Press Enter or Esc to dismiss.".to_owned(),
     ]
@@ -163,10 +163,10 @@ mod tests {
         assert!(text.contains("Welcome to OdyTTY"));
         assert!(text.contains("Open settings"));
         assert!(text.contains("Browse themes"));
-        // F4 ODP-5: the rename-tab discoverability tip is surfaced on the card.
+        // F4 the rename-tab discoverability tip is surfaced on the card.
         assert!(text.contains("Rename Tab"));
-        // The default settings-panel chord is Ctrl+Shift+, — the hint must show
-        // the live chord, never a hardcoded placeholder (D-OB-3).
+        // The default settings-panel chord is Ctrl+Shift+, - the hint must show
+        // the live chord, never a hardcoded placeholder.
         let settings_chord = KeyBindings::default()
             .chord_for_action(BindableAction::SettingsPanel)
             .map(format_key_chord)

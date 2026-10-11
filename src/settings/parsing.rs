@@ -10,7 +10,7 @@ use super::*;
 /// Hex is case-insensitive; the `U+`/`u+` prefix is required on each codepoint.
 /// The font name is everything after the first `=`, trimmed, and may contain
 /// spaces. Malformed entries (no `=`, empty font, bad codepoint, degenerate
-/// range) are warned and skipped — a bad rule never aborts startup, and an
+/// range) are warned and skipped - a bad rule never aborts startup, and an
 /// empty result is the identity (no override). First-match-wins preserves the
 /// written order.
 pub(super) fn parse_symbol_map(raw: &str, warn: &mut impl FnMut(&str)) -> crate::text::SymbolMap {
@@ -93,7 +93,7 @@ pub(super) fn parse_symbol_font_path(raw: OsString) -> Option<PathBuf> {
     }
 }
 
-/// Normalize an `ODYTTY_FONT_WEIGHT` value (RV7). Trims surrounding whitespace
+/// Normalize an `ODYTTY_FONT_WEIGHT` value. Trims surrounding whitespace
 /// and treats `regular`/`normal` (case-insensitive) as the identity case,
 /// returning an empty string so the effective font query is the plain
 /// `font_family` exactly as before. Any other token is preserved verbatim

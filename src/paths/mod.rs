@@ -1,27 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! PATHS — interactive filesystem-path detection + resolution (the pure spine).
+//! Interactive filesystem-path detection + resolution (the pure core).
 //!
 //! This module is the owned, dependency-free core for the "interactive paths"
 //! feature: it turns arbitrary terminal text into actionable, **stat-gated**
 //! filesystem paths. It is split into two pure layers:
 //!
-//! * [`detect`] — a hand-rolled scanner that finds path-looking spans in a line
+//! * [`detect`] - a hand-rolled scanner that finds path-looking spans in a line
 //!   and parses an optional `:line[:col]` suffix. Syntactic only; no I/O.
-//! * [`resolve`] (this file) — turns a [`PathSpan`] + the pane's OSC 7 working
+//! * [`resolve`] (this file) - turns a [`PathSpan`] + the pane's OSC 7 working
 //!   directory + the user's home into a canonical absolute path, then
 //!   **stat-gates** it through an injectable [`ResolveProbe`] so a span is only
 //!   "live" when it maps to a real entry.
 //!
-//! Purity is structural: `src/paths/` imports **std only** — no `winit`/`wgpu`,
+//! Purity is structural: `src/paths/` imports **std only** - no `winit`/`wgpu`,
 //! no render/settings, no `regex`, no new dependency, and crucially **no
 //! `std::fs`**. The single filesystem touch is the caller-supplied probe, which
 //! tests replace with a synthetic `HashMap` so no test ever reaches the real
 //! filesystem. See `docs/interactive-paths-design.md` for the full design,
 //! security argument, open-action dispatch table, and editor invocation matrix.
 //!
-//! This module (C0/C1) builds the spine only — it is intentionally **not**
-//! referenced by any render/input/settings path yet, so it adds zero runtime
-//! behavior. Phases 7–9 wire hover/click/menu/viewer onto it.
+//! The hover, click and context-menu paths (`native/app/hover.rs`,
+//! `native/context_menu_ui/coordination.rs`) consume this module and supply the
+//! stat probe.
 
 pub mod detect;
 pub mod file_uri;
@@ -31,7 +31,7 @@ pub use detect::{
 };
 
 /// What kind of filesystem entry a resolved path points at. The probe reports
-/// this; the open-action dispatch (Phase 8) branches on it.
+/// this; the open-action dispatch branches on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FsKind {
     /// A regular file (or anything that is not a directory).
@@ -44,7 +44,7 @@ pub enum FsKind {
 /// [`resolve`]; consumed by the (later) open-action dispatch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resolved {
-    /// The canonical absolute path (lexically normalized — `.`/`..`/duplicate
+    /// The canonical absolute path (lexically normalized - `.`/`..`/duplicate
     /// slashes collapsed without touching the filesystem).
     pub abs: String,
     /// Whether the entry is a file or a directory.
@@ -57,17 +57,17 @@ pub struct Resolved {
 
 /// The stat-gate seam. Production wires this to a `std::fs::symlink_metadata`
 /// wrapper; tests inject a synthetic `HashMap<String, FsKind>`. Keeping the only
-/// filesystem touch behind this trait is what lets the whole module — and every
-/// test — stay off the real filesystem.
+/// filesystem touch behind this trait is what lets the whole module - and every
+/// test - stay off the real filesystem.
 pub trait ResolveProbe {
     /// Classify an absolute path, or `None` if it does not exist.
     fn classify(&self, abs_path: &str) -> Option<FsKind>;
 }
 
-/// The image extensions the in-terminal viewer (Phase 9 / C4) will *offer* to
+/// The image extensions the in-terminal viewer *offers* to
 /// open. This is the cheap, I/O-free "should we show the menu item" gate: it
 /// trusts only the extension. The list MUST match the decoders enabled in
-/// `Cargo.toml` exactly — `png`, `jpeg`, `webp` — and no more: offering a format
+/// `Cargo.toml` exactly - `png`, `jpeg`, `webp` - and no more: offering a format
 /// the native decoder cannot read would dead-end at open time. Lowercase; the
 /// check is case-insensitive (see [`is_image_path`]). GIF/BMP/TIFF are
 /// deliberately absent (their decoders are not enabled).
@@ -77,7 +77,7 @@ pub trait ResolveProbe {
 pub const IMAGE_EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "webp"];
 
 /// Whether `abs` has an extension in [`IMAGE_EXTENSIONS`] (case-insensitive).
-/// Pure and std-only — no filesystem touch, no `image` dependency. Used to
+/// Pure and std-only - no filesystem touch, no `image` dependency. Used to
 /// conditionally show the "Open in OdyTTY" menu item on a resolved image span;
 /// the actual decode (with its content-sniff and decode bound) is the real
 /// gate. A path with no extension, a trailing dot, or a non-image extension
@@ -99,7 +99,7 @@ fn is_image_path_with(abs: &str, separators: &[char]) -> bool {
         return false;
     };
     if stem.is_empty() {
-        // A dotfile like `.png` has no stem before the dot — not an extension.
+        // A dotfile like `.png` has no stem before the dot - not an extension.
         return false;
     }
     let ext = ext.to_ascii_lowercase();
@@ -147,7 +147,7 @@ fn make_absolute(raw: &str, cwd: Option<&str>, home: Option<&str>) -> Option<Str
         let home = home?.trim_end_matches('/');
         return Some(format!("{home}/{rest}"));
     }
-    // Windows-absolute (`C:\…`, `C:/…`, UNC `\\…`): already rooted — must NOT be
+    // Windows-absolute (`C:\…`, `C:/…`, UNC `\\…`): already rooted - must NOT be
     // joined onto cwd, or a detected `C:\src` would wrongly become
     // `<cwd>/C:\src`. Wired in only on Windows so POSIX resolution stays
     // byte-identical; the predicate is also compiled in test builds so it is
@@ -172,7 +172,7 @@ fn make_absolute(raw: &str, cwd: Option<&str>, home: Option<&str>) -> Option<Str
 /// build (so the logic is unit-tested on a Linux host); absent from a Linux/
 /// macOS release build so POSIX resolution stays byte-identical. The drive
 /// matcher requires EXACTLY ONE ascii-alpha char before the colon (the same
-/// URL-collision guard as detection — `https:`/`file:` are never drives).
+/// URL-collision guard as detection - `https:`/`file:` are never drives).
 #[cfg(any(windows, test))]
 fn is_windows_absolute(raw: &str) -> bool {
     let bytes = raw.as_bytes();
@@ -223,7 +223,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    /// Synthetic, in-memory filesystem — the ONLY "filesystem" any test touches.
+    /// Synthetic, in-memory filesystem - the ONLY "filesystem" any test touches.
     struct MapProbe(HashMap<String, FsKind>);
 
     impl MapProbe {

@@ -7,7 +7,7 @@
 //! Appearance, Cursor, Effects, Layout, Switching, and Actions sections. Every
 //! rendered line still carries its own [`ProfileManagerTarget`], so section
 //! headers, the shell-suggestion hint, list rows, and validation errors cannot
-//! shift a pointer target away from what is drawn (commit b7517388 contract).
+//! shift a pointer target away from what is drawn.
 //!
 //! Field kinds:
 //!   * plain text (name, shell, working directory, theme, paths, ...);
@@ -544,7 +544,7 @@ impl ProfileManager {
             // silently discarded. A row empty on BOTH sides is a placeholder
             // and skipped; a row with exactly one side filled is a user error
             // and blocks the save with an inline message, leaving the draft
-            // intact so the operator can fix it.
+            // intact so the user can fix it.
             let mut env = BTreeMap::new();
             for (key, value) in &self.draft_env {
                 let key_trimmed = key.trim();

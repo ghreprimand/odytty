@@ -15,7 +15,7 @@ pub enum SettingKind {
     List,
 }
 
-/// Structured numeric bounds for a [`SettingKind::Number`] row (UX4-P2): the
+/// Structured numeric bounds for a [`SettingKind::Number`] row: the
 /// authoritative `(min, max, step)` shared by the settings stepper, keyboard
 /// step, and any fraction-based test helpers, plus an optional display `unit`
 /// (e.g. `"px"`). `min`/`max` mirror the same constants the parser clamps to,
@@ -84,11 +84,11 @@ pub struct SettingInfo {
     pub description: &'static str,
     pub kind: SettingKind,
     /// Human-readable allowed-range hint. For [`SettingKind::Number`] rows with
-    /// a [`NumericSpec`] this is derived from the spec (UX4-P2, Q4) so it can
+    /// a [`NumericSpec`] this is derived from the spec so it can
     /// never drift from the clamp bounds; other rows carry a literal hint or
     /// `None`.
     pub range: Option<String>,
-    /// Structured numeric bounds for slider/step/clamp (UX4-P2). `Some` for
+    /// Structured numeric bounds for slider/step/clamp. `Some` for
     /// bounded, live-editable [`SettingKind::Number`] rows; `None` otherwise.
     pub numeric: Option<NumericSpec>,
     pub options: &'static [&'static str],
@@ -110,8 +110,8 @@ impl Settings {
                 // When the `system` alias is active the displayed value is the
                 // alias token, matching the config writeback; a file-loaded
                 // theme shows its original config string, never the `"custom"`
-                // placeholder — the shared round-trip helper keeps the panel and
-                // the writeback baseline in lockstep (C4).
+                // placeholder - the shared round-trip helper keeps the panel and
+                // the writeback baseline in lockstep.
                 value: self.theme_config_value(),
                 description: "Full appearance profile: default colors, ANSI palette, semantic role colors, and optional user theme files.",
                 kind: SettingKind::Enum,
@@ -133,7 +133,7 @@ impl Settings {
                 env: FOLLOW_OS_THEME_ENV,
                 name: "Follow OS dark/light theme",
                 value: bool_display(self.follow_os_theme).to_owned(),
-                description: "When on, switches between the dark and light themes below based on the desktop's color-scheme preference. The compositor delivers this live on Wayland; on X11 set ODYTTY_APPEARANCE=dark|light to seed it. Off by default — the OS signal is ignored and the theme above drives presentation. A direction whose theme name is unset keeps the authored theme.",
+                description: "When on, switches between the dark and light themes below based on the desktop's color-scheme preference. The compositor delivers this live on Wayland; on X11 set ODYTTY_APPEARANCE=dark|light to seed it. Off by default: the OS signal is ignored and the theme above drives presentation. A direction whose theme name is unset keeps the authored theme.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],
@@ -250,10 +250,10 @@ impl Settings {
                 env: FONT_ENV,
                 name: "Font file (advanced)",
                 // Display the RAW explicit `font` key, never the effective
-                // `font_path` (RC4): picking a `font_family` resolves a regular
+                // `font_path`: picking a `font_family` resolves a regular
                 // face INTO `font_path`, but the advanced row must stay empty
                 // because the user never set an explicit file. An UNSET explicit
-                // font carries an EMPTY value, not a human sentence — this `value`
+                // font carries an EMPTY value, not a human sentence - this `value`
                 // is what the path-picker seeds and what the writeback compares;
                 // empty is treated as a clear (apply_raw("font", "")), so an
                 // untouched font emits no edit. The default hint lives in the
@@ -583,7 +583,7 @@ impl Settings {
                 env: WINDOW_TRANSPARENCY_ENV,
                 name: "Window transparency",
                 value: bool_display(self.window_transparency).to_owned(),
-                description: "When on, the terminal background is drawn at the Window opacity below so the desktop shows through; text, cursor, and every overlay (menus, pickers, settings) stay fully opaque. Selection strength is independent and defaults to fully opaque. On by default — at full Window opacity the render is byte-identical to the opaque path. Requires platform compositing (Wayland and macOS natively; X11 needs a compositor; Windows uses DWM). Where no alpha compositing is offered the toggle has no visible effect.",
+                description: "When on, the terminal background is drawn at the Window opacity below so the desktop shows through; text, cursor, and every overlay (menus, pickers, settings) stay fully opaque. Selection strength is independent and defaults to fully opaque. On by default: at full Window opacity the render is byte-identical to the opaque path. Requires platform compositing (Wayland and macOS natively; X11 needs a compositor; Windows uses DWM). Where no alpha compositing is offered the toggle has no visible effect.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],
@@ -596,7 +596,7 @@ impl Settings {
                 env: WINDOW_OPACITY_ENV,
                 name: "Window opacity",
                 value: format_float(self.window_opacity),
-                description: "Background opacity as a percent when Window transparency is on: 100 is fully opaque, lower values let more of the desktop through behind the terminal. Only the background scales — text and overlays never fade. Adjust with the stepper or arrow keys.",
+                description: "Background opacity as a percent when Window transparency is on: 100 is fully opaque, lower values let more of the desktop through behind the terminal. Only the background scales: text and overlays never fade. Adjust with the stepper or arrow keys.",
                 kind: SettingKind::Number,
                 range: None,
                 options: &[],
@@ -824,7 +824,7 @@ impl Settings {
                 env: TAB_RAIL_AUTOHIDE_ENV,
                 name: "Rail auto-hide",
                 value: bool_display(self.tab_rail_autohide).to_owned(),
-                description: "When on, the vertical workspace rail stays hidden until the pointer reaches the window edge, then reveals as a floating overlay (no content reflow). Rail placements only — no effect when tabs are placed on top; use \"Always show tab bar\" for the top bar. Off by default.",
+                description: "When on, the vertical workspace rail stays hidden until the pointer reaches the window edge, then reveals as a floating overlay (no content reflow). Rail placements only: no effect when tabs are placed on top; use \"Always show tab bar\" for the top bar. Off by default.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],
@@ -1318,7 +1318,7 @@ impl Settings {
                 env: CURSOR_GLOW_ENV,
                 name: "Cursor glow",
                 value: bool_display(self.cursor_glow).to_owned(),
-                description: "When on, the cursor gets one soft shape-aware analytic aura behind its glyph, matching Block, Bar, or Underline geometry in the resolved cursor color. On by default; the aura is faint enough to keep nearby text readable. Purely visual — never moves the logical cursor.",
+                description: "When on, the cursor gets one soft shape-aware analytic aura behind its glyph, matching Block, Bar, or Underline geometry in the resolved cursor color. On by default; the aura is faint enough to keep nearby text readable. Purely visual: never moves the logical cursor.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],
@@ -1349,7 +1349,7 @@ impl Settings {
                 env: CURSOR_TRAIL_ENV,
                 name: "Cursor trail",
                 value: bool_display(self.cursor_trail).to_owned(),
-                description: "When on, a short fading after-image trails the cursor as it glides between cells, in the theme cursor color and drawn behind the cursor block. On by default and visible while Cursor slide is on, which is also the default; it fully decays as the glide settles. Purely visual — never moves the logical cursor.",
+                description: "When on, a short fading after-image trails the cursor as it glides between cells, in the theme cursor color and drawn behind the cursor block. On by default and visible while Cursor slide is on, which is also the default; it fully decays as the glide settles. Purely visual: never moves the logical cursor.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],
@@ -1375,7 +1375,7 @@ impl Settings {
                 env: CURSOR_MOTION_ENV,
                 name: "Cursor slide",
                 value: bool_display(self.cursor_motion).to_owned(),
-                description: "When on, the cursor glides between nearby positions. On by default; with cursor trail enabled, jumps beyond six cells use a bounded elastic follower, while resizes, reflow, scrollback, the first frame, focus loss, and reduced motion snap instantly. Purely visual — the logical cursor is always at the destination cell.",
+                description: "When on, the cursor glides between nearby positions. On by default; with cursor trail enabled, jumps beyond six cells use a bounded elastic follower, while resizes, reflow, scrollback, the first frame, focus loss, and reduced motion snap instantly. Purely visual: the logical cursor is always at the destination cell.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],
@@ -1405,9 +1405,9 @@ impl Settings {
                 description: "Terminal-local shortcut overrides for search, settings, theme picker, command palette, command-output, copy, paste, scrollback, and workspace/pane actions. PTY key encoding is unchanged unless an override captures that chord.",
                 kind: SettingKind::List,
                 range: None,
-                // D-KBR-2: every BindableAction display name, in the exact
+                // Every BindableAction display name, in the exact
                 // order of `BindableAction::ALL` (the same order the in-app
-                // key-remap editor lists). Display only — the parser already
+                // key-remap editor lists). Display only - the parser already
                 // accepts every action. Pinned to `ALL` by
                 // `keybinds_info_options_lists_all_actions` so a new variant
                 // fails that test until its token is added here.
@@ -1831,7 +1831,7 @@ impl Settings {
                 env: CONFIRM_CLOSE_ENV,
                 name: "Confirm close when running",
                 value: bool_display(self.confirm_close).to_owned(),
-                description: "When on, asks for confirmation before closing the window if a program is still running in the terminal. On by default — the prompt only appears when a foreground job is active, so closing an idle shell still exits immediately. Off closes on request unconditionally.",
+                description: "When on, asks for confirmation before closing the window if a program is still running in the terminal. On by default: the prompt only appears when a foreground job is active, so closing an idle shell still exits immediately. Off closes on request unconditionally.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],

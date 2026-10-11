@@ -270,7 +270,7 @@ fn three_tabs_stack_with_stride_and_a_new_tab_slot() {
         assert_eq!(slot.start_row, start, "slot {i} start row");
         assert_eq!(slot.end_row, start + SLOT_ROWS, "slot {i} end row");
     }
-    // RAIL-PLUS-GAP: the `+` anchors a guaranteed dead gap below the last
+    // The `+` anchors a guaranteed dead gap below the last
     // slot's END row (not its label row), so a padded 2-row slot no longer
     // leaves the `+` flush against its breathing row. The first dead row is
     // blank; the `+` sits `SLOT_GAP` rows below the slot box.
@@ -305,7 +305,7 @@ fn floating_plus_is_left_aligned_at_the_label_column() {
         plus.col, SLOT_LABEL_START_COL,
         "the + is left-aligned at the label column, not centered"
     );
-    // And it sits a dead gap below the last slot box (RAIL-PLUS-GAP).
+    // And it sits a dead gap below the last slot box.
     let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
     let last = layout.slots.last().unwrap();
     assert_eq!(
@@ -352,7 +352,7 @@ fn zero_gap_removes_the_top_margin_and_inter_slot_space() {
 
 #[test]
 fn resting_region_paints_the_panel_tint_at_strength() {
-    // F4-P1: at a live strength the resting rail cells paint the panel tint
+    // At a live strength the resting rail cells paint the panel tint
     // (Layer 1), distinct from the raw background; strength 0 collapses back.
     let src = MockSource::new(&["a", "b"], 0);
     let out = rail().render(
@@ -487,7 +487,7 @@ fn inactive_label_is_not_bold() {
 
 #[test]
 fn long_title_truncates_on_one_line_with_ellipsis() {
-    // F4-P4: no wrapping — an overflowing title stays a single line and ends
+    // No wrapping - an overflowing title stays a single line and ends
     // with `…` (fails-before: the pre-P4 rail wrapped to a 2nd line).
     let long = "a-very-long-terminal-title-that-will-not-fit";
     let line = truncate_label(long, 14);
@@ -509,7 +509,7 @@ fn short_title_is_single_line_untruncated() {
 
 #[test]
 fn label_is_single_row_and_vertically_centered_in_the_slot() {
-    // F4-P4: the 2-row padded slot keeps its breathing room but the label is
+    // The 2-row padded slot keeps its breathing room but the label is
     // one centered line (fails-before: labels used to fill both rows).
     let src = MockSource::new(&["vim", "bash"], 0);
     let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
@@ -543,7 +543,7 @@ fn label_is_single_row_and_vertically_centered_in_the_slot() {
 
 #[test]
 fn auto_width_chrome_matches_the_label_budget() {
-    // F4-P4: the integration layer's auto-width padding must equal exactly
+    // The integration layer's auto-width padding must equal exactly
     // the columns a slot reserves around its title, so a title of length L
     // fits without truncation when rail_cols = L + RAIL_LABEL_CHROME_COLS.
     let title_len = 6usize;
@@ -563,7 +563,7 @@ fn auto_width_chrome_matches_the_label_budget() {
 }
 
 // -----------------------------------------------------------------------
-// Bound-workspace badge (ODP-7B)
+// Bound-workspace badge
 // -----------------------------------------------------------------------
 
 /// A source whose rows can carry the bound marker, so the badge assertions
@@ -616,9 +616,9 @@ impl TabBarSource for BoundMock {
 
 #[test]
 fn bound_row_paints_the_accent_badge_in_the_rail_edge_column() {
-    // ODP-7B: a workspace bound to a default host gains a compact link glyph
+    // A workspace bound to a default host gains a compact link glyph
     // in the text-side accent role, in the rail-edge (col 0 for Left) inset
-    // column — never crowding the label, never a chrome/border color.
+    // column - never crowding the label, never a chrome/border color.
     let src = BoundMock {
         titles: vec!["local", "prod"],
         active: 0,
@@ -824,7 +824,7 @@ fn new_tab_plus_is_one_row_visible_at_rest_and_brighter_on_hover() {
         .expect("new-tab slot present");
     assert_eq!(nt_end - nt_start, NEW_TAB_ROWS, "the + slot is 1 cell tall");
     // At rest: a lifted + on bare wallpaper (no fill), brighter than an
-    // inactive label but subordinate to the active label (RAIL-PLUS-GAP).
+    // inactive label but subordinate to the active label.
     let out = render_default(&src);
     let wallpaper = rgb(tab_chrome::wallpaper_background(COLORS));
     let plus = out.glyphs.iter().find(|g| g.ch == '+').expect("+ glyph");
@@ -883,7 +883,7 @@ fn bloom_off_fallback_active_slot_is_identifiable_without_glow() {
 }
 
 // -----------------------------------------------------------------------
-// Hit-testing (row-major) — unchanged engine
+// Hit-testing (row-major) - unchanged engine
 // -----------------------------------------------------------------------
 
 #[test]
@@ -918,7 +918,7 @@ fn hit_new_tab_slot_returns_new_tab() {
 
 #[test]
 fn dead_gap_row_above_the_plus_is_not_a_hit() {
-    // RAIL-PLUS-GAP: the spacer row between the last slot and the `+` is
+    // The spacer row between the last slot and the `+` is
     // non-interactive. With the default 2-row slots this is the row that
     // used to BE the `+` (immediately below the last slot box), so a click
     // there no longer opens a new workspace by accident.
@@ -950,7 +950,7 @@ fn dead_gap_row_above_the_plus_is_not_a_hit() {
 
 #[test]
 fn dead_gap_row_stays_blank_without_a_horizontal_rule() {
-    // RAIL-PLUS-GAP: the spacer row keeps the `+` set apart from the
+    // The spacer row keeps the `+` set apart from the
     // workspace list without bleeding a horizontal rule into the content.
     let src = MockSource::new(&["a"], 0);
     let out = render_default(&src);
@@ -964,7 +964,7 @@ fn dead_gap_row_stays_blank_without_a_horizontal_rule() {
 
 #[test]
 fn resting_plus_is_brighter_than_an_inactive_label() {
-    // RAIL-PLUS-GAP: the resting `+` is lifted out of the dim inactive floor
+    // The resting `+` is lifted out of the dim inactive floor
     // (new_slot_plus_rest), so it reads as a deliberate add control, and it
     // still brightens further on hover.
     let src = MockSource::new(&["a"], 0);
@@ -1027,7 +1027,7 @@ fn hit_below_all_slots_is_none() {
 }
 
 // -----------------------------------------------------------------------
-// Overflow (many tabs) — informational indicators (unchanged engine)
+// Overflow (many tabs) - informational indicators (unchanged engine)
 // -----------------------------------------------------------------------
 
 #[test]
@@ -1075,7 +1075,7 @@ fn overflow_indicator_glyph_is_painted() {
 }
 
 // -----------------------------------------------------------------------
-// RAIL-AUTOHIDE-CTL: bottom-edge auto-hide toggle control
+// Bottom-edge auto-hide toggle control
 // -----------------------------------------------------------------------
 
 #[test]
@@ -1286,7 +1286,7 @@ fn rail_width_from_pointer_maps_right_rail_from_the_right_edge() {
 }
 
 // -----------------------------------------------------------------------
-// RAIL-DRAG: drop-target index math + drop indicator paint
+// Drop-target index math + drop indicator paint
 // -----------------------------------------------------------------------
 
 // Default GEOM: slot_rows=2, slot_gap=1, top_margin=1, stride=3. For N

@@ -4,7 +4,7 @@
 //! Every built-in theme is authored as a `.theme` file in the TH2 file format
 //! (see [`crate::theme::ThemeSpec`]) under `src/theme/builtins/`, embedded at
 //! compile time with [`include_str!`], and loaded at runtime through the same
-//! [`ThemeSpec::parse`] → project path that user theme files use — there is no
+//! [`ThemeSpec::parse`] → project path that user theme files use - there is no
 //! bespoke per-theme construction. The canonical `&'static` name comes from the
 //! [`REGISTRY`] table (so it survives projection without a [`Theme::from_name`]
 //! lookup), and the parsed color payload is projected via
@@ -601,8 +601,8 @@ pub fn all() -> &'static [Theme] {
     LIBRARY.get_or_init(build_library).as_slice()
 }
 
-/// The canonical names of every built-in, in roster order. Forward-compat for
-/// `CFG1 --list-themes`.
+/// The canonical names of every built-in, in roster order (used by
+/// `--list-themes`).
 pub fn names() -> impl Iterator<Item = &'static str> {
     REGISTRY.iter().map(|&(name, _)| name)
 }
@@ -784,7 +784,7 @@ mod tests {
 
     #[test]
     fn appearance_flag_matches_background_luminance() {
-        // A light theme must actually have a light background and vice versa —
+        // A light theme must actually have a light background and vice versa -
         // catches a mis-set `appearance =` line. The midpoint split is generous
         // (0.18 linear ≈ mid-gray) so only a clearly-wrong flag trips it.
         use super::super::contrast::relative_luminance;

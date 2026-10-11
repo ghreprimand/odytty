@@ -46,15 +46,15 @@ use winit::event_loop::EventLoopProxy;
 
 /// Apply the local-PTY backend capabilities onto a freshly-created terminal
 /// model. Called from EVERY local-pane creation path so the wiring can't drift:
-///   * [`WorkspaceSet::insert_local_session_with`] — the split / new-tab path.
-///   * [`crate::native::run_native`] — the startup pane (hand-built in `run_native`).
+///   * [`WorkspaceSet::insert_local_session_with`] - the split / new-tab path.
+///   * [`crate::native::run_native`] - the startup pane (hand-built in `run_native`).
 ///
 /// Currently propagates one capability: whether the backend's shell repaints
 /// the cursor with absolute positioning on resize (ConPTY/Windows = true), so
 /// the terminal defers resize cursor placement to the shell instead of
 /// translating it. On a POSIX PTY this is false (= the model default), which is
 /// why a missing call is invisible on Linux/macOS and only Windows exposes a
-/// drift — keep this funnel the single source of truth and guard it on Windows
+/// drift - keep this funnel the single source of truth and guard it on Windows
 /// CI via the setter/getter/behavior tie + the per-path pane tests.
 pub(in crate::native) fn apply_local_backend_caps(model: &mut Terminal, session: &PtySession) {
     model.set_shell_owns_cursor_on_resize(session.shell_repaints_on_resize());
@@ -74,14 +74,14 @@ pub(in crate::native) fn seed_initial_working_directory(model: &mut Terminal, cw
 /// What backs a session's I/O. The default is a locally-spawned PTY (the
 /// byte-identical path that everything used before Phase 2); an attached session
 /// is instead backed by a socket to a detached session-host. Input is *not*
-/// routed here — it flows through `Session::writer`, which for an attached
+/// routed here - it flows through `Session::writer`, which for an attached
 /// session is an [`AttachInputWriter`](crate::native::attach::AttachInputWriter) boxed
 /// into the same [`PtyWriter`] type, so the app-side input path is identical.
 /// This enum routes the two operations that genuinely differ by backing:
 /// **resize** (TIOCSWINSZ vs. a `Resize` frame) and **close** (kill+reap vs. a
 /// clean `Detach` that keeps the host session alive for later reattach).
 pub(in crate::native) enum SessionSource {
-    /// Locally-spawned PTY — the default, byte-identical path.
+    /// Locally-spawned PTY - the default, byte-identical path.
     Local { pty: Arc<Mutex<PtySession>> },
     /// Attached to a detached session-host over a per-user unix socket. The
     /// client is shared with the input writer so input/resize/detach serialize
@@ -197,18 +197,13 @@ impl HeadlessSession {
     }
 }
 
-/// A remote session's reconnect anchor (F6-i4). Holds what is needed to
-/// re-establish the same connection into the SAME tab slot after a transport
-/// drop: the resolved `ssh` argv (so a reconnect is byte-identical to the
-/// original launch and survives the host being edited or removed from the saved
-/// hosts mid-session) plus the tab title to restore.
-///
-/// REATTACH ANCHOR — this is the per-session hook for re-establishing a remote
-/// connection. It is deliberately the same concept as a detached session-host's
-/// per-pane reattach id: both answer "how does this pane come back". Keep them
-/// unified as one reconnect notion rather than two parallel fields. The tab
-/// title is not stored here — reconnect reuses the same tab, whose title
-/// override already persists across the drop.
+/// A remote session's reconnect anchor: the resolved `ssh` argv, replayed into
+/// the same tab slot after a transport drop. Replaying the stored argv makes a
+/// reconnect byte-identical to the original launch, and it survives the host
+/// being edited or removed from the saved hosts mid-session. It is the same
+/// concept as a detached session-host's per-pane reattach id: both answer "how
+/// does this pane come back". The tab title is not stored here; reconnect
+/// reuses the same tab, whose title override persists across the drop.
 pub(in crate::native) struct RemoteReconnect {
     command: SshCommand,
 }
@@ -219,10 +214,10 @@ impl RemoteReconnect {
     }
 }
 
-/// What the image paste-through path (F6-i7) needs to upload a pasted clipboard
+/// What the image paste-through path needs to upload a pasted clipboard
 /// image to this session's remote host and clean up afterward.
 ///
-/// Present ONLY on a remote *integrated* ssh session — that presence is the
+/// Present ONLY on a remote *integrated* ssh session - that presence is the
 /// trigger gate: a local shell and an integration-off plain-ssh tab both leave
 /// it `None`, so image paste-through never engages there and their paste path
 /// stays byte-identical. Holds the ssh destination + port and the connect
@@ -278,7 +273,7 @@ impl RemoteUpload {
     }
 }
 
-/// The self-contained bundle an image paste-through upload worker needs (F6-i7).
+/// The self-contained bundle an image paste-through upload worker needs.
 /// Every field is a cheap clone/handle, so the worker owns everything on its own
 /// thread and never borrows the session set: it uploads over `ssh`, then writes
 /// the remote path (on success) into `writer` or a one-line failure notice into
@@ -299,7 +294,7 @@ pub(in crate::native) struct RemoteUploadJob {
 /// What to do when a session's shell reaches EOF, given its child exit code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::native) enum ExitDisposition {
-    /// Close the tab normally — the byte-identical path everything used before.
+    /// Close the tab normally - the byte-identical path everything used before.
     Close,
     /// A remote transport drop: hold the tab open and offer reconnect.
     Reconnect,
@@ -310,7 +305,7 @@ pub(in crate::native) enum ExitDisposition {
 /// OpenSSH's `ssh` client exits **255** on its own transport failures
 /// (connection refused, host-key mismatch, or a link that drops mid-session), so
 /// 255 is the reconnect trigger. A clean `0` (the user typed `exit`/`logout`),
-/// any other remote-command code, and a missing code (`None` — a Unix signal
+/// any other remote-command code, and a missing code (`None` - a Unix signal
 /// death, or a post-EOF Windows `STILL_ACTIVE` sentinel treated as "unknown")
 /// all close normally. The rare case of the remote command itself exiting 255 is
 /// an accepted false positive: the reconnect prompt is dismissable and
@@ -334,7 +329,7 @@ enum PtyResizePolicy {
 }
 
 impl Session {
-    /// Construct a locally-spawned (PTY-backed) session — the byte-identical
+    /// Construct a locally-spawned (PTY-backed) session - the byte-identical
     /// path. The signature is unchanged from before Phase 2; the `pty` is
     /// wrapped into a [`SessionSource::Local`]. Test-only: the production local
     /// construction sites use [`Self::new_local_with_recorder`] so the pump and
@@ -421,7 +416,7 @@ impl Session {
             SessionSource::Attached { client },
             pump_thread,
         );
-        // Record the host id so attach dedup (Phase 14) can match a re-selected
+        // Record the host id so attach dedup can match a re-selected
         // session to its already-open tab.
         session.attached_session_id = Some(session_id.to_owned());
         session
@@ -569,7 +564,7 @@ impl Session {
     /// Available in every test build (not just Unix): the cross-platform
     /// pane-wiring guard reads the backend's resize cursor-authority capability
     /// through this on Windows CI, where the value (`true`) differs from the
-    /// model default — the case Linux can't exercise. On Windows a session is
+    /// model default - the case Linux can't exercise. On Windows a session is
     /// always `Local` (the `Attached` variant is `#[cfg(unix)]`), so the match
     /// is exhaustive with the `Local` arm alone.
     #[cfg(test)]
@@ -636,7 +631,7 @@ impl WorkspaceSet {
 
     /// Enable or disable output recording across every session, and remember the
     /// state so later-spawned sessions inherit it. Off by default; toggling off
-    /// clears each session's ring (freeing memory). Cheap and idempotent — the
+    /// clears each session's ring (freeing memory). Cheap and idempotent - the
     /// plain path never calls this with `true`.
     pub(in crate::native) fn set_recording_enabled(&mut self, on: bool) {
         self.recording_enabled = on;
@@ -722,7 +717,7 @@ impl WorkspaceSet {
     /// COALESCING (Phase H decision gate → option (a), flush-on-release): a
     /// divider drag fires one pointer-move event per pixel. Routing each through
     /// the full `resize_all_panes` flooded the shell with one
-    /// `ResizePseudoConsole`/`SIGWINCH` per move — on Windows ConPTY that
+    /// `ResizePseudoConsole`/`SIGWINCH` per move - on Windows ConPTY that
     /// scrambles PSReadLine's prompt as it repaints mid-resize. So the live
     /// per-move drag reflows the model only (this method) and the left-release
     /// handler flushes exactly one real `resize_all_panes` (PTY included) at
@@ -776,7 +771,7 @@ impl WorkspaceSet {
                 } else {
                     rect
                 };
-                // PANE-PADDING: size the PTY/grid to the pane's padded drawable
+                // Size the PTY/grid to the pane's padded drawable
                 // rect (inset by `pad` on divider-facing edges), so the reported
                 // "first glyph flush against the divider" regression is fixed and
                 // the grid never overflows into the divider gap. `pad == 0`, the
@@ -800,7 +795,7 @@ impl WorkspaceSet {
                     // A resize to identical grid dimensions MUST be a model
                     // no-op. `resize_all_panes` runs on every structural change
                     // (split / close / equalize / window resize), and for a
-                    // split it touches EVERY pane of the tab — including panes
+                    // split it touches EVERY pane of the tab - including panes
                     // the split did not actually resize. Calling
                     // `terminal.resize(cols, rows)` with unchanged dimensions
                     // still drives the column reflow, whose trailing-blank trim
@@ -811,7 +806,7 @@ impl WorkspaceSet {
                     // sticks until an unrelated real resize. Guarding the resize
                     // on a genuine dimension change keeps the untouched pane's
                     // cells + cursor byte-identical. Cell *pixel* metrics are
-                    // still applied unconditionally — they never reflow columns.
+                    // still applied unconditionally - they never reflow columns.
                     let current = terminal.screen().dimensions();
                     if current.columns != cols || current.rows != rows {
                         terminal.resize(cols, rows);
@@ -857,7 +852,7 @@ impl WorkspaceSet {
                         SessionSource::Local { pty } => {
                             if let Ok(pty) = pty.lock() {
                                 // Feed the live cell metric so TIOCSWINSZ reports
-                                // a real ws_xpixel/ws_ypixel (C23), then resize.
+                                // a real ws_xpixel/ws_ypixel, then resize.
                                 pty.set_cell_metrics(crate::core::CellMetrics::new(cell_w, cell_h));
                                 pty.resize(crate::core::Dimensions::new(cols, rows)).is_ok()
                             } else {
@@ -976,13 +971,13 @@ impl WorkspaceSet {
         self.launch_geometry_settled
     }
 
-    /// C18: push new per-cell pixel metrics to every pane WITHOUT a column
+    /// Push new per-cell pixel metrics to every pane WITHOUT a column
     /// reflow or a PTY resize. A DPI scale change can alter the cell's
     /// physical-pixel size while the grid still floors to the same cols/rows,
     /// which the debounced grid resize skips entirely; pixel-space consumers
     /// (SGR-pixel mouse reports, inline-image sizing) would otherwise stay on the
     /// stale metric. No `terminal.resize` (no reflow) and no `pty.resize` (no
-    /// SIGWINCH), so the shell sees nothing — only the metric changes.
+    /// SIGWINCH), so the shell sees nothing - only the metric changes.
     pub(in crate::native) fn apply_cell_metrics_all(&mut self, cell_w: u32, cell_h: u32) {
         let tokens: Vec<SessionToken> = self
             .workspaces
@@ -1026,7 +1021,7 @@ impl WorkspaceSet {
     /// Like [`Self::insert_spawned_session`] but seeds the new shell at `cwd`
     /// (F1 cwd inheritance / Duplicate Tab). Threads the directory to BOTH the
     /// shell spawn (so the child process starts there) and the terminal model's
-    /// advisory cwd (so the pane reports the right directory — and tab title —
+    /// advisory cwd (so the pane reports the right directory - and tab title -
     /// from the first frame, before any OSC 7 arrives), mirroring
     /// [`Self::insert_restored_session`]. `cwd == None` is byte-identical to the
     /// legacy `insert_spawned_session` path (spawn wherever the process already
@@ -1130,14 +1125,14 @@ impl WorkspaceSet {
         })
     }
 
-    /// Spawn a restored remote `ssh` session (RESTORE-REMOTE) and insert it into
-    /// the arena WITHOUT tab/pane wiring — the restore rebuild owns tree
+    /// Spawn a restored remote `ssh` session and insert it into
+    /// the arena WITHOUT tab/pane wiring - the restore rebuild owns tree
     /// assembly. Mirrors the connect path's per-session bookkeeping so a restored
     /// remote pane behaves exactly like a freshly-connected one: the
     /// reconnect-anchor (a mid-session drop re-runs this argv), the
     /// remote-destination (the next shape capture records it as remote again),
     /// and the image paste-through `upload` descriptor (built by the caller with
-    /// [`Self::remote_upload_for`], `Some` only for an integrated host — a
+    /// [`Self::remote_upload_for`], `Some` only for an integrated host - a
     /// plain-ssh restored pane passes `None` and its paste path stays
     /// byte-identical). Without it a restored integrated pane could not upload a
     /// pasted image, unlike its freshly-connected twin. The remote shell lands at
@@ -1253,7 +1248,7 @@ impl WorkspaceSet {
     /// Spawn a new session in a brand-new single-pane tab. Tab order is
     /// append-to-end, unchanged. `cwd == None` is the legacy new-tab behaviour
     /// (spawn wherever the process already is); a `Some` path seeds the new
-    /// shell — and the pane's advisory cwd — there (F1 cwd inheritance /
+    /// shell - and the pane's advisory cwd - there (F1 cwd inheritance /
     /// Duplicate Tab). Cross-platform: the POSIX PTY and Windows ConPTY spawns
     /// both honor the working directory.
     pub(in crate::native) fn spawn(
@@ -1282,11 +1277,11 @@ impl WorkspaceSet {
             ssh_command_for_host_with_options(host, opts).map_err(std::io::Error::other)?;
         let title = host.title.clone().unwrap_or_else(|| ssh_tab_title(host));
         let session_id = self.spawn_ssh_command_in_new_tab(grid, command, Some(title))?;
-        // Image paste-through (F6-i7) engages only on a remote *integrated*
+        // Image paste-through engages only on a remote *integrated*
         // session. Capture the upload descriptor here where the resolved host and
         // options are known; a plain-ssh (integration-off) tab leaves it unset so
         // its paste path stays byte-identical. Built by the shared helper so the
-        // restore path stays in lockstep (RESTORE-UPLOAD).
+        // restore path stays in lockstep.
         if let Some(upload) = Self::remote_upload_for(host, opts)
             && let Some(session) = self.sessions.get_mut(&session_id)
         {
@@ -1295,7 +1290,7 @@ impl WorkspaceSet {
         Ok(session_id)
     }
 
-    /// The image paste-through upload descriptor (F6-i7) for a resolved host +
+    /// The image paste-through upload descriptor for a resolved host +
     /// options, or `None` when paste-through does not engage. Paste-through is a
     /// remote *integrated* feature, so a plain-ssh (integration-off) session gets
     /// `None` and its paste path stays byte-identical. The `ControlMaster` dir is
@@ -1303,8 +1298,8 @@ impl WorkspaceSet {
     /// over the live session rather than pointing at a socket that never opened.
     /// Shared by the fresh-connect ([`Self::connect_ssh_in_new_tab`]) and restore
     /// ([`Self::insert_ssh_restored_session`]) paths so a restored integrated
-    /// pane is configured identically to a freshly-connected one — the two must
-    /// not drift (RESTORE-UPLOAD). Windows: `control_dir` is always `None` there
+    /// pane is configured identically to a freshly-connected one - the two must
+    /// not drift. Windows: `control_dir` is always `None` there
     /// (no socket multiplexing); the descriptor is otherwise identical and the
     /// `scp.exe` upload path is unaffected.
     pub(in crate::native) fn remote_upload_for(
@@ -1333,7 +1328,7 @@ impl WorkspaceSet {
         command: SshCommand,
         title_override: Option<String>,
     ) -> Result<SessionToken, std::io::Error> {
-        // Keep the resolved argv as the session's reconnect anchor (F6-i4) before
+        // Keep the resolved argv as the session's reconnect anchor before
         // it is consumed into (program, args): a mid-session transport drop
         // re-runs exactly this argv into the same tab slot.
         let reconnect = RemoteReconnect::new(command.clone());
@@ -1352,7 +1347,7 @@ impl WorkspaceSet {
     }
 
     /// Attach to a detached, session-host-backed session by id and present it as
-    /// a new single-pane tab — the live "close window, reopen by id, full
+    /// a new single-pane tab - the live "close window, reopen by id, full
     /// scrollback intact" path. Resolves the id to its per-user socket (CLI
     /// parity), connects + restores the mirror terminal from the host snapshot,
     /// spawns the read pump, and inserts an attached [`Session`] whose input
@@ -1397,7 +1392,7 @@ impl WorkspaceSet {
 
     /// Arena-only half of [`Self::insert_attached_session`]: connect to the
     /// hosted session, restore the mirror terminal, spawn the read pump, and
-    /// insert the attached [`Session`] into the arena — WITHOUT grafting a tab.
+    /// insert the attached [`Session`] into the arena - WITHOUT grafting a tab.
     /// The new-tab attach pushes a tab on top of this; the WP3 restore/append
     /// reattach path grafts the returned token into the pane tree it is building
     /// instead.
@@ -1441,10 +1436,10 @@ impl WorkspaceSet {
 
     /// WP3 / 8h reattach: if the detached session-host `session_id` is still
     /// alive, connect to it and insert the attached session into the arena,
-    /// returning its token (no tab — the restore/append path grafts it into the
+    /// returning its token (no tab - the restore/append path grafts it into the
     /// tree). Returns `None` when the host is gone, unreachable, already
     /// reattached in this build (attach dedup, ODP-10), or the event loop proxy
-    /// is unavailable — the caller then spawns a fresh shell instead. Unix-only;
+    /// is unavailable - the caller then spawns a fresh shell instead. Unix-only;
     /// on any other platform this always returns `None`, so a snapshot copied
     /// from a Unix box degrades cleanly to all-fresh.
     #[cfg(unix)]
@@ -1513,9 +1508,9 @@ impl WorkspaceSet {
 
     /// On a session's shell EOF, decide whether the tab should be held open for
     /// reconnect. For a remote session (one that carries a [`RemoteReconnect`]
-    /// anchor) whose child exited 255, this arms the in-pane reconnect prompt —
+    /// anchor) whose child exited 255, this arms the in-pane reconnect prompt -
     /// painting a one-line banner into the pane via the write-once-into-terminal
-    /// precedent and flagging the session awaiting-reconnect — and returns
+    /// precedent and flagging the session awaiting-reconnect - and returns
     /// `true` so the caller leaves the tab open. Every other case (a local
     /// shell, a clean exit, a non-transport exit code) returns `false` and the
     /// caller closes normally, byte-identically to before.
@@ -1546,7 +1541,7 @@ impl WorkspaceSet {
     }
 
     /// The active session's remote upload destination (`user@host`), or `None`
-    /// when the active tab is not a remote *integrated* ssh session (F6-i7). The
+    /// when the active tab is not a remote *integrated* ssh session. The
     /// App uses this both as the image-paste trigger gate and as the host label
     /// in the confirm prompt.
     pub(in crate::native) fn active_remote_upload_target(&self) -> Option<String> {
@@ -1557,7 +1552,7 @@ impl WorkspaceSet {
     }
 
     /// Assemble the everything-the-worker-needs bundle to upload a pasted image
-    /// to `token`'s remote host on a background thread (F6-i7): the ssh
+    /// to `token`'s remote host on a background thread: the ssh
     /// destination/port/`ControlMaster` dir plus clonable handles to the
     /// session's input writer, terminal model, uploaded-paths list, and the
     /// event-loop proxy (to wake a redraw when the worker finishes). `None` when
@@ -1580,7 +1575,7 @@ impl WorkspaceSet {
         })
     }
 
-    /// Test seam (F6-i7): mark the active session as a remote *integrated*
+    /// Test seam: mark the active session as a remote *integrated*
     /// upload target, as the connect path does, so the App-level image
     /// paste-through flow can be exercised without a real ssh connection.
     #[cfg(test)]

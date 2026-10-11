@@ -209,7 +209,7 @@ mod tests {
         assert!(matches!(plan.spawn, LocalSpawnKind::Exec(_)));
     }
 
-    // ---- v0.14 Phase A3 adversarial: plan carries env/cwd, default fallback ----
+    // ---- Adversarial inputs: plan carries env/cwd, default fallback ----
 
     #[test]
     fn a3_plan_carries_env_and_working_directory_from_profile() {

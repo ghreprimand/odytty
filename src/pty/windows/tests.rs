@@ -269,7 +269,7 @@ fn windows_powershell_5_1_resolves_by_absolute_path() {
 
 #[test]
 fn append_arg_quotes_only_when_needed() {
-    // D-8: a separator-free token is emitted bare (so cmd.exe receives `/C`
+    // A separator-free token is emitted bare (so cmd.exe receives `/C`
     // verbatim), while tokens with spaces/tabs/quotes are quoted per the
     // CommandLineToArgvW rules.
     let mut simple = Vec::new();
@@ -315,7 +315,7 @@ fn build_command_line_joins_program_and_args() {
     // NUL-terminated; strip it for the comparison.
     assert_eq!(line.last(), Some(&0));
     let text = decode(&line[..line.len() - 1]);
-    // D-8: program and the `/C` switch are bare; only the space-bearing
+    // Program and the `/C` switch are bare; only the space-bearing
     // command string is quoted.
     assert_eq!(text, "cmd.exe /C \"echo hi\"");
 }
@@ -613,7 +613,7 @@ fn startup_failure_reported_only_for_unrequested_abnormal_immediate_exit() {
 
 #[test]
 fn pcon_teardown_flag_defaults_false_and_latches() {
-    // D-5: the teardown latch starts clear and stays set once requested.
+    // The teardown latch starts clear and stays set once requested.
     let pcon = PconShared::new(0);
     assert!(!pcon.is_teardown_requested());
     pcon.request_teardown();

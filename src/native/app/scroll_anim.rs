@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Continuous fractional scrolling — sub-row pixel-precise scrollback for
+//! Continuous fractional scrolling - sub-row pixel-precise scrollback for
 //! high-resolution wheels/touchpads (`PixelDelta`).
 //!
 //! The scroll model stays integer-row: [`Viewport::offset`] carries whole rows,
@@ -7,7 +7,7 @@
 //! rows, invariant `(-1.0, 1.0)`) tracks the fractional position between two
 //! integer offsets. The remainder is turned into a pixel displacement
 //! (`Session::scroll_frac_offset`) pushed to the GPU `content_origin` Y
-//! (`gpu.rs`), so the whole rendered viewport — cells, cursor, and overlays —
+//! (`gpu.rs`), so the whole rendered viewport - cells, cursor, and overlays -
 //! shifts uniformly by the sub-row amount.
 //!
 //! Sign convention: positive = content shifted DOWN (a scroll-up, older content
@@ -20,7 +20,7 @@
 //! (see `handle_mouse_wheel`); discrete `LineDelta` notches move the integer
 //! offset directly and never touch the remainder. The pixel travel maps 1:1 to
 //! rows (× `scroll_pixel_speed`, identity by default), so a burst sums to
-//! exactly the physical travel — runaway-proof by construction, no notch
+//! exactly the physical travel - runaway-proof by construction, no notch
 //! multiplier. The lane is single-pane only in v1 (the multipane render path
 //! hard-zeros the shared GPU offset at `panes.rs`).
 
@@ -32,7 +32,7 @@ use std::time::Duration;
 /// new fractional remainder in `(-1.0, 1.0)`. Pure so the carry arithmetic is
 /// unit-testable without GPU cell metrics. `trunc` carries toward zero, so the
 /// remainder never flips sign spuriously and whole rows always move the integer
-/// offset by an exact row count — the sub-row part below one row is *kept*, not
+/// offset by an exact row count - the sub-row part below one row is *kept*, not
 /// discarded (the old notch coalescer truncated it, so sub-notch pixel travel
 /// produced no motion at all).
 fn carry_scroll_frac(frac: f32, d_rows: f32) -> (isize, f32) {
@@ -51,7 +51,7 @@ const SCROLL_GLIDE_TAU: Duration = Duration::from_millis(80);
 const SCROLL_GLIDE_FRAME: Duration = Duration::from_millis(16);
 
 /// The follower settles (snaps to the logical offset and ends the glide) once it
-/// is within this many rows of the target — well under a pixel at any cell size.
+/// is within this many rows of the target - well under a pixel at any cell size.
 const GLIDE_SETTLE_ROWS: f32 = 0.01;
 
 /// One frame of the SCROLL-GLIDE forward-chase follower: ease `visual` toward
@@ -73,14 +73,14 @@ fn glide_step(visual: f32, logical: f32, dt: Duration, tau: Duration) -> f32 {
 /// just-anchored integer offset). Operates purely on the session's own glide
 /// state, so it is callable both from the single-pane render path (via
 /// [`App::update_scroll_glide`]) and from the multipane rebuild loop while that
-/// loop already holds a `&mut Session` borrow — without going back through
+/// loop already holds a `&mut Session` borrow - without going back through
 /// `App::sessions`. A no-op unless a glide is in flight. Snaps immediately when
 /// the target moved between frames (output growth re-anchored the offset) or
 /// once the follower settles within [`GLIDE_SETTLE_ROWS`] of the target. Sets
 /// the session's sub-row `scroll_frac_offset`; both the single-pane render and
 /// the per-pane multipane loop read it, baking the sub-cell remainder into the
 /// pane's render origin and clipping the overflowing partial row to the pane's
-/// content rect (PANE-SUBCELL-CLIP) so a split eases with pixel precision and no
+/// content rect so a split eases with pixel precision and no
 /// cross-divider bleed.
 pub(super) fn advance_session_glide(
     session: &mut Session,
@@ -128,7 +128,7 @@ pub(super) fn advance_session_glide(
 /// is always under one cell), else the passed-through `logical` offset, clamped
 /// to a valid offset. Shared by the single-pane path (via
 /// [`App::glide_render_offset`]) and the per-pane multipane loop. The logical
-/// `viewport` offset is unchanged — selection, scrollbar, and "at live bottom"
+/// `viewport` offset is unchanged - selection, scrollbar, and "at live bottom"
 /// still read it; only the render snapshot follows the glide.
 pub(super) fn session_glide_render_offset(
     session: &Session,
@@ -149,8 +149,8 @@ impl App {
     /// its primary screen (the alternate screen has no scrollback to render
     /// fractionally); Ctrl is not held (a zoom gesture); and the pointer is not
     /// mid selection-drag (drag-autoscroll steps whole rows). The multipane
-    /// render now expresses per-pane sub-cell offsets (PANE-SUBCELL-CLIP), so a
-    /// split is no longer excluded — the lane arms on the pane under the pointer,
+    /// render now expresses per-pane sub-cell offsets, so a
+    /// split is no longer excluded - the lane arms on the pane under the pointer,
     /// which need not be the focused one (mirroring the discrete glide lane). The
     /// mouse-reporting and overlay-open cases are already excluded by earlier
     /// returns in `handle_mouse_wheel`.
@@ -161,7 +161,7 @@ impl App {
             && self.on_primary_screen_of(token)
     }
 
-    /// The active pane's continuous-scroll eligibility — the single-pane
+    /// The active pane's continuous-scroll eligibility - the single-pane
     /// decision, kept as a test seam. Delegates to
     /// [`Self::continuous_scroll_eligible_of`] on the active pane, so a
     /// single-pane tab is unchanged from before the per-pane split.
@@ -189,7 +189,7 @@ impl App {
     /// `scroll_pixel_speed`, identity by default) so a burst sums to exactly the
     /// physical travel, carries whole rows into the integer [`Viewport::offset`],
     /// and keeps the sub-row remainder as the visual offset. It never arms an
-    /// ease — there is none; the sub-row position is set directly. The remainder
+    /// ease - there is none; the sub-row position is set directly. The remainder
     /// is clamped at the scrollback bounds so momentum past either end deposits
     /// nothing (no drift, no rubber-band).
     pub(super) fn drive_continuous_scroll(
@@ -273,8 +273,8 @@ impl App {
         }
     }
 
-    /// Clear any sub-row scroll remainder for `token` and zero its pixel offset
-    /// — the snap-by-default seam invoked on every viewport change
+    /// Clear any sub-row scroll remainder for `token` and zero its pixel offset -
+    /// the snap-by-default seam invoked on every viewport change
     /// (`on_viewport_changed_of`: return-to-live, search nav, scrollbar-thumb
     /// drag, resize). A no-op when already at rest, so the off path stays
     /// byte-identical.
@@ -297,13 +297,13 @@ impl App {
     /// follower for pane `token`: the `scroll_glide` knob is on, that pane is on
     /// its primary screen (no scrollback to glide on the alternate screen), and
     /// the pointer is not mid selection-drag (drag-autoscroll steps whole rows).
-    /// Per-pane by design — a split arms the glide on the pane under the pointer,
-    /// not the focused one — so the old single-pane restriction is gone: a split
+    /// Per-pane by design - a split arms the glide on the pane under the pointer,
+    /// not the focused one - so the old single-pane restriction is gone: a split
     /// now glides row-by-row (the multipane render snapshots at the FLOORED
     /// follower row and applies no sub-cell shift across a divider, so there is no
     /// cross-pane bleed). For a single-pane tab `token` is the active pane and
-    /// every surviving term is unchanged, so the single-pane decision — and its
-    /// byte-identical render path — is intact.
+    /// every surviving term is unchanged, so the single-pane decision - and its
+    /// byte-identical render path - is intact.
     fn scroll_glide_eligible_of(&self, token: SessionToken) -> bool {
         self.settings.scroll_glide
             && !self.pointer_drag.is_selecting()
@@ -357,7 +357,7 @@ impl App {
         }
     }
 
-    /// Snap the glide follower for `token` to rest (visual == logical, no wake) —
+    /// Snap the glide follower for `token` to rest (visual == logical, no wake) -
     /// the snap-by-default seam alongside [`Self::clear_scroll_frac_of`]. Zeroes
     /// the sub-row pixel offset only when a glide was actually in flight, so a
     /// snap on an idle session leaves any continuous-lane remainder untouched.
@@ -388,9 +388,9 @@ impl App {
 
     /// The scrollback offset the active session should SNAPSHOT at this frame:
     /// the glide follower's floored row while a glide is in flight (so the
-    /// content_origin sub-row shift is always under one cell — no multi-row edge
+    /// content_origin sub-row shift is always under one cell - no multi-row edge
     /// gap), else the passed-through logical offset, clamped to a valid offset.
-    /// The logical `viewport` offset is unchanged — selection, scrollbar, and
+    /// The logical `viewport` offset is unchanged - selection, scrollbar, and
     /// "at live bottom" all still read it; only the render snapshot follows the
     /// glide.
     pub(super) fn glide_render_offset(&self, logical: usize, scrollback_len: usize) -> usize {
@@ -416,7 +416,7 @@ impl App {
     /// (`None` at rest / when single-pane / on the off path). The multipane
     /// counterpart to [`Self::scroll_glide_deadline`]: sourced ONLY in the
     /// multipane wake path so it does not fan wider than its consumer (the
-    /// per-pane glide advance in `rebuild_multipane`) — the other animation
+    /// per-pane glide advance in `rebuild_multipane`) - the other animation
     /// timers still have no multipane consumer, so they stay single-pane-gated.
     pub(super) fn multipane_glide_deadline(&self) -> Option<Instant> {
         if self.sessions.active_is_single_pane() || !self.sessions.any_visible_pane_gliding() {
@@ -453,7 +453,7 @@ mod tests {
         assert_eq!(whole, 1);
         assert!((frac - 0.1).abs() < 1e-6, "remainder carried: {frac}");
 
-        // Pure sub-notch travel moves the remainder with NO whole-row carry —
+        // Pure sub-notch travel moves the remainder with NO whole-row carry -
         // the visual glides by a fraction of a row while the integer offset is
         // unchanged. This is the sub-notch-produces-no-motion bug, gone.
         let (whole, frac) = carry_scroll_frac(0.0, 0.3);
@@ -517,7 +517,7 @@ mod tests {
             "signature reflects the sub-row shift"
         );
 
-        // A sub-row follow-up (0.25 row) moves ONLY the visual — the integer
+        // A sub-row follow-up (0.25 row) moves ONLY the visual - the integer
         // offset does not change, but the pixel offset advances. Sub-notch pixel
         // travel now produces motion (it was truncated to nothing before).
         app.drive_continuous_scroll(token, 4.0, 16);
@@ -801,7 +801,7 @@ mod tests {
         app.scroll_viewport_of(token, 5);
         assert!(app.glide_active, "precondition: glide armed");
         // Any non-scroll viewport change (here, return-to-live on input) snaps
-        // the follower to the exact offset — no gliding a programmatic jump.
+        // the follower to the exact offset - no gliding a programmatic jump.
         app.return_to_live();
         assert!(!app.glide_active, "return-to-live snaps the glide");
         assert_eq!(app.scroll_frac_offset, 0.0, "snap zeroes the sub-row shift");
@@ -832,7 +832,7 @@ mod tests {
         );
     }
 
-    // --- SCROLL-GLIDE per-pane (split) state machine — no GPU --------------
+    // --- SCROLL-GLIDE per-pane (split) state machine - no GPU --------------
 
     /// Build a headless two-pane split: pane A (the original, pre-split active)
     /// and pane B (the new focused pane), each seeded with its own scrollback.
@@ -917,7 +917,7 @@ mod tests {
         );
 
         // Advancing pane A's follower each frame never perturbs pane B's glide
-        // state — the follower is strictly per-session.
+        // state - the follower is strictly per-session.
         let b_visual = app.sessions.get(b).unwrap().glide_visual;
         let base = Instant::now();
         for i in 1..=8u32 {
@@ -938,7 +938,7 @@ mod tests {
         app.settings.scroll_glide = true;
         app.scroll_viewport_of(a, 5);
         // The follower lags at the old row (0); the split render snapshots at the
-        // FLOORED follower row, not the logical offset (5) — the whole-row glide.
+        // FLOORED follower row, not the logical offset (5) - the whole-row glide.
         let session = app.sessions.get(a).expect("pane A");
         assert_eq!(
             session_glide_render_offset(session, 5, 100),
@@ -973,7 +973,7 @@ mod tests {
         assert_eq!(
             app.multipane_glide_deadline(),
             None,
-            "wake clears once settled — the split returns to zero-wake idle"
+            "wake clears once settled: the split returns to zero-wake idle"
         );
     }
 

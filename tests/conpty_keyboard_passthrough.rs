@@ -11,7 +11,7 @@
 //! all), so it must be probed, not assumed.
 //!
 //! These probes document observed behavior on the CI `windows-latest` leg
-//! (the authoritative Windows verification — there is no local Windows
+//! (the authoritative Windows verification - there is no local Windows
 //! machine). They are designed to PASS with either outcome: each asserts
 //! only that the probe pipeline itself worked, and reports the observed
 //! passthrough result in its output. A hard failure therefore means the
@@ -35,7 +35,7 @@ fn hex(bytes: &[u8]) -> String {
 /// libtest captures the `print!`/`println!` macro output of passing tests
 /// unless `--nocapture` is given (CI does not pass it), but writes issued
 /// directly against the stderr handle bypass that capture. These probes are
-/// designed to pass with either passthrough outcome — the printed finding IS
+/// designed to pass with either passthrough outcome - the printed finding IS
 /// the result, so it must be visible in a green run's log.
 fn report(finding: &str) {
     let _ = writeln!(std::io::stderr(), "{finding}");
@@ -116,7 +116,7 @@ fn conpty_keyboard_queries_app_to_terminal() {
 fn conpty_csi_u_terminal_to_app() {
     // The client drains keys for a bounded window and prints their char codes
     // as hex between markers. ReadKey sees the cooked key events conhost
-    // produces from the VT input stream — the same view a console app gets.
+    // produces from the VT input stream - the same view a console app gets.
     let script = concat!(
         "$sw=[Diagnostics.Stopwatch]::StartNew();$codes=@();",
         "while($sw.ElapsedMilliseconds -lt 5000){",

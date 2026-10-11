@@ -91,8 +91,8 @@ fn hold_start_requested() -> bool {
 #[cfg(windows)]
 pub const HELD_START_LIMIT: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// Whether a foreground job — a process group on the controlling terminal other
-/// than the spawned shell itself — is currently running.
+/// Whether a foreground job - a process group on the controlling terminal other
+/// than the spawned shell itself - is currently running.
 ///
 /// This is a *read-only* classification of the PTY master's foreground process
 /// group versus the shell's own group. It never reaps, waits on, or otherwise
@@ -104,10 +104,10 @@ pub const HELD_START_LIMIT: std::time::Duration = std::time::Duration::from_secs
 /// never panics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ForegroundJob {
-    /// The shell itself owns the terminal foreground — nothing would be lost on
+    /// The shell itself owns the terminal foreground - nothing would be lost on
     /// close.
     None,
-    /// A process group other than the shell owns the terminal foreground — a job
+    /// A process group other than the shell owns the terminal foreground - a job
     /// is running in the foreground.
     Running,
     /// The foreground could not be determined (PTY closed, child exited, no
@@ -126,7 +126,7 @@ pub struct CommandBuilder {
     /// Variables to strip from the child's inherited environment at spawn.
     /// Distinct from an empty `env` set: a removal makes the variable UNSET in
     /// the child (so a `[ -n "$VAR" ]`/`set -q VAR` guard reads absent) rather
-    /// than present-but-empty. Both backends honor it — the Unix backend maps
+    /// than present-but-empty. Both backends honor it - the Unix backend maps
     /// each entry to `Command::env_remove`, the Windows backend drops the
     /// matching entry from the ConPTY environment block.
     env_remove: Vec<OsString>,
@@ -352,7 +352,7 @@ impl CommandBuilder {
         self
     }
 
-    /// Prompt-scoped key-enhancement discovery (D-b): when the
+    /// Prompt-scoped key-enhancement discovery: when the
     /// `shell_key_enhancement` knob is on, advertise it to an integrated
     /// bash/zsh shell by setting `ODYTTY_KEY_ENHANCE=1`; the snippet guards its
     /// prompt-scoped Kitty-keyboard lifecycle on this variable, so without it
@@ -382,7 +382,7 @@ impl CommandBuilder {
     /// odytty session inherits `ODYTTY_SHELL_INTEGRATION=1` in its own process
     /// environment and would pass it straight through to the shell it spawns,
     /// whose snippet guard (`[ -z "${ODYTTY_SHELL_INTEGRATION-}" ]`) then skips
-    /// the ENTIRE integration body — no OSC 133 marks, no OSC 7, no button
+    /// the ENTIRE integration body - no OSC 133 marks, no OSC 7, no button
     /// emitters, no key push. Scrubbing the inherited value at spawn is safe:
     /// the snippet re-exports the variable itself when it runs, so the guard's
     /// real job (preventing double-sourcing WITHIN one shell) is preserved
@@ -462,7 +462,7 @@ mod tests {
         );
     }
 
-    /// F3: a key present in both `env` and `env_remove` must resolve the same
+    /// A key present in both `env` and `env_remove` must resolve the same
     /// way on both PTY backends. The lists are kept disjoint at push time (later
     /// call wins), so a set after a removal leaves the key only in `env`, and a
     /// removal after a set leaves it only in `env_remove`. Both backends consume
@@ -541,7 +541,7 @@ mod tests {
         );
     }
 
-    /// Prompt-scoped key-enhancement discovery (D-b): the knob on injects
+    /// Prompt-scoped key-enhancement discovery: the knob on injects
     /// exactly `ODYTTY_KEY_ENHANCE=1`; off injects nothing, so the bash/zsh
     /// snippet's `[ -n "$ODYTTY_KEY_ENHANCE" ]` guard tracks the knob. Shared
     /// injection site for both backends, same as the buttons advertisement.

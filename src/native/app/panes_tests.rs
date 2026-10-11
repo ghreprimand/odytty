@@ -67,7 +67,7 @@ fn tab_bar_shrinks_the_content_rect_by_exactly_the_strip() {
     let with = pane_content_rect(w, h, cell, padding, TabReserve::top());
     // Same width and x; the strip eats `TAB_BAR_ROWS` cell-heights PLUS the
     // chrome-facing padding gap off the top, shifting y down and reducing
-    // height by the same amount (CHROME-GAP: content never touches chrome).
+    // height by the same amount (content never touches chrome).
     assert!((without.w - with.w).abs() < f32::EPSILON);
     assert!((without.x - with.x).abs() < f32::EPSILON);
     let strip = cell.height as f32 * TAB_BAR_ROWS as f32 + padding.as_f32();
@@ -77,7 +77,7 @@ fn tab_bar_shrinks_the_content_rect_by_exactly_the_strip() {
 
 #[test]
 fn left_rail_shrinks_the_content_rect_by_the_rail_width_plus_the_gap() {
-    // F4-V2 + CHROME-GAP: a left rail reserves `left_cols` off the LEFT and
+    // A left rail reserves `left_cols` off the LEFT and
     // the window padding opens between band and content, so the content
     // x-origin shifts right by rail + gap and the width shrinks by the
     // same; height and y are unchanged (the rail reserves columns, not
@@ -111,7 +111,7 @@ fn left_rail_shrinks_the_content_rect_by_the_rail_width_plus_the_gap() {
 
 #[test]
 fn right_rail_shrinks_content_from_the_right_with_the_band_a_gap_away() {
-    // F4-P2 layout mirror + CHROME-GAP: a right rail reserves `right_cols`
+    // F4-P2 layout mirror + a right rail reserves `right_cols`
     // off the RIGHT plus the chrome-facing gap: the content width shrinks
     // by band + gap but its x-origin stays put (content on the LEFT), the
     // mirror of the left rail (which shifts the origin right). y/height are
@@ -184,7 +184,7 @@ fn zero_padding_keeps_every_chrome_band_flush() {
 
 #[test]
 fn chrome_gap_tracks_each_shown_band_at_the_padding_value() {
-    // CHROME-GAP: each SHOWN band gets a gap equal to the window padding;
+    // Each SHOWN band gets a gap equal to the window padding;
     // absent bands get none, so nothing changes where no chrome is pinned.
     let padding = WindowPadding::from_logical(8.0, 1.0);
     assert_eq!(

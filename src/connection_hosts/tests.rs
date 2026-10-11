@@ -518,7 +518,7 @@ fn loaded_connection_hosts_honor_settings_opt_in() {
 /// blank-line separators - the shapes an in-place edit must not disturb.
 fn annotated_fixture() -> String {
     [
-        "# OdyTTY hosts \u{2014} hand annotated",
+        "# OdyTTY hosts - hand annotated",
         "",
         "Host alpha",
         "    HostName alpha.example.invalid",

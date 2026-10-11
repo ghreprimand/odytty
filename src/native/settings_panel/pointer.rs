@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Pointer-driven interaction for the settings panel (UX4-P1): the shared
+//! Pointer-driven interaction for the settings panel: the shared
 //! row walker that backs both the rendered lines and the cell→row→zone
 //! hit-map, plus click dispatch and free wheel-scroll.
 //!
@@ -9,7 +9,7 @@
 //! helpers directly; methods the parent calls back into are `pub(super)`.
 //!
 //! Mouse is purely additive: every value change still terminates in the
-//! existing `commit_value`/`apply_raw` seam — no new write path. Numeric rows
+//! existing `commit_value`/`apply_raw` seam - no new write path. Numeric rows
 //! use discrete stepper buttons plus a click-to-type readout, both committing
 //! through that same seam.
 
@@ -38,9 +38,9 @@ fn center_text(text: &str, width: usize) -> String {
 /// the two views can never drift.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::native) enum RowZone {
-    /// A group label line — inert.
+    /// A group label line - inert.
     GroupHeader,
-    /// The `"name: value"` line. SETTINGS-CLICKZONES: split into a focus-only
+    /// The `"name: value"` line. split into a focus-only
     /// NAME zone (the `marker + name:` prefix, columns `< value_x0`) and an
     /// action VALUE zone (the value text, columns `>= value_x0`). `value_x0`
     /// is the body-relative column where the value text begins.
@@ -56,11 +56,11 @@ pub(in crate::native) enum RowZone {
         up_x0: usize,
         up_w: usize,
     },
-    /// A wrapped help line — selects its owning row only, no value change.
+    /// A wrapped help line - selects its owning row only, no value change.
     Detail,
-    /// A `"! ..."` notice line — inert.
+    /// A `"! ..."` notice line - inert.
     Message,
-    /// A section row in the Level-1 section list (SETTINGS-REDESIGN).
+    /// A section row in the Level-1 section list.
     /// `entry_index` carries the section index; a click drills into that
     /// section. This zone only appears in Level-1 hit-maps (T-level-hitmap).
     SectionRow,
@@ -70,8 +70,8 @@ pub(in crate::native) enum RowZone {
     /// The About-view "Copy diagnostics" action row (ABOUT). A click copies the
     /// diagnostics block to the clipboard.
     AboutCopy,
-    /// SETTINGS-COMPACT: a line in the fixed help footer (divider, wrapped help,
-    /// status message, or blank padding). Inert — carries no `entry_index`, so a
+    /// A line in the fixed help footer (divider, wrapped help,
+    /// status message, or blank padding). Inert - carries no `entry_index`, so a
     /// click never changes the selection or a value.
     Footer,
 }
@@ -393,7 +393,7 @@ impl SettingsPanel {
             return rows;
         }
 
-        // SETTINGS-COMPACT: each setting renders as one compact line; the
+        // Each setting renders as one compact line; the
         // focused row's help moves to a fixed footer pinned to the panel bottom
         // (menuconfig pattern). Reserve those bottom rows up front so the
         // scrolling content window is a constant height and never reflows as
@@ -407,7 +407,7 @@ impl SettingsPanel {
             .unwrap_or(0);
         let content_height = body_height.saturating_sub(footer_reserve);
 
-        // OB-SEARCH: when searching, a fixed filter header sits above the results.
+        // When searching, a fixed filter header sits above the results.
         if self.search_active {
             rows.push((
                 SettingsPanelLine {
@@ -467,7 +467,7 @@ impl SettingsPanel {
                 if value.chars().count() > max_value {
                     value = ellipsize(&value, max_value);
                 }
-                // SETTINGS-CLICKZONES: the value text begins after
+                // The value text begins after
                 // `marker + ' ' + name + ': '` (2 + name + 2 columns). A click
                 // before this column only focuses the row; a click on it acts.
                 let value_x0 = entry.name.chars().count() + 4;
@@ -476,7 +476,7 @@ impl SettingsPanel {
                     RowZone::Value { value_x0 },
                 )
             };
-            // SETTINGS-COMPACT: one compact line per setting — the per-row help
+            // One compact line per setting - the per-row help
             // that used to wrap inline now lives in the fixed footer below.
             rows.push((
                 SettingsPanelLine {
@@ -491,8 +491,8 @@ impl SettingsPanel {
             ));
         }
 
-        // OB-SEARCH: a query that matches nothing shows an explicit notice rather
-        // than an empty body, and never closes the overlay (R3).
+        // A query that matches nothing shows an explicit notice rather
+        // than an empty body, and never closes the overlay.
         if self.search_active && self.entries.is_empty() && rows.len() < content_height {
             rows.push((
                 SettingsPanelLine {
@@ -507,7 +507,7 @@ impl SettingsPanel {
             ));
         }
 
-        // SETTINGS-COMPACT: the fixed help footer. Pad the scrolling content to
+        // The fixed help footer. Pad the scrolling content to
         // its reserved height so the footer pins to the panel bottom, then emit
         // a divider and the focused row's help, with an environment override
         // before status and descriptions, wrapping and truncating longer
@@ -738,7 +738,7 @@ impl SettingsPanel {
             }
             // A help line only selects its owning row; no value change.
             RowZone::Detail => SettingsPanelOutcome::Consumed,
-            // SETTINGS-CLICKZONES: the compact row splits into a focus-only
+            // The compact row splits into a focus-only
             // NAME zone and an action VALUE zone. Selection was already applied
             // above, so a name-zone click just focuses the row (the footer
             // follows); a value-zone click acts exactly as before.
@@ -867,7 +867,7 @@ impl SettingsPanel {
         }
         match entry.kind {
             // Key-specific overrides run before kind dispatch (theme is Enum,
-            // font_family is String — both open pickers not editors).
+            // font_family is String - both open pickers not editors).
             _ if entry.key == "theme" => {
                 self.message = Some("Opening built-in theme picker.".to_owned());
                 SettingsPanelOutcome::OpenThemePicker
@@ -899,10 +899,10 @@ impl SettingsPanel {
                 SettingsPanelOutcome::Consumed
             }
             // The `keybinds` row opens the remap editor on click, exactly like
-            // the keyboard `activate_selected` (mod.rs) does — without this arm
+            // the keyboard `activate_selected` (mod.rs) does - without this arm
             // it fell through to the generic List branch below and popped a
-            // useless "type a value" prompt, leaving the editor mouse-unreachable
-            // (P1-5/P1-6). Must run before the generic List arm.
+            // useless "type a value" prompt, leaving the editor mouse-unreachable.
+            // Must run before the generic List arm.
             SettingKind::List if entry.key == "keybinds" => {
                 self.message = Some("Opening keybinding editor.".to_owned());
                 SettingsPanelOutcome::OpenKeyBindings
@@ -978,7 +978,7 @@ mod tests {
     }
 
     /// The body row offset and value-zone start column for `key`'s value row.
-    /// SETTINGS-CLICKZONES: clicks at/after `value_x0` act; earlier columns
+    /// Clicks at/after `value_x0` act; earlier columns
     /// only focus the row.
     fn value_row(panel: &SettingsPanel, key: &str) -> (usize, usize) {
         let want = entry_index(panel, key);
@@ -1013,7 +1013,7 @@ mod tests {
 
     #[test]
     fn level1_footer_word_fits_on_a_narrow_panel() {
-        // OVERLAY-SMALL-WINDOW: the Level-1 section-list footer must degrade to
+        // The Level-1 section-list footer must degrade to
         // a whole-word hint on a narrow panel, never a mid-word cut.
         const FULL: &str = "  Enter/\u{2192} open  / search  Ctrl+S save  Esc close";
         // Default panel is Level 1 (section list), so the footer hint is built.
@@ -1088,7 +1088,7 @@ mod tests {
 
     #[test]
     fn clicking_the_keybinds_value_row_opens_the_editor() {
-        // P1-5/P1-6: the keybinds row (a List kind) must open the remap editor on
+        // The keybinds row (a List kind) must open the remap editor on
         // CLICK, exactly like the keyboard `activate_selected`. Before the fix the
         // click path fell through to the generic List arm and popped a useless
         // "type a value" prompt, leaving the editor mouse-unreachable.
@@ -1137,7 +1137,7 @@ mod tests {
         let target = entry_index(&p, "subpixel");
         let (row, value_x0) = value_row(&p, "subpixel");
         assert!(value_x0 > 0, "the value zone starts past the name prefix");
-        // Column 0 is the marker — squarely in the name zone.
+        // Column 0 is the marker - squarely in the name zone.
         let outcome = p.handle_pointer_press(W, H, row, 0, PointerButton::Left, None);
         assert_eq!(
             outcome,
@@ -1557,7 +1557,7 @@ mod tests {
     fn settings_rows_are_compact_with_no_inline_detail() {
         let p = panel();
         let rows = p.build_visible_rows(W, H);
-        // Every row that belongs to a setting entry is a single primary line —
+        // Every row that belongs to a setting entry is a single primary line -
         // the inline wrapped help/detail rows are gone.
         for (_, hit) in &rows {
             if hit.entry_index.is_some() {
@@ -1666,7 +1666,7 @@ mod tests {
         let mut p = panel();
         let before = p.build_visible_rows(W, FH);
         // A single Down stays within the content window (no scroll), so no row
-        // may shift — the whole point of moving help out of the row stream.
+        // may shift - the whole point of moving help out of the row stream.
         let _ = p.handle_input(OverlayInput::Down);
         let after = p.build_visible_rows(W, FH);
         assert_eq!(before.len(), after.len(), "row count stable → no reflow");

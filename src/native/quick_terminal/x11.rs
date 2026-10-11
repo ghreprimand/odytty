@@ -6,7 +6,8 @@
 //! `#[cfg(target_os = "linux")]` on its `mod` declaration. It performs a real
 //! root-window `GrabKey` over a dedicated `x11rb` connection and confirms the
 //! grab with the server (a CHECKED request) before reporting `Registered`, and
-//! reports the honest Wayland/headless limitation otherwise, so it never claims
+//! reports the failure reason otherwise (on Wayland the adapter registers
+//! through the portal in `wayland` instead), so it never claims
 //! a registration the OS did not confirm.
 //!
 //! `x11rb` is used deliberately in place of a libX11 (Xlib) backend: its
@@ -110,8 +111,8 @@ impl GlobalShortcutAdapter for LinuxShortcutAdapter {
     }
 
     fn unregister(&mut self) {
-        // Dropping the grab ungrabs the key / closes the portal session and
-        // joins the owning thread.
+        // Dropping the X11 grab ungrabs the key and joins its owning thread;
+        // dropping the portal grab sets a stop flag and detaches its thread.
         self.grab = None;
         self.wayland_grab = None;
     }

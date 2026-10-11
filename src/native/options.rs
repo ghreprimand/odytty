@@ -45,8 +45,8 @@ pub struct NativeCommand {
 
 /// Initial native window and text assumptions.
 ///
-/// These are the documented starting defaults for the Linux-first prototype.
-/// Appearance/effect defaults live in [`Settings`]; this type carries the
+/// These are the starting values for the first window. Appearance/effect
+/// defaults live in [`Settings`]; this type carries the
 /// window/text subset needed to bootstrap the native renderer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NativeOptions {
@@ -69,7 +69,7 @@ pub struct NativeOptions {
     /// `font_path` points at a direct file or settings request another family.
     pub font_family: String,
     /// Optional weight-variant suffix appended to `font_family` to select a
-    /// lighter or heavier base face (RV7). Empty (the default) loads the
+    /// lighter or heavier base face. Empty (the default) loads the
     /// family's regular face exactly as before. Bold/italic discovery always
     /// uses the plain `font_family`, so SGR bold stays distinct.
     pub font_weight: String,
@@ -98,11 +98,11 @@ pub struct NativeOptions {
     /// historical geometric box-drawing weights byte-identically; other values
     /// scale the rule thickness. Inert unless geometric box-drawing is on.
     pub box_thickness: f32,
-    /// Optional detached session id to attach to at startup (Phase 2). `None`
+    /// Optional detached session id to attach to at startup. `None`
     /// (the default) is the normal local-shell launch and leaves the startup path
     /// byte-identical. When `Some(id)`, the window still opens its normal initial
     /// local session, then attaches the hosted session as a live tab and focuses
-    /// it — the `odytty attach <id>` entry the CLI sets.
+    /// it - the `odytty attach <id>` entry the CLI sets.
     pub attach_session: Option<String>,
     /// Whether this process was launched as a bare `odytty` with no CLI
     /// arguments (WP2 restore-on-launch, sub-ODP 8b). Only a bare launch is

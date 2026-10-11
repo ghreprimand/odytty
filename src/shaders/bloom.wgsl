@@ -136,7 +136,7 @@ fn output_dither(pos: vec2<f32>) -> f32 {
 // Barrel distortion for CRT screen curvature. Maps the flat NDC-space UV to
 // a curved sample location so the composited frame appears to bulge toward
 // the viewer at the center and recede at the edges. `amount` is clamped
-// server-side (0.0–0.5); the shader re-clamps defensively and returns the
+// by the setting (0.0-0.12); the shader re-clamps to 0.0-0.5 defensively and returns the
 // original UV at zero so the flat path stays pixel-identical. UVs are then
 // clamped to [0,1] to avoid black seams at the frame border.
 fn crt_curved_uv(uv: vec2<f32>) -> vec2<f32> {

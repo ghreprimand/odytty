@@ -76,7 +76,7 @@ pub enum PaletteAction {
     OpenSettings,
     OpenThemePicker,
     /// Capture the focused pane's live colors into a theme draft and open the
-    /// theme editor on it (THEME-CAPTURE).
+    /// theme editor on it.
     CreateThemeFromColors,
     CopySelection,
     Paste,

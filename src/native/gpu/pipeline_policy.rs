@@ -116,7 +116,7 @@ pub(in crate::native) fn theme_clear_color(theme: &Theme) -> wgpu::Color {
 
 /// TRANSPARENCY: choose the swapchain composite-alpha mode. A transparent
 /// window needs the compositor to blend the surface alpha, so prefer a
-/// transparency-capable mode — `PreMultiplied` first (the framebuffer this
+/// transparency-capable mode - `PreMultiplied` first (the framebuffer this
 /// renderer produces over a zero clear is premultiplied), then
 /// `PostMultiplied`, then `Opaque` (transparency silently unavailable). Falls
 /// back to the first advertised mode if the caps list is exotic; the list is
@@ -134,7 +134,7 @@ pub(in crate::native) fn select_alpha_mode(
 }
 
 /// TRANSPARENCY: the opacity fed to the CONTENT cell-vertex builder. The
-/// wallpaper softening and window transparency COMPOSE — the content surface
+/// wallpaper softening and window transparency COMPOSE - the content surface
 /// alpha is their product, `cell_bg_opacity * window_bg_alpha`, rather than one
 /// regime replacing the other at the 100% boundary.
 ///
@@ -143,21 +143,21 @@ pub(in crate::native) fn select_alpha_mode(
 /// stay at the same softening fraction OF the window alpha, so the wallpaper
 /// layer (a separate pass carrying its own `window_bg_alpha` uniform) keeps
 /// showing through the cells instead of being occluded by a near-opaque cell
-/// quad — the earlier hard branch snapped the cell alpha up to `window_bg_alpha`
+/// quad - the earlier hard branch snapped the cell alpha up to `window_bg_alpha`
 /// (~0.99 just below 100%), which hid the wallpaper entirely one step off the
 /// boundary. The product is continuous as `window_bg_alpha -> 1.0` (the limit
 /// from below, `cell_bg_opacity`, equals the value at 1.0) and monotonic in the
-/// window alpha, so window opacity now scales one continuous stack — wallpaper
-/// treatment fading over the desktop-through — instead of toggling between two
+/// window alpha, so window opacity now scales one continuous stack - wallpaper
+/// treatment fading over the desktop-through - instead of toggling between two
 /// background models.
 pub(in crate::native) fn content_build_opacity(window_bg_alpha: f32, cell_bg_opacity: f32) -> f32 {
     cell_bg_opacity * window_bg_alpha
 }
 
-/// COLORED-BG-FLOOR: the opacity fed to the cell-vertex builder for content
+/// The opacity fed to the cell-vertex builder for content
 /// cells whose RESOLVED background differs from the theme default (powerline
 /// segments, button chips, app-painted blocks). The knob floors the WINDOW
-/// factor of the [`content_build_opacity`] product — not the product itself —
+/// factor of the [`content_build_opacity`] product - not the product itself -
 /// so the wallpaper-softening factor (`cell_bg_opacity`) is preserved and every
 /// identity holds by construction:
 ///
@@ -166,7 +166,7 @@ pub(in crate::native) fn content_build_opacity(window_bg_alpha: f32, cell_bg_opa
 ///   `cell_bg_opacity < 1.0`, where a naive `max(floor, product)` would lift);
 /// * knob `0.0`: `max(alpha, 0.0) == alpha` → exactly the content product,
 ///   byte-identical at every window opacity;
-/// * monotonic in the knob, and always `>= content_build_opacity` — the floor
+/// * monotonic in the knob, and always `>= content_build_opacity` - the floor
 ///   strengthens colored cells, never weakens them.
 pub(in crate::native) fn colored_content_build_opacity(
     window_bg_alpha: f32,
@@ -178,8 +178,8 @@ pub(in crate::native) fn colored_content_build_opacity(
 
 /// TRANSPARENCY: the color the scene pass clears to. Fully transparent
 /// (premultiplied zero) while the window is translucent, so the desktop shows
-/// through and the whole treatment-over-desktop stack — wallpaper layer then
-/// cell background quads, each premultiplied `(rgb·a, a)` — composites over it
+/// through and the whole treatment-over-desktop stack - wallpaper layer then
+/// cell background quads, each premultiplied `(rgb·a, a)` - composites over it
 /// correctly; otherwise the opaque theme clear (byte-identical off path). The
 /// clear stays transparent-when-translucent by design: window transparency is
 /// meant to reveal the DESKTOP, and the wallpaper's own faded contribution now
@@ -203,7 +203,7 @@ pub(in crate::native) fn scene_clear_color(
 
 /// Pack a [`VisualEffect`] into the shader uniform's legacy `effect` slot:
 /// `[scanline_strength, scanline_period_px]`. Kept for uniform layout
-/// stability only — `cell.wgsl` and `cell_subpixel.wgsl` never sample
+/// stability only - `cell.wgsl` and `cell_subpixel.wgsl` never sample
 /// `effect`; the unified CRT post-process is the sole scanline path.
 pub(in crate::native) fn effect_params(visual: VisualEffect) -> [f32; 2] {
     [visual.scanline_strength(), visual.scanline_period_px()]
@@ -258,7 +258,7 @@ pub(in crate::native) fn required_limits_for_adapter(
 /// backend at once therefore pays for a full second driver stack that the
 /// window will never draw through. Measured on the shipped windowed
 /// configuration, an all-backends instance sat about 1.5 MB above the staged
-/// one — consistently, across replicates at fixed window geometry, but small.
+/// one - consistently, across replicates at fixed window geometry, but small.
 /// A headless probe of the same change suggested a far larger figure; the
 /// windowed number is the one that describes the product. What is saved is one
 /// backend's initialization, not one driver's mapping: on a unified vendor
@@ -266,7 +266,7 @@ pub(in crate::native) fn required_limits_for_adapter(
 /// way, so nothing here should be read as GL going unloaded.
 ///
 /// So: try the accelerated backends first, and keep the wider set as a
-/// fallback. `Backends::PRIMARY` is Vulkan, DX12, and Metal — it excludes GL,
+/// fallback. `Backends::PRIMARY` is Vulkan, DX12, and Metal - it excludes GL,
 /// which is a genuine last-resort path for older hardware, virtual machines,
 /// and remote display stacks with no working Vulkan. Dropping GL outright would
 /// trade memory for a class of machines that stop launching, so it stays
@@ -330,8 +330,8 @@ pub(in crate::native) fn surface_failure_action(
 ///
 /// Each stage builds its own instance, because the backend set is fixed at
 /// instance creation and the surface belongs to the instance that made it. A
-/// stage that yields an accelerated adapter ends the search, so the common case
-/// — a machine with a working Vulkan, DX12, or Metal driver — creates exactly
+/// stage that yields an accelerated adapter ends the search, so the common case -
+/// a machine with a working Vulkan, DX12, or Metal driver - creates exactly
 /// one instance and initializes exactly one backend, instead of initializing
 /// every installed backend and drawing through one of them.
 ///

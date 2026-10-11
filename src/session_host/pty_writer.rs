@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Bounded, non-blocking PTY-master write path for the session host (audit C-1).
+//! Bounded, non-blocking PTY-master write path for the session host.
 //!
 //! The single `run_host` loop previously wrote attach-client input and terminal
 //! query replies straight to the raw blocking master fd, inline. When the hosted
 //! foreground process stopped reading its stdin (a stopped job, a pager at rest,
 //! `sleep`), the slave input queue filled and that inline `write_all` parked the
-//! whole loop forever: broadcast, accept, and — critically — the drain of
+//! whole loop forever: broadcast, accept, and - critically - the drain of
 //! `ClientFrame::Shutdown` all stopped, so the manager's "kill session" was
 //! queued but never seen and the host was unkillable through the product.
 //! Meanwhile the reader threads kept pumping unbounded channels, so host memory
@@ -13,12 +13,12 @@
 //!
 //! This mirrors the native side's `pty_writer` shim shape: the blocking fd write
 //! runs on a dedicated writer thread fed by a byte-bounded in-memory queue. The
-//! host loop only ever *enqueues* — an O(1) push under a briefly-held lock that
-//! never spans an fd write — so a wedged slave can never stall the loop.
+//! host loop only ever *enqueues* - an O(1) push under a briefly-held lock that
+//! never spans an fd write - so a wedged slave can never stall the loop.
 //!
 //! Overflow policy: the queue is byte-bounded ([`QUEUE_BYTE_CAP`]). When a
 //! stalled consumer lets it exceed the cap, the OLDEST buffered chunks are
-//! dropped rather than blocking the producer — a wedged slave must not propagate
+//! dropped rather than blocking the producer - a wedged slave must not propagate
 //! backpressure into the host loop. Dropping input corrupts an already-wedged
 //! stream, but keeping the host responsive (still able to accept a detach or a
 //! kill) is the higher priority. The newest chunk is never dropped, so one
@@ -74,7 +74,7 @@ impl Shared {
     }
 
     /// Enqueue a copy of `bytes`, applying the byte-cap drop-oldest policy. Never
-    /// blocks on the fd — only the briefly-held queue lock is taken.
+    /// blocks on the fd - only the briefly-held queue lock is taken.
     fn enqueue(&self, bytes: &[u8]) {
         if bytes.is_empty() {
             return;
@@ -180,7 +180,7 @@ impl Drop for HostPtyWriter {
         // parked in a blocking fd write on a wedged PTY slave, and a join
         // here would transfer that unbounded wait onto whoever drops the
         // handle (the host teardown path). The thread exits on its own when
-        // the write returns or errors and it observes `closed` — the same
+        // the write returns or errors and it observes `closed` - the same
         // non-joining teardown the app-side writer shim uses.
         {
             let mut queue = self.shared.lock();
@@ -259,7 +259,7 @@ mod tests {
     #[test]
     fn enqueue_never_blocks_when_the_slave_stops_reading() {
         // The writer thread parks in the very first fd write; a producer that
-        // enqueues afterwards must still return promptly (the C-1 property: a
+        // enqueues afterwards must still return promptly (a
         // wedged slave cannot stall the host loop).
         let (started_tx, started_rx) = mpsc::channel();
         let block = Arc::new((Mutex::new(false), Condvar::new()));

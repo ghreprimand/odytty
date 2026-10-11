@@ -5,22 +5,22 @@ use crate::core::{
 };
 use crate::selection::{self, AbsoluteCellPoint, AbsoluteSelectionRange, SelectionRange};
 
-/// Themed search-highlight treatment (ID1). When supplied to
+/// Themed search-highlight treatment. When supplied to
 /// [`apply_search_ui`], non-active matches are painted with `fill`/`fg` and the
 /// active match with `active_fill`/`active_fg` (all sRGB bytes) instead of the
 /// historical inverse / hardcoded black-on-yellow. Foregrounds are precomputed
-/// by the caller, RV1-floored over their respective fills, so readability holds
+/// by the caller, contrast-floored over their respective fills, so readability holds
 /// at the active `min_contrast`. Passing `None` preserves the byte-identical
 /// default path, keeping the plain render pixel-identical.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct SearchStyle {
     /// Non-active match fill background (sRGB), from the theme `search` role.
     pub(super) fill: [u8; 3],
-    /// Non-active match foreground over `fill` (sRGB), RV1-floored.
+    /// Non-active match foreground over `fill` (sRGB), contrast-floored.
     pub(super) fg: [u8; 3],
     /// Active match fill background (sRGB), a brightened `search` derivative.
     pub(super) active_fill: [u8; 3],
-    /// Active match foreground over `active_fill` (sRGB), RV1-floored.
+    /// Active match foreground over `active_fill` (sRGB), contrast-floored.
     pub(super) active_fg: [u8; 3],
 }
 
@@ -273,7 +273,7 @@ pub(super) fn apply_search_ui(
 /// Paint only the search MATCH highlights (no interactive query bar) for
 /// `search` onto `snapshot`. Split out from [`apply_search_ui`] so a
 /// non-focused pane in a split can show ITS OWN matches (per-pane search state)
-/// without also stamping the query bar over its last content row — the bar is
+/// without also stamping the query bar over its last content row - the bar is
 /// keyboard-interactive and belongs to the focused pane, which still routes
 /// through the full [`apply_search_ui`]. A closed search paints nothing.
 pub(super) fn apply_search_matches(

@@ -60,7 +60,7 @@ impl SynchronizedOutputHold {
     /// Release the hold with no scheduled wake (the `enabled = false` rest
     /// state). Used to settle a deactivated session's hold: a background tab is
     /// never rendered, so its hold deadline must not linger as a wake source that
-    /// nothing consumes (NF20-B). A later synchronized batch on that session,
+    /// nothing consumes. A later synchronized batch on that session,
     /// once active again, re-arms the hold via [`Self::should_hold`].
     pub(in crate::native) fn clear(&mut self) {
         self.active_since = None;
@@ -71,8 +71,8 @@ impl SynchronizedOutputHold {
 /// Whether the first-run onboarding card should open at startup (ONBOARD).
 /// `env_override` forces it on (the `ODYTTY_ONBOARDING` escape hatch / CI).
 /// Otherwise it is a first launch iff the resolved `config_path` does not yet
-/// exist. An unresolvable path (no writable config dir) returns `false` —
-/// fail-safe to NOT nagging, since dismissal could not be persisted (D-OB-2).
+/// exist. An unresolvable path (no writable config dir) returns `false` -
+/// fail-safe to NOT nagging, since dismissal could not be persisted.
 pub(super) fn should_show_onboarding(
     env_override: bool,
     config_path: Option<&std::path::Path>,
@@ -92,13 +92,13 @@ impl App {
             return false;
         }
         // Reserve the tab chrome off the grid: rows off the top for the
-        // horizontal bar, or columns off the side for the vertical rail (F4-V2).
+        // horizontal bar, or columns off the side for the vertical rail.
         // `reserve` is `NONE` when the bar is hidden, so the plain path is
         // byte-identical; the resize path and the snapshot-grow path
         // (`decorate_snapshot_with_tab_bar` / `..._rail`) read the SAME reserve so
-        // the grid, cursor, and pointer can never desync (ODP-8).
+        // the grid, cursor, and pointer can never desync.
         //
-        // CHROME-GAP: derive the grid straight from `pane_content_rect`, the one
+        // Derive the grid straight from `pane_content_rect`, the one
         // seam that folds in window padding, the chrome reservation, AND the
         // chrome-facing padding gap. With no gap this is exactly the historical
         // cell arithmetic (`floor((extent - 2*pad)/cell) - reserved`, since the
@@ -127,7 +127,7 @@ impl App {
 
         // Size every pane of every tab to its laid-out sub-rect. For an all-
         // single-pane world each tab's lone leaf spans the whole content rect,
-        // so this resizes each session to exactly `new_grid` — byte-identical to
+        // so this resizes each session to exactly `new_grid` - byte-identical to
         // the old per-session loop. Multi-pane tabs get per-pane sizing (#1).
         // Reconcile even when the aggregate grid did not cross a cell boundary:
         // a final one-pixel surface configure can move a ratio-derived divider
@@ -237,7 +237,7 @@ impl App {
             presentation_active
                 .then(|| self.resize_debounce.deadline())
                 .flatten(),
-            // BLACK-SCREEN-ON-RESTORE: bounded retry for a transiently-skipped
+            // Bounded retry for a transiently-skipped
             // frame. `None` at rest, so the idle wake set is unchanged; when a
             // frame was skipped this wakes the loop to repaint the recovered
             // surface instead of leaving it black until an unrelated event.
@@ -255,8 +255,8 @@ impl App {
             // pending state clears promptly even with no further input. `None`
             // (the at-rest case) leaves the min unchanged.
             self.prefix_engine.pending_deadline(),
-            // NF20-B: the cursor blink of the ACTIVE pane only. `self.cursor_blink`
-            // Derefs to the active session — the SAME pane the maintenance
+            // The cursor blink of the ACTIVE pane only. `self.cursor_blink`
+            // Derefs to the active session - the SAME pane the maintenance
             // consumer (`self.cursor_blink.is_due`) and the frame poll advance.
             // A background pane is never rendered, so its blink is never polled;
             // sourcing its stale deadline here (as the old `sessions.iter()` did)
@@ -271,10 +271,10 @@ impl App {
             // editing config *and watching* has no reason to stat the file once
             // a second, so suppressing this drops idle-unfocused self-wakes to
             // zero (the only remaining wake source at rest). Edits made while
-            // away still apply on focus regain — the `Focused(true)` redraw
+            // away still apply on focus regain - the `Focused(true)` redraw
             // walks `run_about_to_wait_maintenance` -> `poll_config_reload`,
             // which fires immediately because `next_poll` is by then in the
-            // past — so live reload stays correct, it just defers the stat to
+            // past - so live reload stays correct, it just defers the stat to
             // the moment you look at the window again.
             self.focused
                 .then(|| self.settings_reloader.deadline())
@@ -282,21 +282,21 @@ impl App {
             self.focused
                 .then(|| self.external_palette_follow.deadline())
                 .flatten(),
-            // NF20-B: the synchronized-output holds of the panes on screen only
+            // The synchronized-output holds of the panes on screen only
             // (the active pane, or every visible pane of a split tab, where each
             // pane holds on its own). The maintenance consumer
             // (`synchronized_output_hold_due`) reads the same set; background
             // tabs are parked, so they cannot strand a stale hold in the wake set.
             self.synchronized_output_hold_deadline(),
-            // Cursor-animation wake source, ACTIVE focused pane only (NF20-B).
+            // Cursor-animation wake source, ACTIVE focused pane only.
             // Both single-pane and split render paths advance this consumer;
             // background panes stay parked and never fan wakes into this set.
             presentation_active
                 .then(|| self.focused_cursor_animation_deadline())
                 .flatten(),
-            // F4-P3: wake at the next rail auto-hide boundary (show debounce /
-            // hide grace / flash expiry). `None` at rest — steady Hidden, or
-            // Revealed with the pointer parked — so the idle wake set is
+            // Wake at the next rail auto-hide boundary (show debounce /
+            // hide grace / flash expiry). `None` at rest - steady Hidden, or
+            // Revealed with the pointer parked - so the idle wake set is
             // unchanged when nothing is animating.
             presentation_active
                 .then(|| self.rail_autohide.wake_deadline(Instant::now()))
@@ -307,19 +307,19 @@ impl App {
             presentation_active
                 .then(|| self.transient_hud_deadline())
                 .flatten(),
-            // NF21-2: the overlay/scroll/bell/fade animation aggregator
+            // The overlay/scroll/bell/fade animation aggregator
             // (`animation_deadline()`: smooth-scroll glide, bell flash, new-row
             // fade, open-notice + click-hint auto-expiry, and the cursor
             // ease/slide/follower it already folds). This entry was dropped when
             // the multi-session refactor replaced it with the cursor-only fan-out
             // above, stranding those five with a maintenance CONSUMER but no
-            // wake SOURCE — they only advanced when an unrelated wake (a blink
+            // wake SOURCE - they only advanced when an unrelated wake (a blink
             // toggle) happened to fire, so they froze outright when the cursor
             // was steady/unfocused/blink-off. Restored here, gated to the
             // single-pane active render path: that path (the `update_*` calls in
             // the single-pane rebuild) is the ONLY consumer that advances these
-            // timers, so — per the NF20-B "a source must not fan wider than its
-            // consumer" rule — sourcing a wake while multipane would be a wake
+            // timers, so - per the NF20-B "a source must not fan wider than its
+            // consumer" rule - sourcing a wake while multipane would be a wake
             // with no consumer (a spin). NF21-1/7 restores the multipane
             // advancement and widens this gate. `None` at rest (every
             // contributor `None`), so the idle wake set is unchanged.
@@ -345,7 +345,7 @@ impl App {
             presentation_active
                 .then_some(self.animated_graphics_deadline)
                 .flatten(),
-            // WP2: wake to flush the debounced workspace-shape autosave. `None`
+            // Wake to flush the debounced workspace-shape autosave. `None`
             // at rest (nothing pending), so the idle wake set is unchanged; when
             // a shape mutation is pending this fires the one write ~1.5s later.
             self.autosave_deadline,
@@ -353,7 +353,7 @@ impl App {
             // since the last snapshot, so `None` at rest.
             self.cwd_checkpoint_deadline,
             // Memory-attribution sampler. `None` whenever `ODYTTY_MEMORY_REPORT`
-            // is unset, which is every ordinary run — so the idle wake set is
+            // is unset, which is every ordinary run - so the idle wake set is
             // unchanged and the diagnostic cannot alter the idle behavior it
             // exists to measure. When the gate is on this is the one added wake,
             // and it reads counters without requesting a redraw.
@@ -455,7 +455,7 @@ impl App {
         // session receives a bounded blink deadline.
         self.note_cursor_keyboard_activity(Instant::now());
 
-        // NF21-8/9/11: an active-session change (tab OR workspace switch post-W1)
+        // An active-session change (tab OR workspace switch post-W1)
         // must not carry window/session input latches across the boundary. Drop
         // the pointer drag + hover cell on every session so the outgoing one
         // sheds a mid-drag `Selecting` latch and the incoming one starts with no
@@ -483,7 +483,7 @@ impl App {
         // `needs_rebuild` set below); a composition begun on the previous surface
         // must not paint at, or commit into, the new one.
         self.ime_preedit.clear();
-        // NF21-12: an activation is a viewport discontinuity for the new-output
+        // An activation is a viewport discontinuity for the new-output
         // fade, exactly like a resize. Scrollback the incoming session grew
         // while it was backgrounded is not "fresh output" and must not fade in
         // on switch-back. Clear the incoming session's fade tracker so its next
@@ -505,7 +505,7 @@ impl App {
         // relative to the current bottom. A no-op for a tab that was never
         // backgrounded.
         self.sessions.reconcile_active_tab_scroll_baselines();
-        // SCROLL-GLIDE: a switch is a viewport discontinuity — settle the
+        // A switch is a viewport discontinuity - settle the
         // incoming session's follower so it renders at its exact offset rather
         // than a stale lagging position.
         self.snap_scroll_glide_of(self.sessions.active_id());
@@ -555,7 +555,7 @@ impl App {
                 }
                 // Redraw suppression (design doc §2.5 audit row #4): wake the
                 // window when the session is *any visible pane of the active
-                // tab*, not only the focused one — a background pane producing
+                // tab*, not only the focused one - a background pane producing
                 // output must repaint in a split. For a single-pane tab
                 // `is_visible_pane` is exactly `active_id() == session`, so the
                 // single-pane wake decision is unchanged.
@@ -572,7 +572,7 @@ impl App {
                 // or workspace. Settle an active divider before that layout can
                 // be removed or focus can move to a survivor.
                 self.settle_divider_for_surface_change();
-                // F6-i4: a remote session whose link dropped (`ssh` exit 255)
+                // A remote session whose link dropped (`ssh` exit 255)
                 // holds its tab open with an in-pane reconnect prompt instead of
                 // closing. Checked BEFORE the last-session exit test so a lone
                 // remote tab dropping offers reconnect rather than exiting the
@@ -713,7 +713,7 @@ impl App {
         if std::mem::take(&mut self.paste_focus_loss_pending) && !self.focused {
             self.cancel_pending_text_paste();
         }
-        // REMOTE-UX P4 / ODP-8: drain a finished Test Connection probe into the
+        // REMOTE-UX drain a finished Test Connection probe into the
         // open form. Idle when no probe is in flight.
         self.poll_connection_probe();
         // Memory-attribution sample, when the diagnostic is gated on and one is
@@ -721,10 +721,10 @@ impl App {
         // the frame path: an idle terminal presents no frames, and idle
         // residency is the figure this diagnostic exists to attribute.
         self.run_memory_report_sample(now);
-        // NF20-B: settle the cursor-animation / render-hold timers of every
+        // Settle the cursor-animation / render-hold timers of every
         // non-active pane. Background panes are never rendered, so their timers
-        // have no consumer; parking them here — the one place that runs before
-        // every `next_wake_deadline` recompute in the loop — keeps them out of
+        // have no consumer; parking them here - the one place that runs before
+        // every `next_wake_deadline` recompute in the loop - keeps them out of
         // the wake set and guarantees a pane switched back to starts from a clean
         // (non-stale) timer state. Idempotent and cheap. Paired with the
         // active-only deadline sources in `next_wake_deadline`.
@@ -737,15 +737,15 @@ impl App {
             self.poll_profile_auto_switch();
         }
 
-        // NF21-6: drain the bell + prompt-marks-changed latches of EVERY
+        // Drain the bell + prompt-marks-changed latches of EVERY
         // session over the flat arena, so a bell in a background tab / pane /
-        // workspace — or in any multipane tab — is serviced here instead of
+        // workspace - or in any multipane tab - is serviced here instead of
         // stranding until that surface becomes the active single-pane one
         // (where it fired spuriously at switch-time). The active-visible focused
         // pane keeps today's viewport flash + prompt-marks epoch (the single-
         // pane render fast path no longer drains, so it stays byte-identical);
         // any other session that rang pings cross-platform window urgency and
-        // latches its tab's activity flag (the rollup input, ODP-6 v2 — the flag
+        // latches its tab's activity flag (the rollup input, ODP-6 v2 - the flag
         // is landed and maintained here, but no rollup UI reads it yet). Kept in
         // maintenance, NOT in `rebuild_multipane`, to avoid colliding with the
         // multipane viewport-bookkeeping work.
@@ -880,7 +880,7 @@ impl App {
         // Gated to the single-pane render path for the same reason the collector
         // source is (that path is the only consumer that advances these timers;
         // multipane advancement is NF21-1/7). The real-instant contributors
-        // (open-notice / click-hint) still fire exactly once — the collector
+        // (open-notice / click-hint) still fire exactly once - the collector
         // wakes only at their expiry, so the due check accepts that one pass and
         // the rebuild clears them.
         if self.sessions.active_is_single_pane() {
@@ -922,19 +922,19 @@ impl App {
             }
         }
 
-        // F4-P3: advance the rail auto-hide timers (show debounce / hide grace /
+        // Advance the rail auto-hide timers (show debounce / hide grace /
         // flash expiry). A due boundary flips the overlay's visibility; repaint
         // so the reveal appears or the hide takes effect. Returns `false` at rest
         // (no autohide, or steady visible/hidden), so this is inert on the plain
         // path and while the rail is parked open under the pointer. Keep the
         // suspend latch current so a menu closing lets the grace run again.
-        // RAIL-PIN: a rail-anchored menu or a workspace rename also suspends it.
+        // A rail-anchored menu or a workspace rename also suspends it.
         self.rail_autohide
             .set_suspend(self.overlay.is_open() || self.rail_pinned_open());
         if self.rail_autohide.poll(now) {
             // A timer boundary that flips the rail's visibility (show debounce
             // elapsing, hide grace / flash expiring) must rebuild the frame so
-            // the overlay is (re)assembled or dropped — `build_rail_overlay` runs
+            // the overlay is (re)assembled or dropped - `build_rail_overlay` runs
             // only inside the `should_rebuild_frame` gate, which reads
             // `needs_rebuild`. Requesting a redraw alone lets the rebuild be
             // skipped and the reveal never paints until an unrelated dirty frame.
@@ -947,18 +947,18 @@ impl App {
         // §7 multiplexer prefix: forget a pending prefix that has timed out.
         // `pending_deadline()` is a `next_wake_deadline` source, so a prefix left
         // pending after its timeout would keep the loop scheduling
-        // `WaitUntil(<past instant>)` — a 0-timeout poll that returns immediately
-        // every iteration and busy-spins a core — until the next key or focus
+        // `WaitUntil(<past instant>)` - a 0-timeout poll that returns immediately
+        // every iteration and busy-spins a core - until the next key or focus
         // loss cleared it. Expiring it here on the timer (the same instant the
         // loop is woken at) breaks that spin. No repaint: the pending state has
         // no frame-path affordance yet; if one ships, request a redraw here.
         self.prefix_engine.expire_pending(now);
 
-        // BLACK-SCREEN-ON-RESTORE: a due skipped-frame retry. Clear the pending
+        // A due skipped-frame retry. Clear the pending
         // deadline and request a redraw so the next `RedrawRequested` re-attempts
         // the frame; if it skips again (and the guards still allow it) the
         // RedrawRequested arm re-arms a fresh bounded retry. This is a timed,
-        // budget-capped retry — not a busy-poll.
+        // budget-capped retry - not a busy-poll.
         if let Some(deadline) = self.skipped_frame_retry_deadline
             && now >= deadline
         {
@@ -1004,7 +1004,7 @@ impl App {
         }
 
         let (w, h) = self.options.window_logical_size();
-        // WIN-DECOR: request decorations per config at creation. Default `true`
+        // Request decorations per config at creation. Default `true`
         // matches `WindowAttributes::default()`, so the startup chain is
         // byte-identical when unset.
         let attributes = Window::default_attributes()
@@ -1084,7 +1084,7 @@ impl App {
         ));
         self.last_presented_snapshot = Some(initial_snapshot.clone());
         self.last_presented_is_window_frame = true;
-        // ID3/U5: seed the background-image pass from the launch config
+        // Seed the background-image pass from the launch config
         // so the very first frame already reflects an `image` treatment
         // (no-op / off path when no image is configured).
         gpu.set_background_image(
@@ -1096,13 +1096,13 @@ impl App {
             self.settings.cell_bg_opacity,
             self.effective_theme,
         );
-        // SELECTION-OPACITY: seed the selection strength for the first
+        // Seed the selection strength for the first
         // frame from the launch config (identity / off path at 1.0).
         gpu.set_selection_opacity(self.settings.selection_opacity);
-        // COLORED-BG-FLOOR: seed the colored-background opacity floor
+        // Seed the colored-background opacity floor
         // from the launch config so the first frame already floors.
         gpu.set_colored_bg_opacity(self.settings.colored_bg_opacity);
-        // TEXT-BRIGHTNESS: seed the glyph-foreground lift from the
+        // Seed the glyph-foreground lift from the
         // launch config (identity / off path at 1.0).
         gpu.set_text_brightness(self.settings.text_brightness);
         self.gpu = Some(gpu);
@@ -1172,9 +1172,9 @@ impl App {
         // A window-close request supersedes a paste decision. Drop held source
         // text before replacing its modal or exiting.
         self.cancel_pending_text_paste();
-        // CLOSE-CONFIRM: when enabled and a foreground job is actually
+        // When enabled and a foreground job is actually
         // running, intercept the close and raise the confirmation dialog
-        // instead of exiting. Only `ForegroundJob::Running` prompts —
+        // instead of exiting. Only `ForegroundJob::Running` prompts -
         // `None` (idle shell) and `Unknown` (query error / dead PTY) and
         // a poisoned lock all fall through to the immediate exit, so the
         // off path and the common idle-close path are unchanged (TRAP-1,
@@ -1182,7 +1182,7 @@ impl App {
         // in the remote host), so closing an attached window detaches
         // immediately without prompting.
         //
-        // MULTI-WINDOW: request exit through `pending_exit` rather than
+        // Request exit through `pending_exit` rather than
         // exiting the event loop here. The host reads `wants_exit()` after
         // this event and routes it through `resolve_window_close`, so closing
         // one sibling removes only that window while the last window's close
@@ -1218,7 +1218,7 @@ impl App {
         size: PhysicalSize<u32>,
         event_loop: &ActiveEventLoop,
     ) {
-        // BLACK-SCREEN-ON-RESTORE: track minimize (a 0x0 surface) so the
+        // Track minimize (a 0x0 surface) so the
         // skipped-frame retry is suppressed while there is nothing to
         // paint. A restore (non-zero size) clears it AND resets the
         // skipped-frame retry budget so the recovering surface gets a
@@ -1245,7 +1245,7 @@ impl App {
             self.note_window_resize_for_hud(resize.width_px, resize.height_px);
             self.record_pending_resize(resize, now);
         }
-        // C4: re-center the image viewer for the new surface size.
+        // Re-center the image viewer for the new surface size.
         self.refresh_image_overlay_on_resize();
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
@@ -1288,7 +1288,7 @@ impl App {
             self.needs_rebuild = true;
             self.last_render_signature = None;
             self.presentation_epoch = self.presentation_epoch.wrapping_add(1);
-            // C18: apply the new per-cell metrics to every pane now. The
+            // Apply the new per-cell metrics to every pane now. The
             // debounced grid resize is a model no-op when the scale change
             // keeps the same cols/rows, which would strand pixel-space
             // consumers (SGR-pixel mouse, inline-image sizing) on the old

@@ -41,14 +41,14 @@
 //! Each axis of the design is a deliberate OdyTTY choice, documented in the
 //! submodule headers:
 //!
-//! - **State transitions** — flat `match (state, byte-class)` returning an
+//! - **State transitions** - flat `match (state, byte-class)` returning an
 //!   [`action::Action`], NOT per-state methods (the first-generation shape)
 //!   and NOT the Williams `[state][256]` table (canonical reference).
-//! - **UTF-8 strategy** — lifted entirely out of the state machine into the
+//! - **UTF-8 strategy** - lifted entirely out of the state machine into the
 //!   Layer-1 [`segmenter`]; partial-codepoint carry lives in one place.
-//! - **Dispatch shape** — hybrid pure-action core + thin driver adapter;
+//! - **Dispatch shape** - hybrid pure-action core + thin driver adapter;
 //!   [`VtDispatch`] survives unchanged as the output contract.
-//! - **Params storage** — inline `[u16; 32]` + `u32` boundary bitmap (no heap,
+//! - **Params storage** - inline `[u16; 32]` + `u32` boundary bitmap (no heap,
 //!   no parallel array); see [`params`] module docs.
 //! - **String buffering**: OSC bounded at 128 KiB, dispatching the retained
 //!   prefix after overflow; DCS
@@ -57,11 +57,11 @@
 //!
 //! ## OdyTTY policy ledger
 //!
-//! 1. **C1-via-UTF-8 uniform execute** — a validly-decoded C1 scalar
+//! 1. **C1-via-UTF-8 uniform execute** - a validly-decoded C1 scalar
 //!    (`U+0080..=U+009F` via `0xC2 0x8x`) **executes** regardless of how its
 //!    bytes split across `advance()` calls. This makes PTY chunking irrelevant
 //!    for these controls.
-//! 2. **Partial-completion no-byte-loss** — a completed UTF-8 scalar consumes
+//! 2. **Partial-completion no-byte-loss** - a completed UTF-8 scalar consumes
 //!    only the bytes required for that scalar; following valid bytes in the same
 //!    `advance()` chunk are processed normally.
 //! 3. **String caps**: OSC is bounded at 128 KiB and dispatches its retained

@@ -3,13 +3,13 @@
 //! checks where practical").
 //!
 //! A **headless CPU compositor** rasterizes a small terminal grid into an RGBA
-//! buffer using the *real* geometry path — `grid::build_vertices*` produces the
+//! buffer using the *real* geometry path - `grid::build_vertices*` produces the
 //! exact quads the GPU draws, and these checks composite them on the CPU with
 //! the same painter ordering (all backgrounds first, then glyphs/decorations)
 //! and the same straight-alpha blend the `cell.wgsl` fragment shader uses on its
 //! default path (text gamma `1.0`, ambient effect off): a glyph pixel's alpha is
 //! the atlas R8 coverage, background/solid quads are opaque fills. No GPU, no
-//! winit, no window — so it runs in the default `cargo test`.
+//! winit, no window - so it runs in the default `cargo test`.
 //!
 //! ## Why structural assertions, not byte-exact goldens
 //!
@@ -30,8 +30,8 @@
 //!
 //! This is one integration binary (`pixel_smoke`) split into modules to stay
 //! under the source-size cap:
-//! - [`harness`] — the shared CPU compositor and general helpers.
-//! - [`graphics_harness`] — image/color-glyph compositor helpers (V2/EM3).
+//! - [`harness`] - the shared CPU compositor and general helpers.
+//! - [`graphics_harness`] - image/color-glyph compositor helpers.
 //! - test groups: [`glyph_basics`], [`synthetic`], [`themed_roles`],
 //!   [`dim_focus`], [`decorations`], [`graphics`], [`background_treatment`],
 //!   [`crt_vignette`], [`cvd`], [`render_quality`], [`window_padding`].

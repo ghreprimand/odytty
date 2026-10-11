@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
+//! GPU unit tests: adapter and alpha-mode policy, wash geometry, opacity
+//! algebra, and real-device render proofs that skip without an adapter.
 use super::gpu::{
     BloomOptions, CrtOptions, ViewportUniform, accumulate_pane_color_glyphs, adapter_is_software,
     backend_stages, choose_surface_format, colored_content_build_opacity, content_build_opacity,
@@ -296,7 +298,7 @@ fn physical_px_is_monotonic_in_scale() {
 }
 
 /// Sub-1.0 scales are clamped to 1x: glyphs are never rasterized below their
-/// logical size. This is the documented HiDPI sub-1.0 clamp (H1).
+/// logical size. This is the documented HiDPI sub-1.0 clamp.
 #[test]
 fn physical_px_clamps_sub_unit_scale() {
     assert_eq!(physical_font_px(16.0, 0.5), 16.0);
@@ -434,7 +436,7 @@ fn wallpaper_edge_wash_covers_only_non_grid_regions() {
 
 #[test]
 fn chrome_gap_edge_wash_covers_the_gap_strips_and_widens_the_frame() {
-    // CHROME-GAP: with a left rail (cols 0..2), a one-row top bar, and 4px gaps,
+    // With a left rail (cols 0..2), a one-row top bar, and 4px gaps,
     // the pin-aware wash must (1) treat the decorated frame as 4px wider/taller
     // (the shifted cells), (2) wash the full-height rail↔content gap column,
     // and (3) wash the below-bar gap row across the content columns only.
@@ -513,8 +515,8 @@ fn rects_intersect(a: [f32; 4], b: [f32; 4]) -> bool {
     a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
 }
 
-/// NF11: a multi-pane frame's wash quads must cover EVERY surface pixel a pane
-/// grid does not — padding band, sub-cell remainder strips, and divider gaps —
+/// A multi-pane frame's wash quads must cover EVERY surface pixel a pane
+/// grid does not - padding band, sub-cell remainder strips, and divider gaps -
 /// without ever overlapping a grid (translucent cell backgrounds must not be
 /// double-tinted). Verified by exact area accounting: wash + grids == surface,
 /// with pairwise disjointness. Geometry mirrors a real two-pane vertical split
@@ -533,7 +535,7 @@ fn multi_pane_wash_covers_every_non_grid_pixel() {
         for grid in &grids {
             assert!(
                 !rects_intersect(quad.rect, *grid),
-                "wash quad {:?} overlaps grid {grid:?} — double-tint",
+                "wash quad {:?} overlaps grid {grid:?}: double-tint",
                 quad.rect
             );
         }
@@ -543,7 +545,7 @@ fn multi_pane_wash_covers_every_non_grid_pixel() {
         for b in &quads[i + 1..] {
             assert!(
                 !rects_intersect(a.rect, b.rect),
-                "wash quads {:?} and {:?} overlap — double-tint",
+                "wash quads {:?} and {:?} overlap: double-tint",
                 a.rect,
                 b.rect
             );
@@ -558,7 +560,7 @@ fn multi_pane_wash_covers_every_non_grid_pixel() {
     );
 }
 
-/// NF11: same coverage invariant for a 2x2 pane layout (both axes have
+/// Same coverage invariant for a 2x2 pane layout (both axes have
 /// divider gaps and remainder strips).
 #[test]
 fn multi_pane_wash_covers_two_by_two_layout() {
@@ -609,7 +611,7 @@ fn multi_pane_wash_single_grid_matches_single_pane_wash() {
     );
 }
 
-/// NF11 control: grids covering the whole surface produce no wash quads —
+/// NF11 control: grids covering the whole surface produce no wash quads -
 /// the flush (no padding, no remainder) case emits nothing, matching the
 /// no-image / opaque-cells gate's byte-identical guarantee.
 #[test]
@@ -1089,9 +1091,9 @@ fn post_options_from_settings(settings: &Settings) -> post::PostProcessOptions {
 }
 
 /// ID3/U5 visual gate: build the real background-image GPU pipeline from a
-/// decoded PNG. Exercises `BgImageGpu::load` end-to-end — PNG decode + box blur
+/// decoded PNG. Exercises `BgImageGpu::load` end-to-end - PNG decode + box blur
 /// + worst-case luminance scan + scrim uniform + WGSL shader compile + pipeline
-/// + bind group — against a live adapter, so a malformed shader or bind-group
+/// + bind group - against a live adapter, so a malformed shader or bind-group
 ///   layout fails the suite rather than only at runtime.
 #[test]
 fn background_image_pipeline_builds_from_png() {
@@ -1156,14 +1158,14 @@ fn background_image_pipeline_builds_from_png() {
     let (src_path, blur) = bg.source();
     assert_eq!(src_path, path, "source path round-trips");
     assert_eq!(blur, 1, "clamped blur radius round-trips");
-    // Theme change refresh path (T10) must not panic and must re-upload cleanly.
+    // Theme change refresh path must not panic and must re-upload cleanly.
     let mut light = crate::theme::Theme::PLAIN;
     light.background = (255, 255, 255);
     bg.refresh_for_theme(queue, &light, 0.5);
     device.poll(wgpu::PollType::wait_indefinitely()).ok();
 }
 
-/// C4: the in-terminal image viewer's overlay slot toggles cleanly between
+/// The in-terminal image viewer's overlay slot toggles cleanly between
 /// present and absent. Absent (closed viewer) means `draw_overlay` emits no
 /// quads → the frame is byte-identical to the no-viewer path, the
 /// presentation-only invariant. GPU-gated (skips when no adapter is available).
@@ -1192,7 +1194,7 @@ fn overlay_image_set_and_clear_toggles_presence() {
         "a fresh layer holds no overlay image (closed viewer = byte-identical)"
     );
 
-    // A synthetic 2×2 RGBA image — no file, no decoder.
+    // A synthetic 2×2 RGBA image - no file, no decoder.
     let rgba = vec![0xFFu8; 2 * 2 * 4];
     layer.set_overlay_image(
         device,
@@ -1307,7 +1309,7 @@ fn overlay_image_fit_rect_tracks_set_and_clear() {
     device.poll(wgpu::PollType::wait_indefinitely()).ok();
 }
 
-/// C4 (Phase 13a) real-code render proof: `draw_overlay` paints the viewer
+/// C4 real-code render proof: `draw_overlay` paints the viewer
 /// (full-viewport scrim + image) onto a swapchain-format target via the real
 /// overlay pipelines. Renders a scene fill (green) first, then opens a
 /// `LoadOp::Load` overlay pass exactly as `render` does post-effects, and reads
@@ -1317,7 +1319,7 @@ fn overlay_image_fit_rect_tracks_set_and_clear() {
 /// - the image's transparent region shows the dimmed scene through the
 ///   semi-transparent scrim (not the raw scene, not pure black),
 /// - pixels OUTSIDE the fit-rect are also dimmed by the full-viewport scrim
-///   (the whole terminal dims — that's the lightbox).
+///   (the whole terminal dims - that's the lightbox).
 ///
 /// GPU-gated (skips when no adapter is available).
 #[test]
@@ -1492,7 +1494,7 @@ fn overlay_draws_image_over_backing_onto_swapchain() {
         "opaque image region must show the image color, got {red:?}"
     );
     // Transparent image texel (image px (3,3) → target (9,7)): no opaque image
-    // here, so the dimmed scene shows through the scrim — green, but darkened
+    // here, so the dimmed scene shows through the scrim - green, but darkened
     // (NOT the raw 255 green, and NOT pure black).
     let through = at(9, 7);
     assert!(
@@ -1510,12 +1512,12 @@ fn overlay_draws_image_over_backing_onto_swapchain() {
     device.poll(wgpu::PollType::wait_indefinitely()).ok();
 }
 
-/// Phase 13a-sampler: the C4 viewer overlay uses a LINEAR sampler, so a photo
+/// The C4 viewer overlay uses a LINEAR sampler, so a photo
 /// scaled DOWN to fit is smoothly interpolated rather than stair-stepped. Proof
 /// by behavior: render a pure 0/255 grayscale checkerboard overlay that the fit
 /// logic scales below 1.0, read back the swapchain, and assert intermediate gray
 /// values appear inside the image region. With a NEAREST sampler, minification
-/// returns exactly one source texel per output pixel — always 0 or 255 — so no
+/// returns exactly one source texel per output pixel - always 0 or 255 - so no
 /// intermediate value could exist; their presence is unambiguous Linear filtering.
 /// (Placements keep their NEAREST sampler; this only exercises the overlay path.)
 /// GPU-gated (skips when no adapter is available).
@@ -1678,7 +1680,7 @@ fn overlay_uses_linear_sampling_for_scaled_images() {
     readback.unmap();
 
     // Sample well inside the fit-rect (x∈[0.8,15.2), y∈[0.6,11.4)) and count
-    // pixels that are neither pure black nor pure white — i.e. interpolated.
+    // pixels that are neither pure black nor pure white - i.e. interpolated.
     let mut intermediate = 0usize;
     for y in 3..9u32 {
         for x in 3..13u32 {
@@ -2132,7 +2134,7 @@ fn select_alpha_mode_handles_exotic_and_empty_caps() {
 fn opaque_path_is_byte_identical_when_transparency_off() {
     // window_bg_alpha == 1.0 is the opaque default (setting off, not capable, or
     // an overlay open). The content builder opacity is the shipped cell value
-    // unchanged, and the scene clears to the opaque theme color — no drift.
+    // unchanged, and the scene clears to the opaque theme color - no drift.
     let theme_clear = wgpu::Color {
         r: 0.1,
         g: 0.2,
@@ -2214,13 +2216,13 @@ fn content_opacity_is_monotonic_and_never_swaps_background_model() {
     }
 }
 
-// COLORED-BG-FLOOR: the knob floors the WINDOW factor of the content product
+// The knob floors the WINDOW factor of the content product
 // for resolved-non-default backgrounds. These pin the identity, inertness,
 // monotonicity, and never-weaker contracts of `colored_content_build_opacity`.
 
 #[test]
 fn colored_bg_floor_is_identity_at_opaque_window_for_any_knob() {
-    // An opaque window is byte-identical at EVERY knob value — including with a
+    // An opaque window is byte-identical at EVERY knob value - including with a
     // background image's cell softening (< 1.0), where flooring the PRODUCT
     // instead of the window factor would wrongly lift the colored cells.
     for &cell in &[1.0_f32, 0.8, 0.5] {
@@ -2262,7 +2264,7 @@ fn colored_bg_floor_is_monotonic_in_the_knob_and_never_weaker_than_content() {
         prev = v;
     }
     // At knob 1.0 a colored cell composites at the full softening fraction,
-    // independent of window transparency — "keep background colors opaque".
+    // independent of window transparency - "keep background colors opaque".
     assert_eq!(colored_content_build_opacity(0.2, 0.8, 1.0), 0.8);
     // Below the floor the window factor is clamped up to the knob.
     assert!((colored_content_build_opacity(0.3, 0.8, 0.9) - 0.72).abs() < 1e-6);
@@ -2272,8 +2274,8 @@ fn colored_bg_floor_is_monotonic_in_the_knob_and_never_weaker_than_content() {
 
 /// Multi-pane color-glyph accumulation across panes with uneven emoji counts.
 ///
-/// Drives the real accumulation seam `accumulate_pane_color_glyphs` — the exact
-/// code the multi-pane render loop runs per pane — with no GPU device or window.
+/// Drives the real accumulation seam `accumulate_pane_color_glyphs` - the exact
+/// code the multi-pane render loop runs per pane - with no GPU device or window.
 /// An emoji pane followed by a pane with no emoji reproduces the frame that
 /// aborted the process: the per-pane builder clears its output, so an earlier
 /// approach that captured `shared.len()` as a start offset and then sliced

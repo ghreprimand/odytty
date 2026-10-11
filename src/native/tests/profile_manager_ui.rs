@@ -35,7 +35,7 @@ fn line_texts(manager: &ProfileManager) -> Vec<String> {
 
 /// Return the body row on which `needle` is actually rendered.  Pointer
 /// regressions use this rather than duplicating layout arithmetic: the press
-/// must operate on the row the operator can see, including dynamically
+/// must operate on the row the user can see, including dynamically
 /// inserted form help.
 fn rendered_row(manager: &ProfileManager, needle: &str) -> usize {
     manager
@@ -52,7 +52,7 @@ fn feed_chars(manager: &mut ProfileManager, text: &str) {
 }
 
 /// Move form focus to the field whose rendered label starts with `prefix` by
-/// pressing the row the operator sees, then return that row index. This mirrors
+/// pressing the row the user sees, then return that row index. This mirrors
 /// the pointer path and stays robust to section reordering, unlike a hardcoded
 /// Down count.
 fn focus_form_row(manager: &mut ProfileManager, prefix: &str) -> usize {

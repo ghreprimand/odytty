@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Owned CSI/DCS parameter container — OdyTTY-original storage.
+//! Owned CSI/DCS parameter container - OdyTTY-original storage.
 //!
 //! `Params` models a VT control sequence's parameter list the way the
 //! terminal core consumes it: an ordered list of **parameters**, each of which
@@ -14,15 +14,15 @@
 //! `MAX_PARAMS = 32` slots total (parameters + subparameters combined), which
 //! is the canonical DEC ANSI parameter cap. The reimplementation uses:
 //!
-//! - `values: [u16; 32]` — every parameter and subparameter value, in order.
+//! - `values: [u16; 32]` - every parameter and subparameter value, in order.
 //!   Inline; zero heap.
-//! - `len: u8` — count of valid slots (`<= MAX_PARAMS`).
-//! - `starts: u32` — a **boundary bitmap**: bit `i` set ⇔ slot `i` is the
+//! - `len: u8` - count of valid slots (`<= MAX_PARAMS`).
+//! - `starts: u32` - a **boundary bitmap**: bit `i` set ⇔ slot `i` is the
 //!   first value of a new top-level parameter. Bit clear ⇔ slot `i` continues
 //!   the parameter started at the most-recent set bit ≤ `i`. Because
 //!   `MAX_PARAMS = 32`, exactly one `u32` encodes every possible boundary, with
 //!   no parallel array.
-//! - `closed: bool` — `true` when the most-recent insertion finalised the
+//! - `closed: bool` - `true` when the most-recent insertion finalised the
 //!   current parameter (a `push`), `false` when it left the parameter open for
 //!   another subparam (an `extend`). Drives whether the next insertion opens a
 //!   new parameter or continues the current one.
@@ -34,7 +34,7 @@
 //!
 //! This is an OdyTTY-designed encoding written from the primary specs (ECMA-48
 //! parameter syntax and the DEC ANSI 32-slot cap). It is structurally distinct
-//! from the first-generation `Params` (two `Vec`s — a flattened value list and
+//! from the first-generation `Params` (two `Vec`s - a flattened value list and
 //! a parallel `group_len_at` array): the new design is allocation-free, the
 //! boundary metadata is one machine word, and group reconstruction is a
 //! bit-scan rather than an array walk. The public surface (`iter`, `len`,
@@ -90,7 +90,9 @@ impl Params {
         self.len as usize
     }
 
-    /// Whether no parameters are present (a bare control with no digits).
+    /// Whether no parameters are stored. True only for a list built by
+    /// `Params::new` or reset by `clear`; a bare `CSI m` or `CSI A` stores one
+    /// parameter (`[0]`).
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
@@ -112,14 +114,14 @@ impl Params {
 
     /// Finish the current parameter with `item` as its final value and mark the
     /// parameter closed (used for the `;` separator and the terminating final
-    /// byte). No-op when full — the caller has already set `ignore`.
+    /// byte). No-op when full - the caller has already set `ignore`.
     pub(crate) fn push(&mut self, item: u16) {
         if self.is_full() {
             return;
         }
         let slot = self.len as u32;
         // Slot starts a new parameter iff the prior parameter was closed (or
-        // this is the very first slot — closed defaults to `true`).
+        // this is the very first slot - closed defaults to `true`).
         if self.closed {
             self.starts |= 1u32 << slot;
         }
@@ -157,8 +159,8 @@ impl Params {
 
 /// Two parameter lists are equal iff they store the same `len` values in the
 /// same order with the same group boundaries. Tail slots of the inline array
-/// and bits of `starts` beyond `len` are deliberately ignored — they may carry
-/// arbitrary state after `clear()`. `closed` is transient parser bookkeeping
+/// beyond `len` are deliberately ignored (`clear()` leaves them untouched); the
+/// `starts` mask beyond `len` is defensive. `closed` is transient parser bookkeeping
 /// and does not affect observable grouping, so it's excluded from equality.
 impl PartialEq for Params {
     fn eq(&self, other: &Self) -> bool {

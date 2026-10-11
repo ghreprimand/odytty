@@ -51,14 +51,7 @@ pub(super) fn per_connection_attach_budget(
     }
 }
 
-/// Workspace SHAPE capture (persistence WP1, design §10). Walks the workspace /
-/// tab / pane hierarchy into a serializable [`ShapeSnapshot`] that records
-/// structure only — names, tab titles/order, the pane split tree + ratios, and
-/// per-pane cwd — and NEVER grid content, scrollback, env, or command lines
-/// (the FREEZE-HARDEN privacy invariant; command re-execution is an explicit
-/// non-goal, sub-ODP 8i). `allow(dead_code)` mirrors the `layout.rs` /
-/// pane-ops scaffold: WP2 wires the autosave/restore call sites that consume
-/// The outcome of a launch-time workspace restore (WP2). Advisory only: the
+/// The outcome of a launch-time workspace restore. Advisory only: the
 /// caller turns a stale-cwd count into a single compact notice (sub-ODP 8f) and
 /// otherwise proceeds silently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,8 +69,8 @@ pub(in crate::native) enum RestoreReport {
         /// spawned a fresh shell and is counted here but not in `reattached`.
         reattach_attempted: usize,
         /// How many panes recorded a remote host that could not be resolved on
-        /// restore (RESTORE-REMOTE) — neither a currently-saved profile nor a
-        /// parseable `[user@]host[:port]` destination — and so opened as a local
+        /// restore - neither a currently-saved profile nor a
+        /// parseable `[user@]host[:port]` destination - and so opened as a local
         /// shell instead. Drives the "N opened locally" line in the notice.
         remote_fallback: usize,
     },
@@ -86,7 +79,7 @@ pub(in crate::native) enum RestoreReport {
     Skipped,
 }
 
-/// Scratch accumulator for a snapshot rebuild (WP3): the assembled workspaces,
+/// Scratch accumulator for a snapshot rebuild: the assembled workspaces,
 /// the sessions spawned/reattached (so a failed build can reap them), and the
 /// running counts the caller reports. Shared by replace-mode restore and
 /// append-mode layout instantiation.
@@ -190,10 +183,10 @@ fn restore_arrangement(
     }
 }
 
-/// this. WP2 has since wired the autosave / restore call sites, so these are
-/// live.
 impl WorkspaceSet {
-    /// Capture the current window shape as a serializable snapshot.
+    /// Capture the window shape as a serializable snapshot: structure only
+    /// (names, tab titles and order, the pane split tree and ratios, per-pane
+    /// cwd), never grid content, scrollback, environment or command lines.
     pub(in crate::native) fn capture_shape(&self) -> crate::native::persistence::ShapeSnapshot {
         use crate::native::persistence::{
             SNAPSHOT_VERSION, ShapeSnapshot, TabShape, WorkspaceShape,
@@ -259,7 +252,7 @@ impl WorkspaceSet {
     }
 
     /// The advisory cwd of the pane backed by `token` (OSC 7, or the spawn
-    /// seed), or `None` when unknown — restore lands that pane at the home
+    /// seed), or `None` when unknown - restore lands that pane at the home
     /// directory (design §10.5 degrade path). Never touches the filesystem.
     fn pane_cwd(&self, token: SessionToken) -> Option<String> {
         let session = self.sessions.get(&token)?;
@@ -269,7 +262,7 @@ impl WorkspaceSet {
 
     /// The detached session-host id the pane backed by `token` is attached to
     /// (WP3 / 8h), or `None` for a locally-spawned pane. On Windows this is
-    /// always `None` — the detached-session transport is Unix-only — so no ids
+    /// always `None` - the detached-session transport is Unix-only - so no ids
     /// are ever captured there (the design's Windows all-fresh guarantee holds
     /// by construction).
     fn pane_session_host_id(&self, token: SessionToken) -> Option<String> {
@@ -278,8 +271,8 @@ impl WorkspaceSet {
             .and_then(|session| session.attached_session_id.clone())
     }
 
-    /// The remote destination the pane backed by `token` is connected to
-    /// (RESTORE-REMOTE), or `None` for a local pane. Captured into the shape so
+    /// The remote destination the pane backed by `token` is connected to,
+    /// or `None` for a local pane. Captured into the shape so
     /// restore respawns the pane through the `ssh` connect path rather than a
     /// local shell. Local panes leave it `None`, so their capture is unchanged.
     fn pane_remote_destination(&self, token: SessionToken) -> Option<String> {
@@ -296,8 +289,8 @@ impl WorkspaceSet {
 
     /// Rebuild the ENTIRE workspace list from a saved shape (design §10.6, WP2).
     /// Every local pane spawns a fresh interactive shell at its captured cwd;
-    /// every remote pane reconnects through `spawn_remote` (RESTORE-REMOTE),
-    /// supplied by the App, which owns settings and the saved-host list — or
+    /// every remote pane reconnects through `spawn_remote`,
+    /// supplied by the App, which owns settings and the saved-host list - or
     /// falls back to a local shell when the host is unresolvable. The
     /// pre-existing launch session(s) are reaped once the restored tree is in
     /// place, so the window shows exactly the saved shape. A local pane that
@@ -367,9 +360,9 @@ impl WorkspaceSet {
     }
 
     /// WP3 / 8e: instantiate a saved layout by APPENDING its workspace(s) after
-    /// the current list and switching to the first one — never clobbering the
+    /// the current list and switching to the first one - never clobbering the
     /// live layout (PRISTINE-CONSUME placement). Remote panes reconnect through
-    /// `spawn_remote` (RESTORE-REMOTE); the append-mode counterpart to
+    /// `spawn_remote`; the append-mode counterpart to
     /// [`Self::restore_from_snapshot_remote`]. On a spawn failure mid-build
     /// everything spawned so far is reaped and the current workspaces are
     /// untouched ([`RestoreReport::Skipped`]).
@@ -406,7 +399,7 @@ impl WorkspaceSet {
         }
         let panes = build.spawned.len();
         let workspaces = build.workspaces.len();
-        // PRISTINE-CONSUME: opening a layout onto a bare launch (exactly one
+        // Opening a layout onto a bare launch (exactly one
         // untouched default workspace) should yield precisely the saved set, so
         // the built workspaces REPLACE the pristine one instead of appending
         // beside it. Its lone session is reaped first so the arena never leaks.
@@ -430,7 +423,7 @@ impl WorkspaceSet {
         }
     }
 
-    /// Test seam (RESTORE-THEME): append a snapshot through the production
+    /// Test seam: append a snapshot through the production
     /// append core ([`Self::append_from_snapshot_with`]) with a HEADLESS leaf
     /// spawner. The real leaf spawner ([`Self::insert_restored_session`])
     /// requires an event-loop proxy to wire each session's reader thread, so it
@@ -629,7 +622,7 @@ impl WorkspaceSet {
                 return Some(PaneNode::leaf(token));
             }
         }
-        // RESTORE-REMOTE: a pane captured from an `ssh` connection
+        // A pane captured from an `ssh` connection
         // respawns through the connect path - a fresh remote login shell,
         // never a re-run of any captured command (8i). An unresolvable
         // host (no saved profile and not a parseable destination) yields
@@ -713,7 +706,7 @@ impl WorkspaceSet {
         hasher.finish()
     }
 
-    /// A cheap, lock-free hash of the workspace/tab/pane STRUCTURE — names, tab
+    /// A cheap, lock-free hash of the workspace/tab/pane STRUCTURE - names, tab
     /// titles/order/count, split axes + ratios, focused-pane position, per-pane
     /// read-only flags, and the active workspace/tab indices. Excludes per-pane
     /// cwd so it never locks a terminal or churns on an OSC 7 cwd update; the

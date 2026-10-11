@@ -51,7 +51,7 @@ pub(in crate::native) fn headless_app_with_writer(
     headless_app_built(options, dimensions, settings, writer, true)
 }
 
-/// [`headless_app_with_writer`] whose terminal is deliberately UNSEEDED — a
+/// [`headless_app_with_writer`] whose terminal is deliberately UNSEEDED - a
 /// bare `Terminal::new` with none of the settings-derived per-session
 /// defaults. This is the restore/append spawn shape: sessions those paths
 /// build start outside `initialize_session_with` and rely on the App's
@@ -81,7 +81,7 @@ fn headless_app_built(
         // startup seeding instead of a hand-maintained copy. This is the
         // regression guard for the launch-pane button-gate gap: a per-session
         // default wired into the launch path is honored here too, and a
-        // default missing there is missing here — tests catch the drift.
+        // default missing there is missing here - tests catch the drift.
         super::seed_launch_session_model(&mut model, &settings);
     }
     let terminal = Arc::new(Mutex::new(model));
@@ -126,7 +126,7 @@ mod tests {
 
     /// The headless source owns no real PTY: its session exposes a
     /// `headless_session()` handle and no `local_pty()`. This is the whole point
-    /// of the seam — a pure UI test must not fork+exec a shell it then has to
+    /// of the seam - a pure UI test must not fork+exec a shell it then has to
     /// synchronously kill and wait on at teardown.
     #[test]
     fn headless_app_owns_no_pty_child() {
@@ -184,7 +184,7 @@ mod tests {
 
     /// The headless backing state records resize geometry (dimensions + call
     /// count) and defaults the foreground job to `Unknown`, with an injection
-    /// seam for the running-job branch — the semantics a migrated geometry or
+    /// seam for the running-job branch - the semantics a migrated geometry or
     /// confirm-close test relies on, without any syscall.
     #[test]
     fn headless_session_records_resize_and_reports_injected_foreground_job() {

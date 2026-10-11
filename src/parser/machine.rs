@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Layer-2 control state machine — byte-class–driven transitions.
+//! Layer-2 control state machine - byte-class–driven transitions.
 //!
 //! After Layer 1 (the [`super::segmenter`]) has lifted UTF-8 text and
 //! C1-via-UTF-8 executes out of the byte stream, what remains is a clean
@@ -14,11 +14,11 @@
 //!
 //! - It is NOT the per-state-method decomposition of inline-callback parsers
 //!   (each state a separate `advance_<state>` function with its own per-byte
-//!   match) — the first-generation OdyTTY core followed that shape and the
+//!   match) - the first-generation OdyTTY core followed that shape and the
 //!   considered too derivative. Here, transitions are one flat table.
 //! - It is NOT the Williams `[state][256]` data table either. Our match has
 //!   ~13 byte-class columns, not 256; the action vocabulary is OdyTTY-designed
-//!   ([`Action`]); and the state machine is byte-only — UTF-8 lives in Layer 1.
+//!   ([`Action`]); and the state machine is byte-only - UTF-8 lives in Layer 1.
 //! - The "anywhere edges" (ECMA-48: a control byte that means the same thing
 //!   regardless of current state) are encoded inline at each state's
 //!   `Cancel` / `Esc` arms rather than as separate pre-match shortcuts; the
@@ -30,7 +30,7 @@
 //! The machine owns the per-sequence bookkeeping a CSI/DCS dispatch needs to
 //! materialise: [`Params`], the running param-digit accumulator, the
 //! intermediate-byte buffer, and the `ignoring` flag (set on parameter or
-//! intermediate overflow). It does NOT own OSC/APC payload buffers — those are
+//! intermediate overflow). It does NOT own OSC/APC payload buffers - those are
 //! the driver's because their caps and lifecycle differ. Layer 1 (the
 //! segmenter) owns the UTF-8 partial-codepoint carry.
 //!
@@ -39,7 +39,7 @@
 //! Per the accepted divergence ledger, a validly-decoded C1 scalar
 //! (`U+0080..=U+009F` via `0xC2 0x8x`) **executes uniformly**, regardless of
 //! how its bytes are split across `advance()` calls. This is enforced in Layer
-//! 1 (the segmenter), not here — by the time bytes reach this machine, they
+//! 1 (the segmenter), not here - by the time bytes reach this machine, they
 //! are already in a non-Ground control state, and raw `0x80..=0x9F` bytes here
 //! are NEVER C1 sequence introducers (8-bit C1 introduction is not supported;
 //! see [`super`] module docs and the divergence ledger in `mod.rs`).
@@ -99,21 +99,21 @@ pub(crate) enum State {
 pub(crate) enum ByteClass {
     /// C0 controls that execute (0x00..=0x06, 0x08..=0x17, 0x19, 0x1C..=0x1F).
     C0Execute,
-    /// BEL (0x07) — separated because OSC treats it as a string terminator.
+    /// BEL (0x07) - separated because OSC treats it as a string terminator.
     C0Bel,
-    /// Cancel/Substitute (0x18, 0x1A) — abort any in-flight sequence.
+    /// Cancel/Substitute (0x18, 0x1A) - abort any in-flight sequence.
     Cancel,
-    /// Escape (0x1B) — begins a new escape sequence (anywhere).
+    /// Escape (0x1B) - begins a new escape sequence (anywhere).
     Esc,
     /// Intermediate / collect range (0x20..=0x2F).
     Intermediate,
-    /// ASCII digit (0x30..=0x39) — parameter accumulator.
+    /// ASCII digit (0x30..=0x39) - parameter accumulator.
     Digit,
-    /// `:` — colon subparameter separator (0x3A).
+    /// `:` - colon subparameter separator (0x3A).
     SubParamSep,
-    /// `;` — semicolon parameter separator (0x3B).
+    /// `;` - semicolon parameter separator (0x3B).
     ParamSep,
-    /// CSI parameter marker / private-mode introducer (`<=>?` — 0x3C..=0x3F).
+    /// CSI parameter marker / private-mode introducer (`<=>?` - 0x3C..=0x3F).
     ParamMarker,
     /// Final / dispatch range (0x40..=0x7E).
     Final,
@@ -204,7 +204,7 @@ impl Machine {
         }
     }
 
-    /// `;` — finalise current param accumulator and open a new param.
+    /// `;` - finalise current param accumulator and open a new param.
     #[inline]
     fn param_sep(&mut self) {
         if self.params.is_full() {
@@ -215,7 +215,7 @@ impl Machine {
         }
     }
 
-    /// `:` — extend current param with another subparam.
+    /// `:` - extend current param with another subparam.
     #[inline]
     fn subparam_sep(&mut self) {
         if self.params.is_full() {
@@ -226,7 +226,7 @@ impl Machine {
         }
     }
 
-    /// Digit — accumulate into the running param value (saturating).
+    /// Digit - accumulate into the running param value (saturating).
     #[inline]
     fn param_digit(&mut self, byte: u8) {
         if self.params.is_full() {
@@ -253,7 +253,7 @@ impl Machine {
     ///
     /// The compiler will not inline the full `(state, class)` match (it has
     /// \>100 arms), but heavy CSI workloads spend most of their byte budget in
-    /// the `CsiParam` state running digits/separators with a `None` outcome —
+    /// the `CsiParam` state running digits/separators with a `None` outcome -
     /// so this wrapper peels that path off into a tight inlineable shape and
     /// falls through to [`Self::step_cold`] for everything else.
     #[inline]
@@ -338,7 +338,7 @@ impl Machine {
                         self.state = S::ApcString;
                         Action::None
                     }
-                    // 0x5C (`\`) is the trailing half of a 7-bit ST — dispatch
+                    // 0x5C (`\`) is the trailing half of a 7-bit ST - dispatch
                     // as a normal ESC final (canonical), with state → Ground.
                     _ => {
                         self.state = S::Ground;
@@ -654,7 +654,7 @@ impl Machine {
             // C0Execute silently ignored (canonical).
             (S::OscString, C::C0Execute) => Action::None,
             // Everything else (Intermediate, Digit, SubParamSep, ParamMarker,
-            // Final, Del, StringTerm8, Other) is OSC payload — raw 0x9C is
+            // Final, Del, StringTerm8, Other) is OSC payload - raw 0x9C is
             // treated as OSC payload not terminator (matches the differential
             // oracle behavior; xterm UTF-8 mode disables the 8-bit ST edge in
             // the OSC state).
@@ -687,7 +687,7 @@ impl Machine {
             }
             (S::DiscardString, _) => Action::None,
 
-            // Ground is handled by Layer 1 — never reached here.
+            // Ground is handled by Layer 1 - never reached here.
             (S::Ground, _) => Action::None,
         }
     }

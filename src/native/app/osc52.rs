@@ -69,7 +69,7 @@ impl Osc52WriteState {
     }
 
     /// Whether a real OS focus event has been observed since launch. The
-    /// OSC 52 read authority (C41) consults this alongside `App::focused`,
+    /// OSC 52 read authority consults this alongside `App::focused`,
     /// mirroring the write path, so a read is denied until focus is confirmed.
     pub(super) fn focus_observed(&self) -> bool {
         self.focus_observed

@@ -50,12 +50,12 @@ const SYMBOL_FONT_HINTS: &[&str] = &["symbolsnerdfont", "nerdfont"];
 /// macOS system faces appended to the tail of the symbol-fallback chain. The
 /// bundled and host Nerd faces patch the Private Use Area but cover only a
 /// sparse subset of the *standard* Unicode symbol/dingbat/pictograph blocks, so
-/// glyphs TUIs emit outside the PUA — the teardrop-asterisk spinner `U+273B`,
+/// glyphs TUIs emit outside the PUA - the teardrop-asterisk spinner `U+273B`,
 /// the `U+2733`/`U+2736`/`U+2737` star asterisks, the `U+2713`/`U+2717` check
-/// and ballot marks, the `U+23BF` result-branch — fall through to the hollow-box
+/// and ballot marks, the `U+23BF` result-branch - fall through to the hollow-box
 /// tofu slot. Menlo (the system monospace) covers the dingbats/marks; Apple
 /// Symbols covers Miscellaneous Technical glyphs like `U+23BF`. STIX Two Math
-/// backstops the rest — it is the only commonly-present face with *monochrome*
+/// backstops the rest - it is the only commonly-present face with *monochrome*
 /// (SGR-colorable, unlike the color-emoji face) glyphs for the record bullet
 /// `U+23FA` and the large squares `U+2B1B`/`U+2B1C` that drive a TUI's status
 /// markers and block grids. They sit *after* the Nerd faces so PUA icons still
@@ -124,7 +124,7 @@ fn linux_symbol_fallback_faces_in_inventory(
 /// dingbats/symbols/Miscellaneous-Technical glyphs the bundled icon-only Nerd
 /// faces lack (e.g. the result-branch `U+23BF` and the check `U+2714` that
 /// Claude Code and other TUIs emit). Windows has no cheap per-codepoint runtime
-/// resolver analogous to Linux's `fc-match`, so — like the macOS arm — this
+/// resolver analogous to Linux's `fc-match`, so - like the macOS arm - this
 /// static tail is the deterministic *floor*.
 ///
 /// These are matched (like the Linux arm) against [`normalize_family`]-style
@@ -132,7 +132,7 @@ fn linux_symbol_fallback_faces_in_inventory(
 /// per-user LOCALAPPDATA fonts), so the hints are the on-disk *filenames*, not
 /// the OpenType family names. `seguisym` (`seguisym.ttf`, Segoe UI Symbol,
 /// shipped since Windows 7) is broadest-first: it covers Arrows, Miscellaneous
-/// Technical, Geometric Shapes, Miscellaneous Symbols and Dingbats — including
+/// Technical, Geometric Shapes, Miscellaneous Symbols and Dingbats - including
 /// both reported codepoints. `segmdl2` (`segmdl2.ttf`, the MDL2 assets icon
 /// face) and `cambria` (`cambria.ttc`, loaded at face 1, Cambria Math: face 0 is
 /// the Cambria text face, which covers few symbols) backstop any Segoe UI
@@ -234,7 +234,7 @@ pub fn resolve_symbol_font() -> Option<FontHandle> {
 
 /// Where the RV6 symbol / Nerd-font fallback face resolved from, for
 /// diagnostics (`--show-config`). Carries the concrete path for the explicit
-/// and host cases so operators can see exactly which file is in play.
+/// and host cases so users can see exactly which file is in play.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SymbolFontSource {
     /// No fallback face is available (the bundled asset is absent and neither
@@ -245,7 +245,8 @@ pub enum SymbolFontSource {
     Explicit(PathBuf),
     /// The bundled symbols-only face shipped with odytty (version-pinned).
     Bundled,
-    /// A host-discovered "* Nerd Font" face (only when no bundled asset).
+    /// A host-discovered "* Nerd Font" face (also appended after the bundled
+    /// faces in the symbol chain).
     Host(PathBuf),
 }
 
@@ -265,10 +266,9 @@ impl SymbolFontSource {
 /// Resolve the symbol / Nerd-font fallback face and report **where** it came
 /// from, under the precedence **explicit > bundled > host**.
 ///
-/// This is the single source of truth for symbol-fallback resolution: the
-/// native renderer uses the loaded `FontHandle`, and `--show-config` uses the
-/// [`SymbolFontSource`] for diagnostics, so the reported source can never drift
-/// from what the renderer actually installs.
+/// This is the single-face precedence helper. The renderer and `--show-config`
+/// resolve through the symbol chain, which also adds a second bundled face, a
+/// host face and the platform tail.
 ///
 /// `explicit_path` is the user's explicit override (`ODYTTY_SYMBOL_FONT` or the
 /// `symbol_font` setting); a path that fails to load is reported via `eprintln!`
@@ -309,7 +309,7 @@ pub fn resolve_symbol_font_with_source(
 /// Chain order (precedence **explicit > bundled > host**):
 /// 1. An explicit [`SYMBOL_FONT_ENV`] / `symbol_font` override (a bad path is
 ///    reported and skipped rather than aborting).
-/// 2. The bundled faces — v3 then v2 (see [`resolve_bundled_symbol_fonts`]) —
+/// 2. The bundled faces - v3 then v2 (see [`resolve_bundled_symbol_fonts`]) -
 ///    so the out-of-the-box glyph pack covers both Nerd Font codepoint eras
 ///    regardless of host font installation.
 /// 3. A host-discovered "* Nerd Font" face, which can extend coverage with any
@@ -389,7 +389,7 @@ pub(crate) fn resolve_symbol_fonts_with_inventory(
     // Unicode dingbats/symbols/Miscellaneous-Technical glyphs TUIs emit. Append
     // the always-present Segoe UI Symbol tail (see
     // [`WINDOWS_SYMBOL_FALLBACK_HINTS`]) so glyphs like the check `U+2714` and
-    // the result-branch `U+23BF` render instead of tofu. Static floor only —
+    // the result-branch `U+23BF` render instead of tofu. Static floor only -
     // Windows has no cheap `fc-match` runtime-resolver analog.
     #[cfg(windows)]
     for (source, font) in windows_symbol_fallback_faces_in_inventory(inventory) {

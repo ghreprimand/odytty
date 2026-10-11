@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Native output-replay overlay state (Phase 2 differentiator).
+//! Native output-replay overlay state.
 //!
 //! The overlay is presentation state only: it owns a frozen, decoupled clone of
 //! a session's recorded screen frames plus a scrub cursor. It never writes to
-//! the PTY and never mutates the live terminal model — scrubbing only changes
+//! the PTY and never mutates the live terminal model - scrubbing only changes
 //! which recorded frame is rendered. The live session keeps running underneath;
 //! closing the overlay discards the frozen frames.
 
@@ -141,7 +141,7 @@ impl ReplayOverlay {
         if self.frames.is_empty() {
             lines.push(ReplayOverlayLine {
                 text: truncate_for_width(
-                    "No recorded output yet — enable session_replay and run a command.",
+                    "No recorded output yet: enable session_replay and run a command.",
                     body_width,
                 ),
                 focused: false,
@@ -164,7 +164,7 @@ impl ReplayOverlay {
             return lines;
         }
         // Body: the recorded screen at the scrub position, rendered as plain
-        // text rows (monochrome preview — color/attrs are intentionally not
+        // text rows (monochrome preview - color/attrs are intentionally not
         // reproduced in this v1 scrub view).
         if let Some(frame) = self.current_frame() {
             let remaining = body_height - lines.len();
@@ -367,7 +367,7 @@ mod tests {
 
     #[test]
     fn scrub_navigates_recorded_frames() {
-        // SCRUB-NAVIGATES-RECORDED-FRAMES: arrows step through frames and clamp
+        // Arrows step through frames and clamp
         // at both ends.
         let mut overlay = ReplayOverlay::new();
         overlay.open(frames(&['a', 'b', 'c', 'd']));

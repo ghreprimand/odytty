@@ -162,7 +162,7 @@ fn panel_navigation_is_bounded_and_scrolls() {
 
     // Drill into a section; Level-2 navigation uses selected/scroll.
     panel.drill_into_section(2); // Rendering (many entries)
-    // SETTINGS-COMPACT: shrink the window so the compact section overflows
+    // Shrink the window so the compact section overflows
     // its content region (the fixed help footer reserves the rest), keeping
     // End's scroll observable.
     panel.update_body_height(14);
@@ -559,7 +559,7 @@ fn theme_row_b_opens_builder() {
 #[test]
 fn themes_section_has_open_theme_builder_action_entry() {
     // v0.3.1 discoverability: the Themes Level-2 list ends with a selectable
-    // "Open Theme Builder" action row that emits OpenThemeBuilder on Enter —
+    // "Open Theme Builder" action row that emits OpenThemeBuilder on Enter -
     // no `b` press, no row edit (the Theme Builder was hard to discover).
     let mut panel = SettingsPanel::new(&Settings::default());
     let themes = SECTIONS
@@ -592,7 +592,7 @@ fn themes_section_has_open_theme_builder_action_entry() {
 #[test]
 fn theme_builder_action_survives_live_value_sync() {
     // A live settings echo (apply_settings) must not drop the synthetic
-    // action row — it has no real value, so a naive value-sync would force a
+    // action row - it has no real value, so a naive value-sync would force a
     // group-filter rebuild that loses it.
     let mut panel = SettingsPanel::new(&Settings::default());
     let themes = SECTIONS
@@ -869,7 +869,7 @@ fn committing_background_image_also_enables_image_treatment() {
 
 #[test]
 fn background_scrim_auto_steps_to_numeric_override() {
-    // Start from the `auto` (None) scrim explicitly — the shipped default is
+    // Start from the `auto` (None) scrim explicitly - the shipped default is
     // now a fixed 0.5, so this sets auto to exercise the auto→numeric step.
     let settings = Settings {
         background_image_scrim: None,
@@ -899,7 +899,7 @@ fn font_family_failure_surfaces_clear_overlay_message() {
         panel.handle_input(OverlayInput::Activate),
         SettingsPanelOutcome::OpenFontPicker
     );
-    // No message about a failed family name — the picker is the UX.
+    // No message about a failed family name - the picker is the UX.
     // Verify the changed_count is still 0.
     assert_eq!(panel.render_signature().changed_count, 0);
 }
@@ -1542,7 +1542,7 @@ fn visible_entry_indices(panel: &SettingsPanel, w: usize, h: usize) -> Vec<usize
 
 /// Bug A: selecting (e.g. pressing) a row that is already on-screen must NOT
 /// recenter the viewport. The old `visible_slack` reframe yanked the view on
-/// any selection below the top third — this is what jumped a slider to the
+/// any selection below the top third - this is what jumped a slider to the
 /// bottom the instant you adjusted it.
 #[test]
 fn selecting_a_visible_row_does_not_recenter_scroll() {
@@ -1571,14 +1571,14 @@ fn selecting_a_visible_row_does_not_recenter_scroll() {
 }
 
 /// Bug A [follow-lag] trap: arrowing the selection BELOW the visible window
-/// must still scroll — minimally — to reveal it (no VIEWPORT-FOLLOW-LAG
+/// must still scroll - minimally - to reveal it (no VIEWPORT-FOLLOW-LAG
 /// regression), while arrowing within the window does not scroll.
 #[test]
 fn offscreen_selection_scrolls_minimally_within_window_does_not() {
     let mut panel = SettingsPanel::new(&Settings::default());
     panel.drill_into_section(2); // Rendering
     panel.update_body_width(90);
-    // SETTINGS-COMPACT: a short window whose content region (after the fixed
+    // A short window whose content region (after the fixed
     // help footer reserves its rows) is smaller than the section's compact
     // row count, so the last entry is genuinely off-screen at the top.
     panel.update_body_height(14);
@@ -1694,7 +1694,7 @@ fn live_apply_preserves_section_filter_level_and_dirty_state() {
 
     // Simulate the live-apply round-trip seam. The incoming `settings` is the
     // unedited baseline (as a Save's `Settings::from_env` re-read can differ
-    // from the in-panel edit overlay) — pre-fix this triggered the spurious
+    // from the in-panel edit overlay) - pre-fix this triggered the spurious
     // level-resetting refresh().
     panel.apply_settings(&Settings::default());
 

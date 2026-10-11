@@ -278,7 +278,7 @@ fn missing_version_is_malformed() {
 fn atomic_write_syncs_and_round_trips_a_multi_kib_payload() {
     // F23: write_atomic now sync_all's the temp file and fsyncs the parent dir
     // before returning (parity with the settings writeback path). The durable
-    // path must still round-trip exactly and leave no temp sibling — a crash can
+    // path must still round-trip exactly and leave no temp sibling - a crash can
     // only ever leave the temp behind, never a renamed-but-empty target.
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -327,7 +327,7 @@ fn atomic_write_replaces_target_and_leaves_no_temp_file() {
     write_atomic(&path, "second\n").expect("second write");
     assert_eq!(std::fs::read_to_string(&path).expect("read"), "second\n");
 
-    // Only the target file remains — no `.tmp` sibling left behind.
+    // Only the target file remains - no `.tmp` sibling left behind.
     let entries: Vec<String> = std::fs::read_dir(&dir)
         .expect("read dir")
         .filter_map(|entry| entry.ok())
@@ -450,7 +450,7 @@ fn nesting_just_within_the_cap_still_parses() {
     );
 }
 
-// ---- WP2: cwd resolution for restore (design §10.5, sub-ODP 8f) ----
+// ---- cwd resolution for restore (design §10.5, sub-ODP 8f) ----
 
 #[test]
 fn resolve_cwd_keeps_an_existing_directory() {
@@ -498,7 +498,7 @@ fn resolve_cwd_without_a_home_spawns_in_place() {
 
 #[test]
 fn validate_interactive_cwd_keeps_an_existing_directory() {
-    // D-1: a tracked cwd that exists on disk seeds the spawn as-is.
+    // A tracked cwd that exists on disk seeds the spawn as-is.
     let existing = std::env::temp_dir();
     let home = PathBuf::from("/some/home");
     let cwd = validate_interactive_cwd(existing.to_str(), Some(&home));
@@ -522,7 +522,7 @@ fn validate_interactive_cwd_rejects_a_bogus_path_and_falls_back_to_home() {
 
 #[test]
 fn validate_interactive_cwd_unknown_stays_none_for_the_default_dir() {
-    // D-1: unlike the restore path, an unknown interactive cwd is left as None so
+    // Unlike the restore path, an unknown interactive cwd is left as None so
     // New Tab / Duplicate / New Window spawn in the default directory unchanged,
     // NOT forced into home.
     let home = std::env::temp_dir();
@@ -537,7 +537,7 @@ fn validate_interactive_cwd_without_a_home_drops_a_bogus_cwd() {
     assert_eq!(validate_interactive_cwd(Some(bogus), None), None);
 }
 
-/// F6-W5: a workspace's bound host alias round-trips through the snapshot and
+/// A workspace's bound host alias round-trips through the snapshot and
 /// serializes under the stable `default_profile` key.
 #[test]
 fn workspace_default_profile_round_trips() {
@@ -571,7 +571,7 @@ fn workspace_default_profile_round_trips() {
 }
 
 /// Forward-compat: a snapshot written before F6-W5 (no `default_profile` field)
-/// parses to an unbound workspace, not an error — WP1's unknown-field tolerance
+/// parses to an unbound workspace, not an error - WP1's unknown-field tolerance
 /// covers the new optional key.
 #[test]
 fn snapshot_without_default_profile_parses_to_unbound() {
@@ -685,7 +685,7 @@ fn pane_launch_profile_round_trips_and_is_forward_compatible() {
     }
 }
 
-/// RESTORE-REMOTE: a pane's remote host round-trips through the snapshot under
+/// A pane's remote host round-trips through the snapshot under
 /// the stable `remote_host` key, and a pre-RESTORE-REMOTE snapshot (no such
 /// key) parses to a plain local pane.
 #[test]
@@ -732,7 +732,7 @@ fn pane_remote_host_round_trips_and_is_forward_compatible() {
     }
 }
 
-/// WP3: layout name sanitization blocks path traversal and empty names while
+/// Layout name sanitization blocks path traversal and empty names while
 /// keeping ordinary names intact.
 #[test]
 fn sanitize_layout_name_blocks_traversal_and_empties() {
@@ -756,7 +756,7 @@ fn sanitize_layout_name_blocks_traversal_and_empties() {
     assert_eq!(sanitize_layout_name(""), None);
 }
 
-/// C26: Windows reserved device stems are mangled cross-platform so a layout
+/// Windows reserved device stems are mangled cross-platform so a layout
 /// file can never resolve to a device (`CON.json` opens the console on Windows).
 #[test]
 fn sanitize_layout_name_mangles_windows_reserved_device_stems() {
@@ -777,7 +777,7 @@ fn sanitize_layout_name_mangles_windows_reserved_device_stems() {
     assert_eq!(sanitize_layout_name("COM10"), Some("COM10".to_owned()));
 }
 
-/// C27: the startup sweep removes crash-orphaned `.<...>.tmp` siblings that are
+/// The startup sweep removes crash-orphaned `.<...>.tmp` siblings that are
 /// older than the stale threshold, while keeping fresh temporaries and any
 /// non-temp files untouched.
 #[test]
@@ -814,7 +814,7 @@ fn sweep_stale_temp_siblings_removes_only_aged_temporaries() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// WP3: a layout saves, lists, loads (equal to what was saved), and deletes —
+/// A layout saves, lists, loads (equal to what was saved), and deletes -
 /// exercised against an explicit temp directory so the real state dir is never
 /// touched.
 #[test]
@@ -887,9 +887,9 @@ fn layout_save_list_load_delete_round_trip() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// OVERWRITE-WARN: `layout_exists_in` reports presence keyed by the SAME
+/// `layout_exists_in` reports presence keyed by the SAME
 /// sanitized stem the writer uses, so a name that maps onto an existing file is
-/// detected even when it differs only in unsanitized characters — the check can
+/// detected even when it differs only in unsanitized characters - the check can
 /// never disagree with the writer about which file a name means.
 #[test]
 fn layout_exists_matches_the_writer_stem() {
@@ -991,7 +991,7 @@ fn layout_migration_repairs_direct_json_only_and_leaves_unknown_entries_alone() 
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// ---- H4: malformed-snapshot launch robustness (belt-and-suspenders) ----
+// ---- malformed-snapshot launch robustness (belt-and-suspenders) ----
 //
 // A corrupt / truncated / version-skewed / garbage `workspaces.json` must never
 // panic launch. The launch reader (`load_snapshot`) reads the file with
@@ -1001,7 +1001,7 @@ fn layout_migration_repairs_direct_json_only_and_leaves_unknown_entries_alone() 
 // here would brick startup until the file was deleted by hand, so these lock
 // the degrade contract at the classify boundary every launch funnels through.
 // Platform-neutral: the path, read, and parse are byte-identical on Windows
-// (the state dir has a tested `%LOCALAPPDATA%` arm, §10.8) — no OS surface.
+// (the state dir has a tested `%LOCALAPPDATA%` arm, §10.8) - no OS surface.
 
 #[test]
 fn truncated_snapshot_never_panics_and_degrades() {
@@ -1009,7 +1009,7 @@ fn truncated_snapshot_never_panics_and_degrades() {
     // file. Cutting a valid serialization at EVERY byte offset simulates that:
     // none may panic, and a genuinely mid-structure cut classifies as Malformed
     // (a cut that happens to drop only trailing whitespace still parses cleanly,
-    // which is equally fine — the contract is "never panic", not "always fail").
+    // which is equally fine - the contract is "never panic", not "always fail").
     let full = sample_snapshot().to_json_pretty();
     for cut in 0..=full.len() {
         if !full.is_char_boundary(cut) {
@@ -1063,7 +1063,7 @@ fn well_formed_json_of_the_wrong_shape_is_malformed_never_panics() {
 
 #[test]
 fn older_and_newer_schema_versions_are_soft_skew() {
-    // Any version this build does not speak — older OR newer — is a soft skew
+    // Any version this build does not speak - older OR newer - is a soft skew
     // (ignore + fresh launch + notice), never a hard error or panic. The reader
     // never best-effort-parses a foreign schema (§10.4, forward-compat by
     // construction).
@@ -1083,7 +1083,7 @@ fn garbage_and_broken_files_on_disk_degrade_to_a_soft_outcome_never_panic() {
     // shares that exact read -> classify path (it is also the named-layout parse
     // path) but takes an injectable directory, so it exercises the identical
     // file-level degradation without ever touching the real state dir. Every
-    // hostile file below must yield a soft `LoadOutcome` — never a panic.
+    // hostile file below must yield a soft `LoadOutcome` - never a panic.
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
@@ -1129,7 +1129,7 @@ fn garbage_and_broken_files_on_disk_degrade_to_a_soft_outcome_never_panic() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// ---- PLAUS-01: aggregate load budgets (fail closed, no restore spawn) ----
+// ---- aggregate load budgets (fail closed, no restore spawn) ----
 
 fn single_leaf_tab() -> TabShape {
     TabShape {
@@ -1232,7 +1232,7 @@ fn budget_rejects_pane_tree_deeper_than_the_cap() {
 
 #[test]
 fn budget_rejects_total_leaves_over_the_spawn_ceiling() {
-    // Spread leaves so neither the workspace, tab, nor depth cap trips first —
+    // Spread leaves so neither the workspace, tab, nor depth cap trips first -
     // only the aggregate leaf ceiling. 512 tabs * 17 leaves = 8704 > 8192, with
     // tab count exactly at its cap and depth (17) well under its cap.
     let tab = TabShape {

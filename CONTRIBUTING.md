@@ -398,7 +398,9 @@ ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture
 
 Each fuzzer prints a `fuzz-budget` line with the iteration count and its
 source. A value that is not a positive integer is ignored with a warning on
-stderr, and the line then reports `source=default-after-invalid-env`.
+stderr, and the line then reports `source=default-after-invalid-env`. A value
+that is not valid Unicode reads as unset and uses the default without a
+warning.
 
 The grid scan in that file checks cell ownership, not only the width of the first
 scalar: a spacer must follow a head that owns two columns by the model's rule (a

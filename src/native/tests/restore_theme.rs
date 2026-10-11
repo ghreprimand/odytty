@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! RESTORE-THEME: sessions spawned by snapshot restore-on-launch or layout
+//! Sessions spawned by snapshot restore-on-launch or layout
 //! append must render in the CURRENT theme, not the `DynamicColors::default()`
 //! palette.
 //!
@@ -7,15 +7,15 @@
 //! right after spawn. Restore and append spawn terminals inside the session
 //! arena without routing through that path, so before the fix they kept the
 //! default palette and rendered every `Color::Default` / `Color::Indexed`
-//! surface — most visibly context menus and overlays, which paint in the
-//! terminal palette — in the wrong colors. Two workspaces in one window then
+//! surface - most visibly context menus and overlays, which paint in the
+//! terminal palette - in the wrong colors. Two workspaces in one window then
 //! diverged even though every setting is app-global. The App now seeds every
 //! session's model state after restore and after append.
 //!
 //! Cross-platform: the restore/append spawn path and the seeding sweep are
 //! identical on Linux, macOS, and Windows; these tests are platform-neutral
 //! (both run headlessly through the model-state sweep and the layout-append
-//! seam — no off-main-thread winit `EventLoop` is needed, so CI exercises the
+//! seam - no off-main-thread winit `EventLoop` is needed, so CI exercises the
 //! seed rather than skipping it).
 
 use super::super::session::RestoreReport;
@@ -55,7 +55,7 @@ fn distinctive_theme() -> Theme {
 }
 
 /// A proxy-less `App` whose authored theme is `theme`. Its one session is built
-/// from a bare `Terminal::new` — i.e. UNSEEDED, exactly like a session spawned
+/// from a bare `Terminal::new` - i.e. UNSEEDED, exactly like a session spawned
 /// by restore/append before the app seeds it. `None` when no PTY is available.
 fn unseeded_app(theme: Theme) -> Option<App> {
     let dims = Dimensions::new(40, 8);
@@ -85,7 +85,7 @@ fn model_state_sweep_seeds_an_unseeded_session_with_the_theme() {
     };
 
     // Restore/append shape: the freshly-built terminal carries the default
-    // palette, NOT the theme — this is precisely the divergence.
+    // palette, NOT the theme - this is precisely the divergence.
     assert_eq!(
         app.tab_dynamic_colors_at_position_for_test(0),
         Some((DEFAULT_FG, DEFAULT_BG)),
@@ -104,11 +104,11 @@ fn model_state_sweep_seeds_an_unseeded_session_with_the_theme() {
 
 /// The production layout-append path seeds the sessions it spawns. A layout
 /// appended into a themed window must render its new session in that theme, not
-/// the default palette — otherwise its menus/overlays diverge from the live
+/// the default palette - otherwise its menus/overlays diverge from the live
 /// workspaces beside it.
 ///
 /// Runs headlessly through the layout-append seam (no event-loop proxy), so the
-/// seed is EXERCISED wherever the suite runs — including CI and macOS, where a
+/// seed is EXERCISED wherever the suite runs - including CI and macOS, where a
 /// real winit `EventLoop` cannot be built and the proxy-backed path would return
 /// early and assert nothing. The pre-append state is made NON-pristine (the
 /// initial workspace is renamed) so the append lands BESIDE the live workspace

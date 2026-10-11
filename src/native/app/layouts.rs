@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! App-side named-layout actions (WP3 / 8e + 8g).
 //!
-//! A layout is a saved workspace shape — its tabs, pane split tree, per-pane
-//! cwd, and F6-W5 host binding — reusing the same on-disk schema as the launch
+//! A layout is a saved workspace shape - its tabs, pane split tree, per-pane
+//! cwd, and F6-W5 host binding - reusing the same on-disk schema as the launch
 //! autosave. Saving captures the CURRENT workspace as a one-workspace layout;
 //! opening a layout APPENDS it as a new workspace (never clobbering the live
 //! one, 8e); deleting removes the file. All three are command-palette surfaces
@@ -13,7 +13,7 @@ use super::*;
 use crate::native::persistence::{self, LoadOutcome};
 use crate::native::session::RestoreReport;
 
-/// How a saved layout lands on the current window (LAYOUT-OPEN-MODE). Chosen by
+/// How a saved layout lands on the current window. Chosen by
 /// the open-layout mode dialog when the window already holds real state; a bare
 /// launch always uses `Add` (which consumes its lone pristine workspace).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,7 +32,7 @@ impl App {
     /// prompt-free path; the menu "Save as Layout\u{2026}" surface routes a typed
     /// name through [`Self::save_workspace_as_layout`] instead. A name that
     /// collides with an existing layout raises the overwrite-confirm dialog
-    /// (OVERWRITE-WARN) rather than silently clobbering, even on this prompt-free
+    /// rather than silently clobbering, even on this prompt-free
     /// path; otherwise a one-line notice confirms.
     pub(super) fn save_active_workspace_as_layout(&mut self) {
         let active = self.sessions.active_workspace_index();
@@ -40,19 +40,19 @@ impl App {
     }
 
     /// Save the workspace at rail index `idx` as a named layout (8g). This backs
-    /// the "Save Workspace as Layout\u{2026}" menu surfaces (LAYOUT-SURFACE): a
+    /// the "Save Workspace as Layout\u{2026}" menu surfaces: a
     /// rail slot saves the clicked workspace, the content-grid section the active
     /// one. `name_override` is the typed layout name from the prompt; `None`
     /// falls back to the workspace's own display name (the palette path). A stale
-    /// index or an empty resulting name is a no-op. OVERWRITE-WARN: a name that
+    /// index or an empty resulting name is a no-op. a name that
     /// already exists raises the overwrite-confirm dialog instead of clobbering;
     /// otherwise a write failure degrades to a one-line notice.
     pub(super) fn save_workspace_as_layout(&mut self, idx: usize, name_override: Option<&str>) {
         let Some(name) = self.resolve_layout_name(name_override, idx) else {
             return;
         };
-        // OVERWRITE-WARN: a collision prompts (replace vs. a different name)
-        // rather than silently overwriting — on every save path, prompt-free
+        // A collision prompts (replace vs. a different name)
+        // rather than silently overwriting - on every save path, prompt-free
         // palette entry included.
         if persistence::layout_exists(&name) {
             let Some(identity) = self.sessions.workspace_identity(idx) else {
@@ -66,13 +66,13 @@ impl App {
         self.write_workspace_layout(idx, &name);
     }
 
-    /// Save the WHOLE application — every workspace, with its tabs, split trees,
-    /// per-pane cwd, and host bindings, and the active-workspace index preserved
-    /// — as a single named layout (SAVE-ALL-LAYOUT). This is the primary "Save as
+    /// Save the WHOLE application - every workspace, with its tabs, split trees,
+    /// per-pane cwd, and host bindings, and the active-workspace index preserved -
+    /// as a single named layout. This is the primary "Save as
     /// Layout" surface: a layout means the whole session, not one workspace.
     /// `name_override` is the typed layout name from the prompt; `None` (the
     /// palette path) falls back to the active workspace's own name as a sensible
-    /// default. An empty resulting name is a no-op. OVERWRITE-WARN: a name that
+    /// default. An empty resulting name is a no-op. a name that
     /// already exists raises the overwrite-confirm dialog instead of clobbering;
     /// otherwise a write failure degrades to a one-line notice.
     pub(super) fn save_all_workspaces_as_layout(&mut self, name_override: Option<&str>) {
@@ -107,7 +107,7 @@ impl App {
     }
 
     /// Force-write the workspace at rail index `idx` as layout `name`, no
-    /// collision check — the confirmed-replace arm of OVERWRITE-WARN and the
+    /// collision check - the confirmed-replace arm of OVERWRITE-WARN and the
     /// no-collision fast path both land here. Re-captures the current state so a
     /// Replace writes what is on screen now. A stale index or write failure
     /// degrades to a one-line notice.
@@ -127,7 +127,7 @@ impl App {
         }
     }
 
-    /// Force-write every workspace as layout `name`, no collision check — the
+    /// Force-write every workspace as layout `name`, no collision check - the
     /// confirmed-replace arm of OVERWRITE-WARN and the no-collision fast path both
     /// land here. Reuses [`persistence::save_layout`] with the full
     /// [`capture_shape`] output (no per-workspace slice); a write failure degrades
@@ -147,7 +147,7 @@ impl App {
         }
     }
 
-    /// The confirmed-replace arm of the overwrite-layout dialog (OVERWRITE-WARN):
+    /// The confirmed-replace arm of the overwrite-layout dialog:
     /// force-write the layout, clobbering the existing file, routed by `kind`.
     pub(super) fn overwrite_layout_confirmed(&mut self, name: &str, kind: LayoutSaveKind) {
         match kind {
@@ -165,9 +165,9 @@ impl App {
         }
     }
 
-    /// Open a saved layout, deciding how it lands on the current window
-    /// (LAYOUT-OPEN-MODE). Onto a bare launch — exactly one untouched default
-    /// workspace — the layout opens directly, consuming that pristine workspace
+    /// Open a saved layout, deciding how it lands on the current window.
+    /// Onto a bare launch - exactly one untouched default
+    /// workspace - the layout opens directly, consuming that pristine workspace
     /// so the window shows precisely the saved set (no prompt). Onto a window
     /// that already holds real state, a small dialog asks whether to REPLACE the
     /// current workspaces with the saved set or ADD them beside it, since a
@@ -186,7 +186,7 @@ impl App {
     }
 
     /// Instantiate a saved layout onto the current window with an explicit
-    /// placement (LAYOUT-OPEN-MODE): `Add` APPENDS its workspace(s) after the
+    /// placement: `Add` APPENDS its workspace(s) after the
     /// current list (consuming a single pristine workspace, 8e / PRISTINE-CONSUME),
     /// `Replace` tears down every current workspace and installs the saved set as
     /// the whole application (active workspace honored). A corrupt, version-
@@ -236,7 +236,7 @@ impl App {
                         // routing them through `initialize_session_with`, so
                         // without this they render menus, overlays and content in
                         // the `DynamicColors::default()` palette instead of the
-                        // theme's — a per-workspace presentation divergence.
+                        // theme's - a per-workspace presentation divergence.
                         self.apply_model_state_to_all_sessions();
                         self.flash_rail_autohide();
                         self.recompute_grid_for_tab_bar();
@@ -285,7 +285,7 @@ impl App {
         self.raise_open_notice(notice);
     }
 
-    /// Open the "Open Layout \u{25b8}" picker (LAYOUT-SURFACE), seeded with the
+    /// Open the "Open Layout \u{25b8}" picker, seeded with the
     /// saved layout names. Opens even with no saved layouts (the picker then
     /// shows an explanatory line) so the feature is discoverable from the menu.
     pub(super) fn open_saved_layout_picker(&mut self) {
@@ -328,7 +328,7 @@ fn layout_open_notice(
     if extras.is_empty() {
         notice.push('.');
     } else {
-        notice.push_str(" \u{2014} ");
+        notice.push_str(" - ");
         notice.push_str(&extras.join("; "));
         notice.push('.');
     }

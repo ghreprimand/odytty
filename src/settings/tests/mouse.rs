@@ -122,7 +122,7 @@ fn scroll_drag_speed_has_an_enum_row_in_the_input_group() {
 
 #[test]
 fn scrollbar_drag_defaults_on_and_parses() {
-    // MOUSE-SCROLLBAR: default on (the draggable thumb is inert at the live
+    // Default on (the draggable thumb is inert at the live
     // tail, so default-on does not change the plain press path).
     let (settings, warnings) = settings_from([]);
     assert!(settings.scrollbar_drag);
@@ -184,7 +184,7 @@ fn scrollbar_drag_has_a_bool_row_in_the_input_group() {
 
 #[test]
 fn interactive_paths_click_hint_defaults_on_and_parses() {
-    // UX-A (Phase 11): default on behind the global interactive_paths gate.
+    // Default on behind the global interactive_paths gate.
     let (settings, warnings) = settings_from([]);
     assert!(settings.interactive_paths_click_hint);
     assert!(warnings.is_empty());
@@ -234,7 +234,7 @@ fn interactive_paths_click_hint_round_trips_through_edit_values() {
 
 #[test]
 fn interactive_paths_image_inline_defaults_on_and_parses() {
-    // UX-C (Phase 13): default on behind the global interactive_paths gate.
+    // Default on behind the global interactive_paths gate.
     let (settings, warnings) = settings_from([]);
     assert!(settings.interactive_paths_image_inline);
     assert!(warnings.is_empty());
@@ -284,7 +284,7 @@ fn interactive_paths_image_inline_round_trips_through_edit_values() {
 
 #[test]
 fn wheel_zoom_defaults_on_and_parses() {
-    // CTRL-WHEEL-ZOOM: default on. It only fires on the explicit Ctrl+wheel
+    // Default on. It only fires on the explicit Ctrl+wheel
     // gesture while mouse reporting is off, so default-on leaves a plain wheel
     // byte-identical.
     let (settings, warnings) = settings_from([]);

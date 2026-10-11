@@ -32,9 +32,9 @@ use crate::settings::Settings;
 
 /// Classify the terminal foreground group of `fd` against `shell_pgid`.
 ///
-/// Pure and read-only: a single `tcgetpgrp` (TIOCGPGRP) inspection. Any error
-/// — including the no-foreground-group case, which rustix reports as
-/// `OPNOTSUPP` — maps to [`ForegroundJob::Unknown`] so callers never prompt on
+/// Pure and read-only: a single `tcgetpgrp` (TIOCGPGRP) inspection. Any error -
+/// including the no-foreground-group case, which rustix reports as
+/// `OPNOTSUPP` - maps to [`ForegroundJob::Unknown`] so callers never prompt on
 /// an indeterminate terminal.
 fn classify_foreground<Fd: AsFd>(fd: Fd, shell_pgid: RawPid) -> ForegroundJob {
     match tcgetpgrp(fd) {
@@ -99,7 +99,7 @@ fn shell_command_builder(command: &str) -> CommandBuilder {
 /// program name made the integration classifier skip the Bash rcfile.
 fn default_shell_program() -> OsString {
     // Pass the NSS producer by name (uncalled) so `getpwuid_r` runs only when a
-    // non-empty `SHELL` did not already win — the common desktop case performs
+    // non-empty `SHELL` did not already win - the common desktop case performs
     // zero passwd/NSS lookups.
     resolve_default_shell(env::var_os("SHELL"), login_shell_from_passwd)
 }
@@ -360,7 +360,7 @@ impl PtySession {
         // Self-pipe for forcing a wedged reader to EOF at close. CLOEXEC so the
         // shell child never inherits either end. Created BEFORE the spawn: a
         // pipe failure (fd exhaustion) after a successful spawn would return
-        // early with a live child no one waits on — a zombie until the whole
+        // early with a live child no one waits on - a zombie until the whole
         // process exits.
         let (reader_wake_read, reader_wake_write) = make_reader_wake_pipe()?;
 
@@ -422,7 +422,7 @@ impl PtySession {
     /// cursor positioning on every resize. False for a POSIX PTY: resize raises
     /// `SIGWINCH`, which Linux/macOS shells service with a RELATIVE repaint the
     /// terminal's `preserve_cursor_physical_line` override is built to cooperate
-    /// with — so OdyTTY keeps translating the cursor on resize as today.
+    /// with - so OdyTTY keeps translating the cursor on resize as today.
     pub fn shell_repaints_on_resize(&self) -> bool {
         false
     }
@@ -507,7 +507,7 @@ impl PtySession {
 
     /// Unix has no ConPTY startup-failure diagnostic (a POSIX child that fails to
     /// exec reports the error synchronously at spawn), so there is no slot to
-    /// drain — always `None`. Mirrors the Windows backend's contract method so
+    /// drain - always `None`. Mirrors the Windows backend's contract method so
     /// the shared pump can take the slot uniformly across platforms.
     pub fn pending_diagnostic_slot(
         &self,
@@ -540,7 +540,7 @@ impl PtySession {
     }
 
     /// Test-only: query the kernel `ws_xpixel`/`ws_ypixel` on the master via
-    /// TIOCGWINSZ. Drives the C23 regression asserting TIOCSWINSZ now reports a
+    /// TIOCGWINSZ. Drives the regression asserting TIOCSWINSZ reports a
     /// real pixel geometry instead of zero.
     #[cfg(test)]
     pub fn pixel_dimensions_for_test(&self) -> Result<(u16, u16)> {
@@ -889,7 +889,7 @@ fn open_pty_slave<Fd: AsFd>(master: Fd, _flags: OpenptFlags) -> Result<rustix::f
 ///
 /// `ws_xpixel`/`ws_ypixel` carry `columns * width_px` and `rows * height_px` so
 /// pixel-aware clients (Sixel/Kitty sizing, some TUIs) read a real surface
-/// extent. The product is saturated to `u16::MAX` — the winsize pixel fields are
+/// extent. The product is saturated to `u16::MAX` - the winsize pixel fields are
 /// `u16`, and a pathological grid can exceed that even though real windows
 /// (≤ 8K) never do. Rows/cols keep the pre-existing `u16` clamp.
 fn winsize(dimensions: Dimensions, cell_metrics: CellMetrics) -> Winsize {
@@ -961,7 +961,7 @@ mod tests {
 
     /// The NSS/passwd producer must stay lazy: a valid non-empty `SHELL` wins
     /// without ever invoking `login_shell_from_passwd`. This is the whole point
-    /// of the lazy-resolution change — the common desktop case performs zero
+    /// of the lazy-resolution change - the common desktop case performs zero
     /// passwd/NSS lookups.
     #[test]
     fn valid_shell_env_performs_zero_login_shell_lookups() {
@@ -979,7 +979,7 @@ mod tests {
     }
 
     /// Every path that does NOT have a usable `SHELL` consults the producer
-    /// exactly once — missing env, empty env, an empty login shell (treated as
+    /// exactly once - missing env, empty env, an empty login shell (treated as
     /// absent, falling through to `/bin/sh`), and a `None` producer result. Also
     /// pins non-UTF8 preservation: a login shell with invalid-UTF8 bytes rides
     /// through as an exact `OsString`.
@@ -1042,8 +1042,8 @@ mod tests {
         use std::time::Instant;
 
         // A child that produces no output keeps its slave open, so the master
-        // never reports EOF on its own and the pump reader blocks indefinitely —
-        // the shape of the CLOSE-HANG-2 leak (a `setsid`'d grandchild holding the
+        // never reports EOF on its own and the pump reader blocks indefinitely -
+        // the shape of a close-hang leak (a `setsid`'d grandchild holding the
         // slave). `force_reader_eof` must make the reader return EOF so a bounded
         // close join can complete instead of leaking the reader thread + fds.
         let session = PtySession::spawn_shell_command(TEST_DIMENSIONS, "exec sleep 30")
@@ -1125,7 +1125,7 @@ mod tests {
 
     /// The POSIX PTY backend delegates resize repaint to the app's SIGWINCH
     /// handler (a RELATIVE repaint), so it must report that the shell does NOT
-    /// authoritatively repaint with absolute positioning — keeping OdyTTY's
+    /// authoritatively repaint with absolute positioning - keeping OdyTTY's
     /// cursor-translating reflow active on Linux/macOS (byte-identical behavior).
     #[test]
     fn shell_does_not_repaint_absolutely_on_resize() {
@@ -1138,7 +1138,7 @@ mod tests {
     }
 
     /// A non-terminal fd (`/dev/null`) makes `tcgetpgrp` fail with `ENOTTY`,
-    /// which must classify as `Unknown` — never `Running`, never a panic.
+    /// which must classify as `Unknown` - never `Running`, never a panic.
     #[test]
     fn errored_fd_classifies_as_unknown() {
         let not_a_tty = File::open("/dev/null").expect("open /dev/null");
@@ -1210,9 +1210,9 @@ mod tests {
         let _ = session.kill();
     }
 
-    /// C23: the `winsize` builder fills `ws_xpixel`/`ws_ypixel` from the grid
+    /// The `winsize` builder fills `ws_xpixel`/`ws_ypixel` from the grid
     /// geometry × cell metrics (previously hard-coded to zero). Pure builder
-    /// check — no PTY needed.
+    /// check - no PTY needed.
     #[test]
     fn winsize_reports_pixel_geometry_from_cell_metrics() {
         let ws = winsize(Dimensions::new(80, 24), CellMetrics::new(10, 20));
@@ -1229,7 +1229,7 @@ mod tests {
     }
 
     /// The pixel product is `u16`, so a pathological grid saturates instead of
-    /// wrapping — a real (≤ 8K) window never reaches this, but the arithmetic
+    /// wrapping - a real (≤ 8K) window never reaches this, but the arithmetic
     /// must not truncate silently.
     #[test]
     fn winsize_saturates_pixel_geometry_at_u16_max() {
@@ -1238,8 +1238,8 @@ mod tests {
         assert_eq!(ws.ws_ypixel, u16::MAX);
     }
 
-    /// C23 end-to-end: a spawned PTY reports a real pixel geometry over
-    /// TIOCGWINSZ — the default metric at spawn, then the live metric fed via
+    /// End-to-end: a spawned PTY reports a real pixel geometry over
+    /// TIOCGWINSZ - the default metric at spawn, then the live metric fed via
     /// `set_cell_metrics` before a resize. Before the fix both were zero.
     #[test]
     fn tiocswinsz_carries_real_pixel_dims_after_resize() {
@@ -1247,7 +1247,7 @@ mod tests {
             PtySession::spawn_default_shell(TEST_DIMENSIONS).expect("spawn default shell");
 
         // At spawn the slave winsize was seeded with the 8×16 default metric:
-        // 80×24 grid → 640×384 px. Non-zero is the whole point of C23.
+        // 80×24 grid → 640×384 px. Non-zero is the point of the test.
         let (spawn_x, spawn_y) = session
             .pixel_dimensions_for_test()
             .expect("query spawn pixel size");

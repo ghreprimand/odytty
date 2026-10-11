@@ -44,8 +44,8 @@ impl GpuState {
         }
         // The background texture is sized for the drawable it was loaded
         // against, so a window that grows past the headroom it carries needs
-        // more texels than it holds. The check is pure — no GPU work, no file
-        // access — and the reload is growth-only, so a resize that the current
+        // more texels than it holds. The check is pure - no GPU work, no file
+        // access - and the reload is growth-only, so a resize that the current
         // texture already covers costs a comparison and nothing else.
         let surface = (self.config.width, self.config.height);
         let cell_bg_opacity = self.cell_bg_opacity;
@@ -76,7 +76,7 @@ impl GpuState {
     /// of the logical window. Reconfiguring the invalid surface is insufficient;
     /// a fresh surface must be created from the retained instance and window.
     ///
-    /// ORDERING IS LOAD-BEARING — the replacement surface must not be
+    /// ORDERING IS LOAD-BEARING - the replacement surface must not be
     /// CONFIGURED while the previous surface still holds a presentation chain
     /// on the same window. A window carries at most one such chain, and a
     /// second configure against a live one is a hard error, not a warning:
@@ -127,7 +127,7 @@ impl GpuState {
                 .unwrap_or(wgpu::CompositeAlphaMode::Opaque);
         }
         // Retire the previous surface (and its presentation chain) BEFORE
-        // configuring the replacement — see the ordering note above.
+        // configuring the replacement - see the ordering note above.
         let previous = std::mem::replace(&mut self.surface, surface);
         drop(previous);
         self.surface.configure(&self.device, &self.config);

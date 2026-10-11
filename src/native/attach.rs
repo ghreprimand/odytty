@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Native window-as-client attach to a detached session-host (Phase 2).
+//! Native window-as-client attach to a detached session-host.
 //!
 //! This is the GUI consumer of the session-host's documented attach wire
 //! sequence (see `docs/panes-and-sessions-design.md` §6.1/§6.2). It is built
 //! directly against the **public** [`crate::session_host::protocol`] contract and
 //! the public socket helpers, not by extending the CLI/diagnostic
-//! [`crate::session_host::SessionHostClient`] — two separate consumers of one
+//! [`crate::session_host::SessionHostClient`] - two separate consumers of one
 //! stable wire protocol, which keeps file ownership clean and lets the GUI split
 //! read/write across threads.
 //!
 //! Flow:
 //! 1. [`AttachClient::connect_within`] performs the handshake, reads exactly one initial
 //!    [`HostFrame::Snapshot`], decodes it under bounded caps, and restores a live
-//!    [`Terminal`] — the "close window, reopen, full scrollback intact" step.
+//!    [`Terminal`] - the "close window, reopen, full scrollback intact" step.
 //! 2. The connected `UnixStream` is `try_clone`d: the original is the write side
 //!    (App thread: input/resize/detach), the clone is the read side, driven by
 //!    [`spawn_attach_pump`] on a dedicated thread. Both share one kernel socket,
-//!    so frame ordering is preserved and no lock sits on the keystroke path —
+//!    so frame ordering is preserved and no lock sits on the keystroke path -
 //!    mirroring the local-PTY pump in [`super::pty`].
 //! 3. The client terminal is a **render mirror**: the host owns the authoritative
 //!    model and already answered device queries against its own terminal, so the
@@ -56,7 +56,7 @@ use super::pty::{PtyWriter, UserEvent};
 use super::pty_writer::{DroppedInputReason, dropped_input_error};
 use super::session::SessionToken;
 
-/// Absolute budget for one whole frame written to the host (audit C-4). Every
+/// Absolute budget for one whole frame written to the host. Every
 /// write to the host (input, resize, detach) shares this budget; a resize is issued
 /// from the MAIN thread (`resize_all_panes_impl`) while input flows on the pump's
 /// writer thread, and both take the shared `AttachClient` mutex. If the host is
@@ -95,9 +95,6 @@ impl AttachEventSink for EventLoopProxy<UserEvent> {
     }
 }
 
-/// The write half of an attach connection: the App thread sends input, resize,
-/// and detach frames through it. Reading is done by the [`AttachReader`] pump on
-/// a separate thread over a clone of the same socket.
 /// Where this client's clean `Detach` stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum DetachState {
@@ -110,6 +107,10 @@ enum DetachState {
     Failed(String),
 }
 
+/// The write half of an attach connection: the App thread sends input, resize,
+/// and detach frames through it. Reading is done by the [`AttachReader`] pump on
+/// a separate thread over a clone of the same socket, through a resumable
+/// [`HostFrameReader`].
 #[derive(Debug)]
 pub(super) struct AttachClient {
     stream: UnixStream,
@@ -172,7 +173,7 @@ impl AttachClient {
         })
         .context("bound session-host client hello")?
         .context("write session-host client hello")?;
-        // C-2: bound the hello read by the attach budget. `connect` succeeds
+        // Bound the hello read by the attach budget. `connect` succeeds
         // against a wedged host via the listen backlog even though the host never
         // `accept()`s, so an unbounded read here freezes the MAIN THREAD forever
         // (session manager, kill-session, and launch restore all attach on it).
@@ -199,13 +200,13 @@ impl AttachClient {
         // thread's own clear in `run_attach_pump` (which governs the actual read
         // semantics): on macOS `set_read_timeout(None)` on a `try_clone`d stream
         // returns EINVAL, so propagating it with `?` would fail the whole attach
-        // for no reason — the pump re-clears the timeout before its first read, so
+        // for no reason - the pump re-clears the timeout before its first read, so
         // nothing is lost. On Linux the call succeeds and ignoring success is a
         // no-op → byte-identical.
         // A residual timeout is harmless there: the pump reads through the
         // resumable frame reader, which keeps a partial frame across one.
         let _ = read_stream.set_read_timeout(None);
-        // C-4: bound every write to the host so a stopped host can never park the
+        // Bound every write to the host so a stopped host can never park the
         // main thread (resize) or the mutex-holding writer thread indefinitely.
         // The bound is mandatory, so only the documented peer-closed case may
         // pass unset: macOS reports EINVAL for a timeout on a socket whose peer
@@ -317,7 +318,7 @@ impl AttachClient {
     }
 
     /// Send a clean `Detach`: this client leaves but the hosted PTY + terminal
-    /// model stay alive for later attach by id. Idempotent — repeated calls (and
+    /// model stay alive for later attach by id. Idempotent - repeated calls (and
     /// the `Drop` best-effort detach) send at most one frame, and report the
     /// same outcome: once sent, `Ok`; once refused or cut off, the same error.
     /// Only a send timeout that wrote nothing leaves it pending, so the `Drop`
@@ -437,7 +438,7 @@ fn send_buffer_has_room(fd: std::os::fd::RawFd) -> io::Result<bool> {
 /// This is the key to byte-identity: an attached session is given a [`PtyWriter`]
 /// (`Arc<Mutex<Box<dyn Write + Send>>>`) wrapping this writer, so **every**
 /// app-side input site (`handle_key_event_with_text`, IME, paste, bracketed-paste) writes
-/// through the exact same `self.writer` path as a local PTY — the input routing
+/// through the exact same `self.writer` path as a local PTY - the input routing
 /// code is unchanged and the local path is untouched. Only the boxed sink
 /// differs: a local session boxes the PTY master, an attached session boxes this.
 pub(super) struct AttachInputWriter {
@@ -490,11 +491,11 @@ impl Write for AttachInputWriter {
     }
 }
 
-/// Whether a `send_input` failure is the bounded send timeout (audit C-4)
+/// Whether a `send_input` failure is the bounded send timeout
 /// rather than a dead link. The `SO_SNDTIMEO` set on the attach stream
 /// surfaces a full-buffer timeout as `WouldBlock` (Linux `EAGAIN`) or
 /// `TimedOut`, wrapped in [`ProtocolError::Io`] under `anyhow` context layers.
-/// Everything else — including every non-IO protocol error — is fatal.
+/// Everything else - including every non-IO protocol error - is fatal.
 fn is_transient_send_timeout(error: &anyhow::Error) -> bool {
     matches!(
         error.downcast_ref::<ProtocolError>(),
@@ -567,7 +568,7 @@ fn settle_write_timeout(stream: &UnixStream, result: io::Result<()>) -> io::Resu
 fn read_initial_snapshot(stream: &UnixStream, end: Instant) -> Result<Vec<u8>> {
     // Resumable reader: a deadline expiry firing mid-frame keeps the partial
     // frame, so a snapshot split under backpressure resumes instead of
-    // desyncing on leftover payload bytes (audit P1). Polling inside
+    // desyncing on leftover payload bytes. Polling inside
     // `SocketReadDeadline` avoids any dependency on `SO_RCVTIMEO`, which macOS
     // rejects on a socket whose peer has already closed.
     let mut frame_reader = HostFrameReader::default();
@@ -604,7 +605,7 @@ pub(super) fn spawn_attach_pump(
     session: SessionToken,
 ) -> io::Result<JoinHandle<()>> {
     // A spawn failure (thread ceiling / address-space exhaustion) is a
-    // per-attach condition returned to the caller — one failed attach, not a
+    // per-attach condition returned to the caller - one failed attach, not a
     // process panic (the same recoverable-error contract as the writer-shim
     // spawn).
     std::thread::Builder::new()
@@ -644,7 +645,7 @@ fn run_attach_pump(
             }
             Ok(HostFrame::Invalidate { .. }) => sink.redraw(session),
             Ok(HostFrame::Resized { columns, rows, .. }) => {
-                // C-3: a peer (or this client) resized the shared session; sync
+                // A peer (or this client) resized the shared session; sync
                 // this mirror's grid to the host's authoritative dimensions so it
                 // stops advancing at a stale width. Guarded on a genuine change:
                 // the client that requested the resize already applied it to its

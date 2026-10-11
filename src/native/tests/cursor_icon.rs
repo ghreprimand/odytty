@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! CURSOR-ICON: the mouse-cursor shape the pointer path selects over the
+//! The mouse-cursor shape the pointer path selects over the
 //! terminal grid. Before this, OdyTTY never called `set_cursor`, so the pointer
 //! stayed the OS default arrow everywhere; these tests pin the standard
-//! affordance — an I-beam over selectable text, the arrow while a TUI owns the
+//! affordance - an I-beam over selectable text, the arrow while a TUI owns the
 //! mouse, and a hand over a hovered hyperlink.
 //!
 //! Headless (no GPU/window): the cell size is injected via a test seam and the
@@ -54,7 +54,7 @@ fn build_split_app(columns: bool) -> Option<App> {
     Some(app)
 }
 
-// Midpoint of the content rect — where the lone even-ratio divider sits.
+// Midpoint of the content rect - where the lone even-ratio divider sits.
 const MID_X: f64 = (COLS as f64 * CELL_W as f64) / 2.0;
 const MID_Y: f64 = (ROWS as f64 * CELL_H as f64) / 2.0;
 
@@ -85,7 +85,7 @@ fn pointer_over_a_row_divider_is_a_row_resize() {
 
 #[test]
 fn pointer_over_grid_in_a_split_is_still_an_i_beam() {
-    // Off the divider grab band, a split pane is plain selectable text — the
+    // Off the divider grab band, a split pane is plain selectable text - the
     // I-beam, exactly as a single pane. The resize cursor is confined to the
     // divider.
     let Some(mut app) = build_split_app(true) else {
@@ -105,8 +105,8 @@ fn pointer_over_grid_in_a_split_is_still_an_i_beam() {
 #[test]
 fn single_pane_never_shows_a_resize_cursor() {
     // BYTE-IDENTITY GUARD: a single-pane tab has no dividers, so the resize
-    // branch never fires even at the exact pixel a split's divider would occupy
-    // — the plain path stays an I-beam.
+    // branch never fires even at the exact pixel a split's divider would occupy -
+    // the plain path stays an I-beam.
     let Some(mut app) = build_app(b"hello world") else {
         eprintln!("skipping: no PTY available");
         return;
@@ -121,7 +121,7 @@ fn single_pane_never_shows_a_resize_cursor() {
 #[test]
 fn dragging_a_divider_keeps_the_resize_cursor() {
     // Pressing on the divider grabs it (the real press path), and subsequent
-    // motion keeps the matching resize cursor for the whole gesture — even if
+    // motion keeps the matching resize cursor for the whole gesture - even if
     // the pointer strays slightly off the hairline.
     use winit::event::MouseButton as WinitMouseButton;
     let Some(mut app) = build_split_app(true) else {
@@ -174,12 +174,12 @@ fn pointer_over_hovered_hyperlink_is_a_hand() {
     assert_eq!(app.cursor_icon_for_test(), CursorIcon::Text);
 }
 
-// ── INTERACTIVE-PATHS (Phase 7): hover affordance over resolved path spans ──
+// ── hover affordance over resolved path spans ──
 //
 // Synthetic only: an absolute path is printed into the grid and the stat-gate is
 // a `MapProbe` over a fixed in-memory map, so no test reaches the real
 // filesystem. The path is absolute, so neither OSC 7 cwd nor `$HOME` is
-// consulted — the resolution is fully synthetic. `/proj/...` is a fabricated
+// consulted - the resolution is fully synthetic. `/proj/...` is a fabricated
 // path, never a real machine path.
 use crate::native::app::interactive_paths::MapProbe;
 use crate::paths::FsKind;
@@ -240,14 +240,14 @@ fn unresolved_path_span_gets_no_hand() {
     assert!(app.hovered_path_for_test().is_none());
 }
 
-// ── INTERACTIVE-PATHS: spaced-filename hover span expansion ─────────────────
+// ── spaced-filename hover span expansion ─────────────────
 //
 // A filename containing a space is split by the whitespace tokenizer, so neither
 // half resolves alone. With stat-guided span expansion the hover offers the
 // joined name; these pin that the hand + full-name extent resolve when the file
 // exists, that hovering either half works, that the longest-EXISTING name wins
 // over a shorter one, and that a spaceless filename is byte-identical. The cwd
-// is seeded via OSC 7 and the fs is the synthetic MapProbe — no real filesystem.
+// is seeded via OSC 7 and the fs is the synthetic MapProbe - no real filesystem.
 
 /// Seed cwd `/proj` via OSC 7, then print `row0` at row 0. Barewords + paths on.
 fn build_app_with_cwd(row0: &str) -> Option<App> {
@@ -294,7 +294,7 @@ fn spaced_filename_resolves_when_hovering_either_half() {
 
 #[test]
 fn longest_existing_spaced_name_wins_over_a_shorter_one() {
-    // Guard (b): in `see my file.txt here`, only `file.txt` exists — the joined
+    // Guard (b): in `see my file.txt here`, only `file.txt` exists - the joined
     // `my file.txt` must NOT be chosen; the shorter existing name wins.
     let Some(mut app) = build_app_with_cwd("see my file.txt here") else {
         eprintln!("skipping: no PTY available");
@@ -314,7 +314,7 @@ fn longest_existing_spaced_name_wins_over_a_shorter_one() {
 #[test]
 fn spaceless_filename_resolves_byte_identically() {
     // Rule D: a spaceless filename resolves to exactly the single token, with the
-    // single-token cell extent — the expansion never changes the no-space case.
+    // single-token cell extent - the expansion never changes the no-space case.
     let Some(mut app) = build_app_with_cwd("open notes.txt now") else {
         eprintln!("skipping: no PTY available");
         return;
@@ -348,14 +348,14 @@ fn spaced_filename_inert_when_feature_off() {
     assert!(app.hovered_path_for_test().is_none());
 }
 
-// ── INTERACTIVE-PATHS (Phase 8 / C3): Ctrl+click open gate + dispatch argv ──
+// ── Ctrl+click open gate + dispatch argv ──
 //
 // The success branch spawns a process, so these tests only exercise the gate's
 // FALSE branches (no open, selection path untouched) and verify the dispatch
 // argv via the pure `path_open_argv_for_test` seam (reads $EDITOR, never spawns).
 
 /// Without Ctrl held, the Ctrl+click open gate never fires even over a resolved
-/// path — the press would fall through to selection (byte-identical).
+/// path - the press would fall through to selection (byte-identical).
 #[test]
 fn ctrl_click_open_requires_ctrl() {
     let Some(mut app) = build_app(b"/proj/src/main.rs") else {
@@ -371,7 +371,7 @@ fn ctrl_click_open_requires_ctrl() {
 }
 
 /// With the feature off, the open gate returns false immediately even if a Ctrl
-/// click lands where a path would be — the default click path is unchanged.
+/// click lands where a path would be - the default click path is unchanged.
 #[test]
 fn ctrl_click_open_is_inert_when_setting_off() {
     let Some(mut app) = build_app(b"/proj/src/main.rs") else {
@@ -448,7 +448,7 @@ fn ctrl_click_dispatch_builds_platform_open_for_plain_file() {
     assert_eq!(app.path_open_argv_for_test(), Some(expected));
 }
 
-// ── OPEN-NOTICE (P0-2): a failed open spawn surfaces a visible notice; a
+// ── a failed open spawn surfaces a visible notice; a
 // successful spawn does NOT ──
 //
 // The whole point of P0-2 is that a missing/broken opener is no longer an
@@ -482,7 +482,7 @@ fn failed_open_spawn_raises_visible_notice() {
 }
 
 /// A spawn of a real program (`true`, which exists on every unix CI host and
-/// exits immediately) does NOT raise a notice — the success path is silent.
+/// exits immediately) does NOT raise a notice - the success path is silent.
 #[test]
 fn successful_open_spawn_raises_no_notice() {
     let Some(mut app) = build_app(b"") else {

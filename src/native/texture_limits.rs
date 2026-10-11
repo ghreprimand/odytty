@@ -8,7 +8,7 @@ use std::borrow::Cow;
 ///
 /// This is the size OdyTTY asked the driver for, computed from the texture's
 /// declared extent and its format's block size. It is not a claim about where
-/// the driver placed those bytes — that varies by adapter, backend, and
+/// the driver placed those bytes - that varies by adapter, backend, and
 /// allocator, which is exactly why the attribution reports GPU totals alongside
 /// the resident set rather than folded into it. A format with no host-copy block
 /// size contributes zero rather than a guessed figure.
@@ -87,7 +87,7 @@ pub(super) fn fit_rgba8<'a>(
 /// N-pixel source footprint rather than over a fixed 2-tap neighbourhood. A
 /// minifying downscale is therefore a correct weighted area average, and every
 /// source pixel contributes to the result. That is the property the background
-/// pass depends on — nearest sampling would drop source pixels outright, and
+/// pass depends on - nearest sampling would drop source pixels outright, and
 /// GPU bilinear minification without mipmaps reads only a 2x2 texel
 /// neighbourhood no matter how large the ratio is, which aliases high-frequency
 /// content instead of averaging it.

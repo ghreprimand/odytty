@@ -101,7 +101,7 @@ pub(super) struct SettingsPanel {
     /// The active visible entry list. At Level 1 this is `all_entries`; at
     /// Level 2 it is filtered to the current section's groups.
     entries: Vec<SettingInfo>,
-    /// Two-level navigation state (SETTINGS-REDESIGN).
+    /// Two-level navigation state.
     level: SettingsLevel,
     /// Read-only About data, populated when the overlay opens (ABOUT). `None`
     /// until set; the About row still renders, showing a not-initialized note.
@@ -119,10 +119,10 @@ pub(super) struct SettingsPanel {
     scroll: usize,
     editing: Option<RowEdit>,
     message: Option<String>,
-    /// In-overlay search state (OB-SEARCH).
+    /// In-overlay search state.
     query: String,
     search_active: bool,
-    /// Body dimensions from the most recent render call (VIEWPORT-FOLLOW-LAG).
+    /// Body dimensions from the most recent render call.
     last_body_height: usize,
     last_body_width: usize,
 }
@@ -143,7 +143,7 @@ pub(super) struct SettingsPanelSignature {
     pub(super) entries: Vec<SettingsPanelEntrySignature>,
     pub(super) query: String,
     pub(super) search_active: bool,
-    /// Two-level navigation state (SETTINGS-REDESIGN).
+    /// Two-level navigation state.
     pub(super) level: SettingsLevel,
     pub(super) section_selected: usize,
     /// Level-1 section-list scroll offset. MUST be in the signature so a
@@ -185,7 +185,7 @@ pub(super) enum SettingsPanelOutcome {
     /// section's action row.
     OpenProfileManager,
     OpenKeyBindings,
-    /// Open the font-family picker (FONT-PICKER). Emitted from the Fonts
+    /// Open the font-family picker. Emitted from the Fonts
     /// section's `font_family` row. The picker overlay
     /// is sequenced in the font picker; the variant is wired here.
     OpenFontPicker,

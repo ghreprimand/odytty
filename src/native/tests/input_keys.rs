@@ -731,7 +731,7 @@ fn key_bindings_default_prompt_copymode_and_hints_chords() {
 
     // Prompt navigation (v0.3.1): the arrow chords are the sole default
     // bindings. The `Ctrl+Shift+P` / `Ctrl+Shift+N` letter fallbacks were
-    // reclaimed — P now opens the command palette, N is unbound.
+    // reclaimed - P now opens the command palette, N is unbound.
     assert_eq!(
         bindings.action_for(&WinitKey::Named(NamedKey::ArrowUp), ctrl_shift, false),
         Some(BindableAction::JumpPromptPrev)
@@ -758,7 +758,7 @@ fn key_bindings_default_prompt_copymode_and_hints_chords() {
         bindings.action_for(&WinitKey::Character("l".into()), ctrl_shift, false),
         Some(BindableAction::Hints)
     );
-    // IN1: Ctrl+Shift+K clears the shell input line.
+    // Ctrl+Shift+K clears the shell input line.
     assert_eq!(
         bindings.action_for(&WinitKey::Character("k".into()), ctrl_shift, false),
         Some(BindableAction::ClearInput)

@@ -138,8 +138,8 @@ impl App {
             return;
         }
         if event_type != KeyEventType::Release {
-            // RAIL-DRAG: Escape cancels an in-flight workspace-rail drag with the
-            // order untouched, before any other key routing — the cancel-on-escape
+            // Escape cancels an in-flight workspace-rail drag with the
+            // order untouched, before any other key routing - the cancel-on-escape
             // ergonomic. Consumes the key only when a drag was actually cancelled;
             // otherwise Escape falls through to its normal meaning.
             if matches!(logical, WinitKey::Named(NamedKey::Escape))
@@ -149,7 +149,7 @@ impl App {
             }
             // Multiplexer prefix engine (§7, K2). Runs first so that, once a
             // prefix is pending, the next chord resolves against the prefix
-            // table before any global chord (Settings/Search/etc.) — tmux
+            // table before any global chord (Settings/Search/etc.) - tmux
             // semantics: the key after the prefix is a pane command, and an
             // unknown one cancels. The engine is suppressed while an overlay /
             // search / modal is capturing, so those paths stay byte-identical;
@@ -160,7 +160,7 @@ impl App {
             //
             // Single-pane gate (byte-identity): the prefix only intercepts once
             // the active tab is actually split (`panes > 1`). On a single-pane
-            // tab — the default and overwhelmingly common case — the prefix key
+            // tab - the default and overwhelmingly common case - the prefix key
             // (default `Ctrl-b` / `0x02`) and every other key flow straight
             // through to the focused pane's PTY, byte-identical to the pre-§7
             // path: readline `backward-char` still works in a lone shell. The
@@ -224,16 +224,16 @@ impl App {
             let action = self
                 .key_bindings
                 .action_for(&binding_key, mods, self.super_key);
-            // C10 + C22: the Settings/ThemePicker shortcuts sit ABOVE the
+            // The Settings/ThemePicker shortcuts sit ABOVE the
             // overlay-open guard so they can open their overlay from the live
             // terminal. Two guards keep that from misbehaving:
-            //  - `!is_capturing_chord()` (C10): while the key-remap UI is armed
+            //  - `!is_capturing_chord()`: while the key-remap UI is armed
             //    to capture a chord, let the chord fall through to
             //    `handle_overlay_key` so Ctrl+Shift+, / Ctrl+Shift+H can be
             //    *assigned* to an action instead of pre-empting capture. The
-            //    normal open/close toggle is unaffected — capture is only armed
+            //    normal open/close toggle is unaffected - capture is only armed
             //    on a remap row.
-            //  - `Press`-only (C22): a held chord auto-repeats; firing the
+            //  - `Press`-only: a held chord auto-repeats; firing the
             //    toggle on every Repeat open/close-flickered the overlay. Act on
             //    the initial Press only; Repeats fall through (to the overlay
             //    key path once it is open) and are harmless.
@@ -415,7 +415,7 @@ impl App {
                     if self.refuse_input_if_read_only() {
                         return;
                     }
-                    // IN1: clear the current shell input line. Sends a
+                    // Clear the current shell input line. Sends a
                     // readline-style "move to start, kill to end" sequence
                     // (Ctrl+A, Ctrl+K) so the whole line is cleared regardless
                     // of cursor position. Returns the viewport to live like any
@@ -521,7 +521,7 @@ impl App {
                 // multiplexer prefix and are excluded from the flat global
                 // binding table (`is_pane_action`), so `action_for` never
                 // returns one here. These arms exist for match exhaustiveness;
-                // the prefix engine (K2) dispatches them before this flat match.
+                // the prefix engine dispatches them before this flat match.
                 Some(BindableAction::FocusPaneLeft)
                 | Some(BindableAction::FocusPaneRight)
                 | Some(BindableAction::FocusPaneUp)
@@ -533,7 +533,7 @@ impl App {
                     self.restore_consumed_chord(latch_before);
                 }
             }
-            // SMART-CTRLC: a plain Ctrl+C that matched no binding copies + clears
+            // A plain Ctrl+C that matched no binding copies + clears
             // a local selection when the copy-or-interrupt policy is on, then
             // swallows the chord. With the policy off, no selection, or any other
             // key it returns false and falls through to the interrupt-byte encode
@@ -542,7 +542,7 @@ impl App {
             if self.smart_ctrl_c_intercept(&logical, mods) {
                 return;
             }
-            // SELDEL-KEY: a plain Delete/Backspace with a local selection on the
+            // A plain Delete/Backspace with a local selection on the
             // editable prompt line deletes that selection through the same gated,
             // shell-integration-aware path as the right-click Delete/Cut, then
             // swallows the key. If a selection exists but no OSC 133 input
@@ -568,15 +568,15 @@ impl App {
             return;
         }
 
-        // F6-i4: when the active pane is a dropped remote session showing the
-        // reconnect prompt, keys drive the prompt — not the dead shell. Enter
+        // When the active pane is a dropped remote session showing the
+        // reconnect prompt, keys drive the prompt - not the dead shell. Enter
         // re-establishes the connection in the same tab; Esc / Ctrl+D dismiss it
         // (close the tab). Every other key is swallowed so nothing reaches the
         // now-defunct PTY. This sits after the global-chord dispatch above, so a
         // tab/workspace switch or the command palette still work while a pane
         // awaits reconnect.
-        // F6-i7: while a clipboard image awaits the paste-through confirm prompt,
-        // keys drive the prompt (Enter uploads, Esc/Ctrl+D cancel) — not the
+        // While a clipboard image awaits the paste-through confirm prompt,
+        // keys drive the prompt (Enter uploads, Esc/Ctrl+D cancel) - not the
         // shell. Sits with the reconnect gate after the global-chord dispatch so
         // a tab/workspace switch or the palette still work while it is up.
         if self.pending_image_paste.is_some() {
@@ -818,7 +818,7 @@ impl App {
         true
     }
 
-    /// Drive the in-pane reconnect prompt (F6-i4) for the active dropped remote
+    /// Drive the in-pane reconnect prompt for the active dropped remote
     /// session. Enter re-establishes the connection in the same tab slot;
     /// Escape or Ctrl+D dismisses the prompt and closes the tab. Any other key
     /// is a no-op (the prompt stays up). Called only on a key press while the
@@ -834,7 +834,7 @@ impl App {
             WinitKey::Named(NamedKey::Escape) => {
                 self.dismiss_reconnect_and_close(token);
             }
-            // Ctrl+D — the shell's own end-of-input chord — dismisses too.
+            // Ctrl+D - the shell's own end-of-input chord - dismisses too.
             WinitKey::Character(text)
                 if mods.ctrl && !self.super_key && text.eq_ignore_ascii_case("d") =>
             {
@@ -933,7 +933,7 @@ impl App {
     }
 
     /// Capture the focused pane's live colors into a theme draft and open the
-    /// theme editor on it (THEME-CAPTURE). Entry point for both the command
+    /// theme editor on it. Entry point for both the command
     /// palette row and the settings/menu surface.
     pub(super) fn open_theme_capture_overlay(&mut self) {
         if self.search.is_open() {
@@ -952,7 +952,7 @@ impl App {
     /// derived roles come from the documented heuristics in
     /// [`crate::theme::capture_spec`].
     ///
-    /// Reads state only — capturing changes nothing about the pane, the
+    /// Reads state only - capturing changes nothing about the pane, the
     /// terminal, or the applied theme.
     pub(super) fn capture_live_theme_spec(&self) -> crate::theme::ThemeSpec {
         let (colors, palette) = {
@@ -991,13 +991,13 @@ impl App {
 
     pub(super) fn handle_overlay_key(&mut self, logical: &WinitKey, event_type: KeyEventType) {
         // KB-REMAP chord capture (R2 KILL-SHOT): when the key-remap modal is
-        // armed to capture a chord, this MUST be the first thing we do — route
+        // armed to capture a chord, this MUST be the first thing we do - route
         // the raw key through `chord_from_winit` BEFORE the lossy
         // `overlay_input_from_winit` mapper, which would otherwise collapse a
         // chord like Ctrl+Shift+K into an `OverlayInput` (or, for Enter/Esc, an
         // Activate/Close) and the modifiers would be lost. `is_capturing_chord`
         // is `false` whenever the modal is closed or merely browsing, so this
-        // never disturbs normal overlay navigation (R1).
+        // never disturbs normal overlay navigation.
         if self.overlay.is_capturing_chord() {
             let chord =
                 crate::native::bindings::chord_from_winit(logical, self.modifiers, self.super_key);
@@ -1121,11 +1121,11 @@ impl App {
         }
     }
 
-    /// Begin the image paste-through confirm flow (F6-i7) when the clipboard
+    /// Begin the image paste-through confirm flow when the clipboard
     /// holds an image, the active tab is a remote *integrated* ssh session, and
     /// the feature is enabled. Reads and PNG-encodes the clipboard image, refuses
     /// an over-cap image with a one-line notice, and otherwise arms the in-pane
-    /// confirm prompt — nothing is uploaded until Enter confirms. A no-op (and no
+    /// confirm prompt - nothing is uploaded until Enter confirms. A no-op (and no
     /// prompt) on a local/plain-ssh tab, with the setting `off`, or with no
     /// clipboard image, so the default paste path is untouched.
     pub(super) fn try_begin_image_paste(&mut self) {
@@ -1144,7 +1144,7 @@ impl App {
             super::super::clipboard::ClipboardImagePng::Ready(png) => png,
             super::super::clipboard::ClipboardImagePng::TooLarge { limit } => {
                 self.write_active_banner(&format!(
-                    "\r\n\x1b[1;31m image too large \x1b[0m exceeds the {} processing cap — not uploaded\r\n",
+                    "\r\n\x1b[1;31m image too large \x1b[0m exceeds the {} processing cap: not uploaded\r\n",
                     format_byte_size(limit),
                 ));
                 return;
@@ -1154,7 +1154,7 @@ impl App {
         let cap = crate::settings::REMOTE_IMAGE_PASTE_MAX_BYTES;
         if size > cap {
             self.write_active_banner(&format!(
-                "\r\n\x1b[1;31m image too large \x1b[0m {} exceeds the {} upload cap — not uploaded\r\n",
+                "\r\n\x1b[1;31m image too large \x1b[0m {} exceeds the {} upload cap: not uploaded\r\n",
                 format_byte_size(size),
                 format_byte_size(cap),
             ));
@@ -1169,7 +1169,7 @@ impl App {
         self.pending_image_paste = Some(PendingImagePaste { session, png });
     }
 
-    /// Drive the image paste-through confirm prompt (F6-i7). Enter uploads the
+    /// Drive the image paste-through confirm prompt. Enter uploads the
     /// held image and, on success, copies the remote path to the local clipboard;
     /// Esc/Ctrl+D cancel with nothing sent. Any other key leaves the prompt up.
     /// Called only on a key press while a paste is pending.
@@ -1232,7 +1232,7 @@ impl App {
                 Err(image_paste::UploadStartError::Spawn(error)) => {
                     // Thread exhaustion: the worker could not start, so the
                     // confirmed paste is dropped. Surface it in the pane rather
-                    // than losing it silently (LOW-02).
+                    // than losing it silently.
                     tracing::warn!("image upload worker spawn failed: {error}");
                     self.write_active_banner(
                         "\r\n\x1b[1;31m image upload failed \x1b[0m too many threads; try again\r\n",
@@ -1243,8 +1243,8 @@ impl App {
     }
 
     /// Write a one-line SGR banner into the active pane's terminal model and
-    /// request a redraw. Shared by the reconnect-style in-pane prompts/notices
-    /// (F6-i7): standard SGR so it renders in every theme, leading/trailing CRLF
+    /// request a redraw. Shared by the reconnect-style in-pane prompts/notices:
+    /// standard SGR so it renders in every theme, leading/trailing CRLF
     /// so it lands on its own line.
     pub(super) fn write_active_banner(&mut self, banner: &str) {
         crate::native::lock_recover(&self.terminal).advance(banner.as_bytes());
@@ -1255,10 +1255,10 @@ impl App {
         }
     }
 
-    /// SMART-CTRLC: handle a plain `Ctrl+C` under the copy-or-interrupt policy.
+    /// Handle a plain `Ctrl+C` under the copy-or-interrupt policy.
     ///
     /// Returns `true` (the chord was consumed) only when the policy is active,
-    /// the chord is *plain* `Ctrl+C` (Ctrl held; no Shift/Alt/Super — so the
+    /// the chord is *plain* `Ctrl+C` (Ctrl held; no Shift/Alt/Super - so the
     /// `Ctrl+Shift+C` copy binding, handled earlier, never reaches here), and a
     /// local OdyTTY selection exists: it copies the selection and clears it so an
     /// immediate second `Ctrl+C` interrupts. In every other case it returns
@@ -1286,7 +1286,7 @@ impl App {
         true
     }
 
-    /// Select the entire buffer — the full scrollback plus the visible grid
+    /// Select the entire buffer - the full scrollback plus the visible grid
     /// (IN2 Select All). The range is stored in absolute row space, so it stays
     /// meaningful as the viewport scrolls; the copy path resolves whatever is
     /// visible at copy time (the app-wide selection→clipboard contract). Also
@@ -1343,7 +1343,7 @@ impl App {
     ) {
         let was_open = open_modifier_held(self.modifiers, self.super_key, os);
         self.cache_modifiers(state);
-        // UX-A (Phase 11): the open-modifier armed underline (Ctrl on Linux
+        // The open-modifier armed underline (Ctrl on Linux
         // and Windows, Cmd on macOS, via `open_modifier_held`) appears and
         // clears as that modifier toggles while an enabled path or bare URL is
         // hovered, so a change of the open modifier, press or release, must
@@ -1403,8 +1403,8 @@ impl App {
 }
 
 /// Convert a core [`RgbColor`](crate::core::RgbColor) to the theme layer's
-/// sRGB byte triple. The two layers deliberately do not share a color type —
-/// the terminal core stays presentation-agnostic — so the conversion lives at
+/// sRGB byte triple. The two layers deliberately do not share a color type -
+/// the terminal core stays presentation-agnostic - so the conversion lives at
 /// the boundary that needs it.
 fn srgb_of(color: crate::core::RgbColor) -> crate::theme::Srgb {
     (color.red, color.green, color.blue)

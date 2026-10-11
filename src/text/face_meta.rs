@@ -32,8 +32,8 @@ use super::metrics::is_monospace;
 pub(super) struct FaceMeta {
     /// Real family name (Typographic Family, name ID 16; else Family, ID 1).
     pub(super) family: String,
-    /// OS/2 usWeightClass as a number (Regular == 400). `Weight::Normal` when
-    /// the OS/2 table is absent.
+    /// OS/2 usWeightClass as a number (Regular == 400); 400 when the OS/2
+    /// table is absent.
     pub(super) weight: u16,
     /// OS/2 usWidthClass as a number (Normal == 5). Lets the regular-face pick
     /// prefer the normal-width face over width variants (e.g. Inconsolata ships
@@ -43,7 +43,7 @@ pub(super) struct FaceMeta {
     /// post.italicAngle.
     pub(super) italic: bool,
     /// post.isFixedPitch (the font's own monospace claim); a `false` here is not
-    /// authoritative — some monospace fonts leave it unset, so the caller falls
+    /// authoritative - some monospace fonts leave it unset, so the caller falls
     /// back to the advance-probe [`is_monospace`].
     pub(super) monospaced_flag: bool,
 }
@@ -120,8 +120,8 @@ fn real_family_name(font: &skrifa::FontRef) -> Option<String> {
         .or_else(|| first_localized_string(font, StringId::FAMILY_NAME))
 }
 
-/// First non-empty, trimmed localized string for `id`, mirroring the previous
-/// "first decodable non-empty record" selection over the `name` table.
+/// First non-empty, trimmed localized string for `id`: the first decodable
+/// non-empty record in the `name` table.
 fn first_localized_string(font: &skrifa::FontRef, id: skrifa::string::StringId) -> Option<String> {
     use skrifa::MetadataProvider;
     for entry in font.localized_strings(id) {
@@ -189,7 +189,7 @@ pub const BUNDLED_FONT_FAMILIES: [&str; 2] = [BUNDLED_FONT_FAMILY, JETBRAINS_FON
 /// Font families split into picker subgroups: **bundled** (always present,
 /// loaded from compiled-in bytes) and **system** (host monospace families read
 /// from [`font_search_dirs`]). A host copy of a bundled family is dropped from
-/// `system` so it is not listed twice — picking the bundled entry always
+/// `system` so it is not listed twice - picking the bundled entry always
 /// resolves the version-pinned shipped face.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FontFamilyGroups {
@@ -210,7 +210,7 @@ pub fn font_families_grouped() -> FontFamilyGroups {
 /// The bundled group is fixed ([`BUNDLED_FONT_FAMILIES`]); the system group is
 /// the distinct host monospace families under `dirs` with any bundled family
 /// removed (case-insensitive), so a host-installed copy of Victor / JetBrains
-/// Mono never double-lists — the bundled entry already covers it.
+/// Mono never double-lists - the bundled entry already covers it.
 pub fn font_families_grouped_in_dirs(dirs: &[PathBuf]) -> FontFamilyGroups {
     let bundled: Vec<String> = BUNDLED_FONT_FAMILIES
         .iter()
@@ -267,7 +267,7 @@ pub(super) fn distinct_monospace_families(metas: &[(FaceMeta, bool)]) -> Vec<Str
 
 /// Pick the index of the best "regular" face among `metas`: prefer an upright
 /// face over an italic one, then the weight closest to Regular (400). This is
-/// the fix for the washed-out-thin-text bug — `Thin` (100) loses to `Regular`
+/// the fix for the washed-out-thin-text bug - `Thin` (100) loses to `Regular`
 /// (400) by weight distance, where the old shortest-stem rule wrongly chose it.
 pub(super) fn pick_regular_index(metas: &[FaceMeta]) -> Option<usize> {
     metas

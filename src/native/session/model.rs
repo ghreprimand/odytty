@@ -76,14 +76,14 @@ pub(in crate::native) struct Session {
     pub(super) pty_resize_dirty: bool,
     /// Idle retry schedule for a backend resize that failed.
     pub(super) resize_retry: super::resize_retry::ResizeRetry,
-    /// The host session-id string this session was attached by (Phase 14), or
+    /// The host session-id string this session was attached by, or
     /// `None` for a locally-spawned PTY. Drives attach dedup: selecting a
     /// session already open in a tab switches to it instead of appending a
     /// duplicate. Set only on the attached construction path; the local path
     /// leaves it `None`, so the default behavior is unchanged.
     pub(in crate::native) attached_session_id: Option<String>,
     pub(in crate::native) pump_thread: Option<JoinHandle<()>>,
-    /// Bounded ring of recorded screen frames for the replay overlay (Phase 2).
+    /// Bounded ring of recorded screen frames for the replay overlay.
     /// A clonable handle shared with this session's pump thread, which writes
     /// frames into it while recording is enabled (`session_replay`, default
     /// off). Empty and disabled by default, so it costs nothing on the plain
@@ -148,8 +148,8 @@ pub(in crate::native) struct Session {
     pub(in crate::native) test_cell: Option<CellSize>,
     /// Headless multi-pane geometry seam: a `(surface_px, padding)` override so
     /// `multipane_geometry()` (and the divider hover/drag cursor path it feeds)
-    /// can run without a GPU/window. `None` in production builds — the field
-    /// only exists under `cfg(test)` — so the live path is unchanged.
+    /// can run without a GPU/window. `None` in production builds - the field
+    /// only exists under `cfg(test)` - so the live path is unchanged.
     #[cfg(test)]
     pub(in crate::native) test_surface: Option<((u32, u32), WindowPadding)>,
     /// Headless scale-factor seam: a display scale override so DPI-aware pointer
@@ -159,13 +159,13 @@ pub(in crate::native) struct Session {
     #[cfg(test)]
     pub(in crate::native) test_scale: Option<f32>,
     pub(in crate::native) hovered_hyperlink: Option<LinkId>,
-    /// INTERACTIVE-PATHS (Phase 7): the path span currently under the pointer
+    /// The path span currently under the pointer
     /// that resolved to a real filesystem entry, or `None`. Drives the pointer
     /// (hand) cursor exactly like `hovered_hyperlink`. Permanently `None` while
     /// the `interactive_paths` setting is off (the scanner is gated off before
     /// it can ever run), so the default hover path is byte-identical.
     pub(in crate::native) hovered_path: Option<crate::paths::Resolved>,
-    /// UX-A (Phase 11): the visible-cell span of `hovered_path`, captured in the
+    /// The visible-cell span of `hovered_path`, captured in the
     /// same hover computation so the open-modifier armed underline can decorate
     /// exactly those cells without re-scanning the row at paint time. Kept in
     /// lockstep with `hovered_path` (set/cleared together); `None` whenever
@@ -173,16 +173,16 @@ pub(in crate::native) struct Session {
     /// off and the default hover path is byte-identical.
     pub(in crate::native) hovered_path_cells:
         Option<crate::native::app::click_hint::HoverPathCells>,
-    /// INTERACTIVE-URLS: the bare (non-OSC-8) URL currently under the pointer
+    /// The bare (non-OSC-8) URL currently under the pointer
     /// whose scheme is openable, or `None`. The full URI string to open; drives
     /// the pointer (hand) cursor and the Ctrl+click open exactly like an OSC 8
     /// hyperlink. Permanently `None` while the `interactive_urls` setting is off
     /// (the scanner is gated off before it runs), so the default hover path is
     /// byte-identical. Always `None` when the hovered cell already carries an
-    /// OSC 8 hyperlink — that explicit path wins, so a cell is never
+    /// OSC 8 hyperlink - that explicit path wins, so a cell is never
     /// double-decorated.
     pub(in crate::native) hovered_url: Option<String>,
-    /// INTERACTIVE-URLS: the visible-cell span of `hovered_url`, captured in the
+    /// The visible-cell span of `hovered_url`, captured in the
     /// same hover computation so the open-modifier armed underline can decorate
     /// exactly those cells. Kept in lockstep with `hovered_url` (set/cleared
     /// together), so it is permanently `None` while the feature is off.
@@ -194,7 +194,7 @@ pub(in crate::native) struct Session {
     /// byte-identical. Never holds an invalidated button (a dead chip is inert
     /// and must not invite a click).
     pub(in crate::native) hovered_button: Option<crate::core::ButtonHit>,
-    /// Test seam (INTERACTIVE-PATHS): synthetic stat-gate so headless hover
+    /// Test seam: synthetic stat-gate so headless hover
     /// tests resolve path spans against an injected fs map, never the real
     /// filesystem. Production builds compile this out and use `FsResolveProbe`.
     #[cfg(test)]
@@ -215,8 +215,8 @@ pub(in crate::native) struct Session {
     /// Button Protocol B3 press latch: the button hit under a consumed plain
     /// left press, held until the paired release. The release fires the click
     /// report only when it resolves the SAME span (same id, viewport row, and
-    /// start column) still `Live`; anything else — drag-off, scroll, block
-    /// invalidation, a resize reflow — cancels silently. Cleared at the start
+    /// start column) still `Live`; anything else - drag-off, scroll, block
+    /// invalidation, a resize reflow - cancels silently. Cleared at the start
     /// of every fresh left press, so a release lost to a focus change never
     /// fires a stale button.
     pub(in crate::native) pressed_button: Option<crate::core::ButtonHit>,
@@ -275,7 +275,7 @@ pub(in crate::native) struct Session {
     pub(in crate::native) glide_last_tick: Option<Instant>,
     /// Stable next-frame boundary for an active glide; `None` at rest.
     pub(in crate::native) glide_next_frame: Option<Instant>,
-    /// Remote reconnect anchor (F6-i4). `Some` only for sessions launched through
+    /// Remote reconnect anchor. `Some` only for sessions launched through
     /// the `ssh` connect path; `None` for a local shell, so exit classification
     /// and the reconnect prompt never engage for a local session. See
     /// [`RemoteReconnect`].
@@ -285,12 +285,12 @@ pub(in crate::native) struct Session {
     /// reconnect, Esc/Ctrl+D to dismiss) rather than the now-dead shell. Cleared
     /// on a successful reconnect or when the tab is closed.
     pub(in crate::native) awaiting_reconnect: bool,
-    /// Image paste-through upload descriptor (F6-i7). `Some` only on a remote
+    /// Image paste-through upload descriptor. `Some` only on a remote
     /// *integrated* ssh session; `None` for a local shell or an integration-off
     /// plain-ssh tab, so image paste-through never engages there. See
     /// [`RemoteUpload`].
     pub(in crate::native) upload: Option<RemoteUpload>,
-    /// The remote host this session is connected to (RESTORE-REMOTE), or
+    /// The remote host this session is connected to, or
     /// `None` for a local shell. Set by the `ssh` connect path to the
     /// saved-profile alias (when opened from a `hosts.conf` entry) or the
     /// literal `[user@]host[:port]` destination (ad-hoc). Captured into the
@@ -359,9 +359,7 @@ pub(in crate::native) struct Tab {
     /// of the active workspace). Tab granularity is the finest useful rollup
     /// unit; workspace-level activity is DERIVED from its tabs
     /// ([`WorkspaceSet::workspace_has_activity`]) rather than stored twice. The
-    /// rollup UI that renders this flag is deferred to a later cycle; for now
-    /// only the signal is landed and maintained, so it has no reader yet.
-    #[allow(dead_code)]
+    /// tab bar, rail and Session Navigator read it.
     pub(in crate::native) activity: bool,
 }
 
@@ -390,7 +388,7 @@ impl Tab {
 }
 
 /// One workspace: a named, ordered list of tabs with a focused (active) tab
-/// (design doc §3.1). The workspace layer sits ABOVE tabs — a [`WorkspaceSet`]
+/// (design doc §3.1). The workspace layer sits ABOVE tabs - a [`WorkspaceSet`]
 /// owns an ordered list of these plus the single, flat session arena that every
 /// tab's panes reference by token. Per the §3.3 naming hazard this layer is
 /// never called a "session".
@@ -405,7 +403,7 @@ pub(in crate::native) struct Workspace {
     pub(in crate::native) tabs: Vec<Tab>,
     /// Index into `tabs` of the focused tab.
     pub(in crate::native) active_tab: usize,
-    /// The host alias this workspace is bound to (F6-W5, ODP-9). When `Some`, a
+    /// The host alias this workspace is bound to. When `Some`, a
     /// New Tab opened while this workspace is active routes through the remote
     /// connect path for that host instead of spawning a local shell; the
     /// "New Local Tab" escape hatch always spawns a local shell regardless.
@@ -580,7 +578,7 @@ impl WorkspaceSet {
 
     /// Locate the `(workspace index, tab index)` of the tab whose layout tree
     /// contains `token`, scanning ALL workspaces. Pane close / shell-exit reap a
-    /// token that may live in a background workspace, and attach dedup (ODP-10)
+    /// token that may live in a background workspace, and attach dedup
     /// deep-switches to whichever workspace owns a token - both need the full
     /// scan, not the active workspace alone.
     pub(in crate::native) fn locate_token(&self, token: SessionToken) -> Option<(usize, usize)> {
@@ -599,8 +597,8 @@ impl WorkspaceSet {
         self.workspaces.len()
     }
 
-    /// PRISTINE-CONSUME: true when the whole set is exactly one untouched,
-    /// freshly-spawned workspace — the state a bare launch produces. Used at
+    /// True when the whole set is exactly one untouched,
+    /// freshly-spawned workspace - the state a bare launch produces. Used at
     /// open-layout time to decide whether an append should CONSUME this default
     /// workspace (replace it, closing its pane without asking) rather than leave
     /// it beside the restored set, so a layout opened onto a fresh window yields
@@ -808,7 +806,7 @@ impl WorkspaceSet {
     }
 
     /// Insert `session` into the arena and append it as a brand-new
-    /// single-pane workspace (test-only), WITHOUT switching to it — the
+    /// single-pane workspace (test-only), WITHOUT switching to it - the
     /// workspace-level analogue of [`Self::push`], so headless tests can build
     /// multi-workspace sets without an event-loop proxy for `new_workspace`'s
     /// PTY spawn.
@@ -823,8 +821,8 @@ impl WorkspaceSet {
     }
 
     /// Insert a session into the arena **without** a tab (test-only), so headless
-    /// tests can drive [`Self::split_active_with`] — the pure tree-mutation half
-    /// of a split — without spawning a real PTY for the new pane.
+    /// tests can drive [`Self::split_active_with`] - the pure tree-mutation half
+    /// of a split - without spawning a real PTY for the new pane.
     #[cfg(test)]
     pub(super) fn push_arena_only(&mut self, session: Session) -> SessionToken {
         let id = session.id;
@@ -855,7 +853,7 @@ impl WorkspaceSet {
             .unwrap_or(1)
     }
 
-    /// True when the active tab holds exactly one pane — the byte-identical
+    /// True when the active tab holds exactly one pane - the byte-identical
     /// render/resize fast path (design doc §2.3).
     pub(in crate::native) fn active_is_single_pane(&self) -> bool {
         self.active_tab_ref()
@@ -901,13 +899,13 @@ impl WorkspaceSet {
     }
 
     /// The display names of every workspace, in rail order. Feeds the command
-    /// palette's per-workspace "switch to …" rows (W3); each row's index selects
+    /// palette's per-workspace "switch to …" rows; each row's index selects
     /// the workspace identity captured with this list.
     pub(in crate::native) fn workspace_names(&self) -> Vec<String> {
         self.workspaces.iter().map(|ws| ws.name.clone()).collect()
     }
 
-    /// The host alias the active workspace is bound to (F6-W5 / ODP-9), or
+    /// The host alias the active workspace is bound to, or
     /// `None` when it is a plain local workspace. `handle_new_tab` routes New Tab
     /// through the remote connect path when this is `Some`.
     pub(in crate::native) fn active_workspace_default_profile(&self) -> Option<&str> {
@@ -948,7 +946,7 @@ impl WorkspaceSet {
         changed
     }
 
-    /// The host alias the workspace at rail index `idx` is bound to (RAIL-BIND),
+    /// The host alias the workspace at rail index `idx` is bound to,
     /// or `None` when out of range or unbound. Read for the rail context menu's
     /// Bind/Unbind conditional, which targets the CLICKED slot rather than the
     /// active workspace.

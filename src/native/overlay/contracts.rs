@@ -27,7 +27,7 @@ use crate::native::workspace_picker::WorkspacePickerSignature;
 use crate::selection::CellPoint;
 use crate::settings::Settings;
 
-/// Which Save as Layout a pending action refers to (OVERWRITE-WARN). Carried by
+/// Which Save as Layout a pending action refers to. Carried by
 /// the overwrite-confirm dialog so its Replace / different-name arms can re-drive
 /// the right save path: the whole application, or one workspace by its creation
 /// identity, so a rail change while the dialog is open cannot retarget it.
@@ -58,7 +58,7 @@ pub(in crate::native) enum OverlayOutcome {
     RiskyPasteCancel,
     /// Dismiss the first-run onboarding card. Like `Close`, but the App also
     /// persists a first-run marker (ensures `odytty.conf` exists) so the welcome
-    /// card does not reshow on the next launch — dismissal alone otherwise
+    /// card does not reshow on the next launch - dismissal alone otherwise
     /// writes nothing, and onboarding's gate is purely "does the config exist".
     CloseOnboarding,
     OpenThemePicker,
@@ -66,14 +66,13 @@ pub(in crate::native) enum OverlayOutcome {
     /// Open the named-profile manager from Settings (v0.14.0 A2).
     OpenProfileManager,
     /// The theme editor asked to (re-)capture the focused pane's live colors
-    /// into its draft (THEME-CAPTURE). The App resolves the pane's effective
+    /// into its draft. The App resolves the pane's effective
     /// dynamic-color state and feeds the resulting draft back into the builder;
     /// the overlay stays open and nothing is applied or saved.
     CaptureThemeColors,
     OpenKeyBindings,
-    /// Open the font-family picker (FONT-PICKER). Emitted from the Fonts
-    /// section's `font_family` row. The picker overlay is sequenced in the
-    /// the font picker; for now `apply_overlay_outcome` handles it as a stub.
+    /// Open the font-family picker. Emitted from the Fonts
+    /// section's `font_family` row.
     OpenFontPicker,
     /// Boxed because `Settings` is by far the largest payload across this
     /// short-lived outcome enum; boxing keeps the enum small to move and clears
@@ -95,7 +94,7 @@ pub(in crate::native) enum OverlayOutcome {
     ExportProfile(String),
     /// Persist the global default launch profile from Profile Manager.
     SetDefaultLaunchProfile(String),
-    /// Run the right-click menu's Copy / Paste / Select All action (IN2). The
+    /// Run the right-click menu's Copy / Paste / Select All action. The
     /// overlay has already closed itself by the time these are emitted; the App
     /// dispatches them to the existing copy/paste shortcuts and `handle_select_all`.
     ContextMenuCopy,
@@ -141,7 +140,7 @@ pub(in crate::native) enum OverlayOutcome {
     /// `handle_new_local_tab` (the same cwd-aware local-tab spawn New Local Tab
     /// uses), the same effect as the `duplicate-tab` bindable action.
     ContextMenuDuplicateTab,
-    /// Launch another OdyTTY window from the context menu (F1). The overlay has
+    /// Launch another OdyTTY window from the context menu. The overlay has
     /// already closed itself; the App dispatches this to `request_new_window`
     /// (the same handler the `Ctrl+Shift+N` chord fires).
     ContextMenuNewWindow,
@@ -178,18 +177,18 @@ pub(in crate::native) enum OverlayOutcome {
     ContextMenuRenameActiveWorkspace,
     /// Close the ACTIVE workspace (content-grid menu, no per-workspace target).
     ContextMenuCloseActiveWorkspace,
-    /// Bind the ACTIVE workspace to a host (ODP-6B). The context menu closed
-    /// itself; the App opens the shared host picker (ODP-1B) seeded for the
+    /// Bind the ACTIVE workspace to a host. The context menu closed
+    /// itself; the App opens the shared host picker seeded for the
     /// BindWorkspace purpose, and the pick emits [`Self::BindWorkspaceToHost`].
     ContextMenuBindWorkspace,
-    /// Unbind the ACTIVE workspace (ODP-6B), returning its New Tab to a local
+    /// Unbind the ACTIVE workspace, returning its New Tab to a local
     /// shell. The App clears the binding directly (no host choice needed).
     ContextMenuUnbindWorkspace,
-    /// Bind the workspace at this rail index to a host (RAIL-BIND). The rail
+    /// Bind the workspace at this rail index to a host. The rail
     /// context menu targets the CLICKED slot; the App opens the shared host
     /// picker seeded for the `BindWorkspaceAt` purpose.
     ContextMenuBindWorkspaceAt(usize),
-    /// Unbind the workspace at this rail index (RAIL-BIND). The App clears the
+    /// Unbind the workspace at this rail index. The App clears the
     /// clicked slot's binding directly.
     ContextMenuUnbindWorkspaceAt(usize),
     /// Bind the active workspace to the saved host with this alias (ODP-1B/6B).
@@ -197,7 +196,7 @@ pub(in crate::native) enum OverlayOutcome {
     /// purpose; the App calls the frozen `set_active_workspace_default_profile`.
     BindWorkspaceToHost(String),
     /// Bind the workspace with this creation identity to the saved host with
-    /// this alias (RAIL-BIND). Emitted by the shared host picker when opened
+    /// this alias. Emitted by the shared host picker when opened
     /// for the `BindWorkspaceAt` purpose; the App binds that workspace at its
     /// current rail position, or does nothing once it has closed.
     BindWorkspaceAtToHost(crate::native::session::SessionToken, String),
@@ -209,15 +208,15 @@ pub(in crate::native) enum OverlayOutcome {
     /// the ODP-5D "Replace this tab with host" purpose. The menu closed itself.
     ContextMenuReplaceTabWithHost(SessionToken),
     /// Open the picked saved host in a NEW tab positioned right after the tab
-    /// holding this token (ODP-5D). Emitted by the shared host picker opened for
+    /// holding this token. Emitted by the shared host picker opened for
     /// the ConnectTabAfter purpose; the picker closed itself.
     ConnectHostInTabAfter(Box<ConnectionHost>, SessionToken),
-    /// Replace the tab holding this token with the picked saved host (ODP-5D).
+    /// Replace the tab holding this token with the picked saved host.
     /// Emitted by the shared host picker opened for the ReplaceTab purpose; the
     /// App gates the destructive close behind a confirm when a foreground child
     /// is running, else replaces directly.
     ReplaceTabWithHostPicked(Box<ConnectionHost>, SessionToken),
-    /// The replace-tab confirm dialog was accepted (ODP-5D): close the tab
+    /// The replace-tab confirm dialog was accepted: close the tab
     /// holding this token and open the picked host in its slot. Emitted only
     /// after the running-child confirm; the dialog closed itself.
     ReplaceTabWithHostConfirmed(Box<ConnectionHost>, SessionToken),
@@ -239,72 +238,72 @@ pub(in crate::native) enum OverlayOutcome {
         host: Box<ConnectionHost>,
         edit_target: Option<String>,
     },
-    /// Run a background Test Connection probe for the Add / Edit form (ODP-8).
+    /// Run a background Test Connection probe for the Add / Edit form.
     /// The overlay stays open; the App spawns the probe and feeds the tri-state
     /// result back through `set_connection_form_test_result`.
     TestConnection(Box<ConnectionHost>),
-    /// Open the IdentityFile key browser for the Add / Edit form (FORM-UX). The
+    /// Open the IdentityFile key browser for the Add / Edit form. The
     /// overlay stays open; the App scans `~/.ssh` for candidate private keys
-    /// (filename heuristics only — never key contents) and seeds the browser
+    /// (filename heuristics only - never key contents) and seeds the browser
     /// back through `open_identity_key_browse`.
     BrowseIdentityKeys,
     ContextMenuCloseTab,
-    /// Close a specific tab by token from a tab-slot right-click (NF-F7-1). The
+    /// Close a specific tab by token from a tab-slot right-click. The
     /// overlay has already closed itself; the App reaps the tab that holds
     /// `token`, not the active one.
     ContextMenuCloseTabToken(SessionToken),
     /// Close every tab except the one holding `token` (F7 "Close Other Tabs").
     ContextMenuCloseOtherTabs(SessionToken),
     /// Open the "Move to Workspace" destination picker for the tab holding
-    /// `token` (W4-v2). The context menu has already closed itself; the App
+    /// `token`. The context menu has already closed itself; the App
     /// seeds the picker with every workspace but the source and routes the
     /// accepted destination back as [`Self::MoveTabToWorkspacePicked`].
     ContextMenuMoveToWorkspace(SessionToken),
     /// Move the tab holding `token` into the workspace with the given identity,
-    /// chosen from the "Move to Workspace" picker (W4-v2). The overlay has
+    /// chosen from the "Move to Workspace" picker. The overlay has
     /// already closed itself; the App splices the tab between workspaces without
     /// switching (unless the source workspace empties).
     MoveTabToWorkspacePicked(SessionToken, SessionToken),
     /// Save the workspace at the given rail index as a named layout, chosen from
-    /// a WorkspaceSlot rail menu (LAYOUT-SURFACE). The menu closed itself; the
+    /// a WorkspaceSlot rail menu. The menu closed itself; the
     /// App opens the "Layout name:" prompt seeded from that workspace.
     ContextMenuSaveLayoutAt(usize),
     /// Save the ACTIVE workspace as a named layout, chosen from the content-grid
-    /// workspace section (LAYOUT-SURFACE). The App opens the "Layout name:"
+    /// workspace section. The App opens the "Layout name:"
     /// prompt seeded from the active workspace.
     ContextMenuSaveActiveLayout,
-    /// Save the WHOLE application (every workspace) as one named layout
-    /// (SAVE-ALL-LAYOUT), chosen from the content-grid section or the empty rail.
+    /// Save the WHOLE application (every workspace) as one named layout,
+    /// chosen from the content-grid section or the empty rail.
     /// The App opens the "Layout name:" prompt seeded from the active workspace.
     ContextMenuSaveAllLayout,
-    /// The overwrite-layout confirm dialog's Replace arm was accepted
-    /// (OVERWRITE-WARN). The App re-captures the current state and force-writes
+    /// The overwrite-layout confirm dialog's Replace arm was accepted.
+    /// The App re-captures the current state and force-writes
     /// the layout under `name`, clobbering the existing file. `kind` says which
     /// save it was (whole app vs. one workspace).
     OverwriteLayoutConfirmed {
         name: String,
         kind: LayoutSaveKind,
     },
-    /// The overwrite-layout confirm dialog's "different name" arm was chosen
-    /// (OVERWRITE-WARN). The App reopens the "Layout name:" prompt seeded with
+    /// The overwrite-layout confirm dialog's "different name" arm was chosen.
+    /// The App reopens the "Layout name:" prompt seeded with
     /// `name` so the user can pick a non-colliding name; `kind` restores the
     /// same save target.
     RenameLayoutInstead {
         name: String,
         kind: LayoutSaveKind,
     },
-    /// The open-layout mode dialog's Replace arm was accepted (LAYOUT-OPEN-MODE).
+    /// The open-layout mode dialog's Replace arm was accepted.
     /// The App tears down every current workspace and instantiates the saved
     /// layout `name` as the whole application.
     OpenLayoutReplace(String),
-    /// The open-layout mode dialog's Add arm was chosen (LAYOUT-OPEN-MODE). The
+    /// The open-layout mode dialog's Add arm was chosen. The
     /// App appends the saved layout `name` beside the current workspaces (the
     /// pre-existing open-append behavior).
     OpenLayoutAdd(String),
-    /// Open the "Open Layout ▸" picker (LAYOUT-SURFACE). The menu closed itself;
+    /// Open the "Open Layout ▸" picker. The menu closed itself;
     /// the App seeds the picker with the saved layout names.
     ContextMenuOpenLayoutPicker,
-    /// The layout picker chose a saved layout by name (LAYOUT-SURFACE). The
+    /// The layout picker chose a saved layout by name. The
     /// overlay closed itself; the App instantiates it (APPEND a new workspace).
     ContextMenuOpenLayout(String),
     /// Split the focused pane from the context menu (Part B). The overlay has
@@ -316,7 +315,7 @@ pub(in crate::native) enum OverlayOutcome {
     /// overlay has already closed itself; the App dispatches this to the same
     /// `apply_pane_action(ClosePane)` the tmux `Ctrl-b x` prefix / palette fire.
     ContextMenuClosePane,
-    /// Open the settings panel from the context menu (D-IN2-SETTINGS). The
+    /// Open the settings panel from the context menu. The
     /// overlay has already closed itself; the target distinguishes generic
     /// content entry from tab/workspace entry into the Layout section.
     ContextMenuSettings(SettingsTarget),
@@ -327,37 +326,37 @@ pub(in crate::native) enum OverlayOutcome {
     ContextMenuConnectionManager,
     ContextMenuCommandPalette,
     ContextMenuSessionReplay,
-    /// Open the session-attach overlay from the context menu's launcher section
-    /// (Phase 5 / B2). The menu has already closed itself; the App opens it
+    /// Open the session-attach overlay from the context menu's launcher section.
+    /// The menu has already closed itself; the App opens it
     /// through the same entry the `Ctrl+Shift+A` chord fires.
     ContextMenuSessionAttach,
-    /// Open a resolved interactive path from the context menu's file section
-    /// (Phase 8 / C3). The menu has already closed itself; the App dispatches
+    /// Open a resolved interactive path from the context menu's file section.
+    /// The menu has already closed itself; the App dispatches
     /// through the same argv-only `path_open_argv` + `spawn_detached` the
     /// Ctrl+click path uses. Boxed to keep this short-lived enum small.
     ContextMenuOpenPath(Box<crate::paths::Resolved>),
     /// Open a resolved image span in the in-terminal viewer from the context
-    /// menu's file section (Phase 9 / C4). The menu has already closed itself;
+    /// menu's file section. The menu has already closed itself;
     /// the App decodes the image (with the FLAG B decode bound), uploads it to
     /// the GPU image layer, and opens the `ImageView` overlay. Boxed to keep
     /// this short-lived enum small.
     ContextMenuOpenInOdytty(Box<crate::paths::Resolved>),
     /// Open the "Open With…" app picker for a resolved file from the context
-    /// menu's file section (C3b). The menu has already closed itself; the App
+    /// menu's file section. The menu has already closed itself; the App
     /// enumerates the handler apps (`crate::desktop::enumerate_open_with`) and
     /// opens the `OpenWith` overlay. Boxed to keep this short-lived enum small.
     ContextMenuOpenWith(Box<crate::paths::Resolved>),
-    /// Launch a chosen application from the "Open With…" picker (C3b). The
+    /// Launch a chosen application from the "Open With…" picker. The
     /// overlay has already closed itself; the App hands the pre-built, argv-only
     /// command (path already a single inert element) to `spawn_detached`. Never
     /// a shell string.
     OpenWithApp(Vec<String>),
-    /// Copy the resolved absolute path to the clipboard as text (C3).
+    /// Copy the resolved absolute path to the clipboard as text.
     ContextMenuCopyPath(String),
-    /// Copy a `file://<abs>` URI to the clipboard as text (C3). The clipboard is
+    /// Copy a `file://<abs>` URI to the clipboard as text. The clipboard is
     /// text-only; this pastes into file managers as a file reference.
     ContextMenuCopyFile(String),
-    /// Reveal the resolved path in the desktop file manager (C3). Carries the
+    /// Reveal the resolved path in the desktop file manager. Carries the
     /// full [`crate::paths::Resolved`] so the platform-opener seam picks the
     /// per-OS reveal verb at the App boundary: Linux opens the parent directory
     /// (a file) or the path itself (a directory) with `xdg-open`; macOS reveals
@@ -371,7 +370,7 @@ pub(in crate::native) enum OverlayOutcome {
     PaletteControlTextRefused,
     /// Run a local terminal action accepted from the command palette.
     PaletteAction(String),
-    /// Connect to a host accepted from the connection-manager overlay (Phase 4).
+    /// Connect to a host accepted from the connection-manager overlay.
     /// The overlay has already closed itself by the time this is emitted; the
     /// App's connect action spawns the connection (e.g. `ssh <host>`) in a new
     /// session. Boxed to keep this short-lived enum small. Carries the full
@@ -416,16 +415,16 @@ pub(in crate::native) enum OverlayOutcome {
     /// The navigator close card was dismissed. The App reopens the frozen-list
     /// surface with the same stable target selected.
     NavigatorCloseCanceled(crate::native::session_navigator::NavigatorTarget),
-    /// The user confirmed the close-confirmation dialog (CLOSE-CONFIRM): close
+    /// The user confirmed the close-confirmation dialog: close
     /// the window. The overlay has already closed itself by the time this is
     /// emitted; the App sets its `pending_exit` flag and exits the event loop on
     /// the same turn (the outcome can't reach `ActiveEventLoop` directly).
     ForceClose,
-    /// The user chose "New tab" in the attach-choice dialog (Phase 14): attach
+    /// The user chose "New tab" in the attach-choice dialog: attach
     /// the carried host session-id in a new tab. The overlay has already closed
     /// itself; the App runs the existing new-tab attach path.
     AttachChoiceNewTab(String),
-    /// The user chose "Replace current" in the attach-choice dialog (Phase 14):
+    /// The user chose "Replace current" in the attach-choice dialog:
     /// attach the carried host session-id in a new tab, then close the tab that
     /// was active when the manager opened. The overlay has already closed itself.
     AttachChoiceReplace(String),
@@ -447,7 +446,7 @@ pub(in crate::native) enum OverlayOutcome {
     /// spawn a fresh managed session in the carried cwd, attach + focus it,
     /// then close the original focused pane. The overlay has already closed
     /// itself. Empty string = unknown cwd (spawn in the default directory). The
-    /// cwd is display+spawn-config only — it flows into the same
+    /// cwd is display+spawn-config only - it flows into the same
     /// `working_directory` `odytty new` uses, never a raw shell arg.
     DetachSwitchSwap(String),
     /// The user chose "Keep both" in the Detach & switch dialog:
@@ -473,22 +472,22 @@ pub(in crate::native) enum OverlayMode {
     /// edit, validate, import, export, and delete local profiles. Opened from
     /// Settings; catalog load is on-demand and never runs on default startup.
     ProfileManager,
-    /// Font-family picker (FONT-PICKER). Lists monospace families from the
+    /// Font-family picker. Lists monospace families from the
     /// host's font search dirs; type-to-filter + Enter saves `font_family`.
     FontPicker,
     KeyBindings,
     Onboarding,
-    /// Right-click context menu (IN2). Spawns at the pointer cell rather than
+    /// Right-click context menu. Spawns at the pointer cell rather than
     /// centered; carries no title bar.
     ContextMenu,
     /// Command palette over local actions, shell-history rows, and recent OSC 7
     /// directories. Presentation-only while open.
     CommandPalette,
-    /// Output-replay overlay (Phase 2): scrub a frozen clone of the focused
+    /// Output-replay overlay: scrub a frozen clone of the focused
     /// session's recorded screen frames. Presentation-only; never mutates live
     /// core state.
     Replay,
-    /// Connection-manager overlay (Phase 4): list saved hosts, type-to-filter,
+    /// Connection-manager overlay: list saved hosts, type-to-filter,
     /// and quick-connect. Presentation-only; accepting a row emits a connect
     /// request for the App to spawn. Never mutates live core state.
     Connections,
@@ -496,17 +495,17 @@ pub(in crate::native) enum OverlayMode {
     /// block. Presentation + validation only; Save emits the built host for the
     /// App to persist (append for Add, byte-splice for Edit).
     ConnectionForm,
-    /// Session-attach summon overlay (Phase 5 / B2): list live detached
+    /// Session-attach summon overlay: list live detached
     /// sessions, type-to-filter, and attach into a new tab. Presentation-only;
     /// accepting a row emits an attach request for the App. Never mutates live
     /// core state.
     SessionAttach,
-    /// "Open With…" app-picker overlay (C3b): list the applications that can
+    /// "Open With…" app-picker overlay: list the applications that can
     /// open a resolved file, type-to-filter, and on Enter launch the chosen app
     /// (argv-only, via `spawn_detached`). Presentation-only; the rows carry
     /// pre-built argv. Never mutates live core state.
     OpenWith,
-    /// "Move to Workspace" destination picker (W4-v2): list the workspaces
+    /// "Move to Workspace" destination picker: list the workspaces
     /// the clicked tab can move to (all but its source), type-to-filter, and
     /// on Enter splice the tab into the chosen workspace. Presentation/filter
     /// only; never mutates live core state.
@@ -514,7 +513,7 @@ pub(in crate::native) enum OverlayMode {
     /// Named launch-profile picker for direct New Tab / New Workspace menu
     /// routes (v0.14). Catalog load is on-demand when the picker opens.
     ProfilePicker,
-    /// In-terminal image viewer (Phase 9 / C4): a presentation-only overlay
+    /// In-terminal image viewer: a presentation-only overlay
     /// that renders a decoded image span ("Open in OdyTTY") centered over a
     /// dimmed backdrop panel, through the existing GPU image-layer raster path.
     /// Esc dismisses; closed = live frame byte-identical.
@@ -522,11 +521,11 @@ pub(in crate::native) enum OverlayMode {
     /// Suspicious-paste confirmation. Only escaped, bounded presentation data
     /// enters the overlay; original text remains in App-owned transient state.
     RiskyPaste,
-    /// Close-confirmation dialog (CLOSE-CONFIRM). A centered, static two-line
+    /// Close-confirmation dialog. A centered, static two-line
     /// modal shown when a close is requested while a foreground job is running;
     /// Enter/Y confirms (emits [`OverlayOutcome::ForceClose`]), Esc/N cancels.
     ConfirmClose,
-    /// Attach-choice dialog (Phase 14). A centered, static modal shown when the
+    /// Attach-choice dialog. A centered, static modal shown when the
     /// user selects a detached session that is NOT already open in a tab:
     /// `[N / Enter]` attaches it in a new tab, `[R]` replaces the current tab,
     /// Esc cancels. (When the session IS already open, the App dedups by
@@ -550,7 +549,7 @@ pub(in crate::native) enum OverlayMode {
     /// fresh shell in the same cwd, not a live-process migration. Modeled on
     /// `AttachChoice`; the focused pane's cwd is carried on the overlay.
     DetachSwitchChoice,
-    /// Replace-tab confirm dialog (ODP-5D). A centered, static modal shown when
+    /// Replace-tab confirm dialog. A centered, static modal shown when
     /// "Replace with Host…" targets a tab whose pane holds a running foreground
     /// child: `[Enter / Y]` closes that tab and opens the picked host in its
     /// slot (emits [`OverlayOutcome::ReplaceTabWithHostConfirmed`]), `[Esc / N]`
@@ -558,7 +557,7 @@ pub(in crate::native) enum OverlayMode {
     /// Modeled on `ConfirmKillSession`; the pending host + target token are
     /// carried on the overlay.
     ConfirmReplaceTab,
-    /// Remove-host confirm dialog (ODP-2C). A centered, static modal shown when
+    /// Remove-host confirm dialog. A centered, static modal shown when
     /// "Remove…" is chosen on a connection-manager row: `[Enter / Y]` deletes
     /// the OdyTTY-owned `hosts.conf` block (emits
     /// [`OverlayOutcome::RemoveConnectionConfirmed`]) and reopens the manager;
@@ -566,7 +565,7 @@ pub(in crate::native) enum OverlayMode {
     /// Modeled on `ConfirmKillSession`; the pending host is carried on the
     /// overlay.
     ConfirmRemoveHost,
-    /// Overwrite-layout confirm dialog (OVERWRITE-WARN). A centered, static
+    /// Overwrite-layout confirm dialog. A centered, static
     /// three-way modal shown when a Save as Layout resolves to a name that
     /// already exists on disk: `[Enter]` replaces the existing layout (emits
     /// [`OverlayOutcome::OverwriteLayoutConfirmed`]), `[R]` reopens the name
@@ -574,7 +573,7 @@ pub(in crate::native) enum OverlayMode {
     /// `[Esc]` cancels the save entirely. The resolved name + which save it was
     /// are carried on the overlay (`confirm_overwrite_layout`).
     ConfirmOverwriteLayout,
-    /// Open-layout mode dialog (LAYOUT-OPEN-MODE). A centered, static three-way
+    /// Open-layout mode dialog. A centered, static three-way
     /// modal shown when a saved layout is opened onto a window that already holds
     /// real state (more than a single pristine workspace): `[Enter]` replaces the
     /// current workspaces with the saved set (emits
@@ -612,7 +611,7 @@ pub(in crate::native) enum OverlayInput {
     Left,
     Right,
     Activate,
-    /// Activate with the Shift modifier held (Shift+Enter) — a secondary accept
+    /// Activate with the Shift modifier held (Shift+Enter) - a secondary accept
     /// most overlays ignore. The connection manager uses it for
     /// connect-and-save; other overlays treat it as inert.
     ActivateAlt,
@@ -641,7 +640,7 @@ pub(in crate::native) enum PointerButton {
     Right,
 }
 
-/// Pointer events delivered to the overlay (UX4-P1/P2), the mouse analogue of
+/// Pointer events delivered to the overlay, the mouse analogue of
 /// [`OverlayInput`]. `Press` drives clicks, `Wheel` drives free scroll, and
 /// `Move`/`Release` drive modes that still capture pointer motion.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -655,14 +654,14 @@ pub(in crate::native) enum OverlayPointer {
         button: PointerButton,
         x_in_body: Option<f32>,
     },
-    /// The pointer moved to `cell` while an overlay drag is in progress (UX4-P2).
+    /// The pointer moved to `cell` while an overlay drag is in progress.
     /// `x_in_body` is the fractional body-relative x from physical pixel data;
     /// `None` in tests / headless mode.
     Move {
         cell: CellPoint,
         x_in_body: Option<f32>,
     },
-    /// A button was released at `cell` (UX4-P2): ends any overlay drag.
+    /// A button was released at `cell`: ends any overlay drag.
     Release {
         cell: CellPoint,
         button: PointerButton,

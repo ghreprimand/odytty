@@ -6,7 +6,7 @@
 //! GPU, or render code.
 
 // The socket transport (Unix-domain sockets, flock, mode bits, XDG_RUNTIME_DIR)
-// is Unix-only. `protocol` stays ungated — it is pure wire types (including the
+// is Unix-only. `protocol` stays ungated - it is pure wire types (including the
 // relocated `ListedSession`) with no platform dependency, preserving a future
 // named-pipe transport on Windows without re-untangling.
 #[cfg(unix)]

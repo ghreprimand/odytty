@@ -106,8 +106,8 @@ pub(super) fn setting_detail(entry: &SettingInfo) -> String {
     detail
 }
 
-/// SETTINGS-COMPACT: how many body rows the fixed help footer reserves at the
-/// panel bottom — a divider plus the focused row's wrapped help. Kept a pure
+/// How many body rows the fixed help footer reserves at the
+/// panel bottom - a divider plus the focused row's wrapped help. Kept a pure
 /// function of the body height so the scrolling content window is a constant
 /// size and never reflows as focus moves between rows with differing help
 /// lengths. Returns 0 on windows too short to spare the rows, which collapses

@@ -178,7 +178,7 @@ pub fn theme_dir_path() -> Option<PathBuf> {
 ///    then `<value>`.
 ///
 /// Returns the file contents, or `None` when nothing resolves (caller falls
-/// back to plain). All IO errors are swallowed into `None` — a bad theme value
+/// back to plain). All IO errors are swallowed into `None` - a bad theme value
 /// must never abort startup.
 pub(crate) fn resolve_theme_file(value: &str, theme_dir: Option<&Path>) -> Option<String> {
     let looks_like_path = value.contains('/') || value.ends_with(".theme");
