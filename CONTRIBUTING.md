@@ -323,6 +323,16 @@ so that count alone does not establish execution. Dedicated CI validation steps
 retain successful test output on Linux, macOS, and Windows. Unix shell round trips
 are not compiled on Windows; GPU validation there uses available adapters.
 
+Linux CI also installs Xvfb and xauth and runs `bash scripts/ci-display.sh`.
+The separate virtual-display check requires the event-loop proof population to
+report executed cases and zero unavailable cases. It preserves failed assertions
+and does not retry them on another backend. Without Xvfb, a local run can use
+an isolated headless Weston instance. These checks establish Linux X11 or Wayland
+proxy-backed execution, not acceptance on a physical display. macOS proxy-backed
+cases remain ignored because AppKit requires the event loop on the main thread;
+Windows uses its existing native event-loop tests. The ordinary full-suite step
+remains unchanged.
+
 Headless GPU fixtures retain one process-lifetime instance per backend set.
 Native fixtures serialize their full GPU lifetime, including setup, draws and
 handle teardown, while each test owns its device, queue, textures and error

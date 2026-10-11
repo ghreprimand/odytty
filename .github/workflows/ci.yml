@@ -71,7 +71,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libfontconfig1-dev libfreetype6-dev mesa-vulkan-drivers zsh fish
+            pkg-config libfontconfig1-dev libfreetype6-dev mesa-vulkan-drivers zsh fish xvfb xauth
 
       # Cache only the dependency-download dirs (~/.cargo), NOT `target`.
       # `target` grows without bound across runs, and with `restore-keys`
@@ -124,6 +124,16 @@ jobs:
         if: runner.os == 'Linux'
         timeout-minutes: 5
         run: bash scripts/ci-validation.sh
+
+      # Require assertions from the proxy-backed population on a private X11 display.
+      - name: Required Linux virtual-display validation
+        if: runner.os == 'Linux'
+        timeout-minutes: 12
+        run: bash scripts/ci-display.sh
+
+      - name: Virtual-display runner contract tests
+        if: runner.os == 'Linux'
+        run: python3 scripts/ci-display-test.py
 
       - name: GPU validation availability (macOS/Windows)
         if: runner.os != 'Linux'
