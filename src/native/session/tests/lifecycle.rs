@@ -21,48 +21,39 @@ mod held_exit_tests {
 /// CLOSE-HANG regression: whole-app shutdown must stay bounded even when a
 /// session's reader thread is wedged (no EOF), the shape that hung Super+Q
 /// with remote workspaces. The old serial path joined the pump thread on the
-/// caller, so a parked reader would block shutdown for the full park time;
-/// `shutdown_all` offloads the reap + join to a detached thread and returns
-/// within the bounded deadline. Fail-before: the caller would take ~the park
-/// duration (5s) and blow the assertion; pass-after: it returns in ~the
-/// deadline.
+/// caller; `shutdown_all` offloads the reap + join to a detached thread and
+/// returns at its deadline. The check is structural, not a wall-clock bound:
+/// shutdown returns while the reader is still parked. Fail-before: the caller
+/// joined the reader, so it returned only after the reader finished.
 #[test]
 fn shutdown_all_is_bounded_when_a_reader_is_wedged() {
-    let park = std::time::Duration::from_secs(5);
-    let session = build_session_with_parked_reader(SessionToken(1), park);
+    let (session, gate) = build_session_with_parked_reader(SessionToken(1));
     let mut set = WorkspaceSet::new(session, None);
 
-    let deadline = std::time::Duration::from_millis(200);
-    let start = Instant::now();
-    set.shutdown_all(deadline);
-    let elapsed = start.elapsed();
+    set.shutdown_all(std::time::Duration::from_millis(200));
 
     assert!(set.is_empty(), "shutdown drains the session set");
     assert!(
-        elapsed < std::time::Duration::from_secs(2),
-        "shutdown must be bounded, not block on the wedged reader join (took {elapsed:?})"
+        !gate.released(),
+        "shutdown must return before the wedged reader is joined"
     );
 }
 
 /// CLOSE-HANG-2 regression: an interactive tab/workspace close must not
 /// block the caller on a wedged reader join. A ControlPersist mux master can
 /// hold the PTY slave open after the client is killed, so the reader never
-/// sees EOF and its join would otherwise block for the full park. The
-/// parked-reader session reproduces that shape; `close` kills synchronously
-/// and defers wait + join to a detached reaper, returning promptly while the
-/// reaper finishes later. Fail-before: the old inline `pty.wait()` + join
-/// blocked the caller ~the park (3s) and blew the assertion; pass-after: it
-/// returns well under a second.
+/// sees EOF and its join would otherwise block. `close` kills synchronously
+/// and defers wait + join to a detached reaper, so it returns while the
+/// reader is still parked. Fail-before: the old inline `pty.wait()` + join
+/// returned only after the reader finished.
 #[test]
 fn interactive_close_is_bounded_when_a_reader_is_wedged() {
-    let park = std::time::Duration::from_secs(3);
     let mut set = WorkspaceSet::new(build_session(), None);
     let wedged = SessionToken(1);
-    set.push(build_session_with_parked_reader(wedged, park));
+    let (session, gate) = build_session_with_parked_reader(wedged);
+    set.push(session);
 
-    let start = Instant::now();
     let last = set.close(wedged);
-    let elapsed = start.elapsed();
 
     assert!(
         !last,
@@ -70,37 +61,98 @@ fn interactive_close_is_bounded_when_a_reader_is_wedged() {
     );
     assert_eq!(set.len(), 1, "the wedged session leaves the arena");
     assert!(
-        elapsed < std::time::Duration::from_secs(1),
-        "interactive close must not block on the wedged reader join (took {elapsed:?})"
+        !gate.released(),
+        "interactive close must return before the wedged reader is joined"
     );
 }
 
 /// CLOSE-HANG-2 regression: closing several wedged sessions in quick
 /// succession (the "closed several remote workspaces fast" freeze) must not
-/// compound serially. Each close defers its reap, so N closes return in
-/// aggregate well under a second even though every reader is parked.
-/// Fail-before: the closes summed to N x park (~15s) on the caller.
+/// compound serially. Each close defers its reap, so every close returns while
+/// all the readers are still parked. Fail-before: each close waited for its
+/// reader in turn.
 #[test]
 fn rapid_successive_closes_do_not_compound() {
-    let park = std::time::Duration::from_secs(3);
     let mut set = WorkspaceSet::new(build_session(), None);
     let mut wedged = Vec::new();
+    let mut gates = Vec::new();
     for i in 1..=5u64 {
         let token = SessionToken(i);
-        set.push(build_session_with_parked_reader(token, park));
+        let (session, gate) = build_session_with_parked_reader(token);
+        set.push(session);
         wedged.push(token);
+        gates.push(gate);
     }
 
-    let start = Instant::now();
     for token in wedged {
         let _ = set.close(token);
     }
-    let elapsed = start.elapsed();
 
     assert_eq!(set.len(), 1, "every wedged session left the arena");
     assert!(
-        elapsed < std::time::Duration::from_secs(1),
-        "rapid successive closes must not compound serially (took {elapsed:?})"
+        gates.iter().all(|gate| !gate.released()),
+        "rapid successive closes must return before any wedged reader is joined"
+    );
+}
+
+/// A long-lived real child whose PTY mutex a panicking thread poisoned, plus a
+/// clone of that mutex for observing the child after teardown.
+#[cfg(unix)]
+fn poisoned_long_lived_session(id: SessionToken) -> (Session, Arc<Mutex<crate::pty::PtySession>>) {
+    let dims = Dimensions::new(20, 8);
+    let pty = crate::pty::PtySession::spawn_shell_command(dims, "sleep 300")
+        .expect("spawn long-lived child");
+    let writer: PtyWriter = Arc::new(Mutex::new(pty.take_writer().expect("writer")));
+    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let pty = Arc::new(Mutex::new(pty));
+    let poisoner = pty.clone();
+    let _ = std::thread::spawn(move || {
+        let _guard = poisoner.lock().expect("first lock");
+        panic!("poison the PTY mutex");
+    })
+    .join();
+    assert!(pty.is_poisoned(), "the fixture poisons the PTY mutex");
+    (Session::new(id, terminal, writer, pty.clone(), None), pty)
+}
+
+/// Shutdown still kills and reaps a child whose PTY mutex is poisoned: the
+/// deferred reaper has waited for the child by the time it returns. Before,
+/// a poisoned lock skipped both the kill and the wait, leaving the child
+/// running. Unix only, because the fixture needs a child that outlives the
+/// test; the Windows arm runs the same lock helper.
+#[cfg(unix)]
+#[test]
+fn shutdown_kills_and_reaps_a_child_whose_pty_lock_is_poisoned() {
+    let (session, pty) = poisoned_long_lived_session(SessionToken(1));
+    let reap = session.shutdown();
+    reap();
+    let status = crate::native::lock_recover(&pty).try_wait();
+    assert!(
+        matches!(status, Ok(Some(_))),
+        "the poisoned child was killed and reaped: {status:?}"
+    );
+}
+
+/// An interactive close kills and reaps a child whose PTY mutex is poisoned.
+/// The reap runs on a detached thread, so this waits for it; a child that was
+/// never killed would run for minutes.
+#[cfg(unix)]
+#[test]
+fn close_kills_and_reaps_a_child_whose_pty_lock_is_poisoned() {
+    let mut set = WorkspaceSet::new(build_session(), None);
+    let token = SessionToken(1);
+    let (session, pty) = poisoned_long_lived_session(token);
+    set.push(session);
+    let _ = set.close(token);
+    let deadline = Instant::now() + std::time::Duration::from_secs(30);
+    let mut status = crate::native::lock_recover(&pty).try_wait();
+    while !matches!(status, Ok(Some(_))) && Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        status = crate::native::lock_recover(&pty).try_wait();
+    }
+    assert!(
+        matches!(status, Ok(Some(_))),
+        "the poisoned child was killed and reaped: {status:?}"
     );
 }
 

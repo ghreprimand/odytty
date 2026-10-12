@@ -45,6 +45,41 @@ pub(super) fn resolve_bare_program(
         .find(|candidate| is_file(candidate))
 }
 
+/// A bare program name found in none of the safe directories. The spawn is
+/// refused: handing the bare name to `CreateProcessW` would let it search the
+/// parent's current directory, which is the lookup this module exists to avoid.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ProgramNotFound(pub(super) OsString);
+
+impl std::fmt::Display for ProgramNotFound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "program {:?} was not found in the application directory, the system directories or PATH",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for ProgramNotFound {}
+
+/// What a launch should run for `program`: `Ok(None)` keeps a name that has a
+/// directory part exactly as given (a path the caller chose), `Ok(Some(file))`
+/// is the absolute file a bare name resolves to in `dirs`, and a bare name
+/// found nowhere is an error, never passed on bare.
+pub(super) fn pin_program(
+    program: &OsStr,
+    dirs: impl IntoIterator<Item = PathBuf>,
+    is_file: impl Fn(&Path) -> bool,
+) -> Result<Option<PathBuf>, ProgramNotFound> {
+    if !is_bare_program(program) {
+        return Ok(None);
+    }
+    resolve_bare_program(program, dirs, is_file)
+        .map(Some)
+        .ok_or_else(|| ProgramNotFound(program.to_os_string()))
+}
+
 /// Whether `value` starts with a drive letter, a colon and a separator.
 fn is_drive_absolute(value: &OsStr) -> bool {
     matches!(
@@ -134,6 +169,40 @@ mod tests {
             resolve_bare_program(OsStr::new("tool"), dirs, |_| true),
             None
         );
+    }
+
+    #[test]
+    fn a_bare_name_found_nowhere_is_refused_not_passed_on() {
+        let dir = absolute("odytty-prog-pin");
+        let holds = {
+            let dir = dir.clone();
+            move |path: &Path| path == dir.join("tool.exe")
+        };
+        // Found: the absolute file.
+        assert_eq!(
+            pin_program(OsStr::new("tool"), [dir.clone()], &holds),
+            Ok(Some(dir.join("tool.exe")))
+        );
+        // Not found in any safe directory: an error, even though a file of that
+        // name could exist in the launch directory.
+        let accept_all = |_: &Path| true;
+        for dirs in [
+            Vec::new(),
+            vec![PathBuf::new(), PathBuf::from("."), PathBuf::from("bin")],
+        ] {
+            let error = pin_program(OsStr::new("tool"), dirs, accept_all).expect_err("refused");
+            assert_eq!(error, ProgramNotFound(OsString::from("tool")));
+        }
+        let error = pin_program(OsStr::new("tool"), [dir.clone()], |_: &Path| false)
+            .expect_err("absent from the only safe directory");
+        assert!(error.to_string().contains("tool"), "{error}");
+        // A name the caller gave with a directory part is theirs to choose.
+        for given in [r"C:\tools\tool.exe", r".\tool.exe", "bin/tool"] {
+            assert_eq!(
+                pin_program(OsStr::new(given), [dir.clone()], &holds),
+                Ok(None)
+            );
+        }
     }
 
     #[test]

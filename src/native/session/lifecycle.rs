@@ -4,10 +4,12 @@
 //! move, and remove nodes.
 //!
 //! Every blocking wait or thread join here runs off the UI path, and
-//! whole-application shutdown is bounded by a single deadline. Local sessions
-//! terminate and reap; an attached session detaches on Unix. No Unix kill,
-//! signal, socket, or detach assumption reaches the common paths - each one sits
-//! behind its own source arm.
+//! whole-application shutdown is bounded by a single deadline. Teardown takes
+//! the PTY and client locks even when a panicking thread poisoned them, so a
+//! child is still killed and reaped and a wedged reader still forced to EOF.
+//! Local sessions terminate and reap; an attached session detaches on Unix. No
+//! Unix kill, signal, socket, or detach assumption reaches the common paths -
+//! each one sits behind its own source arm.
 
 use super::model::{Session, SessionToken, Workspace, WorkspaceSet, default_workspace_name};
 use super::transport::SessionSource;
@@ -62,9 +64,7 @@ fn bounded_pump_join(pump: JoinHandle<()>, pty: Arc<Mutex<PtySession>>) {
     let Ok(joiner) = joiner else {
         // Could not spawn the joiner (resource exhaustion): best-effort force the
         // reader to EOF and abandon rather than block the reaper.
-        if let Ok(guard) = pty.lock() {
-            guard.force_reader_eof();
-        }
+        crate::native::lock_recover(&pty).force_reader_eof();
         return;
     };
 
@@ -77,9 +77,7 @@ fn bounded_pump_join(pump: JoinHandle<()>, pty: Arc<Mutex<PtySession>>) {
         std::thread::sleep(CLOSE_JOIN_POLL);
     }
     // Still wedged after the grace: force the reader to EOF so the pump exits.
-    if let Ok(guard) = pty.lock() {
-        guard.force_reader_eof();
-    }
+    crate::native::lock_recover(&pty).force_reader_eof();
     let _ = joiner.join();
 }
 
@@ -131,9 +129,7 @@ impl Session {
             SessionSource::Local { pty } => {
                 // Kill promptly on the calling (main) thread - SIGKILL delivery
                 // never waits for the child to actually die.
-                if let Ok(mut guard) = pty.lock() {
-                    let _ = guard.kill();
-                }
+                let _ = crate::native::lock_recover(&pty).kill();
                 // Defer the blocking reap (`wait`) + reader join to a detached
                 // thread. a ControlPersist mux master (or any
                 // `setsid`'d grandchild in a foreign process group) can hold the
@@ -147,9 +143,7 @@ impl Session {
                 let _ = std::thread::Builder::new()
                     .name("odytty-session-close".to_owned())
                     .spawn(move || {
-                        if let Ok(mut guard) = pty.lock() {
-                            let _ = guard.wait();
-                        }
+                        let _ = crate::native::lock_recover(&pty).wait();
                         if let Some(thread) = pump_thread {
                             bounded_pump_join(thread, pty);
                         }
@@ -164,9 +158,7 @@ impl Session {
                 let _ = std::thread::Builder::new()
                     .name("odytty-session-close".to_owned())
                     .spawn(move || {
-                        if let Ok(mut guard) = client.lock() {
-                            let _ = guard.detach();
-                        }
+                        let _ = crate::native::lock_recover(&client).detach();
                         if let Some(thread) = pump_thread {
                             let _ = thread.join();
                         }
@@ -191,9 +183,7 @@ impl Session {
                 let _ = std::thread::Builder::new()
                     .name("odytty-session-close".to_owned())
                     .spawn(move || {
-                        if let Ok(mut guard) = pty.lock() {
-                            let _ = guard.try_wait();
-                        }
+                        let _ = crate::native::lock_recover(&pty).try_wait();
                         // Even after the shell self-exits, a `setsid`'d
                         // grandchild can keep the slave open, so bound the pump
                         // join and force the reader to EOF if it is wedged rather
@@ -213,9 +203,7 @@ impl Session {
                 let _ = std::thread::Builder::new()
                     .name("odytty-session-close".to_owned())
                     .spawn(move || {
-                        if let Ok(mut client) = client.lock() {
-                            let _ = client.detach();
-                        }
+                        let _ = crate::native::lock_recover(&client).detach();
                         if let Some(thread) = pump_thread {
                             let _ = thread.join();
                         }
@@ -253,13 +241,9 @@ impl Session {
             SessionSource::Local { pty } => {
                 // Kill promptly on the calling thread - SIGKILL is delivered
                 // without waiting for the child to actually die.
-                if let Ok(mut guard) = pty.lock() {
-                    let _ = guard.kill();
-                }
+                let _ = crate::native::lock_recover(&pty).kill();
                 Box::new(move || {
-                    if let Ok(mut guard) = pty.lock() {
-                        let _ = guard.wait();
-                    }
+                    let _ = crate::native::lock_recover(&pty).wait();
                     if let Some(thread) = pump_thread {
                         let _ = thread.join();
                     }
@@ -269,9 +253,7 @@ impl Session {
             // control socket cannot stall teardown.
             #[cfg(unix)]
             SessionSource::Attached { client } => Box::new(move || {
-                if let Ok(mut guard) = client.lock() {
-                    let _ = guard.detach();
-                }
+                let _ = crate::native::lock_recover(&client).detach();
                 if let Some(thread) = pump_thread {
                     let _ = thread.join();
                 }

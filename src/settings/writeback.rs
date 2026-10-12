@@ -148,13 +148,18 @@ const CONFIG_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 /// Take the advisory lock that serializes OdyTTY's read-modify-write of
 /// `odytty.conf` across processes: a kernel lock (`flock` on Unix, `LockFileEx`
 /// on Windows) on the sidecar `odytty.conf.lock` beside it, released when the
-/// returned handle drops. A file system that cannot lock, or a sidecar that
-/// cannot be opened, saves without the lock as before (the write itself then
-/// reports any real error); a lock still held after [`CONFIG_LOCK_WAIT`] is an
-/// error rather than a silent lost update.
+/// returned handle drops. When the lock cannot be established the save is
+/// refused with an error, as is a lock still held after [`CONFIG_LOCK_WAIT`],
+/// so a concurrent save is never silently lost. The one exception is a
+/// platform or file system that reports locking as unsupported
+/// ([`unlocked_save_allowed`]): there the save goes ahead unlocked, as it did
+/// before the lock existed, and a warning is logged.
 fn lock_config(path: &Path) -> Result<Option<std::fs::File>, ConfigWritebackError> {
     let Some(name) = path.file_name() else {
-        return Ok(None);
+        return Err(ConfigWritebackError::new(format!(
+            "could not lock {}: the path names no file",
+            path.display()
+        )));
     };
     let mut lock_name = name.to_os_string();
     lock_name.push(".lock");
@@ -165,15 +170,21 @@ fn lock_config(path: &Path) -> Result<Option<std::fs::File>, ConfigWritebackErro
     {
         let _ = std::fs::create_dir_all(parent);
     }
-    let Ok(file) = std::fs::OpenOptions::new()
+    let file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
         .open(&lock_path)
-    else {
-        return Ok(None);
-    };
+        .map_err(|error| {
+            ConfigWritebackError::with_source(
+                format!(
+                    "could not open the settings lock {}; nothing was saved",
+                    lock_path.display()
+                ),
+                error,
+            )
+        })?;
     let deadline = std::time::Instant::now() + CONFIG_LOCK_WAIT;
     loop {
         match file.try_lock() {
@@ -187,9 +198,29 @@ fn lock_config(path: &Path) -> Result<Option<std::fs::File>, ConfigWritebackErro
                     path.display()
                 )));
             }
-            Err(std::fs::TryLockError::Error(_)) => return Ok(None),
+            Err(std::fs::TryLockError::Error(error)) if unlocked_save_allowed(&error) => {
+                tracing::warn!(
+                    path = %lock_path.display(),
+                    "file locking is unsupported here; saving settings without the lock"
+                );
+                return Ok(None);
+            }
+            Err(std::fs::TryLockError::Error(error)) => {
+                return Err(ConfigWritebackError::with_source(
+                    format!("could not lock {}; nothing was saved", lock_path.display()),
+                    error,
+                ));
+            }
         }
     }
+}
+
+/// Whether a lock error still lets a save go ahead unlocked: only when
+/// locking itself is unsupported. A concurrent save from another OdyTTY
+/// process can then be lost, which is the documented limit on such a file
+/// system; every other lock error refuses the save.
+fn unlocked_save_allowed(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::Unsupported
 }
 
 fn canonical_changes(changes: &[SettingEdit]) -> BTreeMap<&'static str, String> {
@@ -580,6 +611,54 @@ mod tests {
                     "{key} lost: {saved:?}"
                 );
             }
+        }
+    }
+
+    /// A settings lock that cannot be opened refuses both writers, and neither
+    /// touches the config: a save does not fall back to an unlocked
+    /// read-modify-write that could lose a concurrent save. A directory in
+    /// the sidecar's place makes the open fail on every platform.
+    #[test]
+    fn an_unopenable_settings_lock_refuses_the_save_and_the_stub() {
+        let dir = crate::test_dirs::ScratchDir::new("odytty-conf-lock-refused");
+        let path = dir.path().join("odytty.conf");
+        std::fs::create_dir(dir.path().join("odytty.conf.lock")).expect("blocking directory");
+
+        let error = ensure_config_file_exists_at(&path).expect_err("stub refused");
+        assert!(error.to_string().contains("nothing was saved"), "{error}");
+        assert!(!path.exists(), "no stub was written");
+
+        std::fs::write(&path, "theme = plain\n").expect("user config");
+        let error = write_settings_changes_to_path(
+            &path,
+            &[SettingEdit {
+                key: "font_size",
+                env: super::super::FONT_SIZE_ENV,
+                value: "21".to_owned(),
+            }],
+        )
+        .expect_err("save refused");
+        assert!(error.to_string().contains("nothing was saved"), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("config"),
+            "theme = plain\n",
+            "the config is unchanged"
+        );
+    }
+
+    /// Only an unsupported-locking error lets a save go ahead unlocked.
+    #[test]
+    fn only_unsupported_locking_allows_an_unlocked_save() {
+        assert!(unlocked_save_allowed(&io::Error::from(
+            io::ErrorKind::Unsupported
+        )));
+        for kind in [
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::Other,
+            io::ErrorKind::InvalidInput,
+            io::ErrorKind::OutOfMemory,
+        ] {
+            assert!(!unlocked_save_allowed(&io::Error::from(kind)), "{kind:?}");
         }
     }
 

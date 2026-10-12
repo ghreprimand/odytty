@@ -29,13 +29,16 @@ const IO_TIMEOUT: Duration = Duration::from_secs(2);
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// Consecutive transient `accept` failures tolerated before the listener
 /// faults: about one second of descriptor or memory exhaustion at one retry
-/// per poll interval.
+/// per poll interval. An accept that finds nothing waiting, like a successful
+/// one, ends the streak, so failures spread over a long session never add up.
 const MAX_TRANSIENT_ACCEPT_ERRORS: u32 = 100;
 
 /// What the accept loop does after an `accept` error.
 #[derive(Debug, PartialEq, Eq)]
 enum AcceptStep {
-    /// Sleep one poll interval and accept again.
+    /// Nothing is waiting: sleep one poll interval and accept again.
+    Idle,
+    /// Sleep one poll interval and accept again after a transient failure.
     Retry,
     /// Record a terminal fault and stop the listener.
     Fault,
@@ -44,9 +47,14 @@ enum AcceptStep {
 /// Classify an `accept` error. Descriptor exhaustion (`EMFILE`, `ENFILE`),
 /// buffer or memory pressure (`ENOBUFS`, `ENOMEM`), and a peer that aborted
 /// before it was accepted (`ECONNABORTED`) usually clear on the next attempt,
-/// so they retry, up to [`MAX_TRANSIENT_ACCEPT_ERRORS`] in a row. Every other
+/// so they retry, up to [`MAX_TRANSIENT_ACCEPT_ERRORS`] in a row. An empty
+/// queue (`WouldBlock`) is not a failure and resets that count. Every other
 /// error, and a transient one that never clears, is a fault.
 fn accept_error_step(error: &io::Error, streak: &mut u32) -> AcceptStep {
+    if error.kind() == io::ErrorKind::WouldBlock {
+        *streak = 0;
+        return AcceptStep::Idle;
+    }
     let transient = error.kind() == io::ErrorKind::ConnectionAborted
         || matches!(
             error.raw_os_error(),
@@ -283,22 +291,21 @@ impl Server {
                                 }
                                 continue;
                             }
-                            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
                             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                            Err(error)
-                                if accept_error_step(&error, &mut transient_errors)
-                                    == AcceptStep::Retry =>
-                            {
-                                tracing::debug!(%error, "automation accept failed; retrying");
-                            }
-                            Err(error) => {
-                                record_fault(
-                                    &fault_slot,
-                                    &*wake,
-                                    format!("accept failed: {error}"),
-                                );
-                                break;
-                            }
+                            Err(error) => match accept_error_step(&error, &mut transient_errors) {
+                                AcceptStep::Idle => {}
+                                AcceptStep::Retry => {
+                                    tracing::debug!(%error, "automation accept failed; retrying");
+                                }
+                                AcceptStep::Fault => {
+                                    record_fault(
+                                        &fault_slot,
+                                        &*wake,
+                                        format!("accept failed: {error}"),
+                                    );
+                                    break;
+                                }
+                            },
                         }
                     }
                     thread::sleep(POLL_INTERVAL);

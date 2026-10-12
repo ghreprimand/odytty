@@ -804,14 +804,31 @@ fn bare_program_names_are_pinned_to_absolute_files() {
         shell.program
     );
     let mut command = CommandBuilder::new("cmd");
-    pin_bare_program(&mut command);
+    pin_bare_program(&mut command).expect("cmd is in System32");
     let pinned = PathBuf::from(command.program());
     assert!(pinned.is_absolute(), "{pinned:?}");
     assert!(pinned.is_file(), "{pinned:?}");
-    let mut missing = CommandBuilder::new("definitely-not-a-real-binary-xyz");
-    pin_bare_program(&mut missing);
-    assert_eq!(
-        missing.program(),
-        &OsString::from("definitely-not-a-real-binary-xyz")
-    );
+    // A directory part is the caller's own path and is kept as given.
+    let mut given = CommandBuilder::new(r".\tool.exe");
+    pin_bare_program(&mut given).expect("a path is not looked up");
+    assert_eq!(given.program(), &OsString::from(r".\tool.exe"));
+}
+
+/// A bare name found in none of the safe directories is refused before any
+/// pseudoconsole exists, never handed to `CreateProcessW` to search the launch
+/// directory.
+#[test]
+fn an_unresolved_bare_program_is_refused_before_the_spawn() {
+    let name = "definitely-not-a-real-binary-xyz";
+    let mut missing = CommandBuilder::new(name);
+    let error = pin_bare_program(&mut missing).expect_err("not found anywhere safe");
+    assert!(error.to_string().contains(name), "{error}");
+    assert_eq!(missing.program(), &OsString::from(name));
+    let dims = Dimensions {
+        rows: 24,
+        columns: 80,
+    };
+    let spawned = PtySession::spawn_command(dims, CommandBuilder::new(name));
+    let error = spawned.err().expect("the spawn is refused");
+    assert!(error.to_string().contains(name), "{error}");
 }

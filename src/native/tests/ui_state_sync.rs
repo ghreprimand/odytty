@@ -78,7 +78,10 @@ fn tab_bar_height_from_a_config_reload_reflows_a_visible_top_bar() {
 #[test]
 fn pinned_rail_seam_drags_while_the_top_bar_is_hidden() {
     for (side, seam_x, drag_x) in [("left", 128.0, 80.0), ("right", 512.0, 560.0)] {
+        let config_dir = crate::test_dirs::ScratchDir::new("otrc");
         let (mut app, _) = headless_app_for_test();
+        let config = config_dir.path().join("odytty.conf");
+        app.set_config_path_for_test(config.clone());
         let cell = cell(8, 16);
         app.set_test_cell_for_test(cell);
         app.set_test_surface_for_test(640, 384, WindowPadding::ZERO);
@@ -98,6 +101,8 @@ fn pinned_rail_seam_drags_while_the_top_bar_is_hidden() {
         assert_eq!(app.tab_rail_width_for_test(), TabRailWidth::Manual(10));
         app.mouse_left_release_for_test();
         assert!(!app.rail_seam_dragging_for_test());
+        let saved = std::fs::read_to_string(&config).expect("rail release persists private config");
+        assert!(saved.contains("tab_rail_width = 10"));
     }
 }
 

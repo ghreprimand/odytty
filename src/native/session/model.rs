@@ -548,21 +548,35 @@ impl WorkspaceSet {
     /// `active_focused_token`'s defensive lookup so a stray index can never
     /// panic.
     pub(super) fn active_workspace(&self) -> &Workspace {
-        self.workspaces
-            .get(self.active_ws)
-            .or_else(|| self.workspaces.first())
-            .expect("WorkspaceSet always holds at least one workspace")
+        &self.workspaces[self.active_workspace_slot()]
     }
 
     pub(super) fn active_workspace_mut(&mut self) -> &mut Workspace {
-        let idx = if self.active_ws < self.workspaces.len() {
+        let idx = self.active_workspace_slot();
+        &mut self.workspaces[idx]
+    }
+
+    /// The index [`Self::active_workspace`] resolves: `active_ws`, or the first
+    /// workspace if a stray index is ever out of range. Callers that index
+    /// `workspaces` themselves use this, so they resolve the same workspace
+    /// as the accessor instead of panicking where it would not. A stray index
+    /// is a bug, so debug builds assert against it.
+    pub(super) fn active_workspace_slot(&self) -> usize {
+        assert!(
+            !self.workspaces.is_empty(),
+            "WorkspaceSet always holds at least one workspace"
+        );
+        debug_assert!(
+            self.active_ws < self.workspaces.len(),
+            "active workspace index {} out of range ({} workspaces)",
+            self.active_ws,
+            self.workspaces.len()
+        );
+        if self.active_ws < self.workspaces.len() {
             self.active_ws
         } else {
             0
-        };
-        self.workspaces
-            .get_mut(idx)
-            .expect("WorkspaceSet always holds at least one workspace")
+        }
     }
 
     /// The active tab of the active workspace, if the workspace has one.
@@ -637,8 +651,17 @@ impl WorkspaceSet {
     }
 
     /// The token of the focused pane of the active tab - the `Deref` target.
+    /// The focused token of the active tab. The fallbacks (the first tab, then
+    /// token 0) only cover a broken invariant, which debug builds assert
+    /// against: token 0 can name another window's session range.
     pub(super) fn active_focused_token(&self) -> SessionToken {
         let ws = self.active_workspace();
+        debug_assert!(
+            ws.active_tab < ws.tabs.len(),
+            "active tab index {} out of range ({} tabs)",
+            ws.active_tab,
+            ws.tabs.len()
+        );
         ws.tabs
             .get(ws.active_tab)
             .or_else(|| ws.tabs.first())
@@ -646,16 +669,29 @@ impl WorkspaceSet {
             .unwrap_or(SessionToken(0))
     }
 
+    /// The focused session. If the focused token has no session (a broken
+    /// invariant, asserted in debug builds) release builds fall back to an
+    /// arbitrary session rather than panic, so input could reach the wrong
+    /// pane only after such a bug.
     pub(in crate::native) fn active(&self) -> &Session {
         let token = self.active_focused_token();
+        debug_assert!(
+            self.sessions.contains_key(&token),
+            "focused token {token:?} has no session"
+        );
         self.sessions
             .get(&token)
             .or_else(|| self.sessions.values().next())
             .expect("WorkspaceSet always holds at least one session while active() is called")
     }
 
+    /// The mutable twin of [`Self::active`], with the same fallback.
     pub(in crate::native) fn active_mut(&mut self) -> &mut Session {
         let token = self.active_focused_token();
+        debug_assert!(
+            self.sessions.contains_key(&token),
+            "focused token {token:?} has no session"
+        );
         if self.sessions.contains_key(&token) {
             return self
                 .sessions

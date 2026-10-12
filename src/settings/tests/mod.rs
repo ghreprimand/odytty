@@ -48,6 +48,14 @@ mod system_theme;
 /// process-wide render switches. The check reads each test source at compile
 /// time, so a new test that forgets the lock fails here instead of racing the
 /// render tests at the default test thread count.
+///
+/// Scope: direct calls written in a `#[test]` body in this directory. A test
+/// that reaches the call through a helper, a reload test elsewhere (the
+/// application-level tests reach it through `config_lifecycle.rs`), and a
+/// test that only reads the globals are not seen by this scan and rely on the
+/// rule in the module comment above. The file table is checked against this
+/// module's `mod` lines and the directory listing, so a new test file cannot
+/// be left out of the scan.
 #[test]
 fn every_reload_test_holds_the_render_globals_lock() {
     let sources = [
@@ -68,6 +76,31 @@ fn every_reload_test_holds_the_render_globals_lock() {
         ("sh2.rs", include_str!("sh2.rs")),
         ("system_theme.rs", include_str!("system_theme.rs")),
     ];
+    let mut scanned: Vec<String> = sources.iter().map(|(file, _)| (*file).to_owned()).collect();
+    scanned.sort();
+    let mut declared: Vec<String> = include_str!("mod.rs")
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("mod ")?.strip_suffix(';'))
+        .map(|name| format!("{name}.rs"))
+        .collect();
+    declared.sort();
+    assert_eq!(
+        scanned, declared,
+        "the scan table must list every `mod` line"
+    );
+    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/settings/tests");
+    let mut on_disk: Vec<String> = fs::read_dir(&directory)
+        .expect("settings tests directory")
+        .map(|entry| entry.expect("directory entry").file_name())
+        .filter_map(|name| name.into_string().ok())
+        .filter(|name| name.ends_with(".rs") && name != "mod.rs")
+        .collect();
+    on_disk.sort();
+    assert_eq!(
+        on_disk, declared,
+        "every test file must be a declared module"
+    );
+
     let mut missing = Vec::new();
     let mut checked = 0;
     for (file, source) in sources {

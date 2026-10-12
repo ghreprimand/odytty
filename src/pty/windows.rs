@@ -285,9 +285,11 @@ impl PtySession {
         // first NUL and the environment block splits on it, so an interior
         // NUL would silently drop the rest. Refuse it, as Unix `Command` does.
         reject_interior_nul(&command)?;
+        // A bare program name becomes an absolute file or the spawn is
+        // refused, so `CreateProcessW` never searches the launch directory.
+        pin_bare_program(&mut command)?;
         // Refuse network/device cwd prefixes before any Win32 spawn call.
         // This also covers direct CommandBuilder callers and restored state.
-        pin_bare_program(&mut command);
         let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
         command.current_dir = crate::cwd::spawn_directory(
             command.current_dir.as_deref(),
@@ -1311,11 +1313,13 @@ fn resolve_windows_powershell() -> Option<OsString> {
 /// Replace a bare program name with the absolute file `CreateProcessW` would
 /// have found, searching its directories in its order (the OdyTTY executable's
 /// directory, `System32`, the Windows directory, `PATH`) but never the launch
-/// directory. A name found nowhere is left as given, so the failure surfaces
-/// as the spawn error it always was.
-fn pin_bare_program(command: &mut CommandBuilder) {
+/// directory. A name found nowhere is an error: leaving it bare would hand
+/// `CreateProcessW` a null application name, which searches the parent's
+/// current directory, so a planted file there would run. A program given with a
+/// directory part is the caller's own path and is kept as given.
+fn pin_bare_program(command: &mut CommandBuilder) -> Result<()> {
     if !super::program_path::is_bare_program(&command.program) {
-        return;
+        return Ok(());
     }
     let mut dirs: Vec<PathBuf> = Vec::new();
     if let Some(app_dir) = std::env::current_exe()
@@ -1331,11 +1335,10 @@ fn pin_bare_program(command: &mut CommandBuilder) {
     if let Some(path) = std::env::var_os("PATH") {
         dirs.extend(std::env::split_paths(&path));
     }
-    if let Some(found) =
-        super::program_path::resolve_bare_program(&command.program, dirs, Path::is_file)
-    {
+    if let Some(found) = super::program_path::pin_program(&command.program, dirs, Path::is_file)? {
         command.program = found.into_os_string();
     }
+    Ok(())
 }
 
 /// Search `%PATH%` for `exe`, returning its full path if an *absolute* file by

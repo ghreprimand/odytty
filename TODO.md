@@ -20,6 +20,11 @@ roadmap.
 
 ## v0.17.0: International Text (in development)
 
+Profile saves refuse incomplete case-collision scans. Malformed-file recovery
+claims non-replacing hard-link backups and preserves the source on inspection
+or claim errors. Strict profile JSON admits at most 4,096 members per object.
+See `docs/profiles.md` for filesystem limits and recovery behavior.
+
 Profile shell and command edits replace each other explicitly. Snapshot schema
 versions reject fractional and out-of-range values. Monitor notices preserve
 unseen failure badges until the pane is viewed or attention is cleared.

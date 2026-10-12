@@ -214,7 +214,10 @@ impl LaunchProfile {
         entries.push(("effects".to_owned(), effects_to_json(&self.effects)));
         entries.push(("layout".to_owned(), layout_to_json(&self.layout)));
         push_opt_str(&mut entries, "connection", self.connection.as_deref());
-        if !self.switch.match_hosts.is_empty() || !self.switch.match_directories.is_empty() {
+        if !self.switch.match_hosts.is_empty()
+            || !self.switch.match_directories.is_empty()
+            || !self.switch.preserved.is_empty()
+        {
             entries.push(("switch".to_owned(), switch_to_json(&self.switch)));
         }
         for (key, value) in &self.preserved {
@@ -556,7 +559,7 @@ fn read_u32(
     known.insert(key.to_owned());
     match obj.iter().find(|(entry_key, _)| entry_key == key) {
         None => Ok(None),
-        Some((_, Json::Num(value)))
+        Some((_, Json::Num(value) | Json::Exact(value, _)))
             if value.is_finite()
                 && value.fract() == 0.0
                 && *value >= 0.0
@@ -999,7 +1002,7 @@ fn read_f32(
     known.insert(key.to_owned());
     match obj.iter().find(|(entry_key, _)| entry_key == key) {
         None => Ok(None),
-        Some((_, Json::Num(value))) if value.is_finite() => {
+        Some((_, Json::Num(value) | Json::Exact(value, _))) if value.is_finite() => {
             let narrowed = *value as f32;
             // A size of zero or less, or one beyond f32, has no meaning and
             // would otherwise reach the settings parser as infinity.
@@ -1148,7 +1151,7 @@ fn reject_secret_material(value: &Json) -> Result<(), ProfileError> {
             }
         }
         Json::Str(value) => reject_secret_env_value(value)?,
-        Json::Null | Json::Bool(_) | Json::Num(_) => {}
+        Json::Null | Json::Bool(_) | Json::Num(_) | Json::Exact(..) => {}
     }
     Ok(())
 }
@@ -1156,6 +1159,24 @@ fn reject_secret_material(value: &Json) -> Result<(), ProfileError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_switch_object_holding_only_unknown_keys_survives_a_save() {
+        let text = r#"{"schema_version": 1, "name": "dev", "switch": {"future": 1}}"#;
+        let profile = LaunchProfile::parse_json(text, Some("dev")).expect("parse");
+        assert!(profile.switch.match_hosts.is_empty());
+        assert!(profile.switch.match_directories.is_empty());
+        let written = profile
+            .validated_serialization()
+            .expect("the unknown switch key does not block a save");
+        assert!(written.contains("\"future\": 1"), "{written}");
+        let reloaded = LaunchProfile::parse_json(&written, Some("dev")).expect("reload");
+        assert_eq!(reloaded, profile);
+        // An empty switch object is still omitted.
+        let empty = r#"{"schema_version": 1, "name": "dev", "switch": {}}"#;
+        let empty = LaunchProfile::parse_json(empty, Some("dev")).expect("parse");
+        assert!(!empty.serialize_pretty().contains("switch"));
+    }
 
     #[test]
     fn round_trip_preserves_unknown_keys_at_every_owned_object() {

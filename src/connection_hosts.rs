@@ -245,24 +245,30 @@ pub fn parse_odytty_hosts_bytes_with_limits(
     if limits.max_bytes == 0 || limits.max_entries == 0 || limits.max_field_chars == 0 {
         return Vec::new();
     }
-    let bytes = strip_utf8_bom(bytes).1;
+    // The cap counts file bytes, a byte order mark included, so a cut is
+    // detected against the same bytes the file reader counted.
     let cap = usize::try_from(limits.max_bytes).unwrap_or(usize::MAX);
     let kept = if bytes.len() > cap {
         // The cap cut the file. A line the cut ended (`HostName long.exa`)
         // would parse as a plausible but wrong value, so only the complete
-        // lines before the last newline inside the cap are kept.
+        // lines are kept: those before the last newline inside the cap, or
+        // the whole prefix when the first byte past it is a newline.
         let prefix = &bytes[..cap];
-        let complete = prefix
-            .iter()
-            .rposition(|&byte| byte == b'\n')
-            .map_or(0, |end| end + 1);
+        let complete = if bytes[cap] == b'\n' {
+            cap
+        } else {
+            prefix
+                .iter()
+                .rposition(|&byte| byte == b'\n')
+                .map_or(0, |end| end + 1)
+        };
         tracing::warn!(
             limit = limits.max_bytes,
             "connection-hosts file is longer than its read limit; later hosts are ignored"
         );
-        &prefix[..complete]
+        strip_utf8_bom(&prefix[..complete]).1
     } else {
-        bytes
+        strip_utf8_bom(bytes).1
     };
     let text = String::from_utf8_lossy(kept);
     parse_odytty_hosts_text(&text, limits)

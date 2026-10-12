@@ -273,6 +273,12 @@ the AUR package, the binary tarball, the AppImage and the macOS app, through
 `dist/install-font-licenses.sh`; `tests/packaging_font_licenses.rs` keeps the
 list equal to the licence files in `assets/fonts`.
 
+`NOTICE` ships in every package and carries the Unicode License v3 text for the
+Unicode Character Database tables embedded in the binary (bidirectional
+classes, emoji widths, Indic properties), plus a note on the linked Rust
+crates; `tests/packaging_notice.rs` keeps the text equal to the licence files
+the generated tables cite and the named Unicode version equal to the tables'.
+
 It must not contain `.pdb` files, build directories, or installer work
 directories.
 

@@ -48,6 +48,12 @@ impl Tab {
         self.arrangement.is_floating() && !self.layout.is_single_pane()
     }
 
+    /// Whether the tiled dividers are drawn, and so can be hovered, grabbed,
+    /// dragged or snapped: not while zoomed, stacked or floating.
+    pub(super) fn shows_dividers(&self) -> bool {
+        !self.shows_only_focused_pane() && !self.is_floating()
+    }
+
     /// Every pane's outer pixel rectangle in paint order (back to front; the
     /// last entry is topmost). Zoomed and stacked tabs yield only the focused
     /// pane over the whole content rectangle.

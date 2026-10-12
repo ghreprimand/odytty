@@ -63,6 +63,67 @@ fn a_number_beyond_f64_is_refused_instead_of_saved_as_zero() {
     assert!(message.contains("out of range"), "{message}");
 }
 
+/// Save a parsed profile and parse it again, as the writer and a later load do.
+fn saved(text: &str) -> (String, LaunchProfile) {
+    let profile = LaunchProfile::parse_json(text, Some("dev")).expect("parse");
+    let written = profile.validated_serialization().expect("a valid save");
+    let reloaded = LaunchProfile::parse_json(&written, Some("dev")).expect("reload");
+    assert_eq!(reloaded, profile, "the saved text loads back unchanged");
+    (written, profile)
+}
+
+#[test]
+fn unknown_numbers_beyond_f64_precision_keep_their_literal_on_save() {
+    let literals = [
+        "12345678901234567890",
+        "-9007199254740993",
+        "0.30000000000000004441",
+        "1.2345678901234567e-7",
+        "340282366920938463463374607431768211455",
+    ];
+    let text = profile_text(&format!(
+        ", \"future\": {}, \"future_object\": {{\"n\": [{}, {{\"deep\": {}}}]}}, \
+         \"launch\": {{\"future_launch\": {}}}, \"switch\": {{\"future_switch\": {}}}",
+        literals[0], literals[1], literals[2], literals[3], literals[4]
+    ));
+    let (written, _) = saved(&text);
+    for literal in literals {
+        assert!(written.contains(literal), "{literal} in {written}");
+    }
+}
+
+#[test]
+fn short_numbers_are_written_as_before() {
+    let text = profile_text(", \"future\": [3, 1.5, 1E+2, 0.1, 1000000000000000]");
+    let (written, _) = saved(&text);
+    // Up to 15 significant digits `f64` holds the value exactly and the writer
+    // prints its shortest form; the spelling of an exponent is not preserved.
+    assert!(written.contains("3,"), "{written}");
+    assert!(written.contains("1.5,"), "{written}");
+    assert!(written.contains("100,"), "{written}");
+    assert!(written.contains("0.1,"), "{written}");
+    assert!(written.contains("1000000000000000\n"), "{written}");
+}
+
+#[test]
+fn a_known_number_with_many_digits_still_loads_and_saves_normalized() {
+    let text = profile_text(", \"appearance\": {\"font_size_px\": 12.345678901234567890}");
+    let (written, profile) = saved(&text);
+    let size = profile.appearance.font_size_px.expect("font size");
+    assert!((size - 12.345_679).abs() < 1e-5, "{size}");
+    // Owned fields are written from their typed value, never from the source
+    // literal.
+    assert!(!written.contains("12.345678901234567890"), "{written}");
+}
+
+#[test]
+fn the_lenient_reader_still_holds_every_number_as_f64() {
+    assert_eq!(
+        json::parse("12345678901234567890").expect("number"),
+        json::Json::Num(12_345_678_901_234_567_890_f64)
+    );
+}
+
 #[test]
 fn duplicate_object_keys_are_refused_at_every_depth() {
     for extra in [
@@ -109,4 +170,48 @@ fn an_in_memory_document_over_the_file_budget_is_refused() {
         LaunchProfile::parse_json(&text, Some("dev")),
         Err(ProfileError::LimitExceeded(_))
     ));
+}
+
+#[test]
+fn strict_objects_refuse_excessive_members_at_every_depth() {
+    let members = (0..20_000)
+        .map(|n| format!("\"member{n}\":0"))
+        .collect::<Vec<_>>()
+        .join(",");
+    for text in [
+        format!("{{{members}}}"),
+        profile_text(&format!(", \"future\": {{{members}}}")),
+    ] {
+        assert!((text.len() as u64) < MAX_PROFILE_FILE_BYTES);
+        let result = json::parse_strict(&text);
+        assert!(result.is_err(), "object member budget");
+        assert!(result.unwrap_err().contains("object member limit"));
+    }
+}
+
+#[test]
+fn escaped_duplicate_keys_and_unknown_members_keep_their_contract() {
+    let error = json::parse_strict(r#"{"x":1,"\u0078":2}"#).expect_err("decoded duplicate");
+    assert!(error.contains("duplicate object key"));
+    let text = profile_text(r#", "future": {"x":1,"X":2}"#);
+    let profile = LaunchProfile::parse_json(&text, Some("dev")).expect("unknown members");
+    let saved = profile
+        .validated_serialization()
+        .expect("save unknown members");
+    let document = json::parse_strict(&saved).expect("saved document");
+    let future = document.get("future").expect("unknown object retained");
+    assert_eq!(future.get("x").and_then(json::Json::as_f64), Some(1.0));
+    assert_eq!(future.get("X").and_then(json::Json::as_f64), Some(2.0));
+}
+
+#[test]
+fn strict_object_member_bound_accepts_exact_limit_and_lenient_sibling_stays_open() {
+    let members = (0..super::MAX_PROFILE_JSON_OBJECT_MEMBERS)
+        .map(|n| format!("\"member{n}\":0"))
+        .collect::<Vec<_>>()
+        .join(",");
+    assert!(json::parse_strict(&format!("{{{members}}}")).is_ok());
+    let beyond = format!("{{{members},\"extra\":0}}");
+    assert!(json::parse_strict(&beyond).is_err());
+    assert!(json::parse(&beyond).is_ok(), "tool-output reader contract");
 }

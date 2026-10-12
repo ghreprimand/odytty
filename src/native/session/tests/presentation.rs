@@ -375,6 +375,58 @@ fn drag_active_divider_reflows_the_active_split_ratio() {
     assert_eq!(set.drag_active_divider(content, 1.0, 9, 50.0, 50.0), None);
 }
 
+/// Every divider query and mutation is gated like the grab: while the tab is
+/// zoomed, stacked or floating no divider is drawn, so a drag index left over
+/// from the tiled view resolves no axis and moves no ratio.
+#[test]
+fn a_stale_divider_index_does_nothing_while_zoomed_stacked_or_floating() {
+    let content = PaneRect::new(0.0, 0.0, 801.0, 200.0);
+    let tiled_left_width = |set: &WorkspaceSet| set.active_pane_rects(content, 1.0, (8, 16))[0].1.w;
+    for mode in ["zoomed", "stacked", "floating"] {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        assert_eq!(
+            set.active_divider_axis(content, 1.0, 0),
+            Some(SplitAxis::Columns)
+        );
+        let before = tiled_left_width(&set);
+        match mode {
+            "zoomed" => assert!(set.toggle_active_zoom()),
+            "stacked" => assert_eq!(
+                set.set_active_stacked(),
+                crate::native::session::ArrangeOutcome::Changed
+            ),
+            _ => assert_eq!(
+                set.set_active_floating(content, 1.0, (8, 16)),
+                crate::native::session::ArrangeOutcome::Changed
+            ),
+        }
+        assert_eq!(set.active_divider_axis(content, 1.0, 0), None, "{mode}");
+        assert_eq!(
+            set.drag_active_divider(content, 1.0, 0, 200.0, 50.0),
+            None,
+            "{mode}"
+        );
+        assert_eq!(
+            set.snap_active_divider(content, 1.0, 0, 8, 16, 0.0),
+            None,
+            "{mode}"
+        );
+        match mode {
+            "zoomed" => assert!(set.toggle_active_zoom()),
+            _ => assert_eq!(
+                set.set_active_tiled(),
+                crate::native::session::ArrangeOutcome::Changed
+            ),
+        }
+        assert_eq!(
+            tiled_left_width(&set),
+            before,
+            "{mode}: the tiled ratio is untouched"
+        );
+    }
+}
+
 #[test]
 fn focus_move_active_lands_on_the_spatial_neighbor() {
     let mut set = WorkspaceSet::new(build_session(), None);
@@ -420,30 +472,56 @@ fn clearing_input_latches_sweeps_every_workspace_and_keeps_selection_and_viewpor
     }
 }
 
-/// A reflow restarts the viewport, fades, overlays and absolute coordinates of
-/// every session, including a background workspace's.
+/// Dirty state a reflow must discard, set on one session.
+fn dirty_layout_state(session: &mut Session, now: std::time::Instant) {
+    session.selection.set_range(test_selection());
+    session.viewport.scroll_up(4, 10);
+    session.hovered_url = Some("https://example.invalid/".to_owned());
+    session.search_restore_viewport = Some(2);
+    session.search.open();
+    session.row_fade_starts = vec![Some(now); 8];
+    session.row_fade_dimensions = Some(Dimensions::new(20, 8));
+}
+
+fn layout_state_is_dirty(set: &WorkspaceSet, token: SessionToken) -> bool {
+    let session = set.get(token).expect("session");
+    session.selection.range().is_some()
+        || session.hovered_url.is_some()
+        || session.viewport.offset() != 0
+        || session.search_restore_viewport.is_some()
+        || session.search.is_open()
+        || !session.row_fade_starts.is_empty()
+        || session.row_fade_dimensions.is_some()
+}
+
+/// A window resize that changes a pane's grid restarts the viewport, fades,
+/// overlays and absolute coordinates of that pane through the real resize
+/// sweep, including the panes of a background workspace. A pane whose grid does
+/// not change keeps its state, so the sweep is per changed pane, not blanket.
 #[test]
-fn layout_invalidation_resets_viewport_and_coordinates_for_background_sessions() {
+fn a_resize_resets_layout_state_for_changed_panes_of_background_workspaces() {
+    let now = std::time::Instant::now();
     let mut set = WorkspaceSet::new(build_session(), None);
     set.push_workspace(build_session_with_id(SessionToken(1)));
+    // Workspace 0 stays active; workspace 1 is the background one.
+    assert_eq!(set.active_focused_token(), SessionToken(0));
     for token in [SessionToken(0), SessionToken(1)] {
-        let session = set.sessions.get_mut(&token).expect("session");
-        session.selection.set_range(test_selection());
-        session.viewport.scroll_up(4, 10);
-        session.hovered_url = Some("https://example.invalid/".to_owned());
-        session.search_restore_viewport = Some(2);
-        session.search.open();
+        dirty_layout_state(set.sessions.get_mut(&token).expect("session"), now);
     }
-    for session in set.sessions.values_mut() {
-        session.invalidate_layout_dependent_state();
-    }
+    // Both 20x8 panes become 80x20: every grid changes.
+    let content = PaneRect::new(0.0, 0.0, 800.0, 400.0);
+    set.resize_all_panes(content, 10, 20, 1.0, 0.0);
     for token in [SessionToken(0), SessionToken(1)] {
-        let session = set.get(token).expect("session");
-        assert!(session.selection.range().is_none(), "{token:?}");
-        assert!(session.hovered_url.is_none(), "{token:?}");
-        assert_eq!(session.viewport.offset(), 0, "{token:?}");
-        assert!(session.search_restore_viewport.is_none(), "{token:?}");
-        assert!(!session.search.is_open(), "{token:?} search closed");
+        assert_eq!(pane_dims(&set, token), (80, 20), "{token:?} resized");
+        assert!(!layout_state_is_dirty(&set, token), "{token:?} reset");
+    }
+    // The same size again changes no grid, so nothing is reset.
+    for token in [SessionToken(0), SessionToken(1)] {
+        dirty_layout_state(set.sessions.get_mut(&token).expect("session"), now);
+    }
+    set.resize_all_panes(content, 10, 20, 1.0, 0.0);
+    for token in [SessionToken(0), SessionToken(1)] {
+        assert!(layout_state_is_dirty(&set, token), "{token:?} kept");
     }
 }
 
@@ -463,26 +541,49 @@ fn background_timer_parking_follows_who_can_be_seen() {
     } else {
         SessionToken(0)
     };
+    // The synchronized-output hold is the one timer that is not a cursor timer:
+    // a visible pane keeps it (its deadline is the watchdog that releases a
+    // frozen display), only a never-rendered pane parks it.
+    let now = std::time::Instant::now();
     for session in set.sessions.values_mut() {
         session.cursor_ease_deadline = Some(deadline);
         session.cursor_slide_deadline = Some(deadline);
+        session.synchronized_output_hold.should_hold(true, now);
     }
     set.park_background_timers();
-    let ease = |token: SessionToken| set.get(token).expect("session").cursor_ease_deadline;
+    let cursor_timers = |token: SessionToken| {
+        let session = set.get(token).expect("session");
+        (session.cursor_ease_deadline, session.cursor_slide_deadline)
+    };
+    let holding = |token: SessionToken| {
+        set.get(token)
+            .expect("session")
+            .synchronized_output_hold
+            .is_holding()
+    };
     assert_eq!(
-        ease(focused),
-        Some(deadline),
+        cursor_timers(focused),
+        (Some(deadline), Some(deadline)),
         "the focused pane keeps its timers"
     );
+    assert!(holding(focused), "the focused pane keeps its hold");
     assert_eq!(
-        ease(sibling),
-        None,
+        cursor_timers(sibling),
+        (None, None),
         "a visible sibling parks its cursor timers"
     );
+    assert!(
+        holding(sibling),
+        "a visible sibling keeps its synchronized-output hold"
+    );
     assert_eq!(
-        ease(SessionToken(2)),
-        None,
-        "a background workspace parks everything"
+        cursor_timers(SessionToken(2)),
+        (None, None),
+        "a background workspace parks its cursor timers"
+    );
+    assert!(
+        !holding(SessionToken(2)),
+        "a background workspace parks the hold too"
     );
 }
 

@@ -5,11 +5,15 @@
 //! small reader and writer suffice. The lenient [`parse`] serves tool output
 //! and palette files; profile documents use [`parse_strict`], which also
 //! rejects raw control characters in strings, numbers outside the JSON grammar
-//! or beyond `f64`, and duplicate object keys. Unknown object keys are kept
+//! or beyond `f64`, duplicate object keys, and objects over the member limit.
+//! Unknown object keys are kept
 //! (forward compatibility); the writer emits pretty-printed, hand-editable
 //! output with a stable key order and two-space indentation. Numbers are held
-//! as `f64`, so an unknown integer beyond 2^53 loses exactness on a save.
+//! as `f64`; a profile-document number with more than 15 significant digits,
+//! which `f64` cannot always hold exactly, also keeps its validated literal so
+//! a save writes it back unchanged.
 
+use std::collections::HashSet;
 use std::fmt::Write as _;
 
 /// A parsed JSON value. Object entries keep insertion order so serialize is
@@ -19,6 +23,11 @@ pub(crate) enum Json {
     Null,
     Bool(bool),
     Num(f64),
+    /// A number whose literal has more than [`EXACT_DIGITS`] significant
+    /// digits, so `f64` may not hold it exactly: the `f64` for arithmetic and
+    /// the literal, already checked against the JSON number grammar, for
+    /// writing. Only the strict reader produces it.
+    Exact(f64, String),
     Str(String),
     Arr(Vec<Json>),
     Obj(Vec<(String, Json)>),
@@ -39,7 +48,7 @@ impl Json {
 
     pub(crate) fn as_f64(&self) -> Option<f64> {
         match self {
-            Json::Num(n) => Some(*n),
+            Json::Num(n) | Json::Exact(n, _) => Some(*n),
             _ => None,
         }
     }
@@ -47,7 +56,7 @@ impl Json {
     /// A non-negative, finite number as a `usize`, else `None`.
     pub(crate) fn as_usize(&self) -> Option<usize> {
         match self {
-            Json::Num(n) if n.is_finite() && *n >= 0.0 => Some(*n as usize),
+            Json::Num(n) | Json::Exact(n, _) if n.is_finite() && *n >= 0.0 => Some(*n as usize),
             _ => None,
         }
     }
@@ -100,6 +109,7 @@ fn write_value(out: &mut String, value: &Json, depth: usize) {
         Json::Null => out.push_str("null"),
         Json::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         Json::Num(n) => write_number(out, *n),
+        Json::Exact(_, literal) => out.push_str(literal),
         Json::Str(s) => write_string(out, s),
         Json::Arr(items) => {
             if items.is_empty() {
@@ -138,6 +148,25 @@ fn write_value(out: &mut String, value: &Json, depth: usize) {
             out.push('}');
         }
     }
+}
+
+/// The most significant decimal digits `f64` always holds exactly.
+const EXACT_DIGITS: usize = 15;
+
+/// Significant digits in the mantissa of a JSON number literal: the digits
+/// between the first and last non-zero one, ignoring the sign, the decimal
+/// point and the exponent.
+fn significant_digits(literal: &str) -> usize {
+    let mantissa = literal.split(['e', 'E']).next().unwrap_or("");
+    let digits: Vec<u8> = mantissa.bytes().filter(u8::is_ascii_digit).collect();
+    let Some(first) = digits.iter().position(|digit| *digit != b'0') else {
+        return 0;
+    };
+    let last = digits
+        .iter()
+        .rposition(|digit| *digit != b'0')
+        .unwrap_or(first);
+    last - first + 1
 }
 
 fn write_number(out: &mut String, n: f64) {
@@ -282,6 +311,7 @@ impl Parser {
     fn parse_object(&mut self) -> Result<Json, String> {
         self.expect('{')?;
         let mut entries = Vec::new();
+        let mut keys = HashSet::new();
         self.skip_ws();
         if self.peek() == Some('}') {
             self.pos += 1;
@@ -289,8 +319,11 @@ impl Parser {
         }
         loop {
             self.skip_ws();
+            if self.strict && entries.len() >= super::limits::MAX_PROFILE_JSON_OBJECT_MEMBERS {
+                return Err("object member limit exceeded".to_owned());
+            }
             let key = self.parse_string()?;
-            if self.strict && entries.iter().any(|(existing, _)| *existing == key) {
+            if self.strict && !keys.insert(key.clone()) {
                 return Err(format!("duplicate object key {key:?}"));
             }
             self.skip_ws();
@@ -414,6 +447,9 @@ impl Parser {
         match slice.parse::<f64>() {
             Ok(value) if self.strict && !value.is_finite() => {
                 Err(format!("number '{slice}' is out of range"))
+            }
+            Ok(value) if self.strict && significant_digits(&slice) > EXACT_DIGITS => {
+                Ok(Json::Exact(value, slice))
             }
             Ok(value) => Ok(Json::Num(value)),
             Err(_) => Err(format!("invalid number '{slice}'")),

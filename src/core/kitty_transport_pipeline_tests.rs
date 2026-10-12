@@ -83,8 +83,11 @@ fn a_missing_file_gets_an_error_reply_and_no_placement() {
     let mut terminal = enabled();
     terminal.advance(&apc('f', &dir.path().join("absent.dat"), "i=86"));
     let reply = reply(&mut terminal);
-    assert!(reply.contains(";E"), "{reply}");
-    assert!(!reply.contains(";OK"), "{reply}");
+    // A file that is not there passed admission (the directory is allowed) and
+    // failed to read: `EIO:read-failed`, not a permission, path or marker
+    // refusal, which would mean the request was rejected before it was tried.
+    assert!(reply.ends_with(";EIO:read-failed\x1b\\"), "{reply:?}");
+    assert_eq!(reply.matches(";E").count(), 1, "{reply:?}");
     assert!(terminal.visible_graphics(0).is_empty());
 }
 

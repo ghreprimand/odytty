@@ -880,7 +880,9 @@ The prefix is captured only in a multi-pane tab. A single-pane shell receives
 
 Each pane owns an independent PTY, terminal model, scrollback, viewport,
 selection, search, and cursor. Selection and search highlights render in their
-own pane, while the search query bar stays on the focused pane. Page scrolling,
+own pane, while the search query bar stays on the focused pane. A query too
+long for the bar shows its last characters behind an ellipsis, so the match
+counter stays visible. Page scrolling,
 search jumps, copy-mode caret following, line selection, and the touchpad
 scroll bound measure the focused pane's own rows and columns.
 
@@ -1142,9 +1144,11 @@ runs.
 Inline images (Kitty, iTerm2, sixel, and Kitty Unicode placeholders) appear as
 a single `[image]` line. Image data is never embedded. Neither format adds application
 metadata: the working directory, host, user, profile, window title, and
-environment are not written. The terminal text itself is exported as it
-appears, so anything sensitive on screen or in scrollback is in the file, and
-an allowed `http` or `https` link target is kept as written.
+environment are not written. The terminal text itself is exported as stored,
+so anything sensitive on screen or in scrollback is in the file, and an allowed
+`http` or `https` link target is kept as written. Concealed (SGR 8) text is
+exported as ordinary text, the same as copy and command-output export return
+it, even though the screen does not show it.
 
 Exports share the command-output export limits and writer. A file over 32 MiB
 is refused whole, never truncated, before the dialog opens; the file is encoded
@@ -1625,11 +1629,13 @@ so an incomplete client frame cannot trap shutdown in a framing retry loop.
 
 A transient `accept` failure on Unix (too many open files, memory or buffer
 pressure, or a client that gave up first) is retried rather than stopping the
-endpoint; one that persists for about a second still stops it with a notice.
+endpoint; one that persists for about a second of consecutive failures still
+stops it with a notice, while an idle poll in between starts the count again.
 A client that finds the endpoint's accept queue full waits for a slot until
-its connect deadline. A mutation that failed before any byte was sent,
-including that connect timeout, is reported as `unavailable` and is safe to
-retry; a failure after sending stays `outcome_unknown`.
+its connect deadline and never connects after it. A mutation that failed
+before any byte was sent, including that connect timeout, is reported as
+`unavailable` and is safe to retry; a failure after sending stays
+`outcome_unknown`.
 
 The Windows CLI accepts only the explicit local OdyTTY pipe form; remote UNC
 pipe names are rejected before opening. Windows has no endpoint discovery, so
@@ -2330,6 +2336,11 @@ The profile catalog keeps an explicit mouse-wheel scroll position through
 redraws. Keyboard navigation and filtering resume following the selected row.
 Catalog filters and form text fields ignore control characters. Labels preserve
 exact fits and truncate to the overlay renderer's display-cell width.
+
+Profile saves refuse incomplete case-collision scans. Malformed-file recovery
+claims non-replacing hard-link backups and preserves the source on inspection
+or claim errors. Strict profile JSON admits at most 4,096 members per object.
+See `docs/profiles.md` for filesystem limits and recovery behavior.
 
 - [Named profiles](profiles.md) is the complete guide: the schema, the Profile
   Manager editor (launch, appearance, cursor, effects, layout, switching, and

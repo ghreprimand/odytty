@@ -13,6 +13,10 @@ pub const PROFILE_FILE_SUFFIX: &str = ".profile.json";
 /// Maximum bytes read from one profile file (same class as config/theme caps).
 pub const MAX_PROFILE_FILE_BYTES: u64 = 1 << 20;
 
+/// Maximum members admitted in one strict profile JSON object. The same bound
+/// applies to known and unknown objects before values are parsed.
+pub const MAX_PROFILE_JSON_OBJECT_MEMBERS: usize = 4096;
+
 /// Maximum profiles returned from a local directory scan.
 pub const MAX_PROFILE_ENTRIES: usize = 256;
 
@@ -40,8 +44,9 @@ pub const MAX_PROFILE_SWITCH_HOSTS: usize = 16;
 /// Maximum directory match rules stored on one profile.
 pub const MAX_PROFILE_SWITCH_DIRECTORIES: usize = 16;
 
-/// Maximum directory entries examined while loading the profile catalog,
-/// counting every entry (other files, directories, malformed profiles), so a
+/// Maximum directory entries examined while loading the profile catalog or
+/// checking a save for case-only collisions. Every attempted entry counts
+/// (other files, directories, malformed profiles, and errors), so a
 /// directory full of irrelevant or broken entries cannot make a load
 /// unbounded. Four times [`MAX_PROFILE_ENTRIES`] leaves room for a normal
 /// directory's backups and editor files.

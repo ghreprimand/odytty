@@ -901,8 +901,23 @@ fn a_snapshot_that_cannot_back_its_dimensions_maps_nothing() {
     let mut overflowing = valid.clone();
     overflowing.dimensions = crate::core::Dimensions::new(usize::MAX / 2, 4);
     overflowing.cells.clear();
-    for snapshot in [&short, &overflowing] {
+    // A claim of no columns or no rows is not a grid: the plan must not build
+    // per-row vectors for the other axis.
+    let mut no_columns = valid.clone();
+    no_columns.dimensions = crate::core::Dimensions {
+        columns: 0,
+        rows: 1_000_000,
+    };
+    no_columns.cells.clear();
+    let mut no_rows = valid.clone();
+    no_rows.dimensions = crate::core::Dimensions {
+        columns: 1_000_000,
+        rows: 0,
+    };
+    no_rows.cells.clear();
+    for snapshot in [&short, &overflowing, &no_columns, &no_rows] {
         let map = BidiDisplayMap::plan(snapshot, &[false, false]);
+        assert_eq!(map, BidiDisplayMap::identity(0, 0), "an empty map");
         assert!(map.is_identity());
         assert!(!map.row_is_reordered(0));
         assert_eq!(

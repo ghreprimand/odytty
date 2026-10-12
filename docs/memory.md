@@ -497,9 +497,16 @@ rising.
 
 After the two terms above, what remained of the ring was almost entirely cells -
 97.7% at 100,000 hard-terminated lines - so the size of a stored cell became the
-whole question. `Cell` is 44 bytes and 16 of them are `combining: [char; 4]`
+whole question. `Cell` was 44 bytes and 16 of them were `combining: [char; 4]`
 plus its length byte, an inline array that is empty for effectively every cell
 in real content.
+
+**Revision.** The measurements in this section are dated: they were taken with
+the 44-byte `Cell`. Since the extended-cluster change `Cell` holds up to 16
+extension scalars inline, stays `Copy`, and is 92 bytes; `StoredCell` is still
+28 bytes. Compile-time assertions pin both sizes (`src/core/stored_cell.rs`),
+and the ring saving against the live cell is now larger than the tables show.
+The current ring cost per cell and break-even are stated after the tables below.
 
 The obvious change - narrow `Cell` itself and put marks in a side table - cannot
 be built. `Cell::combining` returns a borrow of data inside the cell, and the
@@ -532,13 +539,21 @@ the reduction lands slightly under the 35.3-36.2% projected before the work:
 that projection held the slot constant. The gap is the cost of the handle on
 every line, including the mark-free ones.
 
-**A cell carrying marks costs more than it used to.** It is 28 bytes plus a
-32-byte sidecar entry, against 44 bytes inline before. Break-even is at roughly
-45% of cells carrying combining marks: below that the per-cell saving dominates,
-above it this representation is worse than the one it replaced. Real content is
-nowhere near that density, and the corpus that is - text that is mostly
-combining marks - is the case this design is deliberately worst for. The figure
-is measured, not assumed, by `mark_density_cost`.
+**A cell carrying marks costs more than it used to.** With the 44-byte `Cell`
+it was 28 bytes plus a 32-byte sidecar entry, against 44 bytes inline before,
+and break-even was at roughly 45% of cells carrying combining marks: below that
+the per-cell saving dominates, above it this representation is worse than the
+one it replaced. Real content is nowhere near that density, and the corpus that
+is - text that is mostly combining marks - is the case this design is
+deliberately worst for. The figure is measured, not assumed, by
+`mark_density_cost`.
+
+With the 92-byte `Cell` the same harness (10,000 hard-terminated 80-column
+lines, capacity-inclusive ring bytes) reports 29.97 bytes per retained cell
+without marks, 67% below the 92 bytes an inline cell costs, and 80 more bytes
+for each cell carrying one combining mark. Break-even against the inline cell
+is at 77.5% of cells marked, so the pathological corpus still loses (it marks
+every cell) and any realistic one wins by a wider margin than before.
 
 The sidecar's key is a `usize`, not a narrower integer. A soft-wrapped logical
 line is not bounded by the terminal width - it is bounded by
@@ -566,6 +581,38 @@ against the cold-path gain.
 **Windows:** no platform surface. This is core terminal storage with no
 platform-specific branch; the same code runs on every target and the
 `windows-latest` CI leg is the check.
+
+### Live cell size: the measured cost of the 92-byte `Cell`
+
+The live `Cell` grew from 44 to 92 bytes so that up to 16 extension scalars sit
+inline and `Cell` stays `Copy`. The change landed without a before/after
+capture; this is that capture. It ran `cargo bench --bench perf` (the model
+benchmark, default profile, best of three inside each run) on one idle
+workstation with one toolchain and the release profile, for the commit before
+the change and the commit that made it, three runs each, alternating. The table
+shows medians of the three; between the three runs, each listed row varied by
+at most 6%. The `snapshot_with_scrollback(1000)` row varied by 82% on the
+earlier commit and is left out.
+
+| row | 44-byte `Cell` | 92-byte `Cell` | ratio |
+| --- | --- | --- | --- |
+| full repaint, 2,000 frames | 20.36 ms | 35.65 ms | 1.75 |
+| plain ASCII, 5,000 lines | 4.11 ms | 5.99 ms | 1.46 |
+| `snapshot()` | 4.55 ms | 7.53 ms | 1.65 |
+| `snapshot()` + cursor tail | 4.64 ms | 9.46 ms | 2.04 |
+| resize reflow, deep scrollback | 13.94 ms | 18.09 ms | 1.30 |
+| resize reflow, shallow scrollback | 21.22 ms | 28.05 ms | 1.32 |
+| `build_vertices()` | 146.90 ms | 117.90 ms | 0.80 |
+| parser only (five rows, each under 4 ms) | | | 1.00 to 1.08 |
+
+The rows that copy or rebuild whole grids move with the cell size; the parser
+alone does not. The two commits also differ in the cluster logic that owns the
+extension scalars, so the figures are the cost of the whole change, not of the
+size alone. A spill representation (two scalars inline, the rest in a side
+table) was not built or measured, and none is adopted: the figures stand as the
+baseline a later change that claims to recover this cost has to beat. The
+memory regression guard was not re-run for this change; it needs a recorded
+environment class and a window at the recorded geometry.
 
 ### Scrollback: an aggregate cell budget and windowed rows
 

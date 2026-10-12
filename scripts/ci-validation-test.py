@@ -53,6 +53,36 @@ class RequiredValidation(unittest.TestCase):
         everything = GPU + SHELL + COMPOSITE
         self.assertEqual(len(set(everything)), len(everything))
 
+    def test_every_required_name_is_one_real_test(self):
+        definitions = {}
+        for path in sorted((ROOT / "src").rglob("*.rs")) + sorted((ROOT / "tests").rglob("*.rs")):
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for index, line in enumerate(lines):
+                stripped = line.strip()
+                if not stripped.startswith("fn ") or "(" not in stripped:
+                    continue
+                name = stripped[3:].split("(", 1)[0]
+                # The attribute block above the function, back to the first
+                # line that is not an attribute, comment, or continuation.
+                above = []
+                for previous in reversed(lines[max(0, index - 12):index]):
+                    text = previous.strip()
+                    if not (text.startswith(("#[", "//", ")", "]", "target_os", "ignore", "not("))
+                            or text.endswith(",")):
+                        break
+                    above.append(text)
+                definitions.setdefault(name, []).append(
+                    (path.relative_to(ROOT).as_posix(), "#[test]" in above)
+                )
+        for name in GPU + SHELL + COMPOSITE:
+            with self.subTest(name=name):
+                found = definitions.get(name, [])
+                self.assertEqual(len(found), 1, f"{name} must be defined exactly once: {found}")
+                self.assertTrue(found[0][1], f"{name} must be a #[test] function: {found}")
+        for name in COMPOSITE:
+            with self.subTest(composite=name):
+                self.assertEqual(definitions[name][0][0], "tests/gpu_composite_smoke.rs")
+
     def test_complete_proof_set_passes(self):
         self.assertEqual(self.run_fixture(PROOFS).returncode, 0)
 

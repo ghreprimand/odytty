@@ -954,3 +954,94 @@ fn a_cut_read_drops_the_partial_last_line() {
         Some("long.example.invalid")
     );
 }
+
+/// The cut is found in file bytes, a byte order mark included, so a file with
+/// a mark that the limit cuts inside `HostName` drops the partial line just as
+/// a file without one does, on the byte parser and the file reader alike.
+/// Before, the mark was removed before the length check, so such a file read
+/// as complete and kept the cut value.
+#[test]
+fn a_cut_read_with_a_byte_order_mark_drops_the_partial_last_line() {
+    for bom in [&b""[..], UTF8_BOM] {
+        let mut file = bom.to_vec();
+        file.extend_from_slice(b"Host a\n    HostName long.example.invalid\n");
+        let cut = bom.len() + "Host a\n    HostName long.exa".len();
+        let dir = crate::test_dirs::ScratchDir::new("odytty-hosts-bom-cut");
+        let path = dir.path().join("hosts.conf");
+        fs::write(&path, &file).expect("fixture");
+        for max_bytes in [cut, cut + 1, cut + 2] {
+            let limited = ConnectionHostsLimits {
+                max_bytes: max_bytes as u64,
+                ..limits()
+            };
+            let parsed = parse_odytty_hosts_bytes_with_limits(&file, limited);
+            let read = read_odytty_hosts_with_limits(&path, limited);
+            for (source, entries) in [("bytes", &parsed), ("file", &read)] {
+                assert_eq!(
+                    entries.len(),
+                    1,
+                    "{source}, mark {}, cap {max_bytes}",
+                    bom.len()
+                );
+                assert_eq!(entries[0].alias, "a");
+                assert_eq!(
+                    entries[0].host_name,
+                    None,
+                    "{source}, mark {}, cap {max_bytes}: the cut HostName is dropped",
+                    bom.len()
+                );
+            }
+        }
+        // Ending exactly at the limit, the file is whole.
+        let whole = ConnectionHostsLimits {
+            max_bytes: file.len() as u64,
+            ..limits()
+        };
+        for entries in [
+            parse_odytty_hosts_bytes_with_limits(&file, whole),
+            read_odytty_hosts_with_limits(&path, whole),
+        ] {
+            assert_eq!(
+                entries[0].host_name.as_deref(),
+                Some("long.example.invalid"),
+                "mark {}",
+                bom.len()
+            );
+        }
+    }
+}
+
+/// When the first byte past the limit is a newline, the last line inside the
+/// limit is complete and is kept, with or without a byte order mark.
+#[test]
+fn a_cut_just_before_a_newline_keeps_the_complete_last_line() {
+    for bom in [&b""[..], UTF8_BOM] {
+        let mut file = bom.to_vec();
+        file.extend_from_slice(b"Host a\n    HostName a.example.invalid\nHost b\n");
+        let limit = bom.len() + "Host a\n    HostName a.example.invalid".len();
+        let limited = ConnectionHostsLimits {
+            max_bytes: limit as u64,
+            ..limits()
+        };
+        let dir = crate::test_dirs::ScratchDir::new("odytty-hosts-newline-cut");
+        let path = dir.path().join("hosts.conf");
+        fs::write(&path, &file).expect("fixture");
+        for entries in [
+            parse_odytty_hosts_bytes_with_limits(&file, limited),
+            read_odytty_hosts_with_limits(&path, limited),
+        ] {
+            assert_eq!(
+                entries.len(),
+                1,
+                "mark {}: host b is past the limit",
+                bom.len()
+            );
+            assert_eq!(
+                entries[0].host_name.as_deref(),
+                Some("a.example.invalid"),
+                "mark {}",
+                bom.len()
+            );
+        }
+    }
+}

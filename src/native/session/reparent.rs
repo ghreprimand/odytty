@@ -93,6 +93,14 @@ enum RestorePoint {
     },
 }
 
+/// What a move takes: the active workspace and tab indices, resolved once,
+/// and the session tokens in that tab or pane.
+struct MoveSource {
+    ws_idx: usize,
+    tab_idx: usize,
+    tokens: Vec<SessionToken>,
+}
+
 /// A removed workspace without its tabs.
 #[derive(Debug, Clone)]
 struct WorkspaceShell {
@@ -132,12 +140,17 @@ impl MovedContent {
 
 impl WorkspaceSet {
     /// The tokens `scope` would move out of this set, or why it cannot.
-    fn tokens_for_move(&self, scope: MoveScope) -> Result<Vec<SessionToken>, MoveError> {
+    /// The tokens `scope` takes, with the workspace and tab indices they were
+    /// resolved from, so [`Self::detach_for_move`] removes exactly what was
+    /// checked.
+    fn tokens_for_move(&self, scope: MoveScope) -> Result<MoveSource, MoveError> {
         if self.workspaces.is_empty() {
             return Err(MoveError::SourceEmpty);
         }
-        let ws = self.active_workspace();
-        let Some(tab) = ws.tabs.get(ws.active_tab) else {
+        let ws_idx = self.active_workspace_slot();
+        let ws = &self.workspaces[ws_idx];
+        let tab_idx = ws.active_tab;
+        let Some(tab) = ws.tabs.get(tab_idx) else {
             return Err(MoveError::SourceEmpty);
         };
         let tokens = match scope {
@@ -149,7 +162,11 @@ impl WorkspaceSet {
                 return Err(MoveError::MissingSession(*token));
             }
         }
-        Ok(tokens)
+        Ok(MoveSource {
+            ws_idx,
+            tab_idx,
+            tokens,
+        })
     }
 
     /// Whether `scope` would take this set's last tab of its last workspace,
@@ -176,7 +193,7 @@ impl WorkspaceSet {
         source: &WorkspaceSet,
         scope: MoveScope,
     ) -> Result<(), MoveError> {
-        let tokens = source.tokens_for_move(scope)?;
+        let tokens = source.tokens_for_move(scope)?.tokens;
         if let Some(token) = tokens
             .iter()
             .find(|token| self.sessions.contains_key(token))
@@ -203,9 +220,11 @@ impl WorkspaceSet {
         &mut self,
         scope: MoveScope,
     ) -> Result<MovedContent, MoveError> {
-        let tokens = self.tokens_for_move(scope)?;
-        let ws_idx = self.active_ws;
-        let tab_idx = self.workspaces[ws_idx].active_tab;
+        let MoveSource {
+            ws_idx,
+            tab_idx,
+            tokens,
+        } = self.tokens_for_move(scope)?;
         let single_pane = self.workspaces[ws_idx].tabs[tab_idx]
             .layout
             .is_single_pane();

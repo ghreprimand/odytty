@@ -171,9 +171,7 @@ fn shell_registry_candidates(reader: impl Read) -> Vec<String> {
 
 #[cfg(windows)]
 fn program_exists(program: &str) -> bool {
-    std::env::var("PATH")
-        .ok()
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+    on_search_path(program)
 }
 
 /// Parse `wsl.exe --list --quiet` output (UTF-16LE, often BOM-prefixed).
@@ -226,9 +224,27 @@ fn program_exists_path(program: &str) -> bool {
     if path.components().count() > 1 {
         return path.is_file();
     }
-    std::env::var("PATH")
-        .ok()
-        .is_some_and(|search| std::env::split_paths(&search).any(|dir| dir.join(program).is_file()))
+    on_search_path(program)
+}
+
+/// Whether `program` is an existing file in an entry of the process `PATH`.
+fn on_search_path(program: &str) -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|search| listed_in_search_path(program, &search, Path::is_file))
+}
+
+/// Whether `is_file` accepts `program` joined to an *absolute* entry of
+/// `search`. An empty entry, `.` or any other relative entry would resolve
+/// against the working directory, so it never counts; the PTY launch lookups
+/// apply the same rule.
+fn listed_in_search_path(
+    program: &str,
+    search: &std::ffi::OsStr,
+    is_file: impl Fn(&Path) -> bool,
+) -> bool {
+    std::env::split_paths(search)
+        .filter(|dir| dir.is_absolute())
+        .any(|dir| is_file(&dir.join(program)))
 }
 
 #[cfg(test)]
@@ -295,6 +311,39 @@ mod tests {
         assert!(!program_exists_path("Cargo.toml"));
         // A path with a directory part is still checked as given.
         assert!(program_exists_path("./Cargo.toml"));
+    }
+
+    #[test]
+    fn relative_and_empty_search_path_entries_never_list_a_program() {
+        use std::path::PathBuf;
+        let absolute = std::env::temp_dir().join("odytty-discovery-path");
+        let search = std::env::join_paths([
+            PathBuf::new(),
+            PathBuf::from("."),
+            PathBuf::from("bin"),
+            absolute.clone(),
+        ])
+        .expect("joinable");
+        // A file check that accepts every candidate still finds the program only
+        // through the absolute entry.
+        let seen = std::cell::RefCell::new(Vec::new());
+        assert!(listed_in_search_path("tool", &search, |candidate| {
+            seen.borrow_mut().push(candidate.to_path_buf());
+            true
+        }));
+        assert_eq!(*seen.borrow(), [absolute.join("tool")]);
+        // Without an absolute entry nothing is found, even when every file
+        // exists.
+        let relative_only =
+            std::env::join_paths([PathBuf::new(), PathBuf::from(".")]).expect("joinable");
+        assert!(!listed_in_search_path("tool", &relative_only, |_| true));
+        // A real file in the working directory is not listed through `.`.
+        assert!(Path::new("Cargo.toml").is_file());
+        assert!(!listed_in_search_path(
+            "Cargo.toml",
+            &relative_only,
+            Path::is_file
+        ));
     }
 
     #[test]

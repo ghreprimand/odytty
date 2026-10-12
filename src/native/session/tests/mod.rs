@@ -66,21 +66,51 @@ fn test_selection() -> AbsoluteSelectionRange {
     }
 }
 
-/// Build a session whose pump (reader) thread is PARKED and will not exit on
-/// its own for `park` - the shape a wedged remote leaves behind (the ssh
-/// child never delivers EOF, so the reader never returns). Used to prove the
-/// shutdown teardown does not block the caller on that join.
-fn build_session_with_parked_reader(id: SessionToken, park: std::time::Duration) -> Session {
+/// Holds a parked reader from [`build_session_with_parked_reader`]. The
+/// reader stays parked until this gate is dropped (or a minute passes), and
+/// [`Self::released`] reports whether it has finished.
+struct ReaderGate {
+    _release: std::sync::mpsc::Sender<()>,
+    finished: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl ReaderGate {
+    fn released(&self) -> bool {
+        self.finished.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+
+/// How long a parked reader waits for its gate before it gives up. A teardown
+/// that joined the reader on the caller would block this long, and then see
+/// it finished.
+const PARKED_READER_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Build a session whose pump (reader) thread is PARKED and will not exit
+/// until its [`ReaderGate`] is dropped - the shape a wedged remote leaves
+/// behind (the ssh child never delivers EOF, so the reader never returns).
+/// Used to prove the teardown returns before that join completes, without a
+/// wall-clock bound.
+fn build_session_with_parked_reader(id: SessionToken) -> (Session, ReaderGate) {
     let dims = Dimensions::new(20, 8);
     let pty = spawn_test_pause_shell(dims).expect("spawn test shell");
     let writer: PtyWriter = Arc::new(Mutex::new(pty.take_writer().expect("writer")));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let pty = Arc::new(Mutex::new(pty));
+    let (release, parked_on) = std::sync::mpsc::channel::<()>();
+    let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let finished_signal = finished.clone();
     let parked = std::thread::Builder::new()
         .name("test-wedged-reader".to_owned())
-        .spawn(move || std::thread::sleep(park))
+        .spawn(move || {
+            let _ = parked_on.recv_timeout(PARKED_READER_LIMIT);
+            finished_signal.store(true, std::sync::atomic::Ordering::Release);
+        })
         .expect("spawn parked reader");
-    Session::new(id, terminal, writer, pty, Some(parked))
+    let gate = ReaderGate {
+        _release: release,
+        finished,
+    };
+    (Session::new(id, terminal, writer, pty, Some(parked)), gate)
 }
 
 /// A workspace set backed by the process-wide test event loop, so spawns get a

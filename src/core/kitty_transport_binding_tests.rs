@@ -171,6 +171,38 @@ fn a_planted_final_component_link_does_not_deliver_the_outside_file() {
     assert!(target.exists(), "a refused read leaves the target in place");
 }
 
+/// A directory link planted inside the admitted root resolves outside it when
+/// the path is canonicalized, so a file reached through it is not delivered.
+/// Creating a directory link needs the same privilege as a file link; a
+/// refusal to create one skips the check loudly instead of passing it.
+#[cfg(windows)]
+#[test]
+fn a_planted_ancestor_directory_link_does_not_deliver_the_outside_file() {
+    let fixture = FixtureDir::new("win-dir-link");
+    let allowed = fixture.child_dir("allowed");
+    let outside = fixture.child_dir("outside");
+    let target = outside.join("control.bin");
+    std::fs::write(&target, b"outside control bytes").expect("seed outside control file");
+    let link = allowed.join("planted-dir");
+    if let Err(error) = std::os::windows::fs::symlink_dir(&outside, &link) {
+        eprintln!("skipped: directory links cannot be created here: {error}");
+        return;
+    }
+    let _roots = test_hooks::restrict_roots(&[&allowed]);
+    let through = link.join("control.bin");
+    let result = transport::read_file_transport(&path_bytes(&through), 4096);
+    assert_ne!(
+        result,
+        Ok(b"outside control bytes".to_vec()),
+        "the link must not deliver the outside file"
+    );
+    assert!(
+        result.is_err(),
+        "a path through a planted link is refused: {result:?}"
+    );
+    assert!(target.exists(), "a refused read leaves the target in place");
+}
+
 // ---------------------------------------------------------------------------
 // Unix: deterministic rebinding at the interleaving points.
 // ---------------------------------------------------------------------------

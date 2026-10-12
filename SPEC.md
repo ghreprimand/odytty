@@ -169,8 +169,12 @@ code; `portable-pty` and `crossterm` are gone from the dependency tree.
   absolute path (`%SystemRoot%\System32\cmd.exe` when `%ComSpec%` is not
   drive-absolute). A bare program name from a profile or `--exec` is pinned to
   the absolute file found in the executable's directory, `System32`, the Windows
-  directory and `PATH`, never the launch directory. Dropping a session waits at
-  most one second for a killed child before detaching its waiter thread. `spawn_shell_command`
+  directory and `PATH`, never the launch directory; a bare name found in none
+  of them is refused with a "was not found" error before any pseudoconsole is
+  created, rather than left for `CreateProcessW` to search the launch
+  directory. A program given with a directory part is used as given. Dropping a
+  session waits at most one second for a killed child before detaching its
+  waiter thread. `spawn_shell_command`
   selects the one-shot flag by shell family - `cmd /C <command>` for cmd,
   `powershell -NoProfile -Command <command>` for PowerShell - the Windows
   analogue of the Unix `$SHELL -lc` split, not a `-lc` login shell. The
@@ -2307,6 +2311,11 @@ The profile catalog keeps an explicit mouse-wheel scroll position through
 redraws. Keyboard navigation and filtering resume following the selected row.
 Catalog filters and form text fields ignore control characters. Labels preserve
 exact fits and truncate to the overlay renderer's display-cell width.
+
+Profile saves refuse incomplete case-collision scans. Malformed-file recovery
+claims non-replacing hard-link backups and preserves the source on inspection
+or claim errors. Strict profile JSON admits at most 4,096 members per object.
+See `docs/profiles.md` for filesystem limits and recovery behavior.
 
 The v0.14.0 named-profile foundation (versioned on-disk schema, local
 catalog, precedence resolver, migration helpers) and settings Profile Manager

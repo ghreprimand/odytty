@@ -350,12 +350,24 @@ fn visible_range_for_match(
     })
 }
 
+/// Whether the search painters can index `snapshot`: both sides are nonzero
+/// and it holds a cell for every position its dimensions claim. The terminal
+/// never produces anything else, but the painters subtract one from each side.
+fn paintable(snapshot: &Snapshot) -> bool {
+    snapshot.dimensions.rows > 0
+        && snapshot.dimensions.columns > 0
+        && crate::grid::snapshot_shape_is_valid(snapshot)
+}
+
 fn apply_match_highlight(
     snapshot: &mut Snapshot,
     range: SelectionRange,
     current: bool,
     themed: Option<SearchStyle>,
 ) {
+    if !paintable(snapshot) {
+        return;
+    }
     let start_row = range.start.row.min(snapshot.dimensions.rows - 1);
     let end_row = range.end.row.min(snapshot.dimensions.rows - 1);
 
@@ -410,6 +422,9 @@ fn apply_match_highlight(
 }
 
 fn apply_search_bar(snapshot: &mut Snapshot, search: &SearchUi) {
+    if !paintable(snapshot) {
+        return;
+    }
     let columns = snapshot.dimensions.columns;
     let row = snapshot.dimensions.rows - 1;
     let start = row * columns;
@@ -418,39 +433,47 @@ fn apply_search_bar(snapshot: &mut Snapshot, search: &SearchUi) {
         *cell = Cell::new(' ', attrs);
     }
 
-    let status = match (
-        search.current_index(),
-        search.matches.len(),
-        search.query.is_empty(),
-    ) {
-        (_, _, true) => {
-            if search.scope.is_some() {
-                " Search Command: ".to_owned()
-            } else {
-                " Search: ".to_owned()
-            }
-        }
-        (Some(index), total, false) => {
-            let label = if search.scope.is_some() {
-                "Search Command"
-            } else {
-                "Search"
-            };
-            format!(" {label}: {}  {index}/{total}", search.query)
-        }
-        (None, _, false) => {
-            let label = if search.scope.is_some() {
-                "Search Command"
-            } else {
-                "Search"
-            };
-            format!(" {label}: {}  0/0", search.query)
-        }
+    let label = if search.scope.is_some() {
+        "Search Command"
+    } else {
+        "Search"
+    };
+    let prefix = format!(" {label}: ");
+    let status = if search.query.is_empty() {
+        prefix
+    } else {
+        let counter = match search.current_index() {
+            Some(index) => format!("  {index}/{}", search.matches.len()),
+            None => "  0/0".to_owned(),
+        };
+        fit_query(&prefix, &search.query, &counter, columns)
     };
     // The status echoes the typed query, so it is painted by terminal owners:
     // a combining mark or an emoji sequence stays with its base.
-    let columns = snapshot.dimensions.columns;
     super::overlay::write_text(snapshot, row, 0, columns, &status, attrs);
+}
+
+/// The search bar text for a query: `prefix`, the query and `counter`. A query
+/// too long for `columns` keeps its tail behind an ellipsis, so the last typed
+/// owners and the match counter stay visible. A bar too narrow to show the
+/// prefix, the counter, the ellipsis and one cell of query shows the untrimmed
+/// text cut at the right edge.
+fn fit_query(prefix: &str, query: &str, counter: &str, columns: usize) -> String {
+    use super::overlay::{fit_chars_tail, text_display_width};
+    let full = format!("{prefix}{query}{counter}");
+    if text_display_width(&full) <= columns {
+        return full;
+    }
+    let room = columns
+        .saturating_sub(text_display_width(prefix))
+        .saturating_sub(text_display_width(counter));
+    if room < 2 {
+        return full;
+    }
+    format!(
+        "{prefix}\u{2026}{}{counter}",
+        fit_chars_tail(query, room - 1)
+    )
 }
 
 fn search_bar_attrs() -> Attrs {
@@ -914,41 +937,113 @@ mod tests {
     }
 
     #[test]
-    fn a_status_longer_than_the_bar_is_cut_at_the_edge_without_touching_other_rows() {
+    fn a_long_query_keeps_its_tail_and_counter_without_touching_other_rows() {
         let mut terminal = Terminal::new(20, 3);
         terminal.advance(b"aaaa");
         let original = terminal.snapshot();
         let mut snapshot = original.clone();
         let mut ui = SearchUi::default();
         ui.open();
-        for _ in 0..30 {
+        for _ in 0..29 {
             ui.push_char('a');
         }
+        ui.push_char('z');
         ui.refresh(&terminal);
         apply_search_ui(&mut snapshot, &ui, 0, 0, Dimensions::new(20, 3), None);
         assert_eq!(snapshot.cells.len(), original.cells.len());
-        assert_eq!(bar_text(&snapshot), " Search: aaaaaaaaaaa");
+        // Nine cells of label, five of counter, the ellipsis and the last
+        // five typed owners.
+        assert_eq!(bar_text(&snapshot), " Search: \u{2026}aaaaz  0/0");
         assert_eq!(snapshot.cells[..40], original.cells[..40], "other rows");
     }
 
     #[test]
-    fn a_wide_owner_that_does_not_fit_the_bar_is_left_out_whole() {
+    fn a_query_that_fits_is_shown_whole_with_its_counter() {
+        let mut terminal = Terminal::new(20, 3);
+        terminal.advance(b"ab ab");
+        let mut snapshot = terminal.snapshot();
+        let mut ui = SearchUi::default();
+        ui.open();
+        ui.push_char('a');
+        ui.push_char('b');
+        ui.refresh(&terminal);
+        apply_search_ui(&mut snapshot, &ui, 0, 0, Dimensions::new(20, 3), None);
+        let index = ui.current_index().expect("a current match");
+        assert_eq!(
+            bar_text(&snapshot).trim_end(),
+            format!(" Search: ab  {index}/2")
+        );
+    }
+
+    #[test]
+    fn a_wide_owner_that_does_not_fit_the_query_tail_is_left_out_whole() {
         let mut terminal = Terminal::new(20, 3);
         terminal.advance(b"x");
         let mut snapshot = terminal.snapshot();
         let mut ui = SearchUi::default();
         ui.open();
-        // " Search: " takes nine cells and ten letters reach column 18, so the
-        // wide owner would need columns 19 and 20.
-        for _ in 0..10 {
-            ui.push_char('a');
+        // Nine cells of label and five of counter leave six: the ellipsis
+        // and five cells of tail. Four letters take four of them, and the
+        // wide owner before them would need two more.
+        for ch in "aaaaaaaaaa\u{6f22}aaaa".chars() {
+            ui.push_char(ch);
         }
-        ui.push_char('\u{6f22}');
         ui.refresh(&terminal);
         apply_search_ui(&mut snapshot, &ui, 0, 0, Dimensions::new(20, 3), None);
-        assert_eq!(bar_text(&snapshot), " Search: aaaaaaaaaa ");
-        let last = &snapshot.cells[2 * 20 + 19];
-        assert_eq!(last.ch, ' ');
-        assert!(!last.wide_continuation, "no half-painted wide tail");
+        assert_eq!(bar_text(&snapshot), " Search: \u{2026}aaaa  0/0 ");
+        assert!(
+            snapshot.cells[2 * 20..]
+                .iter()
+                .all(|cell| !cell.wide_continuation),
+            "no half-painted wide tail"
+        );
+    }
+
+    #[test]
+    fn a_bar_too_narrow_for_label_and_counter_cuts_the_status_at_the_edge() {
+        let mut terminal = Terminal::new(12, 3);
+        terminal.advance(b"x");
+        let mut snapshot = terminal.snapshot();
+        let mut ui = SearchUi::default();
+        ui.open();
+        for _ in 0..8 {
+            ui.push_char('a');
+        }
+        ui.refresh(&terminal);
+        apply_search_ui(&mut snapshot, &ui, 0, 0, Dimensions::new(12, 3), None);
+        assert_eq!(bar_text(&snapshot), " Search: aaa");
+    }
+
+    #[test]
+    fn a_snapshot_with_a_zero_side_or_missing_cells_is_left_unpainted() {
+        let mut ui = SearchUi::default();
+        ui.open();
+        ui.push_char('a');
+        ui.matches.push(SearchMatch {
+            start: point(0, 0),
+            end: point(0, 0),
+        });
+        ui.current = ui.matches.first().copied();
+        for (columns, rows, cells) in [(0, 3, 0), (20, 0, 0), (20, 3, 59)] {
+            let mut snapshot = Terminal::new(20, 3).snapshot();
+            snapshot.dimensions.columns = columns;
+            snapshot.dimensions.rows = rows;
+            snapshot.cells.truncate(cells);
+            let before = snapshot.cells.clone();
+            apply_search_ui(&mut snapshot, &ui, 0, 0, Dimensions::new(20, 3), None);
+            apply_match_highlight(
+                &mut snapshot,
+                SelectionRange {
+                    start: selection::CellPoint { row: 0, column: 0 },
+                    end: selection::CellPoint { row: 2, column: 19 },
+                },
+                true,
+                None,
+            );
+            assert_eq!(
+                snapshot.cells, before,
+                "{columns}x{rows} with {cells} cells"
+            );
+        }
     }
 }

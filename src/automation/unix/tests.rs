@@ -6,6 +6,7 @@
 //! checks, path permissions, framing, disconnect cancel, and saturation are
 //! exercised with synthetic fixture directories only.
 
+use super::connection::{CONNECT_RETRY_INTERVAL, retry_connect};
 use super::*;
 use crate::automation::dispatch::{self, MAX_PER_DISPATCH};
 use crate::automation::protocol::{
@@ -1110,4 +1111,242 @@ fn a_full_accept_queue_is_waited_for_until_the_deadline() {
     });
     connect(&fixture.socket, Duration::from_secs(5)).expect("a freed slot is taken");
     drop(accepter.join().expect("accepter"));
+}
+
+/// A fake clock for [`retry_connect`]: time moves only when the attempt or the
+/// sleep says so, so no assertion depends on scheduling.
+struct FakeClock {
+    base: Instant,
+    elapsed: std::cell::Cell<Duration>,
+}
+
+impl FakeClock {
+    fn new() -> Self {
+        Self {
+            base: Instant::now(),
+            elapsed: std::cell::Cell::new(Duration::ZERO),
+        }
+    }
+    fn now(&self) -> Instant {
+        self.base + self.elapsed.get()
+    }
+    fn advance(&self, by: Duration) {
+        self.elapsed.set(self.elapsed.get() + by);
+    }
+}
+
+fn would_block() -> io::Error {
+    io::Error::from(io::ErrorKind::WouldBlock)
+}
+
+/// An attempt that is interrupted every time stops at the deadline instead of
+/// retrying without end.
+#[test]
+fn interrupted_connect_attempts_stop_at_the_deadline() {
+    let clock = FakeClock::new();
+    let deadline = clock.now() + Duration::from_millis(20);
+    let attempts = std::cell::Cell::new(0u32);
+    let result = retry_connect(
+        deadline,
+        || clock.now(),
+        |_| panic!("an interrupted attempt does not sleep"),
+        || {
+            attempts.set(attempts.get() + 1);
+            assert!(attempts.get() < 1_000, "retries ran past the deadline");
+            clock.advance(Duration::from_millis(1));
+            Err(io::Error::from(io::ErrorKind::Interrupted))
+        },
+    );
+    let error = result.expect_err("never connects");
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut, "{error}");
+    assert!(
+        (20..=21).contains(&attempts.get()),
+        "attempts stop once the deadline passes: {}",
+        attempts.get()
+    );
+}
+
+/// A queue that frees only after the deadline is not connected to late: no
+/// attempt runs at or after the deadline, and each sleep is bounded by the
+/// time left.
+#[test]
+fn a_connect_retry_never_runs_or_succeeds_after_the_deadline() {
+    let clock = FakeClock::new();
+    let timeout = Duration::from_millis(12);
+    let deadline = clock.now() + timeout;
+    let attempt_times = std::cell::RefCell::new(Vec::new());
+    let sleeps = std::cell::RefCell::new(Vec::new());
+    let result = retry_connect(
+        deadline,
+        || clock.now(),
+        |duration| {
+            sleeps.borrow_mut().push(duration);
+            clock.advance(duration);
+        },
+        || {
+            let at = clock.elapsed.get();
+            attempt_times.borrow_mut().push(at);
+            // The queue frees exactly at the deadline.
+            if at >= timeout {
+                Ok(())
+            } else {
+                Err(would_block())
+            }
+        },
+    );
+    let error = result.expect_err("the deadline passed before the queue freed");
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut, "{error}");
+    assert!(
+        attempt_times.borrow().iter().all(|at| *at < timeout),
+        "no attempt at or after the deadline: {:?}",
+        attempt_times.borrow()
+    );
+    assert_eq!(
+        *sleeps.borrow(),
+        [
+            CONNECT_RETRY_INTERVAL,
+            CONNECT_RETRY_INTERVAL,
+            timeout - CONNECT_RETRY_INTERVAL * 2
+        ],
+        "the last sleep is the time left, not a full interval"
+    );
+}
+
+/// The first attempt is always made, so a zero timeout still connects to a
+/// ready listener and reports a full queue as a timeout.
+#[test]
+fn the_first_connect_attempt_runs_even_with_no_time_left() {
+    let clock = FakeClock::new();
+    let attempts = std::cell::Cell::new(0u32);
+    retry_connect(
+        clock.now(),
+        || clock.now(),
+        |_| panic!("no time to sleep"),
+        || {
+            attempts.set(attempts.get() + 1);
+            Ok(())
+        },
+    )
+    .expect("a ready listener connects at once");
+    assert_eq!(attempts.get(), 1);
+    let error = retry_connect(
+        clock.now(),
+        || clock.now(),
+        |_| panic!("no time to sleep"),
+        || Err(would_block()),
+    )
+    .expect_err("a full queue with no time left");
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut, "{error}");
+}
+
+/// A queue that frees before the deadline is connected to, and any other error
+/// is handed back untouched for the caller.
+#[test]
+fn a_connect_retry_succeeds_before_the_deadline_and_passes_other_errors_on() {
+    let clock = FakeClock::new();
+    let deadline = clock.now() + Duration::from_secs(1);
+    let mut full = 3;
+    retry_connect(
+        deadline,
+        || clock.now(),
+        |duration| clock.advance(duration),
+        || {
+            if full > 0 {
+                full -= 1;
+                Err(would_block())
+            } else {
+                Ok(())
+            }
+        },
+    )
+    .expect("the queue freed in time");
+    assert_eq!(clock.elapsed.get(), CONNECT_RETRY_INTERVAL * 3);
+    let error = retry_connect(
+        deadline,
+        || clock.now(),
+        |_| panic!("not retried"),
+        || Err(io::Error::from_raw_os_error(libc::ECONNREFUSED)),
+    )
+    .expect_err("refused");
+    assert_eq!(error.raw_os_error(), Some(libc::ECONNREFUSED));
+}
+
+/// A `WouldBlock` accept is an idle poll, not a failure: it ends the transient
+/// streak, so errors spread over a long session never reach the limit.
+#[test]
+fn an_idle_accept_resets_the_transient_error_streak() {
+    let aborted = io::Error::from_raw_os_error(libc::ECONNABORTED);
+    let idle = io::Error::from(io::ErrorKind::WouldBlock);
+    let mut streak = 0;
+    for _ in 0..10 * MAX_TRANSIENT_ACCEPT_ERRORS {
+        for _ in 0..MAX_TRANSIENT_ACCEPT_ERRORS {
+            assert_eq!(accept_error_step(&aborted, &mut streak), AcceptStep::Retry);
+        }
+        assert_eq!(accept_error_step(&idle, &mut streak), AcceptStep::Idle);
+        assert_eq!(streak, 0);
+    }
+    // Without an idle poll between them the same errors still fault.
+    assert_eq!(accept_error_step(&aborted, &mut streak), AcceptStep::Retry);
+    for _ in 0..MAX_TRANSIENT_ACCEPT_ERRORS {
+        if accept_error_step(&aborted, &mut streak) == AcceptStep::Fault {
+            return;
+        }
+    }
+    panic!("consecutive transient errors still fault");
+}
+
+/// A failure before the first request byte is written is marked not delivered:
+/// a missing or wrongly permitted endpoint (the path check) and a busy one (the
+/// connect). The peer-credential and stream-setup marks sit on failures this
+/// process cannot provoke as its own user, so they stay untested.
+#[test]
+fn failures_before_the_first_written_byte_are_marked_not_delivered() {
+    let fixture = fixture();
+    let request = capabilities_request(3);
+    let timeout = Duration::from_millis(200);
+    // No endpoint at all.
+    let error = request_with_deadlines(&fixture.socket, &request, timeout, timeout)
+        .expect_err("nothing is bound");
+    assert!(protocol::was_not_delivered(&error), "{error}");
+    // An endpoint with the wrong mode.
+    let listener = UnixListener::bind(&fixture.socket).expect("bind");
+    fs::set_permissions(&fixture.socket, Permissions::from_mode(0o644)).expect("chmod");
+    let error = request_with_deadlines(&fixture.socket, &request, timeout, timeout)
+        .expect_err("a group-readable endpoint is refused");
+    assert!(protocol::was_not_delivered(&error), "{error}");
+    drop(listener);
+    // A busy endpoint: the connect times out against a full accept queue.
+    #[cfg(target_os = "linux")]
+    {
+        fs::remove_file(&fixture.socket).expect("remove the first fixture socket");
+        let (listener, _queued) = saturated_listener(&fixture.socket);
+        fs::set_permissions(&fixture.socket, Permissions::from_mode(0o600)).expect("chmod");
+        let error = request_with_deadlines(&fixture.socket, &request, timeout, timeout)
+            .expect_err("nobody accepts");
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut, "{error}");
+        assert!(protocol::was_not_delivered(&error), "{error}");
+        drop(listener);
+    }
+}
+
+/// A failure after the request was written is not marked: the owner may have
+/// acted on it. The peer here reads the request and closes without replying.
+#[test]
+fn a_failure_after_the_request_is_written_is_not_marked_not_delivered() {
+    let fixture = fixture();
+    let listener = UnixListener::bind(&fixture.socket).expect("bind");
+    fs::set_permissions(&fixture.socket, Permissions::from_mode(0o600)).expect("chmod");
+    let peer = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("read timeout");
+        protocol::read_request(&mut stream).expect("the request arrives whole");
+        // Dropped without a reply.
+    });
+    let timeout = Duration::from_secs(5);
+    let error = request_with_deadlines(&fixture.socket, &capabilities_request(4), timeout, timeout)
+        .expect_err("the peer closed without a reply");
+    peer.join().expect("peer");
+    assert!(!protocol::was_not_delivered(&error), "{error}");
 }

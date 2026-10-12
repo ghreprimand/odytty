@@ -1648,10 +1648,12 @@ fn top_seam_owns_pinned_rail_junction_on_both_sides_at_common_scales() {
         let cell = cell((8.0 * scale).round() as u32, (16.0 * scale).round() as u32);
         let padding = WindowPadding::from_logical(4.0, scale);
         for side in ["left", "right"] {
+            let config_dir = crate::test_dirs::ScratchDir::new("ottbc");
             let Some(mut app) = tab_bar_app() else {
                 eprintln!("skipping: no PTY available");
                 return;
             };
+            app.set_config_path_for_test(config_dir.path().join("odytty.conf"));
             app.set_test_cell_for_test(cell);
             app.set_test_scale_for_test(scale);
             app.set_test_surface_for_test(1000, 600, padding);
@@ -1879,6 +1881,7 @@ fn revealed_autohide_rail_clips_and_owns_the_top_seam_junction() {
 
 #[test]
 fn top_seam_wins_its_right_junction_with_a_live_scrollbar() {
+    let config_dir = crate::test_dirs::ScratchDir::new("ottbc");
     let Some((mut app, fixtures)) = app_with_two_sessions() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -1888,6 +1891,7 @@ fn top_seam_wins_its_right_junction_with_a_live_scrollbar() {
         terminal.advance(&scrollback_bytes(200));
     }
     let cell = cell(8, 16);
+    app.set_config_path_for_test(config_dir.path().join("odytty.conf"));
     app.set_test_cell_for_test(cell);
     app.set_test_surface_for_test(900, 400, WindowPadding::ZERO);
     app.set_workspace_rail_for_test("right");
@@ -2006,13 +2010,57 @@ fn tab_bar_seam_drag_rebases_the_settings_panel_snapshot() {
 }
 
 #[test]
+fn tab_bar_input_writers_leave_inherited_config_untouched() {
+    let inherited = crate::test_dirs::ChildEnv::new();
+    for test in [
+        "native::tests::tabs_sessions::tab_bar_height_typing_commits_through_the_production_overlay_key_route",
+        "native::tests::tabs_sessions::tab_bar_height_drag_centers_labels_in_the_decorated_band",
+        "native::tests::tabs_sessions::top_seam_owns_pinned_rail_junction_on_both_sides_at_common_scales",
+        "native::tests::tabs_sessions::top_seam_wins_its_right_junction_with_a_live_scrollbar",
+        "native::tests::tabs_sessions::tab_bar_seam_drag_clamps_to_min_and_max_rows",
+        "native::tests::ui_state_sync::pinned_rail_seam_drags_while_the_top_bar_is_hidden",
+        "native::app::scroll_coordinate_tests::input_events_do_not_wait_on_a_background_tab_terminal",
+    ] {
+        let mut child = std::process::Command::new(std::env::current_exe().expect("test binary"));
+        crate::native::app::win_spawn::apply_no_console_window(&mut child);
+        let output = child
+            .envs(inherited.vars())
+            .args([test, "--exact", "--test-threads=1", "--show-output"])
+            .output()
+            .expect("run input writer test");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("1 passed; 0 failed"),
+            "input writer did not execute successfully: {stdout} {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!stdout.contains("skipping:"), "PTY fixture must execute");
+    }
+    for (key, path) in inherited.vars() {
+        if key != "HISTFILE" {
+            assert!(
+                std::fs::read_dir(path)
+                    .expect("inherited directory")
+                    .next()
+                    .is_none(),
+                "App input writer changed inherited {key}"
+            );
+        }
+    }
+}
+
+#[test]
 fn tab_bar_height_typing_commits_through_the_production_overlay_key_route() {
     use winit::keyboard::{Key as WinitKey, NamedKey};
 
+    let config_dir = crate::test_dirs::ScratchDir::new("ottbc");
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
         return;
     };
+    let config = config_dir.path().join("odytty.conf");
+    std::fs::write(&config, "# kept\n").expect("seed private config");
+    app.set_config_path_for_test(config.clone());
     app.open_layout_settings_overlay_for_test();
     let signature = app.overlay_signature_for_test();
     let target = signature
@@ -2035,14 +2083,22 @@ fn tab_bar_height_typing_commits_through_the_production_overlay_key_route() {
 
     assert_eq!(app.tab_bar_height_for_test(), TabBarHeight::Manual(3));
     assert_eq!(app.overlay_signature_for_test().panel.editing_key, None);
+    app.drive_overlay_key_for_test(WinitKey::Character("s".into()), true, false);
+    let saved = std::fs::read_to_string(&config).expect("input route persists private config");
+    assert!(saved.contains("# kept"));
+    assert!(saved.contains("tab_bar_height = 3"));
 }
 
 #[test]
 fn tab_bar_height_drag_centers_labels_in_the_decorated_band() {
+    let config_dir = crate::test_dirs::ScratchDir::new("ottbc");
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
         return;
     };
+    let config = config_dir.path().join("odytty.conf");
+    std::fs::write(&config, "# kept\n").expect("seed private config");
+    app.set_config_path_for_test(config.clone());
     app.set_test_cell_for_test(cell(8, 16));
 
     // Drive the production pointer route from its default one-row seam to a
@@ -2073,6 +2129,9 @@ fn tab_bar_height_drag_centers_labels_in_the_decorated_band() {
         rows[2].chars().all(|ch| ch == ' '),
         "the bottom row is background-only after centering"
     );
+    let saved = std::fs::read_to_string(&config).expect("input route persists private config");
+    assert!(saved.contains("# kept"));
+    assert!(saved.contains("tab_bar_height = 3"));
 }
 
 #[test]
@@ -2113,10 +2172,12 @@ fn double_click_tab_bar_seam_resets_to_auto_and_persists() {
 
 #[test]
 fn tab_bar_seam_drag_clamps_to_min_and_max_rows() {
+    let config_dir = crate::test_dirs::ScratchDir::new("ottbc");
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
         return;
     };
+    app.set_config_path_for_test(config_dir.path().join("odytty.conf"));
     app.set_test_cell_for_test(cell(8, 16));
     // Grab the classic one-row bar's seam (y = 16) and arm the drag.
     app.set_pointer_px_for_test(40.0, 16.0);

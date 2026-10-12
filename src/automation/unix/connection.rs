@@ -6,7 +6,7 @@ use std::os::fd::FromRawFd;
 use std::os::unix::ffi::OsStrExt;
 
 /// How long a connect waits before retrying a full accept queue.
-const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(5);
+pub(super) const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(5);
 
 pub(crate) fn peer_is_owner(stream: &UnixStream) -> io::Result<()> {
     #[cfg(target_os = "linux")]
@@ -169,6 +169,43 @@ impl Write for DeadlineStream {
     }
 }
 
+/// Run `attempt` until it connects, fails for another reason, or `deadline`
+/// passes. The first attempt is always made. A retry is made only while time
+/// remains: the deadline is checked before every attempt after the first, so an
+/// interrupted attempt cannot loop past it and a retry never runs, or succeeds,
+/// after it. A full accept queue (`WouldBlock`) sleeps no longer than the time
+/// left. Any other error, including `EINPROGRESS`, is returned for the caller.
+pub(super) fn retry_connect(
+    deadline: Instant,
+    mut now: impl FnMut() -> Instant,
+    mut sleep: impl FnMut(Duration),
+    mut attempt: impl FnMut() -> io::Result<()>,
+) -> io::Result<()> {
+    let timed_out = || io::Error::new(io::ErrorKind::TimedOut, ErrorCode::TimedOut);
+    let mut first = true;
+    loop {
+        if !first && now() >= deadline {
+            return Err(timed_out());
+        }
+        first = false;
+        match attempt() {
+            Ok(()) => return Ok(()),
+            // Interrupted before it started: try again while time remains.
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            // A full accept queue: no connect was started, so trying again on
+            // the same unconnected socket is safe.
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                let remaining = deadline.saturating_duration_since(now());
+                if remaining.is_zero() {
+                    return Err(timed_out());
+                }
+                sleep(CONNECT_RETRY_INTERVAL.min(remaining));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 /// Connect to an AF_UNIX endpoint within `timeout`, never blocking past it.
 ///
 /// The socket is nonblocking. A nonblocking AF_UNIX connect completes at once
@@ -232,7 +269,7 @@ pub(crate) fn connect(path: &Path, timeout: Duration) -> io::Result<UnixStream> 
         }
     }
     stream.set_nonblocking(true)?;
-    let result = loop {
+    let result = retry_connect(deadline, Instant::now, thread::sleep, || {
         // SAFETY: address is a fully initialized sockaddr_un of the supplied size.
         let result = unsafe {
             libc::connect(
@@ -242,22 +279,11 @@ pub(crate) fn connect(path: &Path, timeout: Duration) -> io::Result<UnixStream> 
             )
         };
         if result == 0 {
-            break Ok(());
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
         }
-        let error = io::Error::last_os_error();
-        match error.kind() {
-            io::ErrorKind::Interrupted => continue,
-            // A full accept queue: no connect was started, so trying again on
-            // the same unconnected socket is safe.
-            io::ErrorKind::WouldBlock => {
-                if Instant::now() >= deadline {
-                    return Err(io::Error::new(io::ErrorKind::TimedOut, ErrorCode::TimedOut));
-                }
-                thread::sleep(CONNECT_RETRY_INTERVAL);
-            }
-            _ => break Err(error),
-        }
-    };
+    });
     if let Err(error) = result {
         if error.raw_os_error() != Some(libc::EINPROGRESS) {
             return Err(error);

@@ -342,6 +342,15 @@ after those defaults. The fixture stays alive until the child exits and removes
 its state on normal return or unwind. Native Windows spawning retains its
 existing console-window policy.
 
+Native tab-bar keyboard and pointer persistence tests own scratch config files,
+verify the saved value and preserve existing comments. A subprocess regression
+runs keyboard edit-and-save, four tab-bar seam releases and the hidden-top-bar
+rail release, plus the background-tab input responsiveness case, with private
+inherited platform directories. It verifies
+that those directories stay untouched. This fixture policy applies on Linux,
+macOS and Windows. Windows subprocesses use the console-window suppression
+helper; production settings paths remain unchanged.
+
 Linux CI also installs Xvfb, xauth and the X11 keyboard runtime
 `libxkbcommon-x11-0` and runs `bash scripts/ci-display.sh`.
 The separate virtual-display check requires the event-loop proof population to

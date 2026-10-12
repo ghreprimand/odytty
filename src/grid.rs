@@ -313,9 +313,12 @@ pub fn strikethrough_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32, baseline: 
 ///   glyphs use dynamically ensured atlas slots; combining marks draw at the
 ///   base-cell anchor.
 pub fn build_vertices(snapshot: &Snapshot, atlas: &GlyphAtlas) -> Vec<Vertex> {
-    let cols = snapshot.dimensions.columns;
-    let rows = snapshot.dimensions.rows;
-    let mut out = Vec::with_capacity(rows * cols * INSTANCES_PER_QUAD * 2);
+    // Admission comes first: nothing is reserved for a snapshot that cannot
+    // be drawn, whatever its dimensions claim.
+    let Some(reserve) = vertex_reserve(snapshot) else {
+        return Vec::new();
+    };
+    let mut out = Vec::with_capacity(reserve);
     build_vertices_into(&mut out, snapshot, atlas);
     out
 }
@@ -454,13 +457,32 @@ impl CellRegion {
 /// Whether `snapshot` holds a cell for every position its dimensions claim.
 /// Every public builder checks it once at admission and draws nothing for a
 /// snapshot that does not (the dimension product is checked, so it cannot wrap),
-/// instead of indexing past the cells.
+/// instead of indexing past the cells. A snapshot with no columns or no rows
+/// claims no grid at all: `Dimensions::new` never produces one, so it is
+/// refused rather than walked as a number of empty rows.
 pub(crate) fn snapshot_shape_is_valid(snapshot: &Snapshot) -> bool {
+    let columns = snapshot.dimensions.columns;
+    let rows = snapshot.dimensions.rows;
+    columns > 0
+        && rows > 0
+        && columns
+            .checked_mul(rows)
+            .is_some_and(|cells| snapshot.cells.len() >= cells)
+}
+
+/// How many vertices a full build of `snapshot` can need, or `None` when the
+/// snapshot is not admitted. Checked arithmetic, and only a snapshot that
+/// passed [`snapshot_shape_is_valid`] reaches it, so the figure is backed by
+/// cells that exist.
+fn vertex_reserve(snapshot: &Snapshot) -> Option<usize> {
+    if !snapshot_shape_is_valid(snapshot) {
+        return None;
+    }
     snapshot
         .dimensions
-        .columns
-        .checked_mul(snapshot.dimensions.rows)
-        .is_some_and(|cells| snapshot.cells.len() >= cells)
+        .rows
+        .checked_mul(snapshot.dimensions.columns)?
+        .checked_mul(INSTANCES_PER_QUAD * 2)
 }
 
 /// TAB-LABEL-CENTERING: the sub-row vertical offset (in cell-height units) that
@@ -1001,10 +1023,9 @@ fn build_cells_core(
     let chrome_seam_y = chrome_pin.seam_y(origin[1], cell_h);
 
     out.clear();
-    if !snapshot_shape_is_valid(snapshot) {
+    let Some(needed) = vertex_reserve(snapshot) else {
         return;
-    }
-    let needed = rows * cols * INSTANCES_PER_QUAD * 2;
+    };
     if out.capacity() < needed {
         out.reserve(needed - out.capacity());
     }

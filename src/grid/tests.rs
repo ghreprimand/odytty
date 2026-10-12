@@ -4353,7 +4353,26 @@ fn a_snapshot_shorter_than_its_dimensions_draws_nothing() {
     let mut overflowing = valid.clone();
     overflowing.dimensions = crate::core::Dimensions::new(usize::MAX / 2, 4);
     overflowing.cells.clear();
-    for snapshot in [&short, &overflowing] {
+    // Dimensions that claim no grid are refused too, however many rows or
+    // columns the other axis claims.
+    let mut no_columns = valid.clone();
+    no_columns.dimensions = crate::core::Dimensions {
+        columns: 0,
+        rows: 1_000_000,
+    };
+    no_columns.cells.clear();
+    let mut no_rows = valid.clone();
+    no_rows.dimensions = crate::core::Dimensions {
+        columns: 1_000_000,
+        rows: 0,
+    };
+    no_rows.cells.clear();
+    for snapshot in [&short, &overflowing, &no_columns, &no_rows] {
+        // The allocating wrapper validates before it reserves: an overflowing
+        // claim neither panics nor allocates.
+        let built = build_vertices(snapshot, &atlas);
+        assert!(built.is_empty(), "allocating wrapper");
+        assert_eq!(built.capacity(), 0, "nothing reserved");
         let mut out = vec![<Vertex as bytemuck::Zeroable>::zeroed(); 3];
         build_vertices_into(&mut out, snapshot, &atlas);
         assert!(out.is_empty(), "cells");

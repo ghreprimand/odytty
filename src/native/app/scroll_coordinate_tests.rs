@@ -392,8 +392,10 @@ fn input_events_do_not_wait_on_a_background_tab_terminal() {
     use std::sync::mpsc;
     use std::time::Duration;
     use winit::keyboard::{KeyCode, PhysicalKey};
+    let config_dir = crate::test_dirs::ScratchDir::new("otbi");
     let dims = Dimensions::new(40, 6);
     let (mut app, first) = headless_app_with(NativeOptions::default(), dims, Settings::default());
+    app.set_config_path_for_test(config_dir.path().join("odytty.conf"));
     app.set_test_cell_for_test(crate::text::CellSize {
         width: 8,
         height: 16,

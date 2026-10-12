@@ -200,17 +200,29 @@ pub fn write_profile_file(path: &Path, profile: &LaunchProfile) -> Result<(), Pr
 /// Refuse a save whose file name differs from an existing profile file only by
 /// case. On a case-insensitive volume (macOS and Windows defaults) both names
 /// are one file, so the save would silently overwrite the other profile while
-/// the catalog, which keys by exact name, held both until a restart. Scans at
-/// most [`MAX_PROFILE_DIR_SCAN_ENTRIES`] entries, like a catalog load.
+/// the catalog, which keys by exact name, held both until a restart. A failed
+/// or truncated listing refuses the save. At most
+/// [`MAX_PROFILE_DIR_SCAN_ENTRIES`] attempted entries are inspected, plus one
+/// exhaustion probe. This check does not serialize concurrent directory edits.
 fn reject_case_only_collision(dir: &Path, target: &Path) -> Result<(), ProfileStoreError> {
     let Some(target_name) = target.file_name().and_then(|name| name.to_str()) else {
         return Ok(());
     };
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Ok(());
-    };
-    for entry in entries.flatten().take(MAX_PROFILE_DIR_SCAN_ENTRIES) {
-        let name = entry.file_name();
+    let entries =
+        fs::read_dir(dir).map(|entries| entries.map(|entry| entry.map(|entry| entry.file_name())));
+    check_case_only_entries(target_name, entries)
+}
+
+fn check_case_only_entries(
+    target_name: &str,
+    entries: io::Result<impl Iterator<Item = io::Result<std::ffi::OsString>>>,
+) -> Result<(), ProfileStoreError> {
+    let mut entries = entries?;
+    for _ in 0..MAX_PROFILE_DIR_SCAN_ENTRIES {
+        let Some(name) = entries.next() else {
+            return Ok(());
+        };
+        let name = name?;
         let Some(name) = name.to_str() else {
             continue;
         };
@@ -219,6 +231,11 @@ fn reject_case_only_collision(dir: &Path, target: &Path) -> Result<(), ProfileSt
                 format!("{name:?} already exists and differs only by letter case"),
             )));
         }
+    }
+    if entries.next().is_some() {
+        return Err(ProfileStoreError::Io(
+            "profile collision scan exceeded its directory entry limit; save refused".to_owned(),
+        ));
     }
     Ok(())
 }
@@ -264,37 +281,65 @@ pub fn profile_path_in_dir(dir: &Path, name: &str) -> Result<PathBuf, ProfileErr
 /// [`quarantine_malformed_file`].
 pub(super) const MAX_QUARANTINE_COPIES: usize = 100;
 
-/// Recover a malformed profile file by renaming it beside the original with a
-/// `.bad` suffix. A later quarantine of the same profile takes the first free
-/// name (`.bad`, `.bad.1`, `.bad.2`, ...) so an earlier copy, which may be the
-/// only record of the user's hand-edited text, is never overwritten; once
-/// [`MAX_QUARANTINE_COPIES`] names are taken the file is left in place and an
-/// error is returned. Returns `true` when a rename happened.
+/// Recover a malformed regular profile file beside the original with a `.bad`
+/// suffix. Each destination is claimed with a non-replacing hard link before
+/// removing the source. Collisions retry `.bad.1`, `.bad.2`, and so on, up to
+/// [`MAX_QUARANTINE_COPIES`]. Inspection or link errors leave the source intact;
+/// filesystems without hard links refuse quarantine. A source removal failure
+/// leaves both names intact and returns an error. Pathname substitution is not
+/// serialized. Returns `true` when the source was removed after a claim.
 pub fn quarantine_malformed_file(path: &Path) -> io::Result<bool> {
-    if !path.is_file() {
-        return Ok(false);
+    quarantine_with(
+        path,
+        |candidate| fs::symlink_metadata(candidate),
+        quarantine_claim,
+    )
+}
+
+fn quarantine_claim(source: &Path, destination: &Path) -> io::Result<()> {
+    // Hard-link creation never replaces an existing destination on Unix or
+    // Windows. A replacing rename would reopen the inspection/claim race.
+    fs::hard_link(source, destination)
+}
+
+fn quarantine_with(
+    path: &Path,
+    mut inspect: impl FnMut(&Path) -> io::Result<fs::Metadata>,
+    mut claim: impl FnMut(&Path, &Path) -> io::Result<()>,
+) -> io::Result<bool> {
+    match inspect(path) {
+        Ok(metadata) if metadata.file_type().is_file() => {}
+        Ok(_) => return Ok(false),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
     }
     let file_name = path
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("profile.profile.json");
-    let quarantined = (0..MAX_QUARANTINE_COPIES)
-        .map(|attempt| match attempt {
+    for attempt in 0..MAX_QUARANTINE_COPIES {
+        let candidate = match attempt {
             0 => path.with_file_name(format!("{file_name}.bad")),
             n => path.with_file_name(format!("{file_name}.bad.{n}")),
-        })
-        .find(|candidate| fs::symlink_metadata(candidate).is_err())
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "too many quarantined copies of this profile; remove old .bad files",
-            )
-        })?;
-    match fs::rename(path, &quarantined) {
-        Ok(()) => Ok(true),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error),
+        };
+        match inspect(&candidate) {
+            Ok(_) => continue,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        match claim(path, &candidate) {
+            Ok(()) => {
+                fs::remove_file(path)?;
+                return Ok(true);
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
     }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "too many quarantined copies of this profile; remove old .bad files",
+    ))
 }
 
 #[cfg(test)]
@@ -312,6 +357,187 @@ mod tests {
             "odytty-profiles-{name}-{}-{nanos}",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn collision_scan_accepts_complete_listing_at_bound() {
+        let entries = (0..MAX_PROFILE_DIR_SCAN_ENTRIES)
+            .map(|n| Ok(std::ffi::OsString::from(format!("other{n}"))));
+        assert!(check_case_only_entries("dev.profile.json", Ok(entries)).is_ok());
+    }
+
+    #[test]
+    fn collision_scan_refuses_unseen_tail() {
+        let entries = (0..=MAX_PROFILE_DIR_SCAN_ENTRIES).map(|n| {
+            Ok(std::ffi::OsString::from(
+                if n == MAX_PROFILE_DIR_SCAN_ENTRIES {
+                    "DEV.profile.json".to_owned()
+                } else {
+                    format!("other{n}")
+                },
+            ))
+        });
+        assert!(check_case_only_entries("dev.profile.json", Ok(entries)).is_err());
+    }
+
+    #[test]
+    fn collision_scan_refuses_iteration_error() {
+        let entries = [
+            Ok(std::ffi::OsString::from("other")),
+            Err(io::Error::other("entry failure")),
+        ];
+        assert!(check_case_only_entries("dev.profile.json", Ok(entries.into_iter())).is_err());
+    }
+
+    #[test]
+    fn collision_scan_refuses_listing_error() {
+        let entries: io::Result<std::iter::Empty<io::Result<std::ffi::OsString>>> = Err(
+            io::Error::new(io::ErrorKind::PermissionDenied, "listing denied"),
+        );
+        assert!(check_case_only_entries("dev.profile.json", entries).is_err());
+    }
+
+    #[test]
+    fn quarantine_race_keeps_competing_backup_and_source_when_slots_fill() {
+        let dir = crate::test_dirs::fresh_temp_dir("odytty-quarantine-race-");
+        let path = dir.join("dev.profile.json");
+        fs::write(&path, "source text").expect("source");
+        let result = quarantine_with(
+            &path,
+            |p| fs::symlink_metadata(p),
+            |source, destination| {
+                // Install the first backup after inspection, then occupy every
+                // remaining slot. No replacing operation may touch the first copy.
+                fs::write(destination, "competing text")?;
+                for n in 1..MAX_QUARANTINE_COPIES {
+                    fs::write(
+                        source.with_file_name(format!("dev.profile.json.bad.{n}")),
+                        "kept",
+                    )?;
+                }
+                quarantine_claim(source, destination)
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read_to_string(&path).expect("source retained"),
+            "source text"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("dev.profile.json.bad")).expect("backup"),
+            "competing text"
+        );
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn quarantine_inspection_error_preserves_source() {
+        let dir = crate::test_dirs::fresh_temp_dir("odytty-quarantine-error-");
+        let path = dir.join("dev.profile.json");
+        fs::write(&path, "source text").expect("source");
+        let result = quarantine_with(
+            &path,
+            |p| {
+                if p == path {
+                    fs::symlink_metadata(p)
+                } else {
+                    Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "inspection denied",
+                    ))
+                }
+            },
+            quarantine_claim,
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read_to_string(&path).expect("source retained"),
+            "source text"
+        );
+        assert!(!dir.join("dev.profile.json.bad").exists());
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn quarantine_uncertain_claim_preserves_source_without_retry() {
+        let dir = crate::test_dirs::fresh_temp_dir("odytty-quarantine-claim-");
+        let path = dir.join("dev.profile.json");
+        fs::write(&path, "source text").expect("source");
+        let mut attempts = 0;
+        let error = quarantine_with(
+            &path,
+            |p| fs::symlink_metadata(p),
+            |_, _| {
+                attempts += 1;
+                Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "link unavailable",
+                ))
+            },
+        )
+        .expect_err("uncertain claim");
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+        assert_eq!(attempts, 1);
+        assert_eq!(
+            fs::read_to_string(&path).expect("source retained"),
+            "source text"
+        );
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn quarantine_source_inspection_failure_is_reported() {
+        let dir = crate::test_dirs::fresh_temp_dir("odytty-quarantine-source-");
+        let path = dir.join("dev.profile.json");
+        fs::write(&path, "source text").expect("source");
+        let result = quarantine_with(
+            &path,
+            |_| {
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "source inspection denied",
+                ))
+            },
+            quarantine_claim,
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read_to_string(&path).expect("source retained"),
+            "source text"
+        );
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn quarantine_retries_a_competing_claim_without_replacing_it() {
+        let dir = crate::test_dirs::fresh_temp_dir("odytty-quarantine-retry-");
+        let path = dir.join("dev.profile.json");
+        fs::write(&path, "source text").expect("source");
+        let mut raced = false;
+        assert!(
+            quarantine_with(
+                &path,
+                |p| fs::symlink_metadata(p),
+                |source, destination| {
+                    if !raced {
+                        fs::write(destination, "competing text")?;
+                        raced = true;
+                    }
+                    quarantine_claim(source, destination)
+                }
+            )
+            .expect("retry quarantine")
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("dev.profile.json.bad")).expect("first"),
+            "competing text"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("dev.profile.json.bad.1")).expect("second"),
+            "source text"
+        );
+        assert!(!path.exists());
+        fs::remove_dir_all(dir).expect("cleanup");
     }
 
     #[test]

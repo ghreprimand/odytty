@@ -984,6 +984,23 @@ mod tests {
         assert_eq!(selected_text(&snapshot, range), " a b");
     }
 
+    /// Concealed (SGR 8) cells copy their stored text on both extraction
+    /// paths, as scrollback export writes it: copy returns the logical text,
+    /// not the picture.
+    #[test]
+    fn concealed_cells_copy_their_stored_text() {
+        let mut snapshot = snapshot(&["pw:secret"], 9);
+        for cell in &mut snapshot.cells[3..] {
+            cell.attrs.set_hidden(true);
+        }
+        let range = SelectionRange {
+            start: CellPoint { row: 0, column: 0 },
+            end: CellPoint { row: 0, column: 8 },
+        };
+        assert_eq!(selected_text(&snapshot, range), "pw:secret");
+        assert_eq!(selected_text_block(&snapshot, range), "pw:secret");
+    }
+
     /// A decomposed combining cluster copies as the same decomposed cluster:
     /// the stored zero-width marks follow their base char instead of being
     /// dropped, on both the wrapped and the block extraction paths.

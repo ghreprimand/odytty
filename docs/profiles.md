@@ -47,7 +47,8 @@ examines at most 1,024 directory entries of any kind (other files, folders,
 and malformed profiles all count), returns at most 256 profiles, reads at most
 1 MiB per file, and retains at most 100 parse warnings. A document is strict JSON:
 a raw control character inside a string, a number outside the JSON grammar or
-beyond a 64-bit float, and a repeated key in any object are refused with a
+beyond a 64-bit float, a repeated decoded key, and more than 4,096 members in
+any object (including unknown objects) are refused with a
 message naming the problem. A save is refused when the pretty-printed document
 would exceed that 1 MiB read limit, so a saved profile always reloads. A file saved with a
 leading UTF-8 byte order mark, as some Windows editors write, loads normally;
@@ -76,11 +77,13 @@ widen it. See [Import, export, and migration](#import-export-and-migration).
 ## Schema reference
 
 The current document schema is `schema_version` 1. Within a supported version,
-schema-owned objects retain unknown keys for saving. Numbers are held as 64-bit
-floats, so an unknown integer above 2^53 loses exactness when the profile is saved. A current exception is a
-`switch` object containing only unknown fields and no populated known match
-arrays: saving or exporting it fails validation because serialization omits that
-object. Avoid editing such a profile until this round-trip defect is fixed.
+schema-owned objects retain unknown keys for saving, including a `switch`
+object that holds only unknown keys. An unknown number is kept as written when
+its literal has more than 15 significant digits, which a 64-bit float cannot
+always hold exactly, so a large integer or a long decimal in a field this build
+does not own survives a save unchanged; shorter numbers are written in their
+shortest form, so `1E+2` is saved as `100`. A field this build owns is always
+written from its typed value, never from the source literal.
 The version gate is separate from field preservation: `schema_version` must be a
 whole number that does not exceed the version this build understands. A document
 declaring a newer `schema_version` is rejected outright rather than partially
@@ -334,7 +337,8 @@ asks for suggestions, never on the default launch path:
   explicit and separately tested. The registry read stops at 64 KiB and 512
   lines and keeps at most 256 candidates before any file is probed. A
   `Default` entry appears only when `SHELL` is set and non-empty. A shell given
-  as a bare name is looked up on `PATH` only, never in the working directory.
+  as a bare name is looked up on `PATH` only, never in the working directory:
+  empty and relative `PATH` entries (`.`, `bin`) are skipped, on Windows too.
   On Windows a built-in shell that is already listed as the default keeps its
   `Default` label.
 
@@ -386,9 +390,17 @@ Existing configuration migrates without data loss:
 - **Malformed recovery.** A malformed profile file does not take down the
   manager: the parse failure is reported and other profiles continue to load.
   Import surfaces the same validation errors instead of writing a bad file.
-  Quarantining a malformed file renames it to `<name>.bad`; a later quarantine of
-  the same profile uses `<name>.bad.1`, `<name>.bad.2`, and so on (up to 100
-  copies), so an earlier copy is never overwritten.
+  Quarantining a malformed file claims `<name>.profile.json.bad`; later copies
+  use `<name>.profile.json.bad.1`, `<name>.profile.json.bad.2`, and so on (up to
+  100 copies). A non-replacing hard link claims each destination before the
+  source is removed, so a competing backup is never overwritten. Inspection
+  or link errors preserve the source, including on filesystems without hard
+  links. If source removal fails, both names remain and an error is reported.
+  This applies on Linux, macOS, and Windows; symbolic links are not quarantined.
+- **Collision admission.** A save requires a complete directory listing within
+  the 1,024-entry bound, plus an exhaustion probe. Listing failures, entry
+  errors, and an unseen tail refuse the save. The check does not serialize
+  concurrent directory edits.
 
 ## Startup responsiveness
 

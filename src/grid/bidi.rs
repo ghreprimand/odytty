@@ -91,15 +91,13 @@ impl BidiDisplayMap {
         let columns = snapshot.dimensions.columns;
         let rows = snapshot.dimensions.rows;
         // Admission: a snapshot that does not hold a cell for every position
-        // its dimensions claim (or whose count overflows) maps nothing, and no
-        // identity vectors are built for dimensions it cannot back.
+        // its dimensions claim (or whose count overflows), or that claims no
+        // columns or no rows, maps nothing, and no identity vectors are built
+        // for dimensions it cannot back.
         if !crate::grid::snapshot_shape_is_valid(snapshot) {
             return Self::identity(0, 0);
         }
         let mut map = Self::identity(columns, rows);
-        if columns == 0 {
-            return map;
-        }
         let blank = Cell::default();
         let padded: Vec<Vec<Cell>> = context
             .rows
@@ -299,9 +297,6 @@ impl BidiDisplayMap {
             || !crate::grid::snapshot_shape_is_valid(painted)
         {
             *self = Self::identity(columns, self.rows);
-            return;
-        }
-        if columns == 0 {
             return;
         }
         for (row, (before, after)) in planned

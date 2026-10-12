@@ -640,7 +640,7 @@ impl WorkspaceSet {
         self.active_tab_ref()
             // No dividers are drawn while zoomed, stacked, or floating, so
             // none can be grabbed.
-            .filter(|tab| !tab.shows_only_focused_pane() && !tab.is_floating())
+            .filter(|tab| tab.shows_dividers())
             .and_then(|tab| divider_at_point(&tab.layout, content, divider_px, x, y, grab_px))
     }
 
@@ -660,7 +660,7 @@ impl WorkspaceSet {
         grab_px: f32,
     ) -> Option<SplitAxis> {
         self.active_tab_ref()
-            .filter(|tab| !tab.shows_only_focused_pane() && !tab.is_floating())
+            .filter(|tab| tab.shows_dividers())
             .and_then(|tab| divider_axis_at_point(&tab.layout, content, divider_px, x, y, grab_px))
     }
 
@@ -668,7 +668,8 @@ impl WorkspaceSet {
     /// index a divider drag started from), or `None` when no such divider
     /// exists. Lets an in-progress drag keep showing the matching resize cursor
     /// even when the pointer strays off the hairline. Same pre-order numbering
-    /// as [`Self::active_divider_at_point`].
+    /// as [`Self::active_divider_at_point`], and the same gating: a drag index
+    /// left over from before a zoom, stack or float resolves nothing.
     pub(in crate::native) fn active_divider_axis(
         &self,
         content: PaneRect,
@@ -676,6 +677,7 @@ impl WorkspaceSet {
         idx: usize,
     ) -> Option<SplitAxis> {
         self.active_tab_ref()
+            .filter(|tab| tab.shows_dividers())
             .and_then(|tab| {
                 divider_rects_with_axis(&tab.layout, content, divider_px)
                     .into_iter()
@@ -686,7 +688,9 @@ impl WorkspaceSet {
 
     /// Drag the active tab's divider at tree-order `target` to a pixel point,
     /// re-deriving and clamping that split's ratio. Returns the new ratio when
-    /// the split exists. Caller reflows the affected panes afterward.
+    /// the split exists. Caller reflows the affected panes afterward. Gated
+    /// like [`Self::active_divider_at_point`], so a stale drag index cannot
+    /// resize the hidden tiled tree of a zoomed, stacked or floating tab.
     pub(in crate::native) fn drag_active_divider(
         &mut self,
         content: PaneRect,
@@ -696,13 +700,15 @@ impl WorkspaceSet {
         y: f32,
     ) -> Option<f32> {
         self.active_tab_mut()
+            .filter(|tab| tab.shows_dividers())
             .and_then(|tab| drag_divider_to(&mut tab.layout, content, divider_px, target, x, y))
     }
 
     /// Snap the active tab's `target` divider onto a whole-cell boundary,
     /// returning the snapped ratio when the split exists. Called once on drag
     /// release so every rest position leaves identical outer margins; the caller
-    /// reflows the affected panes afterward (same path the drag uses).
+    /// reflows the affected panes afterward (same path the drag uses). Gated
+    /// like [`Self::drag_active_divider`].
     pub(in crate::native) fn snap_active_divider(
         &mut self,
         content: PaneRect,
@@ -712,17 +718,19 @@ impl WorkspaceSet {
         cell_h: u32,
         pad: f32,
     ) -> Option<f32> {
-        self.active_tab_mut().and_then(|tab| {
-            snap_divider_to_cells(
-                &mut tab.layout,
-                content,
-                divider_px,
-                target,
-                cell_w,
-                cell_h,
-                pad,
-            )
-        })
+        self.active_tab_mut()
+            .filter(|tab| tab.shows_dividers())
+            .and_then(|tab| {
+                snap_divider_to_cells(
+                    &mut tab.layout,
+                    content,
+                    divider_px,
+                    target,
+                    cell_w,
+                    cell_h,
+                    pad,
+                )
+            })
     }
 
     /// The effective display title of the tab that contains `token`: the tab's

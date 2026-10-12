@@ -52,3 +52,26 @@ fn the_file_stays_in_place_once_every_quarantine_name_is_taken() {
     );
     let _ = fs::remove_dir_all(dir);
 }
+
+#[cfg(unix)]
+#[test]
+fn quarantine_leaves_a_symbolic_link_and_its_target_intact() {
+    let dir = crate::test_dirs::fresh_temp_dir("odytty-quarantine-symlink-");
+    let target = dir.join("target.profile.json");
+    let path = dir.join("dev.profile.json");
+    fs::write(&target, "target text").expect("target");
+    std::os::unix::fs::symlink(&target, &path).expect("link");
+    assert!(!quarantine_malformed_file(&path).expect("non-regular source"));
+    assert!(
+        fs::symlink_metadata(&path)
+            .expect("link retained")
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        fs::read_to_string(&target).expect("target retained"),
+        "target text"
+    );
+    assert!(!dir.join("dev.profile.json.bad").exists());
+    fs::remove_dir_all(dir).expect("cleanup");
+}
