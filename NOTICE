@@ -60,10 +60,10 @@ checked against.
 Unicode data
 --------------------------------------------------------------------------------
 
-The OdyTTY binary embeds tables derived from Unicode Character Database
-content, version 17.0.0: bidirectional classes, paired brackets and mirroring
-(`src/core/bidi/`), emoji presentation and sequence widths
-(`src/core/emoji_width/`), and Indic cluster and width properties
+The OdyTTY binary embeds tables derived from Unicode Character Database and
+Unicode emoji data files, version 17.0.0: bidirectional classes, paired
+brackets and mirroring (`src/core/bidi/`), emoji presentation and sequence
+widths (`src/core/emoji_width/`), and Indic cluster and width properties
 (`src/core/indic/`). Each generated file names its source files and records
 their checksums in its header. The data is copyright Unicode, Inc. and is
 distributed under the Unicode License v3, reproduced here in full:

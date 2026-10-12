@@ -587,8 +587,9 @@ platform-specific branch; the same code runs on every target and the
 The live `Cell` grew from 44 to 92 bytes so that up to 16 extension scalars sit
 inline and `Cell` stays `Copy`. The change landed without a before/after
 capture; this is that capture. It ran `cargo bench --bench perf` (the model
-benchmark, default profile, best of three inside each run) on one idle
-workstation with one toolchain and the release profile, for the commit before
+benchmark with its default workload profile, best of three inside each run,
+built with Cargo's optimized bench settings) on one idle workstation with one
+toolchain, for the commit before
 the change and the commit that made it, three runs each, alternating. The table
 shows medians of the three; between the three runs, each listed row varied by
 at most 6%. The `snapshot_with_scrollback(1000)` row varied by 82% on the

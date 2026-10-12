@@ -545,8 +545,8 @@ impl WorkspaceSet {
     /// by its host and must not call this method. Otherwise the last workspace
     /// closing exits the app, and `active_ws` is kept in range by every
     /// workspace-removing path; the fallback to the first workspace mirrors
-    /// `active_focused_token`'s defensive lookup so a stray index can never
-    /// panic.
+    /// `active_focused_token`'s defensive lookup, so a stray index panics
+    /// only in debug builds (see [`Self::active_workspace_slot`]).
     pub(super) fn active_workspace(&self) -> &Workspace {
         &self.workspaces[self.active_workspace_slot()]
     }
@@ -651,7 +651,7 @@ impl WorkspaceSet {
     }
 
     /// The token of the focused pane of the active tab - the `Deref` target.
-    /// The focused token of the active tab. The fallbacks (the first tab, then
+    /// The fallbacks (the first tab, then
     /// token 0) only cover a broken invariant, which debug builds assert
     /// against: token 0 can name another window's session range.
     pub(super) fn active_focused_token(&self) -> SessionToken {

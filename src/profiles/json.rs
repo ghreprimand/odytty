@@ -10,8 +10,8 @@
 //! (forward compatibility); the writer emits pretty-printed, hand-editable
 //! output with a stable key order and two-space indentation. Numbers are held
 //! as `f64`; a profile-document number with more than 15 significant digits,
-//! which `f64` cannot always hold exactly, also keeps its validated literal so
-//! a save writes it back unchanged.
+//! which may not survive the trip through `f64` back to decimal, also keeps
+//! its validated literal so a save writes it back unchanged.
 
 use std::collections::HashSet;
 use std::fmt::Write as _;
@@ -150,7 +150,8 @@ fn write_value(out: &mut String, value: &Json, depth: usize) {
     }
 }
 
-/// The most significant decimal digits `f64` always holds exactly.
+/// The most significant decimal digits that always survive a trip through
+/// `f64` and back to the shortest decimal form.
 const EXACT_DIGITS: usize = 15;
 
 /// Significant digits in the mantissa of a JSON number literal: the digits

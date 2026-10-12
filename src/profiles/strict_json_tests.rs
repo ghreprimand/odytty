@@ -96,8 +96,9 @@ fn unknown_numbers_beyond_f64_precision_keep_their_literal_on_save() {
 fn short_numbers_are_written_as_before() {
     let text = profile_text(", \"future\": [3, 1.5, 1E+2, 0.1, 1000000000000000]");
     let (written, _) = saved(&text);
-    // Up to 15 significant digits `f64` holds the value exactly and the writer
-    // prints its shortest form; the spelling of an exponent is not preserved.
+    // Up to 15 significant digits the value survives the trip through `f64`,
+    // and the writer prints its shortest form; the spelling of an exponent is
+    // not preserved.
     assert!(written.contains("3,"), "{written}");
     assert!(written.contains("1.5,"), "{written}");
     assert!(written.contains("100,"), "{written}");

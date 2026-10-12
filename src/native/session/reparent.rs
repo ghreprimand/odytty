@@ -139,10 +139,9 @@ impl MovedContent {
 }
 
 impl WorkspaceSet {
-    /// The tokens `scope` would move out of this set, or why it cannot.
-    /// The tokens `scope` takes, with the workspace and tab indices they were
-    /// resolved from, so [`Self::detach_for_move`] removes exactly what was
-    /// checked.
+    /// The tokens `scope` would move out of this set, with the workspace and
+    /// tab indices they were resolved from (so [`Self::detach_for_move`]
+    /// removes exactly what was checked), or why it cannot.
     fn tokens_for_move(&self, scope: MoveScope) -> Result<MoveSource, MoveError> {
         if self.workspaces.is_empty() {
             return Err(MoveError::SourceEmpty);

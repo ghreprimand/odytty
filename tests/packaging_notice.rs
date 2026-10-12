@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! NOTICE ships with every package. The binary embeds tables generated from
-//! Unicode Character Database files, and the Unicode License requires its
-//! copyright and permission notice to accompany them. This suite keeps NOTICE
-//! carrying the licence text the generated tables cite and naming the Unicode
-//! version they were generated from.
+//! Unicode Character Database and Unicode emoji data files, and the Unicode
+//! License requires its copyright and permission notice to accompany them.
+//! This suite keeps NOTICE carrying the licence text the generated tables cite
+//! and naming the Unicode version they were generated from.
 //!
 //! Platform behavior: pure file reads on every OS.
 
