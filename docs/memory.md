@@ -615,6 +615,41 @@ baseline a later change that claims to recover this cost has to beat. The
 memory regression guard was not re-run for this change; it needs a recorded
 environment class and a window at the recorded geometry.
 
+### Plain-text owner checks: measured CPU cost
+
+Script and emoji width ownership keeps its bounded source and cell semantics.
+Owners without extensions use the same scalar width oracle directly, and
+ASCII scalars bypass the Indic property search because the pinned tables have
+no ASCII members. Emoji modifier admission tests the next scalar before
+searching the base table. The 92-byte live `Cell` and its retained scalars
+are unchanged.
+
+The default `cargo bench --bench perf` workload ran on one Linux development
+computer with Rust 1.99.0 and the release profile, without concurrent OdyTTY
+builds or test runs.
+Three process runs per candidate alternated with the baseline and intermediate
+candidates. Each process used the existing best-of-three warmed timings; the
+table reports process medians. The baseline is `9018f6d5`. These timings
+measure CPU terminal-model workloads.
+
+| Row | Before | After | Ratio |
+| --- | ---: | ---: | ---: |
+| full repaint 2000 frames | 82.02 ms | 42.20 ms | 0.51 |
+| plain ascii 5000 lines | 11.00 ms | 6.90 ms | 0.63 |
+| decfra fill 2000 ops | 20.03 ms | 10.09 ms | 0.50 |
+| deccra copy 2000 ops | 32.00 ms | 17.23 ms | 0.54 |
+| decsera mixed-prot 2000 ops | 48.13 ms | 22.95 ms | 0.48 |
+| resize reflow (deep scrollback) | 44.75 ms | 19.95 ms | 0.45 |
+| resize reflow (shallow scrollback) | 40.11 ms | 28.45 ms | 0.71 |
+| resize reflow (height-only, deep) | 43.52 ms | 19.29 ms | 0.44 |
+
+Across the listed before/after rows, the maximum-minus-minimum range divided
+by the median reaches 12%; these are coarse workload timings.
+
+The optimization preserves composite-width checks for every retained extension,
+including ASCII keycaps with VS16. The pure core helpers are shared by Linux,
+macOS and Windows; the timings above describe only this Linux benchmark run.
+
 ### Scrollback: an aggregate cell budget and windowed rows
 
 The line cap counts logical lines, not cells, so every retained line could be

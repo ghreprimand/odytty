@@ -319,6 +319,9 @@ their archived public keys; never rewrite or remove their signatures.
 
 Set `Cargo.toml` to `X.Y.Z` and refresh `Cargo.lock`. Keep the declared MSRV in
 `Cargo.toml` aligned with `rust-toolchain.toml` if the Rust version changes.
+Regenerate `THIRD-PARTY-LICENSES` with
+`python3 scripts/third-party-licenses.py generate` whenever `Cargo.lock`
+changes; every package ships it, and CI refuses a stale one.
 
 Add the newest `<release>` entry to
 `dist/linux/io.unfinished_works.odytty.metainfo.xml`. Add the release headline

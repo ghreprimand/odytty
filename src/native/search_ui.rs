@@ -350,22 +350,15 @@ fn visible_range_for_match(
     })
 }
 
-/// Whether the search painters can index `snapshot`: both sides are nonzero
-/// and it holds a cell for every position its dimensions claim. The terminal
-/// never produces anything else, but the painters subtract one from each side.
-fn paintable(snapshot: &Snapshot) -> bool {
-    snapshot.dimensions.rows > 0
-        && snapshot.dimensions.columns > 0
-        && crate::grid::snapshot_shape_is_valid(snapshot)
-}
-
 fn apply_match_highlight(
     snapshot: &mut Snapshot,
     range: SelectionRange,
     current: bool,
     themed: Option<SearchStyle>,
 ) {
-    if !paintable(snapshot) {
+    // Both painters subtract one from each side, so a snapshot with a zero
+    // side or missing cells is refused first.
+    if !crate::grid::snapshot_shape_is_valid(snapshot) {
         return;
     }
     let start_row = range.start.row.min(snapshot.dimensions.rows - 1);
@@ -422,7 +415,7 @@ fn apply_match_highlight(
 }
 
 fn apply_search_bar(snapshot: &mut Snapshot, search: &SearchUi) {
-    if !paintable(snapshot) {
+    if !crate::grid::snapshot_shape_is_valid(snapshot) {
         return;
     }
     let columns = snapshot.dimensions.columns;

@@ -15,7 +15,8 @@
 //! the result renders.
 //!
 //! The lifecycle is bounded (see `session::upload_lifecycle`): at most
-//! `MAX_CONCURRENT_UPLOADS` uploads run at once, the `ssh` child is killed
+//! `MAX_CONCURRENT_UPLOADS` uploads run at once (an `ssh` that cannot be stopped
+//! keeps counting until it is seen to have exited), the `ssh` child is killed
 //! and reaped at [`UPLOAD_DEADLINE`] or as soon as the tab closes, and a
 //! worker that finishes after its tab closed removes its own remote file.
 
@@ -31,7 +32,8 @@ use crate::native::lock_recover;
 
 /// Why a confirmed paste did not start a worker.
 pub(super) enum UploadStartError {
-    /// `MAX_CONCURRENT_UPLOADS` uploads are already running.
+    /// `MAX_CONCURRENT_UPLOADS` uploads are already running, counting any `ssh`
+    /// that could not be stopped and may still be running.
     Busy,
     /// The worker thread could not be created.
     Spawn(std::io::Error),
@@ -159,9 +161,12 @@ fn stream_upload(
     super::win_spawn::apply_no_console_window(&mut command);
     let child = command.spawn().map_err(|err| format!("ssh spawn: {err}"))?;
     // Bounded wait: killed and reaped at the deadline or when the tab closes.
-    match run_bounded(child, UPLOAD_DEADLINE, || {
-        lock_recover(&job.uploaded).is_closed()
-    }) {
+    match run_bounded(
+        child,
+        UPLOAD_DEADLINE,
+        || lock_recover(&job.uploaded).is_closed(),
+        &UPLOAD_SLOTS,
+    ) {
         BoundedExit::Exited(status) if status.success() => Ok(()),
         BoundedExit::Exited(status) => Err(match status.code() {
             Some(code) => format!("ssh exited {code}"),

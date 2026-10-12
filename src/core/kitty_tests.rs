@@ -437,6 +437,77 @@ fn kitty_oversized_payload_is_rejected_by_store_cap() {
     );
 }
 
+/// An error reply names the request it answers, as an OK reply does, so a
+/// client with several commands in flight can match it. Every key the client
+/// sent is echoed (`i=`, `I=`, `p=`); a request that named none keeps the bare
+/// reply; `q=2` still silences the error.
+#[test]
+fn error_replies_name_the_request_they_answer() {
+    let cases: &[(&str, &[u8], &[u8])] = &[
+        (
+            "image id",
+            b"\x1b_Gf=32,a=T,s=1,v=1,i=31;A===\x1b\\",
+            b"\x1b_Gi=31;invalid-payload\x1b\\",
+        ),
+        (
+            "image number",
+            b"\x1b_Gf=32,a=T,s=1,v=1,I=32;A===\x1b\\",
+            b"\x1b_GI=32;invalid-payload\x1b\\",
+        ),
+        (
+            "image id and placement id",
+            b"\x1b_Gf=32,a=T,s=1,v=1,i=33,p=4;A===\x1b\\",
+            b"\x1b_Gi=33,p=4;invalid-payload\x1b\\",
+        ),
+        (
+            "image id, number and placement id",
+            b"\x1b_Gf=32,a=T,s=1,v=1,i=1,I=2,p=3;AAAAAA==\x1b\\",
+            b"\x1b_Gi=1,I=2,p=3;EINVAL:id-and-number\x1b\\",
+        ),
+        (
+            "no keys at all keeps the bare reply",
+            b"\x1b_Gf=32,a=T,s=1,v=1;A===\x1b\\",
+            b"\x1b_G;invalid-payload\x1b\\",
+        ),
+        (
+            "q=1 keeps errors",
+            b"\x1b_Gf=32,a=T,s=1,v=1,i=34,q=1;A===\x1b\\",
+            b"\x1b_Gi=34;invalid-payload\x1b\\",
+        ),
+        (
+            "q=2 silences errors",
+            b"\x1b_Gf=32,a=T,s=1,v=1,i=35,q=2;A===\x1b\\",
+            b"",
+        ),
+    ];
+    for (label, request, reply) in cases {
+        let mut t = Terminal::new(20, 4);
+        t.advance(request);
+        assert_eq!(
+            &t.take_host_output(),
+            reply,
+            "{label}: {}",
+            String::from_utf8_lossy(request)
+        );
+    }
+}
+
+/// A continuation chunk carries none of the first chunk's keys, so its error
+/// answers with the pending transfer's: the client matches it to the transfer
+/// it started.
+#[test]
+fn a_failing_continuation_chunk_answers_with_the_first_chunks_keys() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(b"\x1b_Gf=32,a=T,s=1,v=1,i=41,p=2,m=1;AAAA\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_Gi=41,p=2;OK\x1b\\");
+    t.advance(b"\x1b_Gm=0;A===\x1b\\");
+    assert_eq!(
+        t.take_host_output(),
+        b"\x1b_Gi=41,p=2;invalid-payload\x1b\\"
+    );
+    assert!(t.visible_graphics(0).is_empty());
+}
+
 /// Each case carries a coherent 1x1 RGBA payload, so the control field named in
 /// the case is the only thing wrong with it. A control key that does not parse
 /// drops the whole command without a reply; the cases that do answer pin the
@@ -469,7 +540,7 @@ fn kitty_malformed_control_fields_are_refused_with_coherent_payloads() {
         (
             "an id and an image number together",
             b"\x1b_Gf=32,a=T,i=1,I=1,s=1,v=1;AAAAAA==\x1b\\",
-            b"\x1b_G;EINVAL:id-and-number\x1b\\",
+            b"\x1b_Gi=1,I=1;EINVAL:id-and-number\x1b\\",
         ),
         (
             "first chunk of an unfinished transfer",

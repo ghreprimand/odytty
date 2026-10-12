@@ -285,6 +285,22 @@ pub(super) fn handle_apc(
         })
         .is_some_and(|quiet| quiet >= 2);
 
+    // An error reply names the request it answers, as an OK reply does: the
+    // `i=`, `I=` and `p=` keys the client sent, so a client with several
+    // commands in flight can match it. A continuation chunk carries none of
+    // them (only the first chunk does), so it answers with the pending
+    // transfer's keys. A request that named nothing keeps the bare reply.
+    // Read before `handle_command` consumes the command and before the error
+    // arm clears `state.pending`.
+    let error_prefix = state
+        .pending
+        .as_ref()
+        .filter(|_| continues_pending)
+        .map_or_else(
+            || command.control.response_prefix(),
+            |pending| pending.control.response_prefix(),
+        );
+
     let result = handle_command(
         state,
         graphics,
@@ -303,7 +319,7 @@ pub(super) fn handle_apc(
             let response = if suppress_error_response {
                 Vec::new()
             } else {
-                kitty_response(None, err.message())
+                kitty_response(Some(error_prefix), err.message())
             };
             Ok(KittyOutcome {
                 dirty: false,

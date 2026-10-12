@@ -57,6 +57,10 @@ pub(crate) fn thai_lao_spacing_extension(base: char, next: char) -> bool {
 /// Width of a retained owner. Script-specific additions stay bounded here;
 /// Measured script width units and recognized emoji sequences share this seam.
 pub(crate) fn owner_display_width(base: char, extensions: &[char], ambiguous_wide: bool) -> usize {
+    // Without extensions, an owner has exactly its scalar footprint.
+    if extensions.is_empty() {
+        return char_display_width(base, ambiguous_wide);
+    }
     if super::emoji_width::has_two_cell_footprint(base, extensions)
         || super::indic::has_two_cell_footprint(base, extensions)
         || extensions

@@ -207,7 +207,7 @@ jobs:
           New-Item -ItemType Directory -Force dist/windows/package | Out-Null
           New-Item -ItemType Directory -Force dist/build | Out-Null
           Copy-Item target/release/odytty.exe dist/windows/package/
-          Copy-Item README.md, LICENSE, NOTICE dist/windows/package/
+          Copy-Item README.md, LICENSE, NOTICE, THIRD-PARTY-LICENSES dist/windows/package/
           # The bundled fonts' licence texts: the paths listed in
           # dist/font-licenses.txt, laid out under licenses/fonts/<set>/.
           foreach ($path in Get-Content dist/font-licenses.txt) {
@@ -361,7 +361,7 @@ jobs:
           cp target/release/odytty "dist/build/${stage}/odytty"
           cp dist/linux/tarball-install.sh "dist/build/${stage}/install.sh"
           chmod +x "dist/build/${stage}/install.sh"
-          cp README.md LICENSE NOTICE "dist/build/${stage}/"
+          cp README.md LICENSE NOTICE THIRD-PARTY-LICENSES "dist/build/${stage}/"
           bash dist/install-font-licenses.sh "dist/build/${stage}/licenses/fonts"
           cp dist/linux/io.unfinished_works.odytty.desktop \
              "dist/build/${stage}/share/applications/"

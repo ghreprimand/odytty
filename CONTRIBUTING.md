@@ -521,6 +521,10 @@ Before every commit, run through this gate and stop if anything is unclear:
    - `.github/scripts/rustsec-audit.sh` runs whenever `Cargo.toml` or
      `Cargo.lock` changes; run it after any dependency edit. These are required
      checks, not a claim that an arbitrary current working tree passes them.
+   - `python3 scripts/third-party-licenses.py generate` rewrites
+     `THIRD-PARTY-LICENSES` from the locked dependency closure; run it after any
+     dependency edit and commit the result. `check` (run by CI) and
+     `tests/packaging_third_party.rs` fail while the file is stale.
    - `python3 scripts/documentation-guard-test.py` and
      `python3 scripts/documentation-guard.py` check release-status convergence;
      `python3 scripts/release-notes-test.py` checks release-note preparation.

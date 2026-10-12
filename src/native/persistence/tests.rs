@@ -1538,3 +1538,24 @@ fn snapshot_version_accepts_integral_notation_and_reports_integer_skew() {
         );
     }
 }
+
+#[test]
+fn layout_names_preserve_unicode_and_bound_utf8_bytes() {
+    for name in [
+        "\u{65e5}\u{672c}",
+        "\u{65e5}\u{672c}\u{8a9e}",
+        "\u{0645}\u{0644}\u{0641}",
+        "\u{0915}\u{093f}",
+        "e\u{0301}",
+    ] {
+        assert_eq!(sanitize_layout_name(name).as_deref(), Some(name));
+    }
+    let name = "\u{65e5}".repeat(33);
+    assert_eq!(sanitize_layout_name(&name).unwrap(), "\u{65e5}".repeat(32));
+    let edge = format!("{}\u{65e5}", "a".repeat(95));
+    assert_eq!(sanitize_layout_name(&edge).unwrap(), "a".repeat(95));
+    assert_ne!(
+        sanitize_layout_name("\u{65e5}\u{672c}"),
+        sanitize_layout_name("\u{0645}\u{0644}")
+    );
+}

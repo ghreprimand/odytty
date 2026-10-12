@@ -200,7 +200,7 @@ fn frame_command_for_an_unknown_image_reports_enoent() {
 
     assert_eq!(
         terminal.take_host_output(),
-        b"\x1b_G;ENOENT:frame-not-found\x1b\\"
+        b"\x1b_Gi=77;ENOENT:frame-not-found\x1b\\"
     );
 }
 
@@ -214,7 +214,7 @@ fn frame_rectangle_outside_the_canvas_reports_einval() {
 
     assert_eq!(
         terminal.take_host_output(),
-        b"\x1b_G;EINVAL:frame-bounds\x1b\\"
+        b"\x1b_Gi=1;EINVAL:frame-bounds\x1b\\"
     );
     assert_eq!(frame_count(&terminal, 1), 0, "nothing was stored");
 }
@@ -300,7 +300,7 @@ fn animation_frame_keys_past_u32_are_refused_and_change_nothing() {
         terminal.advance(&command);
         assert_eq!(
             terminal.take_host_output(),
-            b"\x1b_G;malformed-control\x1b\\",
+            b"\x1b_Gi=1;malformed-control\x1b\\",
             "{}",
             String::from_utf8_lossy(&command)
         );
@@ -325,7 +325,7 @@ fn animation_control_for_an_image_without_frames_reports_enoent() {
 
     assert_eq!(
         terminal.take_host_output(),
-        b"\x1b_G;ENOENT:frame-not-found\x1b\\",
+        b"\x1b_Gi=1;ENOENT:frame-not-found\x1b\\",
         "an image with no frames has no animation to control"
     );
 }
@@ -342,7 +342,7 @@ fn rejected_compound_control_does_not_change_playback_state() {
     terminal.advance(&apc_no_payload("a=a,i=1,s=3,v=4,c=99"));
     assert_eq!(
         terminal.take_host_output(),
-        b"\x1b_G;ENOENT:frame-not-found\x1b\\"
+        b"\x1b_Gi=1;ENOENT:frame-not-found\x1b\\"
     );
     let id = stored_id(&terminal, 1);
     assert_eq!(
@@ -399,7 +399,7 @@ fn self_overlapping_composition_reports_einval() {
     terminal.advance(&apc_no_payload("a=c,i=1,r=2,c=2,w=2,h=2,x=0,y=0,X=0,Y=0"));
     assert_eq!(
         terminal.take_host_output(),
-        b"\x1b_G;EINVAL:frame-overlap\x1b\\"
+        b"\x1b_Gi=1;EINVAL:frame-overlap\x1b\\"
     );
 }
 
@@ -415,7 +415,7 @@ fn composition_without_both_frame_numbers_is_malformed() {
     terminal.advance(&apc_no_payload("a=c,i=1,r=2"));
     assert_eq!(
         terminal.take_host_output(),
-        b"\x1b_G;malformed-control\x1b\\"
+        b"\x1b_Gi=1;malformed-control\x1b\\"
     );
 }
 
@@ -533,7 +533,7 @@ fn a_frame_flood_cannot_exceed_the_store_byte_budget() {
             &canvas([color, color, color, 255]),
         ));
         let response = terminal.take_host_output();
-        if response == b"\x1b_G;ENOSPC:frame-quota\x1b\\" {
+        if response == b"\x1b_Gi=1;ENOSPC:frame-quota\x1b\\" {
             rejections += 1;
         }
         assert!(
@@ -566,7 +566,7 @@ fn initial_root_edit_respects_the_shared_store_budget() {
 
     assert_eq!(
         terminal.take_host_output(),
-        b"\x1b_G;ENOSPC:frame-quota\x1b\\"
+        b"\x1b_Gi=1;ENOSPC:frame-quota\x1b\\"
     );
     assert_eq!(frame_count(&terminal, 1), 0);
     assert_eq!(terminal.graphics().store().decoded_bytes(), 16);
@@ -844,7 +844,7 @@ fn animation_number_of_a_deleted_image_reports_enoent() {
     terminal.advance(&apc("a=f,I=7,f=32,s=2,v=2", &canvas([1, 1, 1, 255])));
     assert_eq!(
         terminal.take_host_output(),
-        b"\x1b_G;ENOENT:frame-not-found\x1b\\"
+        b"\x1b_GI=7;ENOENT:frame-not-found\x1b\\"
     );
 }
 
@@ -854,7 +854,7 @@ fn animation_number_matching_nothing_reports_enoent() {
     terminal.advance(&apc("a=f,I=99,f=32,s=2,v=2", &canvas([1, 1, 1, 255])));
     assert_eq!(
         terminal.take_host_output(),
-        b"\x1b_G;ENOENT:frame-not-found\x1b\\"
+        b"\x1b_GI=99;ENOENT:frame-not-found\x1b\\"
     );
 }
 
@@ -864,7 +864,7 @@ fn animation_id_and_number_together_are_rejected() {
     terminal.advance(&apc("a=f,i=1,I=7,f=32,s=2,v=2", &canvas([1, 1, 1, 255])));
     assert_eq!(
         terminal.take_host_output(),
-        b"\x1b_G;EINVAL:id-and-number\x1b\\"
+        b"\x1b_Gi=1,I=7;EINVAL:id-and-number\x1b\\"
     );
     assert_eq!(frame_count(&terminal, 1), 0, "the image must be untouched");
 }
@@ -899,7 +899,7 @@ fn still_transmit_rejects_id_and_number_together() {
     ));
     assert_eq!(
         terminal.take_host_output(),
-        b"\x1b_G;EINVAL:id-and-number\x1b\\"
+        b"\x1b_Gi=1,I=7;EINVAL:id-and-number\x1b\\"
     );
     assert_eq!(terminal.graphics().store().len(), 0);
 }

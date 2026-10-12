@@ -20,6 +20,13 @@ roadmap.
 
 ## v0.17.0: International Text (in development)
 
+
+Saved-layout names preserve non-ASCII text on Linux, macOS and Windows, within
+96 UTF-8 bytes. ASCII letters, digits, spaces, hyphens and underscores remain;
+other ASCII punctuation and control characters become underscores. Truncation
+ends before a complete scalar would exceed the byte limit. Existing
+underscore aliases stay usable and are not renamed automatically.
+
 Profile saves refuse incomplete case-collision scans. Malformed-file recovery
 claims non-replacing hard-link backups and preserves the source on inspection
 or claim errors. Strict profile JSON admits at most 4,096 members per object.

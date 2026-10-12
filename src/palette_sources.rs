@@ -195,7 +195,7 @@ fn parse_history_entries(
         ShellHistoryFormat::ZshExtended => parse_zsh_history_entries(lines, max_entry_chars),
         ShellHistoryFormat::Plain => lines
             .iter()
-            .filter_map(|line| normalize_entry(line, max_entry_chars))
+            .filter_map(|line| normalize_command(line, max_entry_chars))
             .collect(),
     }
 }
@@ -401,7 +401,7 @@ fn parse_zsh_history_entries(lines: &[&str], max_entry_chars: usize) -> Vec<Stri
             continue;
         }
         strip_zsh_padding(&mut command);
-        if let Some(entry) = normalize_entry(&command, max_entry_chars) {
+        if let Some(entry) = normalize_command(&command, max_entry_chars) {
             entries.push(entry);
         }
     }
@@ -409,7 +409,7 @@ fn parse_zsh_history_entries(lines: &[&str], max_entry_chars: usize) -> Vec<Stri
     // command.
     if let Some(mut command) = pending {
         strip_zsh_padding(&mut command);
-        if let Some(entry) = normalize_entry(&command, max_entry_chars) {
+        if let Some(entry) = normalize_command(&command, max_entry_chars) {
             entries.push(entry);
         }
     }
@@ -435,7 +435,7 @@ fn parse_fish_history_entries(lines: &[&str], max_entry_chars: usize) -> Vec<Str
             let trimmed = line.trim_start().trim_end_matches('\r');
             let rest = trimmed.strip_prefix("- cmd:")?;
             let rest = rest.strip_prefix(' ').unwrap_or(rest);
-            normalize_entry(&unescape_fish(rest), max_entry_chars)
+            normalize_command(&unescape_fish(rest), max_entry_chars)
         })
         .collect()
 }
@@ -461,6 +461,25 @@ fn unescape_fish(value: &str) -> String {
         }
     }
     out
+}
+
+/// Normalize a recalled shell command like [`normalize_entry`], except that
+/// trailing whitespace after a final backslash is kept: the backslash escapes
+/// it (`echo end\ ` ends in a literal space), so dropping it would recall a
+/// different command ending in a dangling backslash. Only spaces and tabs are
+/// kept; a carriage return or newline after them is still trimmed.
+fn normalize_command(raw: &str, max_entry_chars: usize) -> Option<String> {
+    let start = raw.trim_start();
+    let end = start.trim_end();
+    if end.is_empty() {
+        return None;
+    }
+    if end.ends_with('\\') {
+        let tail = &start[end.len()..];
+        let kept = tail.len() - tail.trim_start_matches([' ', '\t']).len();
+        return Some(trim_chars(&start[..end.len() + kept], max_entry_chars));
+    }
+    Some(trim_chars(end, max_entry_chars))
 }
 
 fn normalize_entry(raw: &str, max_entry_chars: usize) -> Option<String> {
@@ -646,6 +665,48 @@ mod tests {
             ]
         );
         let _ = fs::remove_file(path);
+    }
+
+    /// A command ending in a backslash and a space keeps that escaped space:
+    /// zsh writes it with one padding space more, the padding goes, and the
+    /// semantic space stays. Unescaped trailing spaces are still trimmed, a
+    /// carriage return after an escaped space is still dropped, and plain
+    /// (bash) and fish history keep an escaped trailing space the same way.
+    #[test]
+    fn an_escaped_trailing_space_survives_recall() {
+        let zsh = write_fixture(
+            "zsh-escaped-space",
+            b": 1700000000:0;echo end\\  \n\
+: 1700000001:0;echo two\\\\   \n\
+: 1700000002:0;echo a\\\nb\\  \n\
+: 1700000003:0;ls   \n\
+: 1700000004:0;echo tab\\\t\n",
+        );
+        assert_eq!(
+            read_shell_history_with_limits(&zsh, ShellHistoryFormat::ZshExtended, small_limits()),
+            vec![
+                "echo tab\\\t",
+                "ls",
+                "echo a\nb\\ ",
+                "echo two\\\\  ",
+                "echo end\\ "
+            ]
+        );
+        let _ = fs::remove_file(zsh);
+
+        let plain = write_fixture("plain-escaped-space", b"echo b\\ \r\necho c   \n");
+        assert_eq!(
+            read_shell_history_with_limits(&plain, ShellHistoryFormat::Plain, small_limits()),
+            vec!["echo c", "echo b\\ "]
+        );
+        let _ = fs::remove_file(plain);
+
+        let fish = write_fixture("fish-escaped-space", b"- cmd: echo f\\\\ \n  when: 1\n");
+        assert_eq!(
+            read_shell_history_with_limits(&fish, ShellHistoryFormat::Fish, small_limits()),
+            vec!["echo f\\ "]
+        );
+        let _ = fs::remove_file(fish);
     }
 
     #[test]

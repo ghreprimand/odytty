@@ -651,9 +651,9 @@ impl WorkspaceSet {
     }
 
     /// The token of the focused pane of the active tab - the `Deref` target.
-    /// The fallbacks (the first tab, then
-    /// token 0) only cover a broken invariant, which debug builds assert
-    /// against: token 0 can name another window's session range.
+    /// The fallbacks (the first tab, then token 0) only cover a broken
+    /// invariant, which debug builds assert against: token 0 can name another
+    /// window's session range.
     pub(super) fn active_focused_token(&self) -> SessionToken {
         let ws = self.active_workspace();
         debug_assert!(

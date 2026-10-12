@@ -63,7 +63,7 @@ cp dist/linux/io.unfinished_works.odytty.metainfo.xml \
 cp -a dist/icons/hicolor/. "$APPDIR/usr/share/icons/hicolor/"
 # Licence and notice texts, including the bundled fonts' licences.
 mkdir -p "$APPDIR/usr/share/licenses/odytty"
-cp LICENSE NOTICE "$APPDIR/usr/share/licenses/odytty/"
+cp LICENSE NOTICE THIRD-PARTY-LICENSES "$APPDIR/usr/share/licenses/odytty/"
 bash dist/install-font-licenses.sh "$APPDIR/usr/share/licenses/odytty/fonts"
 
 # Verified immutable upstream release inputs. Do not substitute the mutable

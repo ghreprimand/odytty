@@ -5,6 +5,10 @@
 mod data;
 
 fn script(ranges: &[(u32, u32, u8)], ch: char) -> u8 {
+    // The pinned script tables contain no ASCII property members.
+    if ch.is_ascii() {
+        return 0;
+    }
     let cp = ch as u32;
     let index = ranges.partition_point(|&(_, end, _)| end < cp);
     ranges

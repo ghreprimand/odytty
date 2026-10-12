@@ -14,7 +14,10 @@
 //!   exit is reported as [`BoundedExit::Stuck`] instead of blocking forever.
 //! - [`UploadSlots`] caps concurrent uploads, so repeated pastes over a stalled
 //!   link cannot accumulate workers. A second limiter caps concurrent remote
-//!   cleanups the same way.
+//!   cleanups the same way. A helper reported [`BoundedExit::Stuck`] may still
+//!   be running, so its limiter keeps it counted (parked, with its process
+//!   handle) until a later admission proves it exited; a worker returning does
+//!   not free the capacity its helper still occupies.
 //!
 //! Overflow policy (best effort by design): the ledger keeps at most
 //! [`MAX_LEDGER_PATHS`] remote paths per tab and forgets the oldest beyond
@@ -119,44 +122,56 @@ pub(in crate::native) enum BoundedExit {
 /// returns true. On timeout, cancel, or a wait error the child is killed and
 /// reaped before returning, so no process outlives the call, unless it cannot
 /// be killed or does not exit within [`REAP_GRACE`]: that is
-/// [`BoundedExit::Stuck`], never an unbounded wait.
+/// [`BoundedExit::Stuck`], never an unbounded wait. A stuck child is parked
+/// with `slots` rather than dropped, so it keeps counting against that limiter
+/// until it is seen to have exited.
 pub(in crate::native) fn run_bounded(
-    mut child: Child,
+    child: Child,
     timeout: Duration,
     cancelled: impl Fn() -> bool,
+    slots: &UploadSlots,
+) -> BoundedExit {
+    run_bounded_process(child, timeout, cancelled, slots, REAP_GRACE)
+}
+
+/// [`run_bounded`] over any [`Terminable`], with the reap `grace` explicit so a
+/// test can stand in for a process that cannot be stopped.
+fn run_bounded_process<P: Terminable + 'static>(
+    mut process: P,
+    timeout: Duration,
+    cancelled: impl Fn() -> bool,
+    slots: &UploadSlots,
+    grace: Duration,
 ) -> BoundedExit {
     let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait() {
+    let stop = |process: &mut P, exit: BoundedExit| match terminate_and_reap(process, grace) {
+        Ok(()) => exit,
+        Err(stuck) => BoundedExit::Stuck(stuck),
+    };
+    let exit = loop {
+        match process.poll_exit() {
             Ok(Some(status)) => return BoundedExit::Exited(status),
             Ok(None) => {}
-            Err(error) => {
-                return match kill_and_reap(&mut child) {
-                    Ok(()) => BoundedExit::WaitFailed(error),
-                    Err(stuck) => BoundedExit::Stuck(stuck),
-                };
-            }
+            Err(error) => break stop(&mut process, BoundedExit::WaitFailed(error)),
         }
         if cancelled() {
-            return match kill_and_reap(&mut child) {
-                Ok(()) => BoundedExit::Cancelled,
-                Err(stuck) => BoundedExit::Stuck(stuck),
-            };
+            break stop(&mut process, BoundedExit::Cancelled);
         }
         let now = Instant::now();
         if now >= deadline {
-            return match kill_and_reap(&mut child) {
-                Ok(()) => BoundedExit::TimedOut,
-                Err(stuck) => BoundedExit::Stuck(stuck),
-            };
+            break stop(&mut process, BoundedExit::TimedOut);
         }
         std::thread::sleep(WAIT_POLL.min(deadline - now));
+    };
+    if matches!(exit, BoundedExit::Stuck(_)) {
+        slots.park(Box::new(process));
     }
+    exit
 }
 
 /// A process that can be killed and polled for its exit. Implemented by
 /// [`Child`]; the seam lets a test stand in for a process that survives a kill.
-trait Terminable {
+trait Terminable: Send {
     fn terminate(&mut self) -> std::io::Result<()>;
     fn poll_exit(&mut self) -> std::io::Result<Option<ExitStatus>>;
 }
@@ -197,14 +212,35 @@ fn terminate_and_reap(process: &mut impl Terminable, grace: Duration) -> std::io
     }
 }
 
-fn kill_and_reap(child: &mut Child) -> std::io::Result<()> {
-    terminate_and_reap(child, REAP_GRACE)
+/// Whether the process is known to be gone. A poll error counts: `Child`
+/// reports one only when the process can no longer be waited for (it was
+/// already reaped elsewhere), and retrying it would never change that.
+fn exit_proved(process: &mut dyn Terminable) -> bool {
+    !matches!(process.poll_exit(), Ok(None))
 }
 
-/// A counting limiter for concurrent uploads.
+/// Ask a process to die without waiting for it, for a caller that must not
+/// block (the window thread). The kill is sent once and the exit checked once;
+/// a process not yet gone is parked with `slots`, which keeps it counted and
+/// reaps it on a later admission.
+fn kill_without_waiting(mut process: Box<dyn Terminable>, slots: &UploadSlots) {
+    if let Err(error) = process.terminate() {
+        tracing::warn!("remote upload helper could not be killed: {error}");
+    }
+    if !exit_proved(&mut *process) {
+        slots.park(process);
+    }
+}
+
+/// A counting limiter for concurrent helper processes.
 pub(in crate::native) struct UploadSlots {
     active: AtomicUsize,
     max: usize,
+    /// Helpers that may still be running after the worker that owned them
+    /// returned. Each counts against `max` until it is seen to have exited, so
+    /// processes that cannot be stopped never exceed the cap. Never longer than
+    /// `max`: only an admitted slot's helper is parked.
+    parked: std::sync::Mutex<Vec<Box<dyn Terminable>>>,
 }
 
 /// Process-wide upload limiter.
@@ -216,17 +252,38 @@ impl UploadSlots {
         Self {
             active: AtomicUsize::new(0),
             max,
+            parked: std::sync::Mutex::new(Vec::new()),
         }
     }
 
-    /// Take a slot, or `None` when `max` uploads are already running.
+    /// Take a slot, or `None` when `max` uploads are already running or
+    /// unstoppable helpers still occupy the capacity. Parked helpers are
+    /// checked first: each is asked to die again, and the ones seen to have
+    /// exited free their share.
     pub(in crate::native) fn try_acquire(&self) -> Option<UploadSlot<'_>> {
+        let mut parked = crate::native::lock_recover(&self.parked);
+        parked.retain_mut(|process| {
+            let _ = process.terminate();
+            !exit_proved(&mut **process)
+        });
+        let unresolved = parked.len();
         self.active
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
-                (active < self.max).then_some(active + 1)
+                (active.saturating_add(unresolved) < self.max).then_some(active + 1)
             })
             .ok()
             .map(|_| UploadSlot { slots: self })
+    }
+
+    /// Keep a helper that may still be running counted against the cap.
+    fn park(&self, process: Box<dyn Terminable>) {
+        crate::native::lock_recover(&self.parked).push(process);
+    }
+
+    /// How many parked helpers have not been seen to exit.
+    #[cfg(test)]
+    fn parked_count(&self) -> usize {
+        crate::native::lock_recover(&self.parked).len()
     }
 }
 
@@ -283,21 +340,39 @@ pub(in crate::native) static CLEANUP_SLOTS: UploadSlots = UploadSlots::new(MAX_C
 /// Run `child` to completion under [`CLEANUP_DEADLINE`] on a thread started by
 /// `start`, holding `slot` for the duration. The child is owned by a shared
 /// cell until the thread has been admitted: when `start` fails, the child is
-/// killed and reaped here instead of being dropped, which neither kills nor
-/// reaps it. Returns whether the watcher was started.
+/// killed here instead of being dropped, which neither kills nor reaps it. That
+/// runs on the caller, which is the window thread when a tab closes, so it
+/// never waits: a child not yet gone is parked with the limiter and reaped by a
+/// later admission. A child the watcher could not stop is parked too and
+/// reported. Returns whether the watcher was started.
 fn watch_cleanup(
     child: Child,
     slot: UploadSlot<'static>,
     deadline: Duration,
     start: impl FnOnce(Box<dyn FnOnce() + Send>) -> std::io::Result<()>,
 ) -> bool {
+    watch_process(child, slot, deadline, REAP_GRACE, start)
+}
+
+/// [`watch_cleanup`] over any [`Terminable`], with the reap `grace` explicit.
+fn watch_process<P: Terminable + 'static>(
+    child: P,
+    slot: UploadSlot<'static>,
+    deadline: Duration,
+    grace: Duration,
+    start: impl FnOnce(Box<dyn FnOnce() + Send>) -> std::io::Result<()>,
+) -> bool {
     let cell = std::sync::Arc::new(std::sync::Mutex::new(Some(child)));
     let watcher_cell = std::sync::Arc::clone(&cell);
+    let slots = slot.slots;
     let watcher = Box::new(move || {
         let _slot = slot;
         let child = crate::native::lock_recover(&watcher_cell).take();
-        if let Some(child) = child {
-            let _ = run_bounded(child, deadline, || false);
+        if let Some(child) = child
+            && let BoundedExit::Stuck(stuck) =
+                run_bounded_process(child, deadline, || false, slots, grace)
+        {
+            tracing::warn!("remote upload cleanup could not be stopped: {stuck}");
         }
     });
     match start(watcher) {
@@ -305,10 +380,8 @@ fn watch_cleanup(
         Err(error) => {
             // The watcher never ran, so the child is still in the cell.
             let child = crate::native::lock_recover(&cell).take();
-            if let Some(mut child) = child
-                && let Err(stuck) = kill_and_reap(&mut child)
-            {
-                tracing::warn!("remote upload cleanup could not be stopped: {stuck}");
+            if let Some(child) = child {
+                kill_without_waiting(Box::new(child), slots);
             }
             tracing::warn!("remote upload cleanup watcher unavailable: {error}");
             false
@@ -368,6 +441,9 @@ mod tests {
     use std::process::{Command, Stdio};
     use std::sync::Mutex;
 
+    /// Limiter for tests whose helper is expected to exit or be reaped.
+    static TEST_SLOTS: UploadSlots = UploadSlots::new(1);
+
     fn stalled_child() -> Child {
         #[cfg(unix)]
         let mut command = {
@@ -395,7 +471,7 @@ mod tests {
     fn a_stalled_helper_is_killed_and_reaped_at_the_deadline() {
         let child = stalled_child();
         let start = Instant::now();
-        let exit = run_bounded(child, Duration::from_millis(200), || false);
+        let exit = run_bounded(child, Duration::from_millis(200), || false, &TEST_SLOTS);
         assert!(matches!(exit, BoundedExit::TimedOut), "got {exit:?}");
         assert!(start.elapsed() < Duration::from_secs(5));
     }
@@ -414,7 +490,7 @@ mod tests {
             .stderr(Stdio::null())
             .spawn()
             .expect("spawn");
-        match run_bounded(child, Duration::from_secs(10), || false) {
+        match run_bounded(child, Duration::from_secs(10), || false, &TEST_SLOTS) {
             BoundedExit::Exited(status) => assert!(status.success()),
             other => panic!("expected a clean exit, got {other:?}"),
         }
@@ -424,9 +500,12 @@ mod tests {
     fn a_cancelled_helper_is_killed_promptly() {
         let child = stalled_child();
         let start = Instant::now();
-        let exit = run_bounded(child, Duration::from_secs(30), || {
-            start.elapsed() >= Duration::from_millis(100)
-        });
+        let exit = run_bounded(
+            child,
+            Duration::from_secs(30),
+            || start.elapsed() >= Duration::from_millis(100),
+            &TEST_SLOTS,
+        );
         assert!(matches!(exit, BoundedExit::Cancelled), "got {exit:?}");
         assert!(start.elapsed() < Duration::from_secs(5));
     }
@@ -576,10 +655,14 @@ mod tests {
             Err(std::io::Error::other("thread limit"))
         });
         assert!(!started);
-        assert!(
-            SLOTS.try_acquire().is_some(),
-            "the slot is released when the watcher is not admitted"
-        );
+        // The kill is sent without waiting, so the child may not be gone yet:
+        // it stays counted until an admission finds it reaped.
+        let freed = Instant::now() + Duration::from_secs(30);
+        while SLOTS.try_acquire().is_none() {
+            assert!(Instant::now() < freed, "the killed child was never reaped");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(SLOTS.parked_count(), 0);
         // Signal 0 probes for the process: a killed but unreaped child is a
         // zombie and still answers, so a failure here means it was reaped too.
         #[cfg(unix)]
@@ -628,5 +711,144 @@ mod tests {
             .recv_timeout(Duration::from_secs(10))
             .expect("the watcher finished at its deadline");
         assert!(SLOTS.try_acquire().is_some(), "the slot is free again");
+    }
+
+    #[cfg(unix)]
+    fn exit_status() -> ExitStatus {
+        use std::os::unix::process::ExitStatusExt;
+        ExitStatus::from_raw(0)
+    }
+
+    #[cfg(windows)]
+    fn exit_status() -> ExitStatus {
+        use std::os::windows::process::ExitStatusExt;
+        ExitStatus::from_raw(0)
+    }
+
+    /// A stand-in helper whose exit the test controls and whose kills and
+    /// polls are counted.
+    #[derive(Clone, Default)]
+    struct Handle {
+        exited: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        kills: std::sync::Arc<AtomicUsize>,
+        polls: std::sync::Arc<AtomicUsize>,
+    }
+
+    impl Handle {
+        fn exit(&self) {
+            self.exited.store(true, Ordering::Release);
+        }
+    }
+
+    impl Terminable for Handle {
+        fn terminate(&mut self) -> std::io::Result<()> {
+            self.kills.fetch_add(1, Ordering::AcqRel);
+            Err(std::io::Error::other("kill refused"))
+        }
+
+        fn poll_exit(&mut self) -> std::io::Result<Option<ExitStatus>> {
+            self.polls.fetch_add(1, Ordering::AcqRel);
+            Ok(self.exited.load(Ordering::Acquire).then(exit_status))
+        }
+    }
+
+    const NO_GRACE: Duration = Duration::from_millis(1);
+
+    /// A helper that cannot be stopped keeps counting against the cap after its
+    /// worker returned and released its slot, and is freed only once a later
+    /// admission sees it exit. Covers the upload path (`run_bounded_process`).
+    #[test]
+    fn a_stuck_upload_helper_keeps_counting_until_it_is_seen_to_exit() {
+        let slots = UploadSlots::new(2);
+        let helper = Handle::default();
+        let worker_slot = slots.try_acquire().expect("the worker's slot");
+        let exit = run_bounded_process(helper.clone(), Duration::ZERO, || false, &slots, NO_GRACE);
+        assert!(matches!(exit, BoundedExit::Stuck(_)), "got {exit:?}");
+        drop(worker_slot);
+        assert_eq!(slots.parked_count(), 1, "the helper is retained");
+        // One of the two places is still occupied, however often it is asked.
+        let other = slots.try_acquire().expect("one place is left");
+        for _ in 0..3 {
+            assert!(slots.try_acquire().is_none(), "the stuck helper counts");
+        }
+        assert!(
+            helper.kills.load(Ordering::Acquire) >= 3,
+            "each ask retries the kill"
+        );
+        drop(other);
+        helper.exit();
+        let first = slots.try_acquire().expect("the exit frees its place");
+        let second = slots.try_acquire().expect("both places are free again");
+        assert!(slots.try_acquire().is_none(), "the cap itself is unchanged");
+        assert_eq!(slots.parked_count(), 0);
+        drop((first, second));
+    }
+
+    /// The same for the cleanup watcher: it returns, its slot is released, and
+    /// the cleanup helper that could not be stopped still occupies the cap.
+    #[test]
+    fn a_stuck_cleanup_helper_keeps_counting_after_its_watcher_returns() {
+        static SLOTS: UploadSlots = UploadSlots::new(1);
+        let helper = Handle::default();
+        let slot = SLOTS.try_acquire().expect("slot");
+        let started = watch_process(helper.clone(), slot, Duration::ZERO, NO_GRACE, |watcher| {
+            std::thread::spawn(watcher).join().expect("watcher");
+            Ok(())
+        });
+        assert!(started);
+        assert_eq!(SLOTS.parked_count(), 1);
+        assert!(
+            SLOTS.try_acquire().is_none(),
+            "the cleanup past the cap is skipped while its helper may still run"
+        );
+        helper.exit();
+        assert!(SLOTS.try_acquire().is_some(), "freed once the exit is seen");
+        assert_eq!(SLOTS.parked_count(), 0);
+    }
+
+    /// Tab close runs the watcher admission on the window thread: when the
+    /// watcher cannot start, the helper is told to die once and checked once,
+    /// never polled in a wait loop, and a helper still running is parked.
+    #[test]
+    fn a_watcher_that_cannot_start_never_waits_for_the_helper() {
+        static SLOTS: UploadSlots = UploadSlots::new(1);
+        let helper = Handle::default();
+        let slot = SLOTS.try_acquire().expect("slot");
+        // A long grace would be waited out by the old synchronous reap.
+        let started = watch_process(
+            helper.clone(),
+            slot,
+            Duration::from_secs(30),
+            Duration::from_secs(3600),
+            |_watcher| Err(std::io::Error::other("thread limit")),
+        );
+        assert!(!started);
+        assert_eq!(helper.kills.load(Ordering::Acquire), 1, "killed once");
+        assert_eq!(
+            helper.polls.load(Ordering::Acquire),
+            1,
+            "checked once, not awaited"
+        );
+        assert_eq!(SLOTS.parked_count(), 1, "still counted: it may be running");
+        helper.exit();
+        assert!(SLOTS.try_acquire().is_some());
+    }
+
+    /// A helper already gone when the watcher fails to start is not parked.
+    #[test]
+    fn a_helper_that_died_at_once_is_not_parked() {
+        static SLOTS: UploadSlots = UploadSlots::new(1);
+        let helper = Handle::default();
+        helper.exit();
+        let slot = SLOTS.try_acquire().expect("slot");
+        watch_process(
+            helper,
+            slot,
+            Duration::from_secs(30),
+            NO_GRACE,
+            |_watcher| Err(std::io::Error::other("thread limit")),
+        );
+        assert_eq!(SLOTS.parked_count(), 0);
+        assert!(SLOTS.try_acquire().is_some());
     }
 }

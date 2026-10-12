@@ -652,22 +652,28 @@ fn repair_direct_layout_files(dir: &Path) -> io::Result<()> {
 }
 
 /// Sanitize a layout name into a safe single-segment filename stem (WP3 / 8e).
-/// Keeps ASCII letters, digits, spaces, `-` and `_`; every other character
-/// (path separators, dots, control characters, non-ASCII) becomes `_`. This
-/// blocks path traversal (`..`, `/`, `\\`) and hidden-file names by
-/// construction, and caps the length. Returns `None` when nothing usable
-/// remains, so an empty or all-illegal name never yields a stray file.
+/// Keeps ASCII letters, digits, spaces, `-`, `_`, and non-ASCII text.
+/// Other ASCII punctuation and control characters become `_`, blocking traversal
+/// and hidden names. Truncation respects UTF-8 boundaries within 96 bytes.
+/// Returns `None` for an empty trimmed name. Existing sanitized names remain
+/// usable; saving a Unicode name does not rename an older underscore alias.
 pub(crate) fn sanitize_layout_name(name: &str) -> Option<String> {
     let mut out = String::new();
     for ch in name.trim().chars() {
-        if ch.is_ascii_alphanumeric() || ch == ' ' || ch == '-' || ch == '_' {
-            out.push(ch);
+        let kept = if ch.is_ascii_alphanumeric()
+            || ch == ' '
+            || ch == '-'
+            || ch == '_'
+            || (!ch.is_ascii() && !ch.is_control())
+        {
+            ch
         } else {
-            out.push('_');
-        }
-        if out.len() >= 96 {
+            '_'
+        };
+        if out.len() + kept.len_utf8() > 96 {
             break;
         }
+        out.push(kept);
     }
     let trimmed = out.trim().to_owned();
     if trimmed.is_empty() {

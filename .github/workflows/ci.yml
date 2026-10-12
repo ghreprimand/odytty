@@ -119,6 +119,17 @@ jobs:
           cargo check --manifest-path fuzz/parser_graphics/Cargo.toml
           --locked --bins
 
+      # THIRD-PARTY-LICENSES is generated from the locked normal-dependency
+      # closure of the shipped targets. `cargo metadata` fetches the crate
+      # sources, so this runs where cargo has network access; the offline
+      # tests/packaging_third_party.rs keeps the file in step with Cargo.lock
+      # on every platform.
+      - name: Third-party licence file is current
+        if: runner.os == 'Linux'
+        run: |
+          python3 scripts/third-party-licenses-test.py
+          python3 scripts/third-party-licenses.py check
+
       # Linux must execute the required WGSL/draw and shell-byte validation.
       - name: Required software GPU and shell validation
         if: runner.os == 'Linux'

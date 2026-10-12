@@ -2160,7 +2160,8 @@ that closed while the picker was open, including when names are duplicated.
   typed into the shell, so no stray command runs. The name uses operating-system
   cryptographic randomness and the POSIX remote create uses noclobber, so an
   existing path or symlink fails rather than being reused. A size cap and
-  best-effort cleanup apply. At most two uploads run at once; the upload `ssh`
+  best-effort cleanup apply. At most two uploads run at once, and an `ssh`
+  that could not be stopped keeps counting until it is seen to have exited; the upload `ssh`
   uses a 10-second connect timeout and is stopped after 120 seconds or when
   its tab closes. An upload that finishes after its tab closed removes its
   own remote file. Reconnected and restored remote tabs support image paste.
@@ -2300,6 +2301,12 @@ tools use zsync for transfer integrity; the signed SHA256SUMS remains the
 release-authentication boundary. Version 0.16.0 and earlier lack update info.
 
 ### Named Profiles And External Palette Following
+
+Saved-layout names preserve non-ASCII text on Linux, macOS and Windows, within
+96 UTF-8 bytes. ASCII letters, digits, spaces, hyphens and underscores remain;
+other ASCII punctuation and control characters become underscores. Truncation
+ends before a complete scalar would exceed the byte limit. Existing
+underscore aliases stay usable and are not renamed automatically.
 
 Profile-form shell and command edits are mutually exclusive. Clearing a command
 program selects the default shell; choosing a shell replaces the command and

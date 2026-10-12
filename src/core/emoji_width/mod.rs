@@ -16,8 +16,8 @@ fn modifier(ch: char) -> bool {
     matches!(ch, '\u{1f3fb}'..='\u{1f3ff}')
 }
 fn modifier_extension(base: char, extensions: &[char], next: char) -> bool {
-    member(data::MODIFIER_BASES, base)
-        && modifier(next)
+    modifier(next)
+        && member(data::MODIFIER_BASES, base)
         && (extensions.is_empty() || extensions == ['\u{fe0f}'])
 }
 fn zwj_prefix(base: char, extensions: &[char], next: Option<char>) -> bool {

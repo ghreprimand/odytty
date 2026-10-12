@@ -69,6 +69,14 @@ These are design decisions, not missing features:
   not an integrity check.
 - **It reports `ignore`, not `pass`, when it cannot see the screen.** See
   [Why replay cases cannot pass yet](#why-replay-cases-cannot-pass-yet).
+- **It does not accept a partial capture as a result.** Every wait on a case is
+  bounded. A case that outlives its time limit is killed together with the
+  processes it started, and a process that survives the case and keeps its
+  output open leaves the capture unfinished: a replay case then fails and an
+  upstream case is skipped, instead of reading the bytes seen so far as the
+  whole output. Cleanup of started processes uses a process group on Linux and
+  macOS and `taskkill /T` on Windows, which the Windows leg of CI does not
+  exercise.
 - **It does not vendor, cache inside the repo, or write to your real
   configuration.** Each case runs against a private, throwaway state directory.
 

@@ -263,6 +263,7 @@ odytty.exe
 README.md
 LICENSE
 NOTICE
+THIRD-PARTY-LICENSES
 licenses/fonts/<font set>/<licence files>
 ```
 
@@ -270,7 +271,10 @@ The font licence files are the paths in `dist/font-licenses.txt`: the fonts are
 embedded in the binary, and their licences require the notices to accompany
 every copy. The same files ship in the deb and rpm (listed in `Cargo.toml`),
 the AUR package, the binary tarball, the AppImage and the macOS app, through
-`dist/install-font-licenses.sh`; `tests/packaging_font_licenses.rs` keeps the
+`dist/install-font-licenses.sh`. The tarball's own `install.sh` (also run by
+the one-line installer's tarball branch) copies `LICENSE`, `NOTICE` and the
+font licences to `PREFIX/share/licenses/odytty` and removes them on
+`--uninstall`; `tests/packaging_font_licenses.rs` keeps the
 list equal to the licence files in `assets/fonts`.
 
 `NOTICE` ships in every package and carries the Unicode License v3 text for the
@@ -278,6 +282,21 @@ Unicode Character Database and emoji data tables embedded in the binary
 (bidirectional classes, emoji widths, Indic properties), plus a note on the
 linked Rust crates; `tests/packaging_notice.rs` checks that it reproduces the
 licence files the generated tables cite and names the tables' Unicode version.
+
+`THIRD-PARTY-LICENSES`, at the repository root beside `NOTICE`, reproduces the
+licence notices of the Rust crates the binaries link. It ships in every package
+the same way `NOTICE` does: the deb and rpm (listed in `Cargo.toml`), the AUR
+package, the binary tarball and its installer, the AppImage, the macOS app and
+the Windows zip. It is generated, not written: `python3
+scripts/third-party-licenses.py generate` rebuilds it from the locked
+normal-dependency closure for the three shipped targets (Linux x86_64 and
+Windows x86_64 and macOS aarch64), so a dependency change that alters the
+closure needs a regenerated file in the same commit. A crate whose published
+source has no licence file gets the standard text of its declared licence from
+`scripts/third-party-licenses-spdx/`, with its declared authors, and the file
+says so. CI runs the script's `check` mode (it needs cargo network access), and
+`tests/packaging_third_party.rs` checks the file against `Cargo.lock` and every
+package definition without cargo.
 
 It must not contain `.pdb` files, build directories, or installer work
 directories.

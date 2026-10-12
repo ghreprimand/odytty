@@ -151,7 +151,7 @@ const CONFIG_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 /// returned handle drops. When the lock cannot be established the save is
 /// refused with an error, as is a lock still held after [`CONFIG_LOCK_WAIT`],
 /// so a concurrent save is never silently lost. The one exception is a
-/// platform or file system that reports locking as unsupported
+/// platform or file system that reports locking as unsupported or unavailable
 /// ([`unlocked_save_allowed`]): there the save goes ahead unlocked, as it did
 /// before the lock existed, and a warning is logged.
 fn lock_config(path: &Path) -> Result<Option<std::fs::File>, ConfigWritebackError> {
@@ -201,7 +201,7 @@ fn lock_config(path: &Path) -> Result<Option<std::fs::File>, ConfigWritebackErro
             Err(std::fs::TryLockError::Error(error)) if unlocked_save_allowed(&error) => {
                 tracing::warn!(
                     path = %lock_path.display(),
-                    "file locking is unsupported here; saving settings without the lock"
+                    "file locking is unavailable here; saving settings without the lock"
                 );
                 return Ok(None);
             }
@@ -216,12 +216,27 @@ fn lock_config(path: &Path) -> Result<Option<std::fs::File>, ConfigWritebackErro
 }
 
 /// Whether a lock error still lets a save go ahead unlocked: only when
-/// locking itself is unsupported. A concurrent save from another OdyTTY
-/// process can then be lost, which is the documented limit on such a file
-/// system; every other lock error refuses the save.
+/// locking itself is unavailable on this file system. That is an
+/// `Unsupported` error; on Unix also `ENOLCK`, which an NFS mount without a
+/// lock manager returns; on Windows also `ERROR_NOT_SUPPORTED` and
+/// `ERROR_INVALID_FUNCTION`, which some network redirectors return for
+/// `LockFileEx`. A concurrent save from another OdyTTY process can then be
+/// lost, which is the documented limit on such a file system; every other
+/// lock error refuses the save.
 fn unlocked_save_allowed(error: &io::Error) -> bool {
     error.kind() == io::ErrorKind::Unsupported
+        || error
+            .raw_os_error()
+            .is_some_and(|code| LOCKING_UNAVAILABLE_CODES.contains(&code))
 }
+
+/// Raw OS error codes that mean file locking is unavailable, not that it
+/// failed (see [`unlocked_save_allowed`]).
+#[cfg(unix)]
+const LOCKING_UNAVAILABLE_CODES: &[i32] = &[libc::ENOLCK];
+/// `ERROR_INVALID_FUNCTION` (1) and `ERROR_NOT_SUPPORTED` (50).
+#[cfg(windows)]
+const LOCKING_UNAVAILABLE_CODES: &[i32] = &[1, 50];
 
 fn canonical_changes(changes: &[SettingEdit]) -> BTreeMap<&'static str, String> {
     changes
@@ -652,6 +667,27 @@ mod tests {
         assert!(unlocked_save_allowed(&io::Error::from(
             io::ErrorKind::Unsupported
         )));
+        for &code in LOCKING_UNAVAILABLE_CODES {
+            assert!(
+                unlocked_save_allowed(&io::Error::from_raw_os_error(code)),
+                "raw error {code}"
+            );
+        }
+        #[cfg(unix)]
+        for code in [libc::EACCES, libc::EIO, libc::EBADF, libc::EINVAL] {
+            assert!(
+                !unlocked_save_allowed(&io::Error::from_raw_os_error(code)),
+                "raw error {code}"
+            );
+        }
+        // ERROR_ACCESS_DENIED, ERROR_INVALID_HANDLE, ERROR_LOCK_VIOLATION.
+        #[cfg(windows)]
+        for code in [5, 6, 33] {
+            assert!(
+                !unlocked_save_allowed(&io::Error::from_raw_os_error(code)),
+                "raw error {code}"
+            );
+        }
         for kind in [
             io::ErrorKind::PermissionDenied,
             io::ErrorKind::Other,

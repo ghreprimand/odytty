@@ -222,7 +222,7 @@ fn query_invalid_payload_returns_error() {
     let output = t.screen().host_output_bytes();
     let output_str = String::from_utf8_lossy(output);
     assert_eq!(
-        output, b"\x1b_G;invalid-payload\x1b\\",
+        output, b"\x1b_Gi=99;invalid-payload\x1b\\",
         "query error: {output_str}"
     );
     assert_eq!(t.graphics().store().len(), 0);

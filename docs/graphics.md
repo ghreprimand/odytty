@@ -139,6 +139,13 @@ at its own `q=` level rather than the abandoned transfer's.
 | `1` | Suppress `OK` responses; error responses are still sent |
 | `2` | Suppress all responses (both `OK` and errors) |
 
+An error response names the command it answers, like an `OK` response: it
+carries the `i=`, `I=` and `p=` keys the command sent (for example
+`ESC _ G i=31,p=4;EINVAL:... ESC \`), so a client with several commands in
+flight can match it. A continuation chunk of a chunked transfer carries none of
+those keys, so its error carries the ones from the transfer's first chunk. A
+command that named none gets the bare `ESC _ G ; ... ESC \` form.
+
 ### Delete specifiers (`a=d`)
 
 | `d=` | What is deleted | Uppercase (`D=`) variant |

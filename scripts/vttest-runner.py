@@ -52,11 +52,13 @@ import os
 import platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
 import tempfile
 import threading
+import time
 import tomllib
 import unittest
 import urllib.request
@@ -893,14 +895,66 @@ def sanitize_bytes(raw: bytes) -> str:
     return sanitize(raw.decode("utf-8", "replace"))
 
 
-class BoundedRun:
-    """The outcome of `run_bounded`: status and capped output of a child."""
+# How long the output readers may keep running after the child has exited,
+# and how long a killed child may take to be reaped. Both are upper bounds on
+# waits that would otherwise depend on a process outside the harness.
+DRAIN_GRACE_SECONDS = 5.0
+REAP_SECONDS = 10.0
 
-    def __init__(self, returncode: int, stdout: bytes, stderr: bytes, truncated: bool):
+
+class BoundedRun:
+    """The outcome of `run_bounded`: status and capped output of a child.
+
+    `truncated` means output past the per-stream cap was discarded.
+    `incomplete` means a reader was still running after the grace period, so a
+    process that outlived the child held its output open and the captured bytes
+    are a prefix. Neither is evidence of a result.
+    """
+
+    def __init__(
+        self,
+        returncode: int,
+        stdout: bytes,
+        stderr: bytes,
+        truncated: bool,
+        incomplete: bool = False,
+    ):
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
         self.truncated = truncated
+        self.incomplete = incomplete
+
+
+def _kill_tree(process: subprocess.Popen) -> None:
+    """Kill the child and every descendant that stayed in its process group.
+
+    The child is started as its own session leader (POSIX) so one signal
+    reaches a shell's background jobs too. Windows has no process groups here,
+    so `taskkill /T` walks the tree instead; a failure to run it falls back to
+    killing the direct child only.
+    """
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    else:
+        try:
+            subprocess.run(  # noqa: S603 - argv form, fixed tool, no shell
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=REAP_SECONDS,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+    try:
+        process.kill()
+    except OSError:
+        pass
 
 
 def run_bounded(
@@ -910,14 +964,26 @@ def run_bounded(
     cwd: str,
     timeout: float,
     limit: int = MAX_CAPTURE_BYTES,
+    drain_grace: float | None = None,
 ) -> BoundedRun:
     """Run a child with each output stream capped at `limit` bytes.
 
     The streams are drained in chunks while the child runs, so a child that
     prints without end holds at most `limit` bytes per stream in memory, and a
     full pipe never blocks it. Bytes past the cap are discarded and `truncated`
-    is set. Raises `subprocess.TimeoutExpired` after killing the child.
+    is set.
+
+    Every wait is bounded. The child exits within `timeout`, or it and its
+    process group are killed and `subprocess.TimeoutExpired` is raised after a
+    bounded reap. After the child exits the readers get `drain_grace` seconds
+    (default `DRAIN_GRACE_SECONDS`) to reach end of file; a reader still running
+    then means a descendant holds the pipe, so the group is killed and the run
+    is returned with `incomplete` set instead of a prefix passed off as whole.
     """
+    grace = DRAIN_GRACE_SECONDS if drain_grace is None else drain_grace
+    popen_extra: dict[str, Any] = (
+        {"start_new_session": True} if os.name == "posix" else {}
+    )
     process = subprocess.Popen(  # noqa: S603 - argv form, no shell
         argv,
         env=env,
@@ -925,21 +991,27 @@ def run_bounded(
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        **popen_extra,
     )
     chunks: dict[str, bytearray] = {"stdout": bytearray(), "stderr": bytearray()}
     overflow = {"stdout": False, "stderr": False}
+    broken = {"stdout": False, "stderr": False}
 
     def drain(name: str, stream) -> None:
         sink = chunks[name]
-        while True:
-            block = stream.read(65536)
-            if not block:
-                return
-            room = limit - len(sink)
-            if room > 0:
-                sink.extend(block[:room])
-            if len(block) > max(room, 0):
-                overflow[name] = True
+        try:
+            while True:
+                block = stream.read(65536)
+                if not block:
+                    return
+                room = limit - len(sink)
+                if room > 0:
+                    sink.extend(block[:room])
+                if len(block) > max(room, 0):
+                    overflow[name] = True
+        except (OSError, ValueError):
+            # A closed or broken pipe ends the capture before end of file.
+            broken[name] = True
 
     threads = [
         threading.Thread(target=drain, args=("stdout", process.stdout), daemon=True),
@@ -947,21 +1019,39 @@ def run_bounded(
     ]
     for thread in threads:
         thread.start()
+
+    def join_readers(seconds: float) -> bool:
+        end = time.monotonic() + seconds
+        for thread in threads:
+            thread.join(timeout=max(0.0, end - time.monotonic()))
+        return not any(thread.is_alive() for thread in threads)
+
     try:
         process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait()
-        for thread in threads:
-            thread.join(timeout=5)
+        _kill_tree(process)
+        try:
+            process.wait(timeout=REAP_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass
+        join_readers(grace)
         raise
-    for thread in threads:
-        thread.join(timeout=5)
+    if not join_readers(grace):
+        _kill_tree(process)
+        join_readers(grace)
+        return BoundedRun(
+            process.returncode,
+            bytes(chunks["stdout"]),
+            bytes(chunks["stderr"]),
+            overflow["stdout"] or overflow["stderr"],
+            incomplete=True,
+        )
     return BoundedRun(
         process.returncode,
         bytes(chunks["stdout"]),
         bytes(chunks["stderr"]),
         overflow["stdout"] or overflow["stderr"],
+        incomplete=broken["stdout"] or broken["stderr"],
     )
 
 
@@ -1119,6 +1209,18 @@ def run_case(
             reference=log_path.name,
         )
 
+    if completed.incomplete:
+        return case_entry(
+            case,
+            "fail",
+            "a process started by the case kept its output open after the case "
+            "exited, so the capture is unfinished; an incomplete capture is "
+            "not evidence",
+            duration,
+            evidence_kind="capture_file",
+            reference=log_path.name,
+        )
+
     if completed.returncode != 0:
         return case_entry(
             case,
@@ -1225,7 +1327,20 @@ def run_upstream_case(
     diagnostic_text = sanitize_bytes(captured)
     if completed.truncated:
         diagnostic_text += f"\n[output truncated at {MAX_CAPTURE_BYTES} bytes per stream]\n"
+    if completed.incomplete:
+        diagnostic_text += "\n[capture incomplete: a process outlived the suite and held its output open]\n"
     diagnostic.write_text(diagnostic_text, encoding="utf-8")
+
+    if completed.incomplete:
+        return case_entry(
+            case,
+            "skip",
+            "a process started by the run kept its output open after the suite "
+            "exited, so the capture and the log may be unfinished and are not "
+            "read as a result",
+            duration,
+            evidence_kind="exit_status",
+        )
 
     if not log_path.is_file():
         return case_entry(
@@ -2327,6 +2442,142 @@ class SelfTest(unittest.TestCase):
                 cwd=os.getcwd(),
                 timeout=0.5,
             )
+
+    def test_a_complete_capture_is_not_marked_incomplete(self) -> None:
+        done = run_bounded(
+            [sys.executable, "-c", "print('whole')"],
+            env=dict(os.environ),
+            cwd=os.getcwd(),
+            timeout=60,
+        )
+        self.assertFalse(done.incomplete)
+        self.assertFalse(done.truncated)
+        self.assertEqual(done.stdout.strip(), b"whole")
+
+    @unittest.skipUnless(os.name == "posix", "needs sh and POSIX process groups")
+    def test_a_descendant_holding_the_pipe_open_makes_the_capture_incomplete(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            flag = Path(tmp) / "survivor"
+            # The shell exits at once; its background job inherits stdout and
+            # would write the flag a second later.
+            script = f"(sleep 1; echo alive > '{flag}') & echo started"
+            started = time.monotonic()
+            done = run_bounded(
+                ["sh", "-c", script],
+                env=dict(os.environ),
+                cwd=tmp,
+                timeout=60,
+                drain_grace=0.3,
+            )
+            elapsed = time.monotonic() - started
+            self.assertTrue(done.incomplete)
+            self.assertFalse(done.truncated)
+            self.assertEqual(done.stdout.strip(), b"started")
+            self.assertLess(elapsed, 0.9, "the grace period bounds the wait")
+            # The descendant was killed with the group, not left running.
+            time.sleep(1.6)
+            self.assertFalse(flag.exists(), "the descendant outlived the run")
+
+    @unittest.skipUnless(os.name == "posix", "needs sh and POSIX process groups")
+    def test_the_timeout_kill_reaches_the_childs_descendants(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            flag = Path(tmp) / "survivor"
+            script = f"(sleep 1; echo alive > '{flag}') & sleep 60"
+            with self.assertRaises(subprocess.TimeoutExpired):
+                run_bounded(
+                    ["sh", "-c", script],
+                    env=dict(os.environ),
+                    cwd=tmp,
+                    timeout=0.3,
+                    drain_grace=0.3,
+                )
+            time.sleep(1.6)
+            self.assertFalse(flag.exists(), "the descendant outlived the timeout kill")
+
+    def test_a_child_that_ignores_the_kill_cannot_hang_the_reap(self) -> None:
+        process = mock.MagicMock()
+        process.pid = 2**22 + 12345
+        process.stdout = io.BytesIO(b"")
+        process.stderr = io.BytesIO(b"")
+        waits: list[object] = []
+
+        def wait(timeout=None):
+            waits.append(timeout)
+            raise subprocess.TimeoutExpired("fake", timeout)
+
+        process.wait.side_effect = wait
+        with (
+            mock.patch(__name__ + ".subprocess.Popen", return_value=process),
+            mock.patch(__name__ + "._kill_tree") as kill_tree,
+            mock.patch(__name__ + ".REAP_SECONDS", 0.05),
+        ):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                run_bounded(
+                    ["fake"], env={}, cwd=os.getcwd(), timeout=0.05, drain_grace=0.05
+                )
+        kill_tree.assert_called_once_with(process)
+        self.assertEqual(len(waits), 2)
+        self.assertNotIn(None, waits, "every wait carries a bound")
+
+    @unittest.skipUnless(os.name == "posix", "needs sh and POSIX process groups")
+    def test_a_replay_case_that_leaves_a_process_holding_its_output_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "replay").mkdir()
+            (root / "replay" / "noise.vtseq").write_text("\\e[2J\n", encoding="utf-8")
+            subject = root / "subject"
+            subject.write_text("#!/bin/sh\n(sleep 5) &\necho started\n")
+            subject.chmod(0o755)
+            case = {
+                "id": "noise",
+                "classification": "replay",
+                "fixture": "replay/noise.vtseq",
+                "timeout_seconds": 60,
+            }
+            with (
+                mock.patch(__name__ + ".check_platform_supported"),
+                mock.patch(__name__ + ".COMPAT_DIR", root),
+                mock.patch(__name__ + ".DRAIN_GRACE_SECONDS", 0.3),
+            ):
+                entry = run_case(
+                    case, binary=subject, baseline={}, work_dir=root / "work", reader="cat"
+                )
+            self.assertEqual(entry["outcome"], "fail", entry["reason"])
+            self.assertIn("unfinished", entry["reason"])
+
+    @unittest.skipUnless(os.name == "posix", "needs sh and POSIX process groups")
+    def test_an_upstream_run_that_leaves_a_process_holding_its_output_is_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subject = root / "subject"
+            subject.write_text(
+                "#!/bin/sh\n"
+                'while [ "$#" -gt 0 ]; do [ "$1" = -l ] && log="$2"; shift; done\n'
+                "(sleep 5) &\necho done > \"$log\"\n"
+            )
+            subject.chmod(0o755)
+            case = {
+                "id": "held",
+                "classification": "upstream",
+                "menu_path": [1],
+                "timeout_seconds": 120,
+            }
+            with (
+                mock.patch(__name__ + ".check_platform_supported"),
+                mock.patch(__name__ + ".DRAIN_GRACE_SECONDS", 0.3),
+            ):
+                entry = run_upstream_case(
+                    case,
+                    binary=subject,
+                    upstream_binary=root / "upstream",
+                    baseline={},
+                    script_shape={},
+                    verdicts=[],
+                    divergences={},
+                    work_dir=root / "work",
+                )
+            self.assertEqual(entry["outcome"], "skip", entry["reason"])
+            self.assertIn("unfinished", entry["reason"])
 
     def test_a_replay_case_whose_output_hits_the_cap_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

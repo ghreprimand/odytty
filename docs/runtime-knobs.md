@@ -1477,7 +1477,8 @@ engages on a remote *integrated* tab; a local tab or an integration-off plain-ss
 tab pastes exactly as before. Images larger than 10 MiB (PNG-encoded) are refused
 with a one-line notice rather than uploaded.
 
-Uploads are bounded: at most two run at once (a third paste reports that
+Uploads are bounded: at most two run at once, counting an `ssh` that could not
+be stopped until it is seen to have exited (a further paste reports that
 earlier uploads are still running), the `ssh` command uses
 `ConnectTimeout=10`, and an upload still running after 120 seconds, or whose
 tab closes, is stopped with a one-line notice (nothing is shown for a closed
@@ -1493,7 +1494,10 @@ guaranteed remote deletion. Cleanup is bounded: at most eight cleanups run at
 once and a cleanup requested past that is skipped, a tab remembers at most 256
 uploaded paths and forgets the oldest beyond that (an earlier file is never
 deleted early, because its path may already be in use), and a helper that
-cannot be killed is reported as stuck instead of waited on. A skipped or
+cannot be killed is reported as stuck instead of waited on and keeps counting
+against the cap until a later request finds it gone. Closing a tab never waits
+for a cleanup helper, even when the thread that watches it cannot start. A
+skipped or
 forgotten file is left to the remote's own temp-file reaper. **Windows:**
 the upload uses the bundled `ssh.exe` the same way (no `ControlMaster` reuse, as
 OpenSSH for Windows has none), so each upload does its own connect; the clipboard

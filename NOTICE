@@ -114,5 +114,6 @@ Third-party Rust crates
 
 The OdyTTY binary statically links third-party Rust crates published under
 permissive licences such as MIT, Apache-2.0, BSD, ISC and Zlib, and under the
-MPL-2.0. The crates and exact versions linked are listed in `Cargo.lock` of the
-source archive, and each crate's manifest states its licence expression.
+MPL-2.0. Their licence notices are reproduced in the file THIRD-PARTY-LICENSES,
+which ships beside this file and is generated from the locked dependency list
+(`Cargo.lock` in the source archive).

@@ -1,10 +1,12 @@
 #!/usr/bin/env sh
 # Slim local installer for the OdyTTY prebuilt Linux tarball.
 #
-# Run this from the extracted tarball directory. It copies the odytty binary
-# and its desktop-integration files (the .desktop launcher, AppStream metainfo,
-# and the hicolor icon set) into a prefix, then refreshes the desktop database
-# and icon cache if those tools are present. Nothing is downloaded; this only
+# Run this from the extracted tarball directory. It copies the odytty binary,
+# its desktop-integration files (the .desktop launcher, AppStream metainfo,
+# and the hicolor icon set), and the licence texts (LICENSE, NOTICE and the
+# bundled fonts' licences, under PREFIX/share/licenses/odytty) into a prefix,
+# then refreshes the desktop database and icon cache if those tools are
+# present. Nothing is downloaded; this only
 # installs the files shipped in the tarball.
 #
 # Usage:
@@ -24,12 +26,14 @@ BIN_DIR="$PREFIX/bin"
 DATA_DIR="$PREFIX/share"
 
 DESKTOP_ID="io.unfinished_works.odytty"
+LICENSE_DIR="$DATA_DIR/licenses/odytty"
 
 uninstall() {
     rm -f "$BIN_DIR/odytty"
     rm -f "$DATA_DIR/applications/$DESKTOP_ID.desktop"
     rm -f "$DATA_DIR/metainfo/$DESKTOP_ID.metainfo.xml"
     find "$DATA_DIR/icons/hicolor" -name "$DESKTOP_ID.*" -delete 2>/dev/null || true
+    rm -rf "$LICENSE_DIR"
     echo "Removed OdyTTY from $PREFIX."
 }
 
@@ -57,6 +61,19 @@ fi
 if [ -d "$SELF_DIR/share/icons/hicolor" ]; then
     ( cd "$SELF_DIR/share/icons/hicolor" && find . -type f -print ) | while IFS= read -r icon; do
         install -Dm644 "$SELF_DIR/share/icons/hicolor/$icon" "$DATA_DIR/icons/hicolor/$icon"
+    done
+fi
+# The licence texts travel with the binary: the GPL, the notices, and the
+# bundled fonts' licences, which require their notices with every copy. A
+# notice file a tarball does not carry is skipped.
+for notice in LICENSE NOTICE THIRD-PARTY-LICENSES; do
+    if [ -f "$SELF_DIR/$notice" ]; then
+        install -Dm644 "$SELF_DIR/$notice" "$LICENSE_DIR/$notice"
+    fi
+done
+if [ -d "$SELF_DIR/licenses/fonts" ]; then
+    ( cd "$SELF_DIR/licenses/fonts" && find . -type f -print ) | while IFS= read -r file; do
+        install -Dm644 "$SELF_DIR/licenses/fonts/$file" "$LICENSE_DIR/fonts/$file"
     done
 fi
 

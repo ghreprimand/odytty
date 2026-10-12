@@ -53,9 +53,10 @@ Saving takes a lock on `odytty.conf.lock` beside the file, so two OdyTTY
 windows saving different settings at the same time both keep their changes.
 If that lock cannot be opened or taken, or another window's save still holds
 it after two seconds, the save is refused with an error and nothing is
-written. On a file system that reports file locking as unsupported, settings
-save without the lock, so two windows saving at the same moment there can
-lose one of the changes.
+written. On a file system that reports file locking as unsupported or
+unavailable (such as an NFS mount without a lock manager, or a Windows network
+share whose server does not support locking), settings save without the lock,
+so two windows saving at the same moment there can lose one of the changes.
 
 OdyTTY checks the file about once per second and applies valid external changes
 live. Values resolve from built-in defaults, then `odytty.conf`, then matching
