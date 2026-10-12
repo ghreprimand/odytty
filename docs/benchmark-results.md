@@ -174,6 +174,10 @@ composite score is computed, per the protocol's reporting rule.
 | OdyTTY | 1000 | [999, 1003] |
 | Ghostty | 6444 | [6435, 6470] |
 
+These context-switch counts were read from each process's main thread only.
+The runner now sums every thread of the process tree, so later counts are not
+comparable with this table.
+
 CPU and memory figures come from cgroup v2 accounting of each terminal's
 private process tree; nothing outside that tree contributes to its
 numbers.

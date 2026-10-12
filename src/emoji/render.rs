@@ -582,14 +582,15 @@ fn is_emoji_variation_selector(ch: char) -> bool {
 
 /// Which scalars take the colour route by default.
 ///
-/// Policy (ruled, no change): the two pictographic-plane ranges below are
-/// whole blocks, a deliberate superset of Unicode Emoji_Presentation=Yes. A
-/// scalar in them that no colour face covers still draws: the colour route
-/// reports it through `color_route_needs_mono_fallback` and the monochrome
-/// symbol chain takes it. Below those planes the list is exact, so text-default
-/// symbols keep the monochrome path. Tightening the blocks would change which
-/// glyph source a scalar uses on machines whose colour face covers it, so it
-/// needs its own measured change, not a table edit.
+/// The two pictographic-plane ranges below are whole blocks, a deliberate
+/// superset of Unicode Emoji_Presentation=Yes. A scalar in them that no colour
+/// face covers still draws: the colour route reports it through
+/// `color_route_needs_mono_fallback` and the monochrome symbol chain takes it.
+/// Below those planes the list follows Emoji_Presentation=Yes with one
+/// deliberate exception, the text-default media controls U+23F8..U+23FA, so
+/// other text-default symbols keep the monochrome path. Tightening the blocks
+/// would change which glyph source a scalar uses on machines whose colour face
+/// covers it, so it needs its own measured change, not a table edit.
 fn is_default_emoji_presentation(ch: char) -> bool {
     matches!(
         ch as u32,
@@ -625,16 +626,17 @@ fn is_default_emoji_presentation(ch: char) -> bool {
             | 0x2795..=0x2797
             | 0x27B0
             | 0x27BF
-            // Emoji-presentation-default media controls in Miscellaneous
-            // Technical that NotoColorEmoji covers but the bundled mono symbol
-            // chain does not, so routing them to the color path color-renders
-            // them instead of mis-routing to the mono symbol fallback -> tofu.
-            // Only the codepoints Unicode emoji-data assigns *default emoji*
-            // presentation are included; in particular the playback triangles
-            // U+23F4..U+23F7 (e.g. U+23F5 PLAY, the "bypass permissions" glyph)
-            // are TEXT-default and deliberately excluded so they keep using the
-            // mono symbol fallback (no color face covers them) -- color-routing
-            // them would tofu.
+            // Media controls in Miscellaneous Technical that NotoColorEmoji
+            // covers but the bundled mono symbol chain does not, so routing
+            // them to the color path color-renders them instead of
+            // mis-routing to the mono symbol fallback -> tofu. U+23E9..U+23EC,
+            // U+23F0 and U+23F3 have default emoji presentation; U+23F8..U+23FA
+            // are text-default in Unicode emoji-data and are included for that
+            // coverage. The playback triangles U+23F4..U+23F7 (e.g. U+23F5
+            // PLAY, the "bypass permissions" glyph) are TEXT-default and
+            // deliberately excluded so they keep using the mono symbol
+            // fallback (no color face covers them) -- color-routing them would
+            // tofu.
             | 0x23E9..=0x23EC // skip back/fwd, fast up/down
             | 0x23F0          // alarm clock
             | 0x23F3          // hourglass with flowing sand

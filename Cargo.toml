@@ -264,7 +264,7 @@ assets = [
 # is disabled because ELF auto-requires generated on Ubuntu are not a reliable
 # cross-distro signal; the meaningful runtime deps are declared explicitly with
 # Fedora package names (glibc/libgcc are present on every Fedora host). Same
-# asset layout as the .deb.
+# files as the .deb; the licence texts go under /usr/share/licenses/odytty.
 [package.metadata.generate-rpm]
 summary = "GPU-rendered Rust terminal emulator with an Odyssey visual identity"
 auto-req = "no"

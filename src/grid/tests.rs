@@ -4229,7 +4229,7 @@ fn selection_strength_above_one_saturates_alpha_and_strengthens_color() {
     );
 }
 
-// ----- audit hardening: decoration seams, geometry preconditions ------------
+// ----- decoration seams and geometry preconditions --------------------------
 
 #[test]
 fn a_cell_shorter_than_the_strike_line_keeps_the_line_at_its_top() {

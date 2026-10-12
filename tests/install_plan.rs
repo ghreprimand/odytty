@@ -232,8 +232,8 @@ fn an_unknown_system_or_architecture_is_refused() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("unsupported architecture: aarch64"));
 }
 
-/// Stamp `install.sh` for `version` with `pin-installer.sh` and return the
-/// pinned copy's path inside `dir`.
+/// Stamp `install.sh` for `version` with `pin-installer.sh` into
+/// `dir/pinned.sh` and return the stamping run's output.
 #[cfg(unix)]
 fn pinned_installer(dir: &Path, version: &str) -> std::process::Output {
     std::process::Command::new(host_tool("bash"))

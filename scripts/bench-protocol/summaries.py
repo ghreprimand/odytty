@@ -63,9 +63,9 @@ def nearest_rank(values: list[float], percentile: float | Fraction) -> float:
 
     The percentile is taken as an exact rational (a float converts to the
     exact value it holds) and the ceiling is computed in rational arithmetic,
-    so neither a product such as 25 percent of four samples nor a percentile
-    derived by float arithmetic can move the rank. Callers that derive a
-    percentile, such as the bootstrap tails, pass a `Fraction`.
+    so a product such as 25 percent of four samples cannot move the rank. A
+    percentile that float arithmetic produced keeps its rounding error, so
+    callers that derive one, such as the bootstrap tails, pass a `Fraction`.
     """
     if not values:
         raise ValueError("percentile of an empty sample is undefined")

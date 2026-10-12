@@ -114,8 +114,8 @@ esac
 # again from that branch would invoke a tool this selector already knows is
 # absent. Those hosts get the
 # portable tarball instead. The rpm goes to dnf, then zypper, then plain rpm.
-# The rpm declares Fedora-named dependencies and plain rpm resolves none, so
-# only dnf and zypper hosts are expected to complete that install unaided.
+# The rpm declares Fedora-named dependencies: dnf resolves them, zypper only
+# where its repositories provide those names, and plain rpm resolves none.
 if have apt-get; then
     kind="deb"
     artifact="odytty-amd64.deb"

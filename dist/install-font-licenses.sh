@@ -7,10 +7,11 @@
 # The fonts are embedded in the binary, and the SIL Open Font License and the
 # other font licences require their notices to travel with every copy. Each
 # path listed in dist/font-licenses.txt lands at DEST/<font set>/<file>. The
-# list is the one place that names the files; the tarball, the zip, the AUR
-# package, the AppImage and the macOS app call this script. The deb and rpm
-# lists in Cargo.toml name the same files, and tests/packaging_font_licenses.rs
-# keeps every consumer in step with the font directory.
+# list is the one place that names the files; the tarball, the AUR package,
+# the AppImage and the macOS app call this script, and the Windows zip steps
+# read the list in PowerShell. The deb and rpm lists in Cargo.toml name the
+# same files, and tests/packaging_font_licenses.rs keeps every consumer in step
+# with the font directory.
 set -euo pipefail
 
 if [ "$#" -ne 1 ]; then

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! The conformance replay fixtures under `compat/vttest/replay` describe the
 //! screen their comments promise, but the vttest harness cannot read a grid
-//! back, so their outcome is capped at `ignore`. This suite replays the two
-//! fixtures whose comments make checkable promises through the owned terminal
-//! model and asserts those promises, so a fixture that destroys its own check
-//! (or leans on a control the terminal does not implement) fails here.
+//! back, so their outcome is capped at `ignore`. This suite replays two of
+//! them, cursor addressing and tab stops, through the owned terminal model and
+//! asserts the screen their comments promise, so a fixture that destroys its
+//! own check (or leans on a control the terminal does not implement) fails
+//! here.
 //!
 //! The fixture grammar is the one the file headers state: `#` comment lines,
 //! blank lines skipped, `\e \r \n \t \\ \xNN` escapes, no implicit newline.
