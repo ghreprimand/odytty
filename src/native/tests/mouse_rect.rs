@@ -5,8 +5,8 @@
 //! load-bearing trap - Alt+drag in a mouse-reporting app reports to the PTY
 //! instead of becoming a local selection (Shift stays the only
 //! selection-vs-passthrough seam; Alt layers block on top of the local path
-//! only). These drive a real `App` over a one-shot PTY (skipped when none is
-//! available, as in CI sandboxes), exercising the production selection + press
+//! only). These drive a real `App` over a headless session that owns no PTY
+//! child, exercising the production selection + press
 //! routing directly (no GPU/pixel path needed).
 
 use super::*;
@@ -18,16 +18,16 @@ const ROWS: usize = 24;
 /// differently from a wrapped run. Columns 6..80 are space padding.
 const GRID: &[u8] = b"ab12ef\r\ngh34ij\r\nkl56mn";
 
-/// Build an `App` over a one-shot PTY and feed `content` into its terminal so a
-/// selection has real cells to span. Returns `None` when no PTY is available.
-fn build_app(content: &[u8]) -> Option<App> {
+/// Build an `App` over a headless session and feed `content` into its terminal
+/// so a selection has real cells to span.
+fn build_app(content: &[u8]) -> App {
     let dims = Dimensions::new(COLS, ROWS);
     let (app, terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());
     {
         let mut t = terminal.lock().expect("terminal");
         t.advance(content);
     }
-    Some(app)
+    app
 }
 
 /// A PTY writer that records every byte written to it, so a reporting test can
@@ -51,8 +51,8 @@ impl Write for RecordingWriter {
 
 /// Like [`build_app`], but routes the App's PTY writes to a recording writer so
 /// a test can assert the bytes an Alt+press emits while a TUI has mouse
-/// reporting enabled. Returns `None` when no PTY is available.
-fn build_recording_app(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
+/// reporting enabled.
+fn build_recording_app(content: &[u8]) -> (App, Arc<Mutex<Vec<u8>>>) {
     let dims = Dimensions::new(COLS, ROWS);
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
@@ -63,15 +63,12 @@ fn build_recording_app(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
         let mut t = terminal.lock().expect("terminal");
         t.advance(content);
     }
-    Some((app, bytes))
+    (app, bytes)
 }
 
 #[test]
 fn alt_drag_builds_a_block_column_selection_and_copies_a_column() {
-    let Some(mut app) = build_app(GRID) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(GRID);
 
     // Alt+press at (row 0, col 2) starts a block drag; drag to (row 2, col 4).
     app.set_alt_modifier_for_test(true);
@@ -95,10 +92,7 @@ fn alt_drag_builds_a_block_column_selection_and_copies_a_column() {
 
 #[test]
 fn plain_drag_without_alt_is_wrapped_byte_identical() {
-    let Some(mut app) = build_app(GRID) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(GRID);
 
     // The same two corners without Alt: the historical wrapped selection (first
     // row from the start column to end-of-row, interior rows full width, last
@@ -121,10 +115,7 @@ fn plain_drag_without_alt_is_wrapped_byte_identical() {
 
 #[test]
 fn block_selection_persists_through_finish_for_primary_copy() {
-    let Some(mut app) = build_app(GRID) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(GRID);
 
     app.set_alt_modifier_for_test(true);
     app.set_pointer_cell_for_test(0, 2);
@@ -155,10 +146,7 @@ fn alt_drag_in_a_mouse_reporting_app_reports_and_does_not_select() {
     // The load-bearing trap: in a TUI with mouse reporting enabled, Alt is NOT
     // a selection-vs-passthrough seam (only Shift is). An Alt+press must report
     // to the PTY exactly as today and must NOT arm a local block selection.
-    let Some((mut app, pty_bytes)) = build_recording_app(GRID) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, pty_bytes) = build_recording_app(GRID);
     app.enable_mouse_reporting_for_test();
     assert!(app.would_report_mouse_to_pty_for_test());
 
@@ -192,10 +180,7 @@ fn shift_alt_drag_in_a_reporting_app_makes_a_local_block_selection() {
     // layers block on top of that local path. So Shift+Alt+press in a reporting
     // app starts a LOCAL block selection (Shift suppresses reporting, Alt makes
     // it a block) rather than reporting.
-    let Some(mut app) = build_app(GRID) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(GRID);
     app.enable_mouse_reporting_for_test();
     app.set_shift_modifier_for_test(true);
     app.set_alt_modifier_for_test(true);
@@ -225,10 +210,7 @@ fn shift_alt_starts_a_fresh_block_and_does_not_extend_an_existing_selection() {
     // start a new block from the press cell. This pins that Alt+Shift never
     // accidentally reuses the prior selection's anchor. (Plain-Shift extension
     // of a wrapped selection is itself pinned in the selection-extend suite.)
-    let Some(mut app) = build_app(GRID) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(GRID);
     app.set_selection_drag_extend_for_test(true);
 
     // Establish a wrapped selection anchored at (row 0, col 0).

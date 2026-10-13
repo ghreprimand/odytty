@@ -45,11 +45,9 @@
 //! this module owns only the arena-level transaction.
 
 // The model-layer transaction for the keyboard window merge. The window router
-// consumes `preflight_merge_from` and `commit_merge_from`; a few helpers
-// (`merge_from`, the plan's count accessors) are referenced only from the
-// headless regression suite (`session/tests/window_merge.rs`), so the module
-// opts out of `dead_code`.
-#![allow(dead_code)]
+// consumes `preflight_merge_from` and `commit_merge_from`; `merge_from` and the
+// plan's count accessors serve only the headless regression suite
+// (`session/tests/window_merge.rs`) and are compiled for tests only.
 
 use std::collections::HashSet;
 
@@ -104,10 +102,13 @@ pub(in crate::native) enum MergeError {
 pub(in crate::native) struct MergePlan {
     /// Every source session token, in workspace -> tab -> pane-tree order.
     tokens: Vec<SessionToken>,
-    /// Number of whole workspaces the commit will append.
+    /// Number of whole workspaces the commit will append. Read only by the
+    /// test-only accessor.
+    #[cfg_attr(not(test), allow(dead_code))]
     workspace_count: usize,
 }
 
+#[cfg(test)]
 impl MergePlan {
     /// Number of whole workspaces this plan moves.
     pub(in crate::native) fn workspace_count(&self) -> usize {
@@ -278,6 +279,7 @@ impl WorkspaceSet {
     /// Prefer the explicit two-phase form when the router needs to probe
     /// feasibility, cancel pending input on both endpoints, or confirm across an
     /// interactive picker before committing.
+    #[cfg(test)]
     pub(in crate::native) fn merge_from(
         &mut self,
         source: &mut WorkspaceSet,

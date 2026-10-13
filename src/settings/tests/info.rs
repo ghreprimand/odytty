@@ -50,7 +50,7 @@ fn setting_info_groups_are_contiguous_and_ordered_for_the_panel() {
 }
 
 #[test]
-fn ux4_p3_labels_are_specific_without_renaming_config_keys() {
+fn setting_labels_are_specific_without_renaming_config_keys() {
     let rows = Settings::default().setting_info();
 
     let osc52 = row(&rows, "osc52_read");
@@ -69,7 +69,7 @@ fn ux4_p3_labels_are_specific_without_renaming_config_keys() {
 
 #[test]
 fn unset_font_file_value_is_empty_not_a_human_sentence() {
-    // FONT-SAVE-CORRECTNESS BUG 1: an UNSET explicit `font` must surface an
+    // An UNSET explicit `font` must surface an
     // EMPTY value, never a human sentence. The `value` field is what the
     // path-picker seeds and what the writeback persists/compares; a sentence
     // here was written verbatim as `font = default monospace probe list`,
@@ -160,7 +160,7 @@ fn keybinds_info_options_lists_all_actions() {
 }
 
 #[test]
-fn help1_cryptic_settings_have_actionable_descriptions() {
+fn cryptic_settings_have_actionable_descriptions() {
     let rows = Settings::default().setting_info();
 
     let symbol_font = row(&rows, "symbol_font");

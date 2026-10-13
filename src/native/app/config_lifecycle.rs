@@ -118,8 +118,8 @@ impl App {
 
     /// Persist a first-run marker when the onboarding card is dismissed, so it
     /// does not reshow on the next launch. Onboarding's gate is purely whether
-    /// `odytty.conf` exists, and plain dismissal writes nothing; this ensures
-    /// the file exists (without clobbering it if the user already has one).
+    /// `odytty.conf` exists, so dismissal creates the file here (without
+    /// clobbering it if the user already has one).
     ///
     /// Best-effort: a write failure is logged but never blocks dismissal, and
     /// the onboarding overlay has no save UI to surface an error through.

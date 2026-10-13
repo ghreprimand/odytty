@@ -25,9 +25,20 @@ pub(super) enum DropError {
 
 impl std::fmt::Display for DropError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Two limits share this refusal: the collected batch (file count and
+        // raw path bytes) and the quoted insertion, which byte escapes can
+        // make several times longer than the raw paths.
         f.write_str(match self {
             Self::Empty => "No files were dropped.",
-            Self::TooLarge => "Drop fewer files (at most 128 files and 256 KiB of paths).",
+            Self::TooLarge => {
+                return write!(
+                    f,
+                    "Drop fewer files (at most {MAX_DROP_FILES} files and {} KiB of paths, \
+                     and at most {} KiB once quoted for the shell).",
+                    MAX_DROP_BYTES / 1024,
+                    MAX_INSERTION_BYTES / 1024,
+                );
+            }
             Self::UnknownShell => "File insertion could not verify the local launch shell alone in the foreground. Return to the launch shell and stop its jobs, or copy the path manually if this platform cannot verify ownership.",
             Self::UnsupportedPath => "This path cannot be inserted losslessly with the active shell. Copy the path manually or cancel.",
             Self::NonLocalPane => "Drop files into a local shell. Remote and attached panes do not accept local paths.",

@@ -499,10 +499,10 @@ impl App {
     }
 
     /// Open `host` in a NEW tab positioned right after the tab that owns `anchor`
-    /// (ODP-5D). The connect path appends the tab and switches to it; the
-    /// reposition then slides it into the neighbour slot so it reads as
-    /// "connect from here" without disturbing the clicked shell. A connect
-    /// failure is swallowed like every other connect path.
+    /// The connect path appends the tab and switches to it; the reposition
+    /// then slides it into the neighbour slot so it reads as "connect from
+    /// here" without disturbing the clicked shell. A connect failure raises a
+    /// notice like every other connect path.
     pub(in crate::native) fn connect_host_in_tab_after(
         &mut self,
         host: &ConnectionHost,
@@ -704,10 +704,10 @@ impl App {
 }
 
 /// The full `[user@]host[:port]` destination string for `host`
-/// (RESTORE-REMOTE): the value stored for an ad-hoc connection so restore can
-/// reconstruct it via `parse_adhoc_target`. Prefers an explicit `HostName` over
-/// the alias, includes the user only when set, and appends the port only when
-/// non-default. Mirrors `ssh_destination` but keeps the port (which ssh passes
+/// stored for an ad-hoc connection so restore can reconstruct it via
+/// `parse_adhoc_target`. Prefers an explicit `HostName` over the alias,
+/// includes the user only when set, and appends any explicit port (an explicit
+/// 22 included). Mirrors `ssh_destination` but keeps the port (which ssh passes
 /// as `-p`, not in the destination operand).
 fn remote_display_destination(host: &ConnectionHost) -> String {
     let target = host
@@ -831,7 +831,8 @@ struct IdentityScan {
 /// Directory scan behind [`App::gather_identity_key_candidates`], split out so a
 /// test can drive it against a synthetic `~/.ssh` of obviously-fake key names
 /// (never real key material). Reads entry NAMES only — never file contents —
-/// and skips subdirectories. Returns full paths, sorted for a stable list,
+/// and skips entries whose own file type is a directory (a symlink to a
+/// directory is not filtered). Returns full paths, sorted for a stable list,
 /// within the entry, name-length and candidate bounds above.
 fn gather_identity_key_candidates_in(ssh_dir: &std::path::Path) -> IdentityScan {
     gather_identity_key_candidates_bounded(

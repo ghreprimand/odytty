@@ -82,7 +82,10 @@ pub(crate) fn spawn_config_file_path() -> Option<PathBuf> {
 
 /// One scratch directory owned by this test process, created on first use.
 /// Test-build writers that would otherwise resolve a location from the live
-/// environment without the shared environment lock use it instead.
+/// environment without the shared environment lock use it instead. The test
+/// harness has no process-exit hook, so the directory is not removed: each
+/// test process that reaches it leaves one `odytty-test-config-*` directory in
+/// the system temp directory.
 #[cfg(test)]
 pub(crate) fn test_process_base() -> &'static Path {
     static PROCESS_OWNED: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();

@@ -41,7 +41,7 @@
 //!    time, not hardcoded), each biased toward the seed hue by a **bounded**
 //!    rotation so red still reads as red.
 //! 4. The seed lands strongest in the cursor and the selection/search fills.
-//! 5. The RV1 validation pass floors every readable role against its surface.
+//! 5. The validation pass floors every readable role against its surface.
 
 use crate::color::{
     self, LinearRgb, Oklch, enforce_min_contrast_unclamped, linear_to_oklab, linear_to_srgb_u8,
@@ -78,8 +78,8 @@ const CHROMATIC_FAMILIES: [(usize, usize, usize); 6] = [
 
 /// Per-appearance lightness/chroma targets for the polarity-derived roles. The
 /// chromatic ANSI ramp shares one normal and one bright lightness across both
-/// appearances (the RV1 pass adapts them to the background); the neutral and
-/// semantic roles flip with polarity.
+/// appearances (the validation pass adapts them to the background); the
+/// neutral and semantic roles flip with polarity.
 struct Polarity {
     /// Background lightness (the field).
     bg_l: f32,
@@ -283,10 +283,10 @@ pub fn generate(seed: Srgb, appearance: Appearance, floor: f32) -> ThemeSpec {
     spec
 }
 
-/// The RV1 validation pass - the legibility guarantee.
+/// The validation pass - the legibility guarantee.
 ///
-/// Floors every readable role against its mapped surface, reusing the U2 Q-4
-/// surface mapping verbatim so the author-time snap and this generator agree on
+/// Floors every readable role against its mapped surface, reusing the theme
+/// builder's surface mapping verbatim so the author-time snap and this generator agree on
 /// what is floored against what:
 ///
 /// * `foreground`, the 14 chromatic ANSI slots, `cursor` → against the

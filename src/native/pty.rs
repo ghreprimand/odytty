@@ -175,7 +175,7 @@ pub(super) const PASTE_CHUNK_SIZE: usize = 16 * 1024;
 
 /// Write `chunks` through the shared PTY writer and flush once. The production
 /// writer only enqueues, so this does not park the caller on the PTY fd.
-pub(super) fn write_chunks_blocking(writer: &PtyWriter, chunks: &[Vec<u8>]) -> std::io::Result<()> {
+pub(super) fn write_chunks(writer: &PtyWriter, chunks: &[Vec<u8>]) -> std::io::Result<()> {
     // A poisoned writer lock is a failed write, never a reported delivery.
     let Ok(mut writer) = writer.lock() else {
         return Err(std::io::Error::other("pty writer lock poisoned"));

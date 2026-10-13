@@ -21,8 +21,9 @@
 //! offset directly and never touch the remainder. The pixel travel maps 1:1 to
 //! rows (× `scroll_pixel_speed`, identity by default), so a burst sums to
 //! exactly the physical travel - runaway-proof by construction, no notch
-//! multiplier. The lane is single-pane only in v1 (the multipane render path
-//! hard-zeros the shared GPU offset at `panes.rs`).
+//! multiplier. Split panes use the lane too: the multipane render path zeros
+//! the shared GPU offset and each pane origin carries its own sub-row
+//! fraction.
 
 use super::*;
 use std::time::Duration;
@@ -125,8 +126,8 @@ pub(super) fn advance_session_glide(
 
 /// The scrollback offset a session should SNAPSHOT this frame: the glide
 /// follower's floored row while a glide is in flight (so any sub-row remainder
-/// is always under one cell), else the passed-through `logical` offset, clamped
-/// to a valid offset. Shared by the single-pane path (via
+/// is always under one cell), else the passed-through `logical` offset
+/// unchanged. Shared by the single-pane path (via
 /// [`App::glide_render_offset`]) and the per-pane multipane loop. The logical
 /// `viewport` offset is unchanged - selection, scrollbar, and "at live bottom"
 /// still read it; only the render snapshot follows the glide.
@@ -389,10 +390,9 @@ impl App {
     /// The scrollback offset the active session should SNAPSHOT at this frame:
     /// the glide follower's floored row while a glide is in flight (so the
     /// content_origin sub-row shift is always under one cell - no multi-row edge
-    /// gap), else the passed-through logical offset, clamped to a valid offset.
-    /// The logical `viewport` offset is unchanged - selection, scrollbar, and
-    /// "at live bottom" all still read it; only the render snapshot follows the
-    /// glide.
+    /// gap), else the passed-through logical offset unchanged. The logical
+    /// `viewport` offset is unchanged - selection, scrollbar, and "at live
+    /// bottom" all still read it; only the render snapshot follows the glide.
     pub(super) fn glide_render_offset(&self, logical: usize, scrollback_len: usize) -> usize {
         let token = self.sessions.active_id();
         match self.sessions.get(token) {

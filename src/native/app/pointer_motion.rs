@@ -347,8 +347,8 @@ impl App {
     /// against the window grid; a multi-pane tab maps only inside the focused
     /// pane's drawn grid, so a collapsed leaf or a pointer in its padding or
     /// leading remainder has no cell and never clamps into the backing grid.
-    /// BIDI: the logical cell drawn under the pointer; identity outside the
-    /// display gate.
+    /// BIDI: the logical cell drawn under the pointer; identity while
+    /// `bidi_reorder` is off.
     fn content_pointer_cell(
         &self,
         x_px: f64,

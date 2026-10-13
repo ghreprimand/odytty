@@ -3,7 +3,7 @@ use super::*;
 
 impl SettingsPanel {
     pub(in crate::native) fn handle_input(&mut self, input: OverlayInput) -> SettingsPanelOutcome {
-        // Guard order is load-bearing (T-two-substates):
+        // Guard order is load-bearing (editing and the path picker are exclusive):
         // 1. Path picker owns all input while open.
         // 2. Dirty-close prompt owns all input while showing.
         // 3. Text edit owns keystrokes before search.

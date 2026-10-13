@@ -631,8 +631,9 @@ impl GpuState {
             .as_ref()
             .map_or(0, |post| post.gpu_texture_bytes());
         gpu.graphics_textures = self.image_layer.gpu_texture_bytes();
+        // The 32-byte viewport uniform is not a vertex buffer and is not
+        // counted here.
         gpu.vertex_buffers = [
-            self.viewport_buf.size(),
             self.vertex_buf.size(),
             self.cursor_glow_vertex_buf.size(),
             self.cursor_streak_vertex_buf.size(),

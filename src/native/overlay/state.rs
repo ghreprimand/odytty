@@ -298,6 +298,16 @@ impl OverlayUi {
         self.picker_return = None;
         self.builder_from_picker = false;
         self.risky_paste = RiskyPasteDialog::default();
+        // A dismissed dialog drops its pending payload, so no later path can
+        // emit a stale session id, host, layout name or directory.
+        self.attach_choice_session_id.clear();
+        self.confirm_kill_session_id.clear();
+        self.confirm_navigator_close = None;
+        self.detach_switch_cwd.clear();
+        self.confirm_replace_tab = None;
+        self.confirm_remove_host = None;
+        self.confirm_overwrite_layout = None;
+        self.confirm_open_layout = None;
     }
 
     pub(in crate::native) fn open_theme_picker(&mut self, settings: &Settings) {

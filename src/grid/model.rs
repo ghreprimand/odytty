@@ -197,8 +197,8 @@ impl ColorGlyphRun {
 /// glyph run?" - for every visible cell. Answering it by scanning the run
 /// list per cell is O(cells x runs), which explodes on emoji-heavy screens
 /// where the run count grows with the cell count. This mask is built once per
-/// consumer pass in O(cells / 64 + runs) and answers each query in O(1),
-/// producing exactly the same answers as
+/// consumer pass in O(cells / 64 + covered cells) and answers each query in
+/// O(1), producing exactly the same answers as
 /// `runs.iter().any(|run| run.covers(row, column))` for every in-grid cell
 /// (pinned by an equivalence test).
 pub struct ColorRunCoverage {

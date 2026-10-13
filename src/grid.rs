@@ -852,14 +852,13 @@ pub fn build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
     );
 }
 
-/// SELECTION-OPACITY: ligature-aware build that threads `selection_opacity` as a
-/// COLOR-space tint strength for selected cells. A selected cell composites at
-/// the same surface alpha as its unselected neighbors (`cell_bg_opacity`), so
-/// selection and content share one transparency plane and the selection never
-/// couples inversely to window opacity; `selection_opacity` blends the selection
-/// fill toward the unselected background (`composite_over`) instead of scaling
-/// the surface alpha. `selection_opacity == 1.0` keeps the selection at full
-/// strength; lower values let the cell's own background show through the tint.
+/// Ligature-aware build that threads `selection_opacity` for selected cells.
+/// The knob drives both the selection fill's tint toward the unselected
+/// background and the selected cell's surface alpha, which is lerped from
+/// `cell_bg_opacity` up to fully opaque (see `build_cells_core`), so a
+/// selection is never more transparent than its surround.
+/// `selection_opacity == 1.0` keeps the selection at full strength and fully
+/// opaque; lower values let the cell's own background show through the tint.
 /// Frames with no selected cell are byte-identical to
 /// [`build_cell_vertices_with_focus_dim_origin_and_ligatures_into`].
 #[allow(clippy::too_many_arguments)]
@@ -1654,15 +1653,16 @@ pub fn cursor_bar_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32) -> [f32; 4] {
 
 /// Emit the cursor for the snapshot in the given shape, if one should be drawn.
 ///
-/// - **Block, focused**: an **inverse** block - a background quad in the cell's
-///   foreground color with the cell's glyph (if any) redrawn on top in the
-///   cell's background color, keeping the character readable under the cursor.
+/// - **Block, focused**: a background quad in the theme cursor color with the
+///   cell's glyph (if any) redrawn on top in the cell's background color,
+///   floored for contrast against the cursor color, keeping the character
+///   readable under the cursor.
 /// - **Block, unfocused**: four one-pixel cursor-color border quads. The cell's
 ///   existing glyph remains untouched in its normal foreground color.
-/// - **Underline**: a thin foreground-colored bar at the cell's bottom edge,
-///   drawn over the cell's existing glyph (no inversion).
-/// - **Bar**: a thin foreground-colored vertical bar at the cell's left edge,
-///   drawn over the cell's existing glyph (no inversion).
+/// - **Underline**: a thin cursor-color bar at the cell's bottom edge, drawn
+///   over the cell's existing glyph.
+/// - **Bar**: a thin cursor-color vertical bar at the cell's left edge, drawn
+///   over the cell's existing glyph.
 ///
 /// A hidden cursor (`cursor_visible == false`, which the renderer also uses for
 /// the blink "off" phase) emits nothing. The position is clamped to the grid so
@@ -1699,9 +1699,9 @@ fn push_cursor(
 
     let cell = &snapshot.cells[row * cols + col];
 
-    // Effective colors after the cell's own inverse attribute. For the block
-    // cursor these are swapped again so the block reads as an inversion of the
-    // cell; the bar/underline shapes draw in the effective foreground.
+    // Effective colors after the cell's own inverse attribute. The block
+    // cursor redraws the glyph in the effective background over a cursor-color
+    // block; the bar and underline shapes draw in the cursor color.
     let mut fg = foreground_linear(&snapshot.colors, cell.attrs.foreground);
     let mut bg = background_linear(&snapshot.colors, cell.attrs.background);
     if cell.attrs.inverse() {

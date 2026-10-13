@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! App-side named-layout actions (WP3 / 8e + 8g).
+//! App-side named-layout actions.
 //!
 //! A layout is a saved workspace shape - its tabs, pane split tree, per-pane
-//! cwd, and F6-W5 host binding - reusing the same on-disk schema as the launch
-//! autosave. Saving captures the CURRENT workspace as a one-workspace layout;
-//! opening a layout APPENDS it as a new workspace (never clobbering the live
-//! one, 8e); deleting removes the file. All three are command-palette surfaces
-//! with no new chrome, and every failure degrades to a one-line notice rather
-//! than disturbing the running window.
+//! cwd, and host binding - reusing the same on-disk schema as the launch
+//! autosave. Saving captures the CURRENT workspace as a one-workspace layout.
+//! Opening a layout either adds its workspaces beside the current set
+//! ([`LayoutPlacement::Add`]) or replaces the whole set
+//! ([`LayoutPlacement::Replace`]); a window holding real state asks which
+//! through the open-layout mode dialog. Deleting removes the file. The actions
+//! are reachable from the command palette and menus, and every failure
+//! degrades to a one-line notice rather than disturbing the running window.
 
 use super::*;
 use crate::native::persistence::{self, LoadOutcome};

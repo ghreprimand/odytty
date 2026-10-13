@@ -10,19 +10,14 @@ use winit::event::ElementState;
 /// Build an `App` over a headless (no-PTY) session, returning the App plus a
 /// clone of the shared terminal handle (so a test can drive it into a
 /// mouse-reporting mode). These are pure UI state tests: they never exercise
-/// PTY/child/output-pump behavior, so a real shell is unnecessary. Returns
-/// `Some` unconditionally; the `Option` shape is kept so the call sites are
-/// unchanged.
-fn app_for_test() -> Option<(App, Arc<Mutex<Terminal>>)> {
-    Some(headless_app_for_test())
+/// PTY/child/output-pump behavior, so a real shell is unnecessary.
+fn app_for_test() -> (App, Arc<Mutex<Terminal>>) {
+    headless_app_for_test()
 }
 
 #[test]
 fn overlay_open_press_is_captured_and_neither_selects_nor_reports() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
 
     app.open_settings_overlay_for_test();
     // Drill into the Themes section (Enter on the first section row).
@@ -58,10 +53,7 @@ fn overlay_open_press_is_captured_and_neither_selects_nor_reports() {
 
 #[test]
 fn overlay_press_does_not_leak_to_pty_even_with_mouse_reporting_enabled() {
-    let Some((mut app, terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, terminal) = app_for_test();
 
     // Drive the terminal into a TUI mouse-reporting mode (DECSET 1000 + SGR
     // 1006), the case where a no-overlay press WOULD be reported to the PTY.
@@ -104,10 +96,7 @@ fn overlay_press_does_not_leak_to_pty_even_with_mouse_reporting_enabled() {
 
 #[test]
 fn overlay_open_wheel_scrolls_the_panel_not_the_scrollback() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
 
     app.open_settings_overlay_for_test();
     // Drill into the Rendering section (many entries) so wheel scrolls Level-2
@@ -143,10 +132,7 @@ fn overlay_stepper_click_sets_once_and_cursor_move_is_inert() {
     // Settings steppers are click-only. CursorMoved must never continue
     // driving values, because native pointer coordinates have proven unstable
     // during live overlay/app rebuilds.
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
 
     app.open_settings_overlay_for_test();
     // Drill into Fonts section (contains font_size, a stepper row).
@@ -229,10 +215,7 @@ fn overlay_stepper_click_sets_once_and_cursor_move_is_inert() {
 
 #[test]
 fn settings_slider_key_repeat_is_coalesced_until_flush() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
 
     app.open_settings_overlay_for_test();
     // Fonts section, then font_size row.
@@ -308,10 +291,7 @@ fn settings_slider_key_repeat_is_coalesced_until_flush() {
 fn focus_loss_after_settings_stepper_click_leaves_moves_inert() {
     // Settings steppers do not arm drag state. Focus-loss cleanup must remain
     // harmless, and the next bare CursorMoved must not commit a phantom value.
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
 
     app.open_settings_overlay_for_test();
     // Drill into Fonts section to get a numeric stepper row.
@@ -378,10 +358,7 @@ fn opening_overlay_clears_a_held_tui_report_button() {
     // path and overlay releases are inert, so without clearing on entry the
     // held button would survive the overlay and re-enter the stale-button
     // motion path after it closes.
-    let Some((mut app, terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, terminal) = app_for_test();
 
     // Arm TUI reporting (DECSET 1000 + SGR 1006) and simulate a held press.
     {
@@ -423,10 +400,7 @@ fn opening_overlay_clears_a_held_tui_report_button() {
 /// not advance a value before or after release.
 #[test]
 fn move_is_inert_after_settings_stepper_click_and_release() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
 
     app.open_settings_overlay_for_test();
     // Navigate to Fonts section for the font_size stepper.
@@ -527,10 +501,7 @@ fn move_is_inert_after_settings_stepper_click_and_release() {
 
 #[test]
 fn stepper_release_without_pointer_cell_stays_inert_after_click() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
 
     app.open_settings_overlay_for_test();
     app.drive_overlay_key_for_test(

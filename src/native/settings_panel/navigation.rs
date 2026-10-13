@@ -47,7 +47,7 @@ impl SettingsPanel {
             return;
         }
         self.entries = self.section_entries(section_index);
-        // Reset Level-2 state (T-scroll-per-level: entering starts at top).
+        // Reset Level-2 state (each level scrolls on its own; entering starts at top).
         self.selected = 0;
         self.scroll = 0;
         self.editing = None;
@@ -168,9 +168,9 @@ impl SettingsPanel {
 
     pub(super) fn clamp(&mut self) {
         // Level 1 fast path: clamp section_selected only; the Level-2
-        // selected/scroll are stale but harmless while at Level 1
-        // (T-scroll-per-level). `selected_in_window` must not run here because
-        // Level-1 rows are SectionRow, not Value/Slider.
+        // selected/scroll are stale but harmless while at Level 1 (each level
+        // keeps its own scroll). `selected_in_window` must not run here
+        // because Level-1 rows are SectionRow, not Value/Slider.
         if matches!(self.level, SettingsLevel::SectionList) && !self.search_active {
             self.section_selected = self.section_selected.min(SECTIONS.len());
             self.section_scroll = self.section_scroll.min(SECTIONS.len());

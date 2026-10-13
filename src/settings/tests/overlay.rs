@@ -65,7 +65,7 @@ fn settings_from_theme(
 
 #[test]
 fn custom_theme_file_keeps_settings_editable() {
-    // C4 regression: a theme loaded from a FILE projects to the placeholder
+    // Regression: a theme loaded from a FILE projects to the placeholder
     // runtime name "custom", which resolves to no built-in and no file on a
     // later re-parse. Persisting that placeholder as the writeback baseline made
     // the whole settings panel read-only for custom-theme users - the fallback

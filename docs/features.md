@@ -330,6 +330,9 @@ on native Hyprland, nested KWin, Windows, and macOS is recorded in
 compositors and hardware beyond those remains open. A native Wayland
 `text/uri-list` is one bounded collection: more than 128 files or 256 KiB of
 path bytes refuses the whole gesture and does not leave a leftover confirm.
+A batch inside those limits is also refused whole when its paths, quoted for
+the shell, exceed 1 MiB; byte escapes can make a quoted path several times
+longer than the raw path.
 A later Wayland uri-list may start a fresh transaction after that refusal.
 A Wayland uri-list that names no local file (another scheme, another host, a
 query or fragment, or a malformed escape) inserts nothing and shows a notice

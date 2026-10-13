@@ -59,6 +59,9 @@ default rather than an earlier occurrence.
 A value containing `#`, a `"`, or leading or trailing spaces is written in double
 quotes; inside quotes only `\\` and `\"` are escapes and every other backslash is
 kept as written, so a hand-written `"C:\Users\me\theme.conf"` needs no doubling.
+A doubled backslash inside quotes is still one escaped backslash, so a quoted
+UNC path is written `"\\\\server\share"`; unquoted, `\\server\share` reads as
+written.
 A leading UTF-8 byte order mark is ignored.
 The in-app settings panel writes this same file with preservation-first
 writeback: comments, blank lines, ordering, and unknown/future keys stay in

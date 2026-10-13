@@ -207,9 +207,9 @@ pub fn search_rows_scoped(
             // letter) against a large scrollback would otherwise allocate one
             // match per occurrence with no ceiling, synchronously on the UI
             // thread. Stop once the budget is spent; navigation never needs
-            // more than a bounded window of matches. A logical line that ends
-            // past the scope cannot hold a match inside it, and neither can
-            // any later line.
+            // more than a bounded window of matches. Once a flushed line
+            // reaches or passes the scope end, no later line can hold a match
+            // inside the scope.
             if sink.full() || scope.is_some_and(|scope| abs_row >= scope.end.row) {
                 return matches;
             }

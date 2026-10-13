@@ -23,10 +23,10 @@ const TINY_ROWS: usize = 8;
 /// A grid tall enough to show every body row - the byte-identity baseline.
 const TALL_ROWS: usize = 200;
 
-fn app_for_test() -> Option<App> {
+fn app_for_test() -> App {
     let dims = Dimensions::new(80, 24);
     let (app, _terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());
-    Some(app)
+    app
 }
 
 fn down(app: &mut App, times: usize) {
@@ -51,10 +51,7 @@ fn has_arrow(rows: &[String], arrow: char) -> bool {
 
 #[test]
 fn context_menu_keyboard_scrolls_rendered_rows() {
-    let Some(mut app) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = app_for_test();
     app.set_pointer_cell_for_test(0, 0);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
@@ -89,9 +86,7 @@ fn context_menu_keyboard_scrolls_rendered_rows() {
 
 #[test]
 fn context_menu_wheel_moves_focus_and_repaints() {
-    let Some(mut app) = app_for_test() else {
-        return;
-    };
+    let mut app = app_for_test();
     app.set_pointer_cell_for_test(0, 0);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
@@ -117,9 +112,7 @@ fn context_menu_wheel_moves_focus_and_repaints() {
 
 #[test]
 fn settings_wheel_scrolls_changes_signature_and_shows_affordance() {
-    let Some(mut app) = app_for_test() else {
-        return;
-    };
+    let mut app = app_for_test();
     app.open_settings_overlay_for_test();
 
     let before_rows = app.render_overlay_rows_for_test(TINY_COLS, TINY_ROWS);
@@ -151,9 +144,7 @@ fn settings_wheel_scrolls_changes_signature_and_shows_affordance() {
 
 #[test]
 fn settings_keyboard_follows_selection_into_view() {
-    let Some(mut app) = app_for_test() else {
-        return;
-    };
+    let mut app = app_for_test();
     app.open_settings_overlay_for_test();
     // Prime the panel's known body height by rendering once at the tiny grid.
     let _ = app.render_overlay_rows_for_test(TINY_COLS, TINY_ROWS);
@@ -172,9 +163,7 @@ fn settings_keyboard_follows_selection_into_view() {
 
 #[test]
 fn tall_window_draws_no_scroll_arrows() {
-    let Some(mut app) = app_for_test() else {
-        return;
-    };
+    let mut app = app_for_test();
     // Settings: a tall window fits every section, so no affordance is drawn.
     app.open_settings_overlay_for_test();
     let rows = app.render_overlay_rows_for_test(80, TALL_ROWS);
@@ -184,9 +173,7 @@ fn tall_window_draws_no_scroll_arrows() {
     );
 
     // Context menu: a tall window fits all items, so no ▲/▼.
-    let Some(mut app2) = app_for_test() else {
-        return;
-    };
+    let mut app2 = app_for_test();
     app2.set_pointer_cell_for_test(0, 0);
     app2.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     let menu_rows = app2.render_overlay_rows_for_test(80, TALL_ROWS);
@@ -200,9 +187,7 @@ fn tall_window_draws_no_scroll_arrows() {
 
 #[test]
 fn connections_keyboard_scrolls_and_follows_selection() {
-    let Some(mut app) = app_for_test() else {
-        return;
-    };
+    let mut app = app_for_test();
     app.open_connections_with_synthetic_hosts_for_test(20);
 
     let before = app.render_overlay_rows_for_test(TINY_COLS, TINY_ROWS);
@@ -237,9 +222,7 @@ fn connections_keyboard_scrolls_and_follows_selection() {
 
 #[test]
 fn connections_wheel_scrolls_and_changes_signature() {
-    let Some(mut app) = app_for_test() else {
-        return;
-    };
+    let mut app = app_for_test();
     app.open_connections_with_synthetic_hosts_for_test(20);
     // Prime the body height via one render so wheel-follow has a window.
     let before_rows = app.render_overlay_rows_for_test(TINY_COLS, TINY_ROWS);
@@ -262,9 +245,7 @@ fn connections_wheel_scrolls_and_changes_signature() {
 
 #[test]
 fn connections_tall_window_draws_no_arrows() {
-    let Some(mut app) = app_for_test() else {
-        return;
-    };
+    let mut app = app_for_test();
     app.open_connections_with_synthetic_hosts_for_test(20);
     let rows = app.render_overlay_rows_for_test(80, TALL_ROWS);
     assert!(
@@ -277,9 +258,7 @@ fn connections_tall_window_draws_no_arrows() {
 
 #[test]
 fn palette_shows_affordance_and_scrolls_on_small_window() {
-    let Some(mut app) = app_for_test() else {
-        return;
-    };
+    let mut app = app_for_test();
     app.open_palette_with_synthetic_history_for_test(20);
 
     let before = app.render_overlay_rows_for_test(TINY_COLS, TINY_ROWS);
@@ -310,9 +289,7 @@ fn palette_shows_affordance_and_scrolls_on_small_window() {
 
 #[test]
 fn palette_tall_window_draws_no_arrows() {
-    let Some(mut app) = app_for_test() else {
-        return;
-    };
+    let mut app = app_for_test();
     app.open_palette_with_synthetic_history_for_test(20);
     let rows = app.render_overlay_rows_for_test(80, TALL_ROWS);
     assert!(
@@ -332,9 +309,7 @@ const MED_ROWS: usize = 24;
 
 #[test]
 fn theme_builder_keyboard_follows_role_into_view_with_affordance() {
-    let Some(mut app) = app_for_test() else {
-        return;
-    };
+    let mut app = app_for_test();
     app.open_theme_builder_for_test();
 
     // Seed the recorded role capacity, then assert the list overflows.
@@ -370,9 +345,7 @@ fn theme_builder_keyboard_follows_role_into_view_with_affordance() {
 
 #[test]
 fn theme_builder_tall_window_draws_no_arrows() {
-    let Some(mut app) = app_for_test() else {
-        return;
-    };
+    let mut app = app_for_test();
     app.open_theme_builder_for_test();
     let rows = app.render_overlay_rows_for_test(80, TALL_ROWS);
     assert!(

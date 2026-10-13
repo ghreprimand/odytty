@@ -356,12 +356,11 @@ impl App {
         }
     }
 
-    /// SH-CLICK: whether click-to-position is live right now — the `sh_click`
-    /// setting is on AND the shell has advertised OSC 133 `click_events=1` on
-    /// its prompt. Doubly off by default: the setting defaults off, and a
-    /// non-integrated shell never sets the core flag. When the setting is off
-    /// this short-circuits before locking the terminal, so the off path does no
-    /// work at all (T1 off-path identity).
+    /// Whether click-to-position is live right now: the `sh_click` setting is
+    /// on (its default) AND the shell has advertised OSC 133
+    /// `click_events=1` on its prompt; a non-integrated shell never sets the
+    /// core flag. When the setting is off this short-circuits before locking
+    /// the terminal, so the off path does no work at all.
     fn sh_click_enabled(&self) -> bool {
         self.settings.sh_click && crate::native::lock_recover(&self.terminal).click_events_enabled()
     }

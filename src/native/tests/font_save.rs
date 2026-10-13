@@ -3,28 +3,23 @@
 //! just-written config LIVE, not only at the next restart. `save_overlay_settings`
 //! re-reads the config and routes it through the shared `OverlayEdit` reload
 //! seam; this exercises that apply step over a real `App` (no GPU needed - the
-//! applied settings are observable before any surface exists). Skipped when no
-//! PTY is available (CI sandboxes).
+//! applied settings are observable before any surface exists).
 
 use super::*;
 
 const COLS: usize = 40;
 const ROWS: usize = 8;
 
-/// Build an `App` over a one-shot PTY with default settings. Returns `None` when
-/// no PTY is available.
-fn build_app() -> Option<App> {
+/// Build an `App` over a headless session with default settings.
+fn build_app() -> App {
     let dims = Dimensions::new(COLS, ROWS);
     let (app, _terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());
-    Some(app)
+    app
 }
 
 #[test]
 fn saved_settings_apply_live_through_the_reload_seam() {
-    let Some(mut app) = build_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app();
 
     let baseline = app.font_size_px_for_test();
     let target = baseline + 7.0;
@@ -51,10 +46,7 @@ fn saved_settings_apply_live_through_the_reload_seam() {
 
 #[test]
 fn applying_unchanged_settings_is_an_idempotent_no_op() {
-    let Some(mut app) = build_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app();
 
     let before = app.font_size_px_for_test();
     // Re-applying the current settings (as a no-op Save, or the background poll

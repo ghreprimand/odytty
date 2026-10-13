@@ -158,6 +158,13 @@ fn clipboard_and_bracketed_paste_are_dropped_then_fresh_paste_is_sent() {
     );
 }
 
+// PRIMARY exists only where the clipboard backend has one (X11/Wayland
+// Unix); elsewhere the read returns nothing before the read-only gate, so the
+// test would prove nothing there.
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
+))]
 #[test]
 fn primary_middle_click_paste_is_dropped() {
     let (mut app, _terminal, recorded) = app_with_writer();
@@ -167,6 +174,14 @@ fn primary_middle_click_paste_is_dropped() {
     app.handle_primary_paste_for_test();
 
     assert!(bytes(&recorded).is_empty());
+
+    // Control: the same middle-click paste is sent once the pane is writable.
+    app.set_pane_read_only(app.active_session_token_for_test(), false);
+    app.handle_primary_paste_for_test();
+    assert!(
+        !bytes(&recorded).is_empty(),
+        "the writable pane receives the PRIMARY paste"
+    );
 }
 
 #[test]
@@ -223,6 +238,16 @@ fn mouse_button_and_wheel_reports_are_dropped() {
     app.dispatch_wheel_for_test(1.0);
 
     assert!(bytes(&recorded).is_empty());
+
+    // Control: the same press and wheel are reported once the pane is
+    // writable.
+    app.set_pane_read_only(app.active_session_token_for_test(), false);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    app.dispatch_wheel_for_test(1.0);
+    assert!(
+        !bytes(&recorded).is_empty(),
+        "the writable pane receives the mouse reports"
+    );
 }
 
 #[test]

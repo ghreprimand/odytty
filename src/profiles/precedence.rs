@@ -84,7 +84,7 @@ pub enum PrecedenceLayer {
     LiveUiEdit,
 }
 
-/// Resolve one launch context using the v0.14.0 precedence contract.
+/// Resolve one launch context using the launch precedence contract.
 ///
 /// Layer order (lowest to highest priority) matches [`precedence_chain`]:
 /// built-in defaults, global config, named profile, workspace named-profile
@@ -387,6 +387,21 @@ mod tests {
         assert_eq!(
             effective.settings.theme,
             Theme::from_name("odyssey-noir").expect("theme")
+        );
+
+        // Without the environment value the profile beats the config file.
+        let effective = resolve_effective_launch(
+            Some(&config),
+            &HashMap::new(),
+            &catalog,
+            &cli,
+            &RestoredLaunchOverrides::default(),
+            &LiveLaunchOverrides::default(),
+            None,
+        );
+        assert_eq!(
+            effective.settings.theme,
+            Theme::from_name("plain").expect("theme")
         );
     }
 

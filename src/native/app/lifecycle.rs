@@ -337,11 +337,12 @@ impl App {
                 .then(|| self.multipane_glide_deadline())
                 .flatten(),
             // Kitty graphics animation: wake when a visible animated image is due
-            // for its next frame. Sourced from the ACTIVE pane (the same pane the
-            // maintenance consumer advances), so - per the "a source must not fan
-            // wider than its consumer" rule - no wake is scheduled for an
-            // animation nobody is looking at. `None` unless an animated placement
-            // is visible and running, so the idle wake set is unchanged.
+            // for its next frame. The maintenance consumer advances every visible
+            // pane of the presented tab and records the earliest due frame, so -
+            // per the "a source must not fan wider than its consumer" rule - no
+            // wake is scheduled for an animation nobody is looking at. `None`
+            // unless an animated placement is visible and running, so the idle
+            // wake set is unchanged.
             presentation_active
                 .then_some(self.animated_graphics_deadline)
                 .flatten(),
@@ -745,8 +746,8 @@ impl App {
         // pane keeps today's viewport flash + prompt-marks epoch (the single-
         // pane render fast path no longer drains, so it stays byte-identical);
         // any other session that rang pings cross-platform window urgency and
-        // latches its tab's activity flag (the rollup input, ODP-6 v2 - the flag
-        // is landed and maintained here, but no rollup UI reads it yet). Kept in
+        // latches its tab's activity flag, which the tab bar and session
+        // navigator read for their attention markers. Kept in
         // maintenance, NOT in `rebuild_multipane`, to avoid colliding with the
         // multipane viewport-bookkeeping work.
         let bell_sweep = self

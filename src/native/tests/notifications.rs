@@ -42,6 +42,17 @@ fn background_notification_stays_with_its_workspace_until_viewed() {
 #[test]
 fn focused_window_policy_distinguishes_visible_from_unfocused_requests() {
     let (mut app, terminal) = headless_app_for_test();
+    // Visible pane in a focused window: no OS request.
+    terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"\x1b]777;notify;build;started\x07");
+    let (_, focused_request, _) = app.drain_all_notifications_for_test(Instant::now(), true);
+    assert!(
+        !focused_request,
+        "a visible pane in a focused window needs no OS request"
+    );
+    // The same pane in an unfocused window: an OS request.
     terminal
         .lock()
         .expect("terminal")

@@ -3413,7 +3413,7 @@ fn row_fade_scales_color_glyph_vertex_alpha() {
     }
 }
 
-/// A-U035-01: color glyphs in tab-bar and rail labels stay pinned like the mono
+/// Color glyphs in tab-bar and rail labels stay pinned like the mono
 /// chrome path while the content glides, in both glide directions, and are not
 /// cropped at the content seam. Content color glyphs keep gliding and keep the
 /// seam crop.

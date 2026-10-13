@@ -72,9 +72,9 @@ fn golden_single_bit_pattern() {
     let img = img(payload).unwrap();
     assert_eq!(img.width, 1);
     assert_eq!(img.height, 6);
-    // Pixel 0 is red (bit 0 set), pixels 1-5 are bg (palette 0 = black
-    // because #0 was redefined to red but bg fill uses the original palette[0]).
-    // Actually, #0 redefines register 0 to red, so bg is also red → all red.
+    // Pixel 0 is painted red (bit 0 set). Pixels 1-5 take the background
+    // fill from register 0, which `#0` also redefined to red, so every pixel
+    // is red.
     let red = [255, 0, 0, 255];
     for y in 0..6 {
         assert_eq!(pixel_at(&img, 0, y), red, "y={y}");

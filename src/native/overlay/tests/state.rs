@@ -793,3 +793,30 @@ fn a_same_mode_dialog_with_a_different_payload_changes_the_signature() {
     overlay.open_settings();
     assert_eq!(overlay.render_signature().dialog_payload, 0);
 }
+
+/// Closing the overlay drops every pending dialog payload, so a dismissed
+/// confirmation cannot leave a session id, host, layout name or directory
+/// behind for a later path to emit.
+#[test]
+fn close_drops_every_pending_dialog_payload() {
+    let mut overlay = OverlayUi::default();
+    overlay.open_confirm_open_layout("alpha".to_owned());
+    overlay.attach_choice_session_id = "s-0001".to_owned();
+    overlay.confirm_kill_session_id = "s-0002".to_owned();
+    overlay.confirm_navigator_close = Some(
+        crate::native::session_navigator::NavigatorTarget::Detached("s-0003".to_owned()),
+    );
+    overlay.detach_switch_cwd = "/tmp/one".to_owned();
+    overlay.confirm_replace_tab = Some((Box::new(connection_host("edge")), SessionToken(4)));
+    overlay.confirm_remove_host = Some(Box::new(connection_host("edge")));
+    overlay.confirm_overwrite_layout = Some(("beta".to_owned(), LayoutSaveKind::WholeApp));
+    overlay.close();
+    assert!(overlay.attach_choice_session_id.is_empty());
+    assert!(overlay.confirm_kill_session_id.is_empty());
+    assert!(overlay.confirm_navigator_close.is_none());
+    assert!(overlay.detach_switch_cwd.is_empty());
+    assert!(overlay.confirm_replace_tab.is_none());
+    assert!(overlay.confirm_remove_host.is_none());
+    assert!(overlay.confirm_overwrite_layout.is_none());
+    assert!(overlay.confirm_open_layout.is_none());
+}

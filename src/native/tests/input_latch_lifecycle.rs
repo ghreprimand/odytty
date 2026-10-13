@@ -83,12 +83,14 @@ fn keyboard_tab_switch_clears_outgoing_drag() {
     assert_eq!(app.active_workspace_tab_count_for_test(), 2);
     // Focus tab 0 and arm a drag on it.
     app.switch_to_next_tab_for_test(); // -> tab 0 (wraps from tab 1)
-    let armed_index = app.active_workspace_tab_count_for_test();
-    assert_eq!(armed_index, 2);
+    assert_eq!(app.active_session_id_for_test(), 0, "tab 0 is active");
+    let dragged = app.active_session_token_for_test();
     arm_drag(&mut app);
 
     // Switch away (the active-session-change seam fires) and back.
     app.switch_to_next_tab_for_test();
+    assert_eq!(app.active_session_id_for_test(), 1, "tab 1 is active");
+    assert_ne!(app.active_session_token_for_test(), dragged);
     assert!(
         !app.selecting_for_test(),
         "the incoming tab must not inherit a Selecting latch"
@@ -98,6 +100,11 @@ fn keyboard_tab_switch_clears_outgoing_drag() {
         "the held flag is dropped at the switch"
     );
     app.switch_to_next_tab_for_test();
+    assert_eq!(
+        app.active_session_token_for_test(),
+        dragged,
+        "back on the dragged tab"
+    );
 
     // Back on the originally-dragged tab: its latch was cleared at switch-out, so
     // it is no longer selecting and a buttonless move cannot resume the drag.

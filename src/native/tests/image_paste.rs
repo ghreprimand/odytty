@@ -47,7 +47,7 @@ fn app_over(
 /// writer records every byte into the returned buffer. Used to prove the
 /// image-upload completion handler writes NOTHING to the shell. Returns `None`
 /// only if a test PTY can't be spawned.
-fn recorded_app() -> Option<(App, std::sync::Arc<std::sync::Mutex<Vec<u8>>>)> {
+fn recorded_app() -> (App, std::sync::Arc<std::sync::Mutex<Vec<u8>>>) {
     struct RecordingWriter {
         bytes: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
     }
@@ -69,7 +69,7 @@ fn recorded_app() -> Option<(App, std::sync::Arc<std::sync::Mutex<Vec<u8>>>)> {
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
     let (app, _terminal) =
         headless_app_with_writer(NativeOptions::default(), dims, Settings::default(), writer);
-    Some((app, bytes))
+    (app, bytes)
 }
 
 #[test]
@@ -78,10 +78,7 @@ fn image_upload_completion_notifies_and_copies_without_pty_write() {
     // path into the shell (a bare path on an empty prompt runs on the next
     // Enter and errors). Instead the completion posts an in-pane notice and
     // copies the path to the local clipboard.
-    let Some((mut app, bytes)) = recorded_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, bytes) = recorded_app();
     let token = app.active_session_token_for_test();
     let remote_path = "/tmp/odytty-paste-0123456789abcdef0123456789abcdef.png".to_owned();
     app.reset_last_clipboard_write_for_test();

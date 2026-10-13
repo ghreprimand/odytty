@@ -113,7 +113,7 @@ pub(super) struct SettingsPanel {
     /// Whether the save-or-discard close prompt is showing (dirty Esc at L1).
     pending_close_prompt: bool,
     /// Active path-picker sub-state (for `Path`-kind rows). `None` when not in
-    /// use. T-two-substates: `path_picker` and `editing` are mutually exclusive.
+    /// use. `path_picker` and `editing` are mutually exclusive.
     path_picker: Option<PathPickerState>,
     selected: usize,
     scroll: usize,
@@ -185,9 +185,8 @@ pub(super) enum SettingsPanelOutcome {
     /// section's action row.
     OpenProfileManager,
     OpenKeyBindings,
-    /// Open the font-family picker. Emitted from the Fonts
-    /// section's `font_family` row. The picker overlay
-    /// is sequenced in the font picker; the variant is wired here.
+    /// Open the font-family picker. Emitted from the Fonts section's
+    /// `font_family` row.
     OpenFontPicker,
     /// Save all pending changes and close the overlay.
     SaveAndClose(Vec<SettingEdit>),

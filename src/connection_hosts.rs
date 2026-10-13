@@ -65,9 +65,9 @@ pub struct ConnectionHost {
     /// `Some(false)` opts a host out when the default is on).
     pub tmux: Option<bool>,
     /// Reserved connection protocol. `None` (and the only currently accepted
-    /// value, `ssh`) select the SSH transport; the field exists so a future
-    /// protocol needs no file-format migration. Any value is preserved across a
-    /// round trip; the connect path is SSH-only for now.
+    /// value, `ssh`) select the SSH transport; the field exists so another
+    /// protocol would need no file-format migration. Any value is preserved
+    /// across a round trip; the connect path is SSH-only.
     pub protocol: Option<String>,
     /// Path to an SSH private key (`IdentityFile`). When set, the connect argv
     /// gains `-i <path>`; OdyTTY stores only the path, never any key material.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! The same-process multi-window `winit` `ApplicationHandler` (v0.15.0 D).
+//! The same-process multi-window `winit` `ApplicationHandler`.
 //!
 //! [`MultiWindowHost`] is the process event handler odytty actually runs. It
 //! owns every live [`App`] (each an independent window + `WorkspaceSet`) and is

@@ -118,9 +118,10 @@ pub(super) fn pane_focus_dim(is_focused: bool, inactive_dim: f32) -> f32 {
 
 /// The tab-chrome reservation: how many cell-rows are taken off the top (the
 /// horizontal bar) and how many cell-columns off the left/right (the vertical
-/// rail, F4-V2). Exactly one axis is ever non-zero for a given placement, and
-/// `NONE` (all zero) is the byte-identical no-chrome case. Callers build it from
-/// [`App::tab_reserve`]; the free `pane_content_rect` stays pure/GPU-free.
+/// rail). Top rows and side columns may coexist (a tab bar above content
+/// beside a workspace rail), and `NONE` (all zero) is the no-chrome case.
+/// Callers build it from [`App::tab_reserve`]; the free `pane_content_rect`
+/// stays pure/GPU-free.
 ///
 /// `gap_cols` remains in the geometry carrier for compatibility with pure
 /// layout tests, but production chrome now sets it to zero: the rail and content
@@ -463,8 +464,9 @@ impl App {
     /// multi-pane tab — the basis local text selection anchors and extends
     /// against, since `self.terminal` / `self.selection` operate on the
     /// focused pane's sub-grid, which is offset from the window origin
-    /// (`self.grid` is the App's whole-window grid, not the pane's). Returns `None` on a single-pane tab (where the byte-identical
-    /// window-origin mapping in `update_pointer_cell` is correct) or when the
+    /// (`self.grid` is the App's whole-window grid, not the pane's). Returns
+    /// `None` on a single-pane tab (where the byte-identical window-origin
+    /// mapping in `update_pointer_cell` is correct) or when the
     /// geometry / cached pointer is unavailable. Uses the cached absolute
     /// `pointer_px` — the same physical-pixel basis `multipane_geometry` and the
     /// divider hit-tests use — and the focused pane's rect origin already
@@ -486,8 +488,8 @@ impl App {
     /// lands under the actual click.
     pub(super) fn active_pane_pointer_cell_at(&self, x_px: f64, y_px: f64) -> Option<CellPoint> {
         let (inner, origin, cell) = self.focused_pane_grid()?;
-        // BIDI: the logical cell drawn under the pointer; identity outside the
-        // test-only display gate.
+        // BIDI: the logical cell drawn under the pointer; identity while
+        // `bidi_reorder` is off.
         pane_relative_cell(inner, origin, cell, x_px, y_px)
             .map(|point| self.bidi_logical_point(point))
     }
@@ -791,10 +793,6 @@ impl App {
             })
             .collect();
         let mut panes_owned: Vec<OwnedPaneRender> = Vec::with_capacity(rects.len());
-        // The focused pane's overlay inputs, captured while its terminal is
-        // locked: (index into `panes_owned`, viewport offset, scrollback len).
-        // Used after the loop to paint that pane's own selection + search
-        // highlights with a pane-scoped ctx (1c-3c).
         // Per-pane overlay inputs, captured for EVERY pane (not just the
         // focused one) so each pane paints its own selection + search-match
         // highlights: (index in `panes_owned`, session token, render offset,
@@ -1466,8 +1464,9 @@ impl App {
         };
         let cursor_params = self.cursor_render_params();
         if let Some(gpu) = self.gpu.as_mut() {
+            // Reset the global scroll offset: each pane origin carries its own
+            // sub-row fraction, so the chrome pin stays inert here.
             gpu.set_scroll_frac_offset(0.0);
-            // SCROLL-CHROME-BOUNCE: multi-pane never glides sub-row; pin inert.
             gpu.set_chrome_pin_geom(None);
             gpu.set_window_bg_alpha(win_bg_alpha);
             // TRANSPARENCY (MENU-OPACITY): the multi-pane overlay panel is
@@ -1541,10 +1540,10 @@ impl App {
         self.last_render_signature = None;
     }
 
-    /// Build a one-row snapshot carrying the tab strip glyphs, for the
-    /// multi-pane path to draw as the topmost pane. Returns the snapshot plus
-    /// the tab bar's solid quads (empty in the current cell-background-based
-    /// integration, but threaded through for parity).
+    /// Build a snapshot of the adjustable-height tab strip (`tab_bar_rows()`
+    /// tall) carrying its glyphs, for the multi-pane path to draw as the
+    /// topmost pane. Returns the snapshot plus the top bar widget's solid
+    /// quads.
     fn tab_bar_strip(
         &self,
         cell: CellSize,
@@ -1576,12 +1575,12 @@ impl App {
     }
 
     /// Build the vertical tab rail as a `rail_cols × grid_rows` snapshot for the
-    /// multi-pane path to draw as its own region (F4-V2). Mirrors
+    /// multi-pane path to draw as its own region. Mirrors
     /// [`Self::tab_bar_strip`] but on the column axis: the rail spans the window
     /// content rows and is drawn at the window's top-left (`[pad, pad]`), beside
     /// the content rect. Returns the snapshot plus the rail widget's overlay
-    /// quads (empty under Phosphor Flat — the F4-P1 panel wash + seam are
-    /// separate background-segment quads built by `tab_panel_bg_quads`).
+    /// quads (the panel wash and seam are separate background-segment quads
+    /// built by `tab_panel_bg_quads`).
     fn tab_rail_strip(&self, cell: CellSize, side: RailSide) -> Option<(Snapshot, Vec<SolidQuad>)> {
         let rail_cols = self.rail_cols();
         // Share the exact window-row basis used by pointer geometry. Deriving

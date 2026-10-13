@@ -60,9 +60,10 @@ pub const MAX_WIDTH: u32 = 10_000;
 /// Maximum image height in pixels.
 pub const MAX_HEIGHT: u32 = 10_000;
 /// Maximum total pixel count (width x height). 64 MiB of RGBA at 4 bytes per
-/// pixel, matching `ImageStoreLimits::max_decoded_bytes` (see
-/// `src/graphics/store.rs`). Kept in lockstep with that store cap so `finish`
-/// never allocates and zeroes a canvas the store is guaranteed to reject.
+/// pixel, matching the default `ImageStoreLimits::max_decoded_bytes` (see
+/// `src/graphics/store.rs`). Kept in lockstep with that default so `finish`
+/// never allocates and zeroes a canvas the default store would reject; a
+/// store configured with a lower cap can still reject a smaller image.
 pub const MAX_PIXELS: u64 = 16_777_216;
 /// Maximum number of `paint_sixel` calls a single DCS may perform. Without
 /// this, a repeat introducer (`!count`) combined with graphics carriage return

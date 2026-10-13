@@ -22,8 +22,6 @@ use super::render::*;
 use super::state::*;
 use crate::core::{Dimensions, Position};
 
-// --- a failed save must disarm the close-after-save latches ---
-
 mod context_menu_overflow;
 mod input;
 mod navigator_context_menu;

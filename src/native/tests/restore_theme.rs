@@ -56,8 +56,8 @@ fn distinctive_theme() -> Theme {
 
 /// A proxy-less `App` whose authored theme is `theme`. Its one session is built
 /// from a bare `Terminal::new` - i.e. UNSEEDED, exactly like a session spawned
-/// by restore/append before the app seeds it. `None` when no PTY is available.
-fn unseeded_app(theme: Theme) -> Option<App> {
+/// by restore/append before the app seeds it.
+fn unseeded_app(theme: Theme) -> App {
     let dims = Dimensions::new(40, 8);
     let settings = Settings {
         theme,
@@ -68,7 +68,7 @@ fn unseeded_app(theme: Theme) -> Option<App> {
         dims,
         settings,
     );
-    Some(app)
+    app
 }
 
 /// The core guarantee: a session whose terminal was built without the theme
@@ -79,10 +79,7 @@ fn unseeded_app(theme: Theme) -> Option<App> {
 #[test]
 fn model_state_sweep_seeds_an_unseeded_session_with_the_theme() {
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(mut app) = unseeded_app(distinctive_theme()) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = unseeded_app(distinctive_theme());
 
     // Restore/append shape: the freshly-built terminal carries the default
     // palette, NOT the theme - this is precisely the divergence.
@@ -117,10 +114,7 @@ fn model_state_sweep_seeds_an_unseeded_session_with_the_theme() {
 #[test]
 fn appended_layout_session_is_seeded_with_the_theme() {
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(mut app) = unseeded_app(distinctive_theme()) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = unseeded_app(distinctive_theme());
 
     // Make the current state non-pristine so the append lands beside the live
     // workspace (index 1) instead of consuming the pristine one.

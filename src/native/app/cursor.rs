@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! ID1 cursor blink-fade easing for the native app.
+//! Cursor blink-fade easing for the native app.
 //!
-//! Home for the cursor blink-fade easing feature. The cursor render-params
-//! foundation landed only the two contributor stubs the [`App::cursor_render_params`] and
-//! [`App::animation_deadline`] aggregators fold in; this module fills the live
-//! easing body. The aggregators read the precomputed [`App::cursor_anim_alpha`]
+//! This module supplies the easing contributions that the
+//! [`App::cursor_render_params`] and [`App::animation_deadline`] aggregators
+//! fold in. The aggregators read the precomputed [`App::cursor_anim_alpha`]
 //! / [`App::cursor_ease_deadline`] fields, which [`App::update_cursor_easing`]
 //! refreshes once per rebuild from the injected `now` and blink phase.
 //!
-//! Off-path contract (when `cursor_easing` is off): the alpha is held at
-//! `1.0` and no wake is armed, so the cursor renders byte-identically and an
-//! idle terminal arms no extra wakeups. The blink off-phase still hard-hides the
-//! cursor (the caller's existing `cursor_visible = false`), so easing never
-//! double-hides.
+//! Off-path contract (when `cursor_easing` is off, or reduced motion is on):
+//! the alpha is held at `1.0` and no wake is armed, so the cursor renders
+//! byte-identically and an idle terminal arms no extra wakeups; the blink
+//! off-phase hard-hides the cursor (`cursor_visible = false`). With easing on,
+//! the frame keeps the off-phase cursor visible while its alpha decays.
 
 use super::*;
 

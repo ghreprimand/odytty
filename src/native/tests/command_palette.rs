@@ -19,21 +19,19 @@ impl Write for RecordingWriter {
     }
 }
 
-fn app_with_recording_writer() -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
+fn app_with_recording_writer() -> (App, Arc<Mutex<Vec<u8>>>) {
     let dims = Dimensions::new(80, 24);
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
     let (app, _terminal) =
         headless_app_with_writer(NativeOptions::default(), dims, Settings::default(), writer);
-    Some((app, bytes))
+    (app, bytes)
 }
 
 #[test]
 fn accepted_palette_text_writes_to_pty_without_newline() {
-    let Some((mut app, bytes)) = app_with_recording_writer() else {
-        return;
-    };
+    let (mut app, bytes) = app_with_recording_writer();
 
     app.handle_palette_type_text_for_test("cargo test".to_owned());
 
@@ -45,9 +43,7 @@ fn accepted_palette_text_writes_to_pty_without_newline() {
 /// open, so this exercises the global dispatch, not the overlay-key path).
 #[test]
 fn ctrl_shift_p_chord_opens_command_palette_overlay() {
-    let Some((mut app, _bytes)) = app_with_recording_writer() else {
-        return;
-    };
+    let (mut app, _bytes) = app_with_recording_writer();
     assert_ne!(
         app.overlay_signature_for_test().mode,
         OverlayMode::CommandPalette,
@@ -64,9 +60,7 @@ fn ctrl_shift_p_chord_opens_command_palette_overlay() {
 /// Companion representative: `Ctrl+Shift+S` opens the connection manager.
 #[test]
 fn ctrl_shift_s_chord_opens_connection_overlay() {
-    let Some((mut app, _bytes)) = app_with_recording_writer() else {
-        return;
-    };
+    let (mut app, _bytes) = app_with_recording_writer();
     app.drive_char_with_mods_for_test('s', true, true);
     assert_eq!(
         app.overlay_signature_for_test().mode,
@@ -83,9 +77,7 @@ fn ctrl_shift_s_chord_opens_connection_overlay() {
 /// it errors instead of panicking.
 #[test]
 fn attaching_a_stale_session_id_errors_without_panic() {
-    let Some((mut app, _bytes)) = app_with_recording_writer() else {
-        return;
-    };
+    let (mut app, _bytes) = app_with_recording_writer();
     let result = app.attach_session_in_new_tab(None, "s-9999-stale-synthetic");
     assert!(
         result.is_err(),
@@ -105,9 +97,7 @@ fn attaching_a_stale_session_id_errors_without_panic() {
 /// chord reaches the open path and switches the overlay mode.
 #[test]
 fn ctrl_shift_a_chord_opens_session_attach_overlay() {
-    let Some((mut app, _bytes)) = app_with_recording_writer() else {
-        return;
-    };
+    let (mut app, _bytes) = app_with_recording_writer();
     assert_ne!(
         app.overlay_signature_for_test().mode,
         OverlayMode::SessionAttach,
@@ -125,9 +115,7 @@ fn ctrl_shift_a_chord_opens_session_attach_overlay() {
 /// and a settings entry in v0.3.1).
 #[test]
 fn ctrl_shift_b_chord_opens_theme_builder_overlay() {
-    let Some((mut app, _bytes)) = app_with_recording_writer() else {
-        return;
-    };
+    let (mut app, _bytes) = app_with_recording_writer();
     app.drive_char_with_mods_for_test('b', true, true);
     assert_eq!(
         app.overlay_signature_for_test().mode,

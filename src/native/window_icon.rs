@@ -16,7 +16,7 @@
 //! The art is the 256×256 hicolor PNG that already backs the Linux `.desktop`
 //! entry, embedded with `include_bytes!` so it is always present (no file I/O at
 //! startup, works from any working directory). Decoding is robust: any failure
-//! yields `None` and a warning on stderr - a bad icon must NEVER break window
+//! yields `None` and a logged warning - a bad icon must NEVER break window
 //! creation.
 
 /// The embedded source art: the same 256×256 PNG used for the Linux desktop
@@ -32,12 +32,12 @@ pub(super) fn load() -> Option<winit::window::Icon> {
         Ok((rgba, width, height)) => match winit::window::Icon::from_rgba(rgba, width, height) {
             Ok(icon) => Some(icon),
             Err(err) => {
-                eprintln!("odytty: window icon ignored (invalid RGBA): {err}");
+                tracing::warn!(error = %err, "window icon ignored (invalid RGBA)");
                 None
             }
         },
         Err(err) => {
-            eprintln!("odytty: window icon ignored (decode failed): {err}");
+            tracing::warn!(error = %err, "window icon ignored (decode failed)");
             None
         }
     }

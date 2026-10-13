@@ -9,7 +9,7 @@
 //! prompts, then Win32 input mode, keypad mode, and normal PTY encoding. Win32
 //! input mode still owns every otherwise-unconsumed physical event.
 //!
-//! The `ApplicationHandler` match in the parent module remains the stable event
+//! The `ApplicationHandler` match in `event_loop.rs` remains the stable event
 //! ingress; the `KeyboardInput` arm reaches this chain exactly as before.
 
 use super::platform_opener::OpenerOs;
@@ -537,8 +537,9 @@ impl App {
             // a local selection when the copy-or-interrupt policy is on, then
             // swallows the chord. With the policy off, no selection, or any other
             // key it returns false and falls through to the interrupt-byte encode
-            // below, so the ^C path stays byte-identical. Inside the press-only
-            // guard, so a key release never triggers a copy.
+            // below, so the ^C path stays byte-identical. Inside the
+            // non-release guard (presses and repeats), so a key release never
+            // triggers a copy.
             if self.smart_ctrl_c_intercept(&logical, mods) {
                 return;
             }
@@ -552,7 +553,7 @@ impl App {
             // not on editable input despite a known boundary, Delete/Backspace
             // still falls through to the shell. Gated to no Ctrl/Alt/Super so
             // word-delete chords (Ctrl+W, Alt+Backspace) still reach the shell.
-            // Press-only via the enclosing guard.
+            // Presses and repeats only, via the enclosing non-release guard.
             if is_selection_delete_key(&logical)
                 && self.active_pane_accepts_input()
                 && !mods.ctrl
@@ -1266,8 +1267,8 @@ impl App {
     /// immediate second `Ctrl+C` interrupts. In every other case it returns
     /// `false` and the caller falls through to the normal interrupt-byte encode,
     /// so the `^C` path is byte-identical when the policy is off, when nothing is
-    /// selected, or for any non-`Ctrl+C` key. Press-only by virtue of the
-    /// enclosing `event_type != Release` guard at the call site.
+    /// selected, or for any non-`Ctrl+C` key. Runs for presses and repeats only,
+    /// by virtue of the enclosing `event_type != Release` guard at the call site.
     pub(super) fn smart_ctrl_c_intercept(&mut self, logical: &WinitKey, mods: Modifiers) -> bool {
         if !self.settings.smart_ctrl_c.is_active() {
             return false;

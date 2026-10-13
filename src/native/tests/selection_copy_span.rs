@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! SELECT-COPY-CLAMP regression: a mouse selection extending beyond the visible
 //! viewport must copy the FULL absolute range, not just the rows on screen at
-//! copy time. Drives a real headless `App` (one-shot PTY, no GPU) with a
+//! copy time. Drives a real headless `App` (no PTY child, no GPU) with a
 //! scrollback taller than the grid, sets an absolute selection spanning several
 //! screens, and asserts the exact multi-screen text through the same
 //! `current_selection_text` choke point PRIMARY/CLIPBOARD/copy-on-select use.
@@ -11,8 +11,7 @@ use super::*;
 /// Build a headless `App` whose terminal is pre-seeded with `lines` rows of
 /// distinct content ("row000".."rowNNN"), so scrollback is taller than the
 /// 24-row grid and absolute row `i` holds exactly `format!("row{i:03}")`.
-/// Returns `None` when no PTY is available (callers then skip).
-fn app_with_rows(lines: usize) -> Option<App> {
+fn app_with_rows(lines: usize) -> App {
     let dims = Dimensions::new(80, 24);
     let (app, terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());
     {
@@ -23,15 +22,12 @@ fn app_with_rows(lines: usize) -> Option<App> {
         }
         t.advance(content.as_bytes());
     }
-    Some(app)
+    app
 }
 
 #[test]
 fn wrapped_selection_spanning_scrollback_copies_every_row() {
-    let Some(mut app) = app_with_rows(60) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = app_with_rows(60);
     // Absolute rows 5..=45 span well beyond the 24-row viewport (rows 5..36 sit
     // in scrollback, 37..45 on screen at offset 0). Before the fix this copied
     // only the on-screen tail; now it copies the whole span.
@@ -49,10 +45,7 @@ fn wrapped_selection_spanning_scrollback_copies_every_row() {
 
 #[test]
 fn block_selection_spanning_scrollback_copies_the_full_column_band() {
-    let Some(mut app) = app_with_rows(60) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = app_with_rows(60);
     // Column band [3, 5] = the three digit characters of each "row0NN" row,
     // across a span reaching from scrollback (row 5) onto the screen (row 45).
     app.set_block_selection_range_for_test(5, 3, 45, 5);
@@ -69,10 +62,7 @@ fn block_selection_spanning_scrollback_copies_the_full_column_band() {
 
 #[test]
 fn single_viewport_selection_is_unchanged() {
-    let Some(mut app) = app_with_rows(60) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = app_with_rows(60);
     // Rows 40..=42 sit inside the visible viewport (offset 0 shows the tail of
     // the 60 printed rows), so this is the common on-screen case: it must copy
     // exactly those rows, no more, no less (byte-identity guard).
@@ -86,10 +76,7 @@ fn single_viewport_selection_is_unchanged() {
 
 #[test]
 fn scrollback_selection_keeps_partial_boundary_rows() {
-    let Some(mut app) = app_with_rows(60) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = app_with_rows(60);
     // First row starts mid-cell (col 3) and the last row ends mid-cell (col 2),
     // across three scrollback rows: the boundary rows must survive (the walk
     // reproduces the per-row rule directly, so a single-cell boundary span is
@@ -104,10 +91,7 @@ fn scrollback_selection_keeps_partial_boundary_rows() {
 
 #[test]
 fn all_blank_single_row_selection_yields_no_text() {
-    let Some(mut app) = app_with_rows(60) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = app_with_rows(60);
     // A single scrollback row's blank padding (cols 60..=70 of a 6-char row):
     // the extracted text trims to empty, so the choke point returns None and
     // nothing is copied.

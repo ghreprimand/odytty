@@ -15,8 +15,8 @@
 //! # Eligibility
 //!
 //! The base scalar must belong to a script group the classifier enables
-//! ([`STAGE_RANGES`]), and every retained scalar must belong to an enabled
-//! group or be ZWJ, ZWNJ, or a Vedic Extensions mark. Hidden cells, wide
+//! ([`SHAPED_SCRIPT_RANGES`]), and every retained scalar must belong to an
+//! enabled group or be ZWJ, ZWNJ, or a Vedic Extensions mark. Hidden cells, wide
 //! continuations, and color-glyph cells are never eligible. Latin, Arabic,
 //! emoji, and box drawing never enter this path.
 //!
@@ -50,7 +50,7 @@ mod tests;
 /// Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam), Sinhala,
 /// Khmer (with Khmer Symbols), Myanmar (with Myanmar Extended-A and
 /// Extended-B), Thai, Lao, Tibetan, Chakma, Javanese, Grantha, and Tai Tham.
-pub const STAGE_RANGES: &[(u32, u32)] = &[
+pub const SHAPED_SCRIPT_RANGES: &[(u32, u32)] = &[
     (0x0900, 0x097F),   // Devanagari
     (0x0980, 0x09FF),   // Bengali
     (0x0A00, 0x0A7F),   // Gurmukhi
@@ -89,7 +89,7 @@ const OWNER_SCALARS: usize = 17;
 
 fn in_stage(ch: char) -> bool {
     let cp = ch as u32;
-    STAGE_RANGES
+    SHAPED_SCRIPT_RANGES
         .iter()
         .any(|&(start, end)| (start..=end).contains(&cp))
 }

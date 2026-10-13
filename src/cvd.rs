@@ -1,22 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Perceptual colour-vision-deficiency (CVD) palette adaptation (U4-core): take
-//! a theme's colours in, hand back a CVD-adapted, still-readable theme out.
+//! Colour-vision-deficiency (CVD) palette adaptation: take a theme's colours
+//! in, hand back a CVD-adapted, still-readable theme out.
 //!
-//! A viewer with a colour-vision deficiency loses one of the two perceptual
-//! opponent axes: protan/deutan viewers cannot resolve the red–green (`a`) axis,
-//! tritan viewers cannot resolve the blue–yellow (`b`) axis. Two theme colours
-//! that differ *only* on the lost axis collapse onto the same perceived colour -
-//! red and green become indistinguishable, or blue and yellow do. This module
-//! *daltonises* a palette: it moves the information off the lost axis onto the
-//! retained axis (plus a small lightness nudge) so the colours separate again
-//! for that viewer, then re-floors the result so it stays legible.
+//! The model is a deterministic OKLab heuristic, not a physiological
+//! simulation: protan and deutan are both treated as losing the OKLab `a`
+//! (red-green) axis, tritan as losing the `b` (blue-yellow) axis. Two theme
+//! colours that differ *only* on the lost axis collapse together under that
+//! model. This module *daltonises* a palette: it moves the information off the
+//! lost axis onto the retained axis (plus a small lightness nudge) so the
+//! colours separate again under the model, then re-floors the result so it
+//! stays legible. The tests check separation with the same simplified model
+//! ([`cvd_simulate`]) over pinned semantic pairs, so they establish
+//! consistency with the model rather than separation for real viewers.
 //!
 //! ## Why OKLCH
 //!
-//! OKLab's `a`/`b` opponent coordinates line up directly with the two CVD
-//! confusion axes, so the deficient axis and the retained axis the correction
-//! redistributes onto are explicit coordinates - no LMS round-trip, no new
-//! dependency. The whole transform lives in the existing OKLCH machinery.
+//! OKLab's `a`/`b` opponent coordinates serve as the model's confusion axes, so
+//! the deficient axis and the retained axis the correction redistributes onto
+//! are explicit coordinates - no LMS round-trip, no new dependency. The whole
+//! transform lives in the existing OKLCH machinery.
 //!
 //! ## Two opposite operations
 //!
@@ -28,22 +30,22 @@
 //!
 //! ## Readable AND distinguishable
 //!
-//! Daltonising makes colours *distinguishable*; the RV1 contrast floor keeps
+//! Daltonising makes colours *distinguishable*; the contrast floor keeps
 //! them *readable*. They compose because the floor moves **only OKLab L** while
 //! the correction does its primary separating work on the retained **opponent
 //! axis** (the `a`/`b` plane) - orthogonal coordinates, so the floor's L-lift
 //! cannot undo the separation. [`adapt_palette`] runs the correction across the
 //! chromatic roles, holds background/foreground structural, then re-floors
 //! against the same per-role surface mapping the theme generator/builder use, so
-//! the output is RV1-valid **by construction**.
+//! the output clears the floor **by construction**.
 //!
 //! ## Determinism
 //!
 //! Every entry point is a pure function with no globals and no RNG: identical
-//! inputs yield byte-identical output. The "off" state is not represented here -
-//! that lives at the future render-wiring layer; the core is only ever called
-//! with a real deficiency type. `strength = 0` is an exact bit-for-bit
-//! passthrough.
+//! inputs yield byte-identical output. The "off" state is not represented here:
+//! the native wiring (`native::cvd_theme`) bypasses this module entirely when
+//! CVD adaptation is off. [`cvd_adapt`] at `strength = 0` returns its input
+//! bit for bit, but [`adapt_palette`] still re-floors at zero strength.
 
 use crate::color::{
     LinearRgb, Oklab, Oklch, linear_to_oklab, linear_to_srgb_u8, oklab_to_linear, oklab_to_oklch,
@@ -114,9 +116,8 @@ const AUTHORING_FLOOR: f32 = 4.5;
 /// off the deficient opponent axis onto the retained one (plus a small lightness
 /// nudge) so the colour separates from its confusion partner.
 ///
-/// `strength` is clamped to `0..=1`. `strength <= 0` is an exact bit-for-bit
-/// passthrough (the identity the wiring layer's "off" state relies on); `1` is
-/// the full correction. The transform is **self-limiting**: a colour whose
+/// `strength` is clamped to `0..=1`. `strength <= 0` returns the colour bit
+/// for bit; `1` is the full correction. The transform is **self-limiting**: a colour whose
 /// lost-axis component is already small (one a CVD viewer can already resolve)
 /// barely moves, so adapting a whole palette never heavy-handedly recolours an
 /// already-accessible scene.
@@ -175,7 +176,7 @@ pub fn cvd_simulate(color: Srgb, ty: CvdType) -> Srgb {
 }
 
 /// Daltonise a whole theme for a CVD viewer and re-floor it so it stays
-/// readable. The deterministic core of U4.
+/// readable.
 ///
 /// Remaps the colours that carry semantic meaning - the 16 ANSI colours and the
 /// chromatic roles (cursor, selection, search) - and **holds the background and
@@ -184,7 +185,7 @@ pub fn cvd_simulate(color: Srgb, ty: CvdType) -> Srgb {
 /// and testable). Window chrome (border / inactive / clear) is likewise left
 /// untouched. After the remap it re-floors against [`AUTHORING_FLOOR`] using the
 /// same per-role surface mapping the theme generator/builder use, so the output
-/// is RV1-valid by construction.
+/// clears the floor by construction.
 ///
 /// Single-pass (each colour is adapted exactly once) and pure: identical
 /// `(spec, ty, strength)` yields a byte-identical spec.
@@ -427,8 +428,8 @@ mod tests {
     #[test]
     fn every_remapped_role_clears_the_floor_after_adapt() {
         // Readability survives the remap: each floored role over its mapped
-        // surface clears the floor (respecting the bg-side neutral exemption),
-        // at the default and a raised floor target.
+        // surface clears the authoring floor (respecting the bg-side neutral
+        // exemption).
         let spec = fixture();
         for ty in ALL_TYPES {
             let adapted = adapt_palette(&spec, ty, 1.0);

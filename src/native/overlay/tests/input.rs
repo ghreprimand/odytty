@@ -1834,9 +1834,7 @@ fn pointer_press_on_settings_back_arrow_returns_to_sections() {
     overlay.handle_input(OverlayInput::Activate); // drill in
     let rect = overlay_rect(&overlay, 80, 24).expect("rect");
 
-    // Clicking the TITLE ROW (rect.top) where the ← arrow is actually drawn.
-    // This is the correct click target; the previous test used rect.top + 1
-    // (the row below the title) which was wrong — the arrow is at rect.top.
+    // Click the title row (rect.top), where the ← arrow is drawn.
     let outcome = overlay.handle_pointer(
         OverlayPointer::Press {
             cell: CellPoint {

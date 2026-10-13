@@ -25,10 +25,7 @@
 //! This module is the persistence layer: capture + serialize + atomic write +
 //! read-back + version-skew tolerance. Restore-on-launch, the
 //! `restore_workspaces` setting, the debounced autosave and the primary-instance
-//! lock consume these types. Some helpers are referenced only from tests, so the
-//! module keeps a module-level `dead_code` allow.
-
-#![allow(dead_code)]
+//! lock consume these types.
 
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -587,8 +584,10 @@ impl LoadError {
     }
 }
 
-/// The four-way outcome of a launch-time load, so WP2 can drive the right
-/// behavior without re-implementing the classification.
+/// The four-way outcome of a launch-time load, so restore can drive the right
+/// behavior without re-implementing the classification. The `Skew` version
+/// and the `Corrupt` reason are carried for tests and debug output; the
+/// launch notice does not show them.
 #[derive(Debug)]
 pub(crate) enum LoadOutcome {
     /// A valid snapshot to restore.
@@ -596,12 +595,16 @@ pub(crate) enum LoadOutcome {
     /// No snapshot file exists yet (first launch, or restore never saved).
     Absent,
     /// A newer schema version - ignore and launch fresh, with a notice.
-    Skew { found: u32 },
+    Skew {
+        #[allow(dead_code)]
+        found: u32,
+    },
     /// Unreadable or malformed - ignore and launch fresh, with a notice.
-    Corrupt(String),
+    Corrupt(#[allow(dead_code)] String),
 }
 
 /// Absolute path of the whole-app autosave snapshot in the state dir.
+#[cfg(test)]
 pub(crate) fn snapshot_path() -> PathBuf {
     state_log_dir().join(SNAPSHOT_FILE)
 }
@@ -631,6 +634,9 @@ pub(crate) fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
 }
 
 /// Serialize and atomically write the whole-app snapshot to its state-dir path.
+/// Test builds count autosaves instead of writing, so only release code calls
+/// this.
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) fn save_snapshot(snapshot: &ShapeSnapshot) -> io::Result<()> {
     let dir = crate::logging::prepare_state_log_dir()?;
     write_atomic(&dir.join(SNAPSHOT_FILE), &snapshot.to_json_pretty())
@@ -706,12 +712,6 @@ pub(crate) fn sanitize_layout_name(name: &str) -> Option<String> {
 fn layout_path_in(dir: &Path, name: &str) -> Option<PathBuf> {
     let stem = sanitize_layout_name(name)?;
     Some(dir.join(format!("{stem}.json")))
-}
-
-/// Absolute path of the layout file for `name`, or `None` when the name
-/// sanitizes to nothing. The file lives directly under [`layouts_dir`].
-pub(crate) fn layout_path(name: &str) -> Option<PathBuf> {
-    layout_path_in(&layouts_dir(), name)
 }
 
 /// Serialize and atomically write a named layout into `dir` (WP3 / 8g core).

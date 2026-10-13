@@ -351,16 +351,12 @@ struct PendingTextPaste {
     broadcast: Option<u64>,
 }
 
-/// Human-readable byte size for the image paste-through confirm prompt (F6-i7):
-/// `B` under 1 KiB, else one decimal of `KiB`/`MiB`. Binary units so the number
-/// lines up with the fixed-`MiB` upload cap.
-/// TRANSPARENCY: pure window-background-alpha decision. Full opacity unless the
+/// Pure window-background-alpha decision. Full opacity unless the
 /// transparency setting is on and the swapchain can composite alpha
 /// (`capable`); otherwise the `opacity_pct` percent as a `0..=1` fraction. An
-/// open overlay panel no longer forces the whole window opaque — the window
-/// stays translucent and only the panel's own cell span is held opaque
-/// (MENU-OPACITY), so a menu/settings/picker never reseals the transparent
-/// window while it is up.
+/// open overlay panel does not force the whole window opaque: the window
+/// stays translucent and only the panel's own cell span is held opaque, so a
+/// menu/settings/picker never reseals the transparent window while it is up.
 pub(super) fn window_bg_alpha_for(transparency: bool, capable: bool, opacity_pct: f32) -> f32 {
     if transparency && capable {
         (opacity_pct / 100.0).clamp(0.0, 1.0)
@@ -369,6 +365,9 @@ pub(super) fn window_bg_alpha_for(transparency: bool, capable: bool, opacity_pct
     }
 }
 
+/// Human-readable byte size for the image paste-through confirm prompt:
+/// `B` under 1 KiB, else one decimal of `KiB`/`MiB`. Binary units so the number
+/// lines up with the fixed-`MiB` upload cap.
 fn format_byte_size(bytes: usize) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = 1024.0 * 1024.0;

@@ -4,7 +4,10 @@
 //! This module names the terminal-local actions dispatched by the native
 //! palette. It does not execute actions, touch PTYs, read files, render an
 //! overlay, or import native code. [`STABLE_ACTION_IDS`] is the complete stable
-//! roster and remains the single source for catalog identity.
+//! roster. The ids are also spelled out in [`DEFAULT_PALETTE_ACTIONS`],
+//! [`PaletteAction::id`], [`PaletteAction::label`] and
+//! [`PaletteAction::from_id`]; tests check the roster against the default
+//! catalog and that every default action round-trips through its id.
 
 use std::collections::HashSet;
 
@@ -322,99 +325,6 @@ impl PaletteAction {
         }
     }
 
-    /// Search aliases/keywords used by palette ranking.
-    ///
-    /// The current `PaletteEntry` stores one match label, so the composer emits
-    /// one human-label action row per action and preserves these aliases as the
-    /// pure dispatch contract for the native/model wiring packet.
-    pub fn aliases(self) -> &'static [&'static str] {
-        match self {
-            Self::Search => &["find", "toggle search", "scrollback search"],
-            Self::OpenSettings => &["preferences", "prefs", "config"],
-            Self::OpenThemePicker => &["theme", "themes", "choose theme"],
-            Self::CreateThemeFromColors => &[
-                "capture colors",
-                "theme from colors",
-                "save current colors",
-                "new theme from screen",
-            ],
-            Self::CopySelection => &["copy", "clipboard", "selection"],
-            Self::Paste => &["paste", "clipboard"],
-            Self::ScrollPageUp => &["page up", "scrollback up"],
-            Self::ScrollPageDown => &["page down", "scrollback down"],
-            Self::JumpPromptPrev => &["previous prompt", "prompt up", "shell mark"],
-            Self::JumpPromptNext => &["next prompt", "prompt down", "shell mark"],
-            Self::SelectCommandOutput => &["select output", "command range"],
-            Self::SelectCommandWithPrompt => &["select command", "include prompt"],
-            Self::CopyCommandOutput => &["copy output", "command clipboard"],
-            Self::CopyCommandWithPrompt => &["copy command", "include prompt"],
-            Self::SearchCommandOutput => &["find in command", "search output"],
-            Self::JumpFailedCommandPrev => &["previous failure", "failed command up"],
-            Self::JumpFailedCommandNext => &["next failure", "failed command down"],
-            Self::ExportCommandOutput => &["save output", "export command"],
-            Self::ExportScrollbackText => &["save scrollback", "save history", "plain text"],
-            Self::ExportScrollbackHtml => &["save scrollback", "save history", "web page"],
-            Self::NotifyCommandFinished => {
-                &["command complete", "finish notification", "watch command"]
-            }
-            Self::MonitorPaneActivity => &["watch activity", "output monitor"],
-            Self::MonitorPaneSilence => &["watch silence", "quiet monitor"],
-            Self::MonitorPaneBell => &["watch bell", "alert monitor"],
-            Self::MonitorPaneProcessFinish => &["watch process", "process exit"],
-            Self::MonitorPaneCommandFailure => &["watch failure", "failed command"],
-            Self::ClearPaneMonitors => &["cancel monitors", "dismiss monitors"],
-            Self::CopyMode => &["keyboard selection", "select mode"],
-            Self::Hints => &["quick select", "links", "paths"],
-            Self::ClearInput => &["clear line", "kill line", "readline"],
-            Self::ToggleReadOnly => &["read only", "lock pane", "disable input", "writable"],
-            Self::ToggleSecureInput => &["secure input", "secure keyboard"],
-            Self::ToggleBroadcast => &["broadcast", "send to all", "synchronize panes", "receiver"],
-            Self::StopBroadcast => &["broadcast off", "end broadcast", "clear receivers"],
-            Self::NewTab => &["tab new", "create tab"],
-            Self::CloseTab => &["tab close", "delete tab"],
-            Self::NextTab => &["tab next", "right tab"],
-            Self::PrevTab => &["previous tab", "tab prev", "left tab"],
-            Self::RenameTab => &["tab title", "custom title"],
-            Self::SplitPaneColumns => &[
-                "split horizontal",
-                "split right",
-                "tmux split-window -h",
-                "columns",
-            ],
-            Self::SplitPaneRows => &[
-                "split vertical",
-                "split down",
-                "tmux split-window -v",
-                "rows",
-            ],
-            Self::FocusPaneLeft => &["pane left", "tmux left"],
-            Self::FocusPaneRight => &["pane right", "tmux right"],
-            Self::FocusPaneUp => &["pane up", "tmux up"],
-            Self::FocusPaneDown => &["pane down", "tmux down"],
-            Self::FocusPaneNext => &["next pane", "tmux o"],
-            Self::ClosePane => &["kill pane", "tmux x"],
-            Self::ZoomPane => &["toggle pane zoom", "fullscreen pane", "tmux z"],
-            Self::EqualizePanes => &["balance panes", "even panes", "tmux ="],
-            Self::TilePanes => &["tiled layout", "split layout", "unfloat", "unstack"],
-            Self::StackPanes => &[
-                "stacked layout",
-                "one pane at a time",
-                "pane stack",
-                "tabbed panes",
-            ],
-            Self::FloatPanes => &[
-                "floating layout",
-                "overlapping panes",
-                "floating windows",
-                "free layout",
-            ],
-            Self::ArrangeFloatingPane => {
-                &["move floating pane", "resize floating pane", "arrange mode"]
-            }
-            Self::SessionNavigator => &["sessions", "manage sessions", "detached", "attach"],
-        }
-    }
-
     /// Convert this action into a palette entry.
     pub fn entry(self) -> PaletteEntry {
         PaletteEntry::action(self.id(), self.label())
@@ -665,22 +575,19 @@ mod tests {
     }
 
     #[test]
-    fn catalog_actions_carry_labels_and_search_aliases() {
+    fn catalog_actions_carry_ids_and_labels() {
         assert_eq!(PaletteAction::SplitPaneColumns.id(), "split-pane-columns");
         assert_eq!(
             PaletteAction::SplitPaneColumns.label(),
             "Split Pane Into Columns"
         );
-        assert!(
-            PaletteAction::SplitPaneColumns
-                .aliases()
-                .contains(&"tmux split-window -h")
-        );
-        assert!(
-            PaletteAction::OpenSettings
-                .aliases()
-                .contains(&"preferences")
-        );
+    }
+
+    #[test]
+    fn every_default_action_round_trips_through_its_id() {
+        for action in DEFAULT_PALETTE_ACTIONS {
+            assert_eq!(PaletteAction::from_id(action.id()), Some(*action));
+        }
     }
 
     #[test]

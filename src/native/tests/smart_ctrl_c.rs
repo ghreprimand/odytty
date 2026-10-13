@@ -21,7 +21,7 @@ use crate::settings::SmartCtrlC;
 const COLS: usize = 80;
 const ROWS: usize = 24;
 
-fn build_app(content: &[u8]) -> Option<App> {
+fn build_app(content: &[u8]) -> App {
     let (app, terminal) = headless_app_with(
         NativeOptions::default(),
         Dimensions::new(COLS, ROWS),
@@ -31,15 +31,12 @@ fn build_app(content: &[u8]) -> Option<App> {
         let mut t = terminal.lock().expect("terminal");
         t.advance(content);
     }
-    Some(app)
+    app
 }
 
 #[test]
 fn plain_ctrl_c_copies_and_clears_selection_under_policy() {
-    let Some(mut app) = build_app(b"hello world") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"hello world");
     app.set_smart_ctrl_c_for_test(SmartCtrlC::CopyOrInterrupt);
     app.force_selection_for_test(0, 0, 0, 4);
     assert!(
@@ -58,10 +55,7 @@ fn plain_ctrl_c_copies_and_clears_selection_under_policy() {
 
 #[test]
 fn plain_ctrl_c_with_policy_off_leaves_selection_for_interrupt() {
-    let Some(mut app) = build_app(b"hello world") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"hello world");
     // Explicit off policy - byte-identical interrupt path. (The shipped default
     // is now copy-or-interrupt, so the off path is set explicitly here.)
     app.set_smart_ctrl_c_for_test(SmartCtrlC::Off);
@@ -76,10 +70,7 @@ fn plain_ctrl_c_with_policy_off_leaves_selection_for_interrupt() {
 
 #[test]
 fn plain_ctrl_c_with_no_selection_does_not_intercept() {
-    let Some(mut app) = build_app(b"hello world") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"hello world");
     app.set_smart_ctrl_c_for_test(SmartCtrlC::CopyOrInterrupt);
     assert!(
         app.selection_range_for_test().is_none(),
@@ -95,10 +86,7 @@ fn plain_ctrl_c_with_no_selection_does_not_intercept() {
 
 #[test]
 fn ctrl_shift_c_still_copies_without_clearing_under_policy() {
-    let Some(mut app) = build_app(b"hello world") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"hello world");
     app.set_smart_ctrl_c_for_test(SmartCtrlC::CopyOrInterrupt);
     app.force_selection_for_test(0, 0, 0, 4);
 

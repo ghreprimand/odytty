@@ -140,8 +140,6 @@ impl SettingsPanel {
         unknown
     }
 
-    /// Patch the read-only external-palette follower status row from live App
-    /// state (after apply, poll, or startup sync).
     /// The displayed external-palette status value, when the row is present.
     #[cfg(test)]
     pub(in crate::native) fn external_palette_status_value(&self) -> Option<&str> {
@@ -151,8 +149,10 @@ impl SettingsPanel {
             .map(|entry| entry.value.as_str())
     }
 
-    /// Returns `true` when the displayed value changed, so the caller can
-    /// request a repaint: a status change alone does not wake the window.
+    /// Patch the read-only external-palette follower status row from live App
+    /// state (after apply, poll, or startup sync). Returns `true` when the
+    /// displayed value changed, so the caller can request a repaint: a status
+    /// change alone does not wake the window.
     pub(in crate::native) fn sync_external_palette_status(&mut self, display: &str) -> bool {
         let mut changed = false;
         for entry in self
@@ -197,14 +197,6 @@ impl SettingsPanel {
 
     pub(in crate::native) fn save_failed(&mut self, message: String) {
         self.message = Some(format!("Save failed: {message}"));
-    }
-
-    // NOTE: `is_editing` and `is_searching` were previously used by the
-    // overlay.rs Close guard; the two-level model removed that guard (the panel
-    // now handles all Close inputs internally). Kept for future callers.
-    #[allow(dead_code)]
-    pub(in crate::native) fn is_editing(&self) -> bool {
-        self.editing.is_some()
     }
 
     pub(in crate::native) fn is_dragging(&self) -> bool {

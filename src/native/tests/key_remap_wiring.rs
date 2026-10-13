@@ -5,8 +5,8 @@
 //! `overlay_input_from_winit` mapper, or `Ctrl+Shift+J` would collapse to a
 //! plain `Char('j')` (modifiers lost) and never capture.
 //!
-//! Drives a real `App` over a one-shot PTY (skipped when none is available, as
-//! in CI sandboxes); no GPU needed - the binding table is observable before any
+//! Drives a real `App` over a headless session that owns no PTY child; no GPU
+//! needed - the binding table is observable before any
 //! surface exists.
 
 use super::*;
@@ -15,18 +15,15 @@ use crate::settings::BindableAction;
 const COLS: usize = 60;
 const ROWS: usize = 20;
 
-fn build_app() -> Option<App> {
+fn build_app() -> App {
     let dims = Dimensions::new(COLS, ROWS);
     let (app, _terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());
-    Some(app)
+    app
 }
 
 #[test]
 fn chord_capture_bypass_binds_through_the_real_key_path() {
-    let Some(mut app) = build_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app();
 
     // Default selection is the first action (Search); ctrl+shift+j is unbound by
     // default, so capturing it is conflict-free.
@@ -68,10 +65,7 @@ fn chord_capture_bypass_binds_through_the_real_key_path() {
 
 #[test]
 fn esc_while_capturing_cancels_without_binding() {
-    let Some(mut app) = build_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app();
 
     app.open_key_bindings_overlay_for_test();
     app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
@@ -102,10 +96,7 @@ fn settings_chord_reaches_capture_instead_of_toggling_overlay() {
     // Ctrl+Shift+, could never be assigned to any action. The fix gates the
     // SettingsPanel/ThemePicker shortcuts on !is_capturing_chord(), so while a
     // row is armed the chord falls through to the capture path.
-    let Some(mut app) = build_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app();
 
     app.open_key_bindings_overlay_for_test();
     // Arm capture on the default-selected row (Search).
@@ -134,10 +125,7 @@ fn held_settings_chord_does_not_repeat_toggle_the_overlay() {
     // A held Settings chord auto-repeats. The old code fired
     // toggle_settings_overlay on every Repeat, open/close-flickering the panel.
     // The fix acts on the initial Press only; Repeats fall through harmlessly.
-    let Some(mut app) = build_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app();
     assert!(!app.overlay_open_for_test(), "starts with no overlay");
 
     // Initial Press opens the Settings overlay.
@@ -166,10 +154,7 @@ fn held_settings_chord_does_not_repeat_toggle_the_overlay() {
 fn new_window_chord_requests_an_in_process_sibling() {
     // Ctrl+Shift+N routes through the full production key path to
     // request_new_window (same-process sibling), not a re-exec spawn.
-    let Some(mut app) = build_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app();
 
     let n = WinitKey::Character("n".into());
     assert_eq!(
@@ -202,10 +187,7 @@ fn new_window_chord_requests_an_in_process_sibling() {
 
 #[test]
 fn new_window_chord_is_idempotent_while_a_request_is_pending() {
-    let Some(mut app) = build_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app();
     app.drive_char_with_mods_typed_for_test('n', true, true, KeyEventType::Press);
     assert!(app.has_pending_new_window_for_test());
     app.drive_char_with_mods_typed_for_test('n', true, true, KeyEventType::Press);
@@ -220,7 +202,7 @@ fn new_window_chord_is_idempotent_while_a_request_is_pending() {
 #[test]
 fn reload_conflict_prompt_survives_real_input_and_cancel() {
     let _guard = crate::test_lock::render_globals_lock();
-    let mut app = build_app().expect("headless App");
+    let mut app = build_app();
     app.open_key_bindings_overlay_for_test();
     app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
     app.drive_overlay_key_for_test(WinitKey::Character("p".into()), true, true);
@@ -247,7 +229,7 @@ fn reload_conflict_prompt_survives_real_input_and_cancel() {
 #[test]
 fn reload_close_prompt_survives_real_input_and_cancel() {
     let _guard = crate::test_lock::render_globals_lock();
-    let mut app = build_app().expect("headless App");
+    let mut app = build_app();
     app.open_key_bindings_overlay_for_test();
     app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
     app.drive_overlay_key_for_test(WinitKey::Character("j".into()), true, true);

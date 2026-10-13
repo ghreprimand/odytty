@@ -308,12 +308,13 @@ impl App {
             return;
         }
         // Multi-pane left press: grab a divider to drag, else focus the clicked
-        // pane (focus-follows-click, audit row #6) and resolve the press cell in
+        // pane (focus-follows-click) and resolve the press cell in
         // that pane. `multipane_geometry()` is `None` for a single-pane tab, so
         // this whole branch is skipped there and the press path stays
         // byte-identical.
         //
-        // Gated on the press landing *inside* the content rect on BOTH axes:
+        // Gated on the press landing inside the content rect's top, left and
+        // right edges (there is no bottom bound; no chrome sits below it):
         // the tab strip sits above the content rect (`content.y == pad + tab_h`)
         // and a side workspace rail sits beside it (`content.x` is the rail's
         // inner edge), so a click on either chrome band fails this guard and
@@ -745,7 +746,15 @@ impl App {
         }
     }
 
-    /// F4-P4 rail seam button routing. Returns `true` when the event was
+    fn seam_click_instant(&mut self) -> Instant {
+        #[cfg(test)]
+        if let Some(at) = self.seam_click_at_for_test.take() {
+            return at;
+        }
+        Instant::now()
+    }
+
+    /// Rail seam button routing. Returns `true` when the event was
     /// consumed (so the caller returns without running any tab/selection/PTY
     /// routing):
     /// - while a drag is in progress, a left release ends it and persists the
@@ -756,14 +765,6 @@ impl App {
     ///
     /// Off a rail (`pointer_over_rail_seam` is false) it consumes nothing, so
     /// the historical press path is byte-identical.
-    fn seam_click_instant(&mut self) -> Instant {
-        #[cfg(test)]
-        if let Some(at) = self.seam_click_at_for_test.take() {
-            return at;
-        }
-        Instant::now()
-    }
-
     fn handle_rail_seam_button(&mut self, state: ElementState, button: WinitMouseButton) -> bool {
         if button != WinitMouseButton::Left {
             return false;
@@ -994,11 +995,12 @@ impl App {
             return;
         }
 
-        // SCROLL-FEEL Tier 2: high-resolution `PixelDelta` input drives the
-        // continuous fractional lane (sub-row pixel-precise), bypassing the
-        // notch coalescer entirely. Discrete `LineDelta`, and every
-        // ineligible case (pixel_scroll off, multipane, alt-screen, Ctrl-zoom,
-        // selection-drag), fall through to the unchanged notch path below.
+        // High-resolution `PixelDelta` input on an eligible pane (single-pane
+        // or split) drives the continuous fractional lane (sub-row
+        // pixel-precise), bypassing the notch coalescer entirely. Discrete
+        // `LineDelta`, and every ineligible case (pixel_scroll off,
+        // alt-screen, Ctrl-zoom, selection-drag), fall through to the
+        // unchanged notch path below.
         if let MouseScrollDelta::PixelDelta(pos) = delta {
             // Drive the continuous lane on the pane UNDER THE POINTER (in a split;
             // the active pane on a single-pane tab), not the focused/active pane —
@@ -1118,18 +1120,20 @@ impl App {
         }
     }
 
-    /// Resolve the approved fallback ladder (B-DESIGN §4) for the current
-    /// selection against the core-derived input region.
+    /// Resolve the selection-delete fallback ladder for the current selection
+    /// against the core-derived input region.
     ///
-    /// * [`SelectionDeleteOutcome::Synthesize`] — rung R4: the region is
-    ///   `Exact`, single-row, and the selection clamps to a non-empty span of
-    ///   real input; the edit bytes correspond to a known buffer edit.
-    /// * [`SelectionDeleteOutcome::NoOpWithHint`] — rungs R2/R3 and the ladder
-    ///   default: the selection touches the input region but the geometry is
-    ///   not certain enough to synthesize (heuristic right edge, stale mark,
-    ///   multi-row until B1, or a selection entirely over non-input cells such
-    ///   as a right-prompt decoration). Consuming the key with a hint is the
-    ///   charter behavior: a wrong delete is worse than a no-op.
+    /// * [`SelectionDeleteOutcome::Synthesize`]: the selection clamps to a
+    ///   non-empty span of input on a single-row `Exact` or single-row
+    ///   `RightEdgeUnknown` region (the latter using the heuristic right edge,
+    ///   a bounded accepted risk), or on an `Exact` multi-row region whose
+    ///   joins are all soft wraps; the edit bytes correspond to a buffer edit.
+    /// * [`SelectionDeleteOutcome::NoOpWithHint`]: the selection touches the
+    ///   input region but the geometry is not certain enough to synthesize
+    ///   (`Unknown` certainty, a multi-row `RightEdgeUnknown` region, or a
+    ///   selection entirely over non-input cells such as a right-prompt
+    ///   decoration). Consuming the key with a hint is the charter behavior:
+    ///   a wrong delete is worse than a no-op.
     /// * [`SelectionDeleteOutcome::FallThrough`] — rung R0 fails (no local
     ///   selection at the live tail) or the selection does not touch the input
     ///   region at all: the key falls through to the normal encode path,

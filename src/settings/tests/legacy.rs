@@ -295,8 +295,8 @@ fn setting_info_covers_every_field_with_descriptions() {
     assert!(info.iter().all(|row| !row.description.trim().is_empty()));
     // Every row carries a value EXCEPT an unset optional Path (e.g. the explicit
     // `font` file): an unset Path must surface an empty value, not a human
-    // sentence, so the writeback never persists a placeholder as a real path
-    // (FONT-SAVE-CORRECTNESS BUG 1). Non-Path rows still all carry a value.
+    // sentence, so the writeback never persists a placeholder as a real path.
+    // Non-Path rows still all carry a value.
     assert!(
         info.iter()
             .all(|row| { !row.value.trim().is_empty() || matches!(row.kind, SettingKind::Path) })
@@ -918,8 +918,8 @@ fn valid_values_resolve_to_typed_settings() {
 // scanline look survives a back-compat config and never double-applies.
 
 #[test]
-fn ux5_ambient_visual_aliases_to_crt_when_unset() {
-    // TRAP 1 `visual=ambient` with no explicit CRT setting routes
+fn ambient_visual_aliases_to_crt_when_unset() {
+    // `visual=ambient` with no explicit CRT setting routes
     // the scanline look through CRT (crt=on). `scanlines` is an ambient alias.
     let (settings, _) = settings_from([(VISUAL_ENV, "ambient")]);
     assert_eq!(settings.visual, VisualEffect::Ambient);
@@ -936,8 +936,8 @@ fn ux5_ambient_visual_aliases_to_crt_when_unset() {
 }
 
 #[test]
-fn ux5_explicit_crt_always_wins_over_ambient_alias() {
-    // TRAP 4 an explicit `crt=` always overrides the alias, in
+fn explicit_crt_always_wins_over_ambient_alias() {
+    // An explicit `crt=` always overrides the alias, in
     // BOTH precedence directions, so a config can never stack two scanline
     // passes (the alias only fills the unset case).
     let (settings, _) = settings_from([(VISUAL_ENV, "ambient"), (CRT_ENV, "off")]);
@@ -1027,7 +1027,7 @@ fn explicit_visual_off_turns_crt_off_when_crt_is_unset() {
 }
 
 #[test]
-fn ux5_no_ambient_still_uses_crt_default() {
+fn no_ambient_still_uses_crt_default() {
     // CRT is now a default profile choice, independent of the legacy
     // visual=ambient alias. Explicit crt=off remains the opt-out.
     let (settings, _) = settings_from([]);
@@ -1884,7 +1884,7 @@ fn cursor_defaults_without_env() {
 
 #[test]
 fn cursor_blink_auto_resolves_to_the_conventional_blinking_default() {
-    // HELP1: `Auto` is honest about Linux exposing no OS caret-blink preference -
+    // `Auto` is honest about Linux exposing no OS caret-blink preference -
     // it resolves to the conventional blinking default (the historical VT
     // power-on state), the same concrete blink flag `On` produces, while `Off`
     // is the explicit steady override. No phantom "OS preference" is consulted.

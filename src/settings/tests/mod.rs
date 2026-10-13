@@ -17,17 +17,15 @@ use super::config::{config_key_to_env, env_to_config_key};
 use super::reload::{ConfigFileFingerprint, ConfigPollEvent};
 use super::*;
 
+// Tests in this directory that call `apply_reloadable_values` - or that read
+// one of the process-global switches it republishes - take
+// `crate::test_lock::render_globals_lock`, the single coordinating guard for
+// that state, never a directory-local mutex: two locks over one class of state
+// exclude nothing from each other. The shared guard also snapshots and
+// restores on every exit path, including a panicking one, so these tests do
+// not hand-restore a baseline.
 mod automation;
 mod config_quoting;
-/// Tests in this directory that call `apply_reloadable_values` - or that read
-/// one of the process-global switches it republishes - take
-/// `crate::test_lock::render_globals_lock`, the single coordinating guard for
-/// that state. A directory-local mutex used to serialize them instead; two
-/// locks over one class of state exclude nothing from each other, so a reload
-/// test could still run beside a render test reading the same globals. The
-/// shared guard also snapshots and restores, which is why those tests no longer
-/// hand-restore a baseline: restoration now happens on every exit path,
-/// including a panicking one.
 mod cursor;
 mod font_zero;
 mod info;

@@ -66,9 +66,10 @@ pub(super) struct FontPicker {
     original: String,
     message: Option<String>,
     /// Real number of family/header rows the last render could show (the
-    /// theme_builder `last_role_capacity` precedent). `clamp` reads it so paging
-    /// tracks the true viewport instead of a hardcoded slack. Interior-mutable
-    /// because `visible_lines` records it behind `&self`.
+    /// theme_builder `last_role_capacity` precedent). `clamp` reads it so the
+    /// scroll follow-up tracks the true viewport instead of a hardcoded slack;
+    /// PageUp/PageDown move a fixed six rows. Interior-mutable because
+    /// `visible_lines` records it behind `&self`.
     last_capacity: Cell<usize>,
 }
 
@@ -108,7 +109,8 @@ pub(super) enum FontPickerOutcome {
 // ---------------------------------------------------------------------------
 
 impl FontPicker {
-    /// Build a picker from a live font inventory.
+    /// An empty picker seeded with the current font family; `open` loads the
+    /// families.
     pub(super) fn new(settings: &Settings) -> Self {
         let mut picker = Self {
             entries: Vec::new(), // populated lazily on open()

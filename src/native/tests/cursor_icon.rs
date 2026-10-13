@@ -6,8 +6,8 @@
 //! mouse, and a hand over a hovered hyperlink.
 //!
 //! Headless (no GPU/window): the cell size is injected via a test seam and the
-//! production `update_pointer_cell` handler is driven directly. Skipped when no
-//! PTY is available (CI sandboxes).
+//! production `update_pointer_cell` handler is driven directly. The session
+//! owns no PTY child, so these tests never skip.
 
 use super::*;
 use winit::window::CursorIcon;
@@ -17,9 +17,9 @@ const ROWS: usize = 24;
 const CELL_W: u32 = 8;
 const CELL_H: u32 = 10;
 
-/// Build an `App` over a one-shot PTY, feed `content` into its terminal, and
+/// Build an `App` over a headless session, feed `content` into its terminal, and
 /// inject the cell size so the pointer hit-test runs without a GPU.
-fn build_app(content: &[u8]) -> Option<App> {
+fn build_app(content: &[u8]) -> App {
     let dims = Dimensions::new(COLS, ROWS);
     let (mut app, terminal) =
         headless_app_with(NativeOptions::default(), dims, Settings::default());
@@ -28,7 +28,7 @@ fn build_app(content: &[u8]) -> Option<App> {
         t.advance(content);
     }
     app.set_test_cell_for_test(cell(CELL_W, CELL_H));
-    Some(app)
+    app
 }
 
 /// Build a two-pane split `App` headlessly: two headless (no-PTY) sessions,
@@ -38,7 +38,7 @@ fn build_app(content: &[u8]) -> Option<App> {
 /// padding, one tab (no tab bar), so the content rect is
 /// `(0,0, COLS·CELL_W, ROWS·CELL_H)` and the lone even-ratio divider sits at its
 /// midpoint.
-fn build_split_app(columns: bool) -> Option<App> {
+fn build_split_app(columns: bool) -> App {
     let dims = Dimensions::new(COLS, ROWS);
     let (mut app, _terminal) =
         headless_app_with(NativeOptions::default(), dims, Settings::default());
@@ -51,7 +51,7 @@ fn build_split_app(columns: bool) -> Option<App> {
         ROWS as u32 * CELL_H,
         crate::native::WindowPadding::ZERO,
     );
-    Some(app)
+    app
 }
 
 // Midpoint of the content rect - where the lone even-ratio divider sits.
@@ -63,10 +63,7 @@ fn pointer_over_a_column_divider_is_a_col_resize() {
     // A column split (panes side-by-side) draws a vertical divider; hovering its
     // grab band shows the horizontal-resize cursor so drag-to-resize is
     // discoverable.
-    let Some(mut app) = build_split_app(true) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_split_app(true);
     app.pointer_move_for_test(MID_X, MID_Y);
     assert_eq!(app.cursor_icon_for_test(), CursorIcon::ColResize);
 }
@@ -75,10 +72,7 @@ fn pointer_over_a_column_divider_is_a_col_resize() {
 fn pointer_over_a_row_divider_is_a_row_resize() {
     // A row split (panes stacked) draws a horizontal divider; hovering its grab
     // band shows the vertical-resize cursor.
-    let Some(mut app) = build_split_app(false) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_split_app(false);
     app.pointer_move_for_test(MID_X, MID_Y);
     assert_eq!(app.cursor_icon_for_test(), CursorIcon::RowResize);
 }
@@ -88,10 +82,7 @@ fn pointer_over_grid_in_a_split_is_still_an_i_beam() {
     // Off the divider grab band, a split pane is plain selectable text - the
     // I-beam, exactly as a single pane. The resize cursor is confined to the
     // divider.
-    let Some(mut app) = build_split_app(true) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_split_app(true);
     // Far left of the vertical divider at the content midpoint.
     app.pointer_move_for_test(f64::from(CELL_W) * 2.5, MID_Y);
     assert!(
@@ -107,10 +98,7 @@ fn single_pane_never_shows_a_resize_cursor() {
     // BYTE-IDENTITY GUARD: a single-pane tab has no dividers, so the resize
     // branch never fires even at the exact pixel a split's divider would occupy -
     // the plain path stays an I-beam.
-    let Some(mut app) = build_app(b"hello world") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"hello world");
     app.pointer_move_for_test(MID_X, MID_Y);
     let icon = app.cursor_icon_for_test();
     assert_ne!(icon, CursorIcon::ColResize);
@@ -124,10 +112,7 @@ fn dragging_a_divider_keeps_the_resize_cursor() {
     // motion keeps the matching resize cursor for the whole gesture - even if
     // the pointer strays slightly off the hairline.
     use winit::event::MouseButton as WinitMouseButton;
-    let Some(mut app) = build_split_app(true) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_split_app(true);
     app.set_pointer_px_for_test(MID_X, MID_Y);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
     // Drag a few pixels off the exact divider line; cursor stays ColResize.
@@ -137,10 +122,7 @@ fn dragging_a_divider_keeps_the_resize_cursor() {
 
 #[test]
 fn pointer_over_plain_grid_is_an_i_beam() {
-    let Some(mut app) = build_app(b"hello world") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"hello world");
     // Move into the middle of the grid: plain selectable text, no link, no TUI
     // mouse reporting -> the I-beam.
     app.pointer_move_for_test(f64::from(CELL_W) * 3.5, f64::from(CELL_H) * 2.5);
@@ -151,10 +133,7 @@ fn pointer_over_plain_grid_is_an_i_beam() {
 fn pointer_shows_arrow_while_tui_owns_the_mouse() {
     // A TUI enables mouse reporting (DECSET 1000): clicks belong to the app, so
     // the I-beam would mislead -> the arrow.
-    let Some(mut app) = build_app(b"\x1b[?1000hhello world") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"\x1b[?1000hhello world");
     app.pointer_move_for_test(f64::from(CELL_W) * 4.5, f64::from(CELL_H) * 2.5);
     assert_eq!(app.cursor_icon_for_test(), CursorIcon::Default);
 }
@@ -162,10 +141,7 @@ fn pointer_shows_arrow_while_tui_owns_the_mouse() {
 #[test]
 fn pointer_over_hovered_hyperlink_is_a_hand() {
     // Print an OSC 8 hyperlink so the first cells carry a link id.
-    let Some(mut app) = build_app(b"\x1b]8;;https://example.com\x07LINK\x1b]8;;\x07") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"\x1b]8;;https://example.com\x07LINK\x1b]8;;\x07");
     // Hover the first cell of the link run (row 0, col 0) -> the hand.
     app.pointer_move_for_test(f64::from(CELL_W) * 0.5, f64::from(CELL_H) * 0.5);
     assert_eq!(app.cursor_icon_for_test(), CursorIcon::Pointer);
@@ -189,10 +165,7 @@ use crate::paths::FsKind;
 /// and hovering off it falls back to the I-beam.
 #[test]
 fn pointer_over_resolved_path_is_a_hand() {
-    let Some(mut app) = build_app(b"/proj/src/main.rs") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"/proj/src/main.rs");
     app.set_interactive_paths_for_test(true);
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
 
@@ -209,10 +182,7 @@ fn pointer_over_resolved_path_is_a_hand() {
 /// path text yields the plain I-beam, so the default hover path is unchanged.
 #[test]
 fn path_hover_is_inert_when_setting_off() {
-    let Some(mut app) = build_app(b"/proj/src/main.rs") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"/proj/src/main.rs");
     // Even with a probe that *would* resolve the span, the gate keeps the
     // scanner from ever running while the setting is off.
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
@@ -226,10 +196,7 @@ fn path_hover_is_inert_when_setting_off() {
 /// detection is syntactic, but the stat-gate keeps a dead path inert.
 #[test]
 fn unresolved_path_span_gets_no_hand() {
-    let Some(mut app) = build_app(b"/proj/src/main.rs") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"/proj/src/main.rs");
     app.set_interactive_paths_for_test(true);
     // Empty synthetic fs -> the span is syntactically a path but resolves to
     // nothing, so no hand.
@@ -250,13 +217,13 @@ fn unresolved_path_span_gets_no_hand() {
 // is seeded via OSC 7 and the fs is the synthetic MapProbe - no real filesystem.
 
 /// Seed cwd `/proj` via OSC 7, then print `row0` at row 0. Barewords + paths on.
-fn build_app_with_cwd(row0: &str) -> Option<App> {
+fn build_app_with_cwd(row0: &str) -> App {
     let mut content = b"\x1b]7;file://localhost/proj\x1b\\".to_vec();
     content.extend_from_slice(row0.as_bytes());
-    let mut app = build_app(&content)?;
+    let mut app = build_app(&content);
     app.set_interactive_paths_for_test(true);
     app.set_interactive_paths_barewords_for_test(true);
-    Some(app)
+    app
 }
 
 #[test]
@@ -264,10 +231,7 @@ fn spaced_filename_resolves_when_hovering_either_half() {
     // The real file is `my notes.txt`; hovering the `notes.txt` half OR the `my`
     // half must resolve the whole joined name, and the hand-cursor extent must
     // cover the entire name (cols 0..12), not just one split token.
-    let Some(mut app) = build_app_with_cwd("my notes.txt") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app_with_cwd("my notes.txt");
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/my notes.txt", FsKind::File)]));
 
     // Hover the `notes.txt` half (col 5).
@@ -296,10 +260,7 @@ fn spaced_filename_resolves_when_hovering_either_half() {
 fn longest_existing_spaced_name_wins_over_a_shorter_one() {
     // Guard (b): in `see my file.txt here`, only `file.txt` exists - the joined
     // `my file.txt` must NOT be chosen; the shorter existing name wins.
-    let Some(mut app) = build_app_with_cwd("see my file.txt here") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app_with_cwd("see my file.txt here");
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/file.txt", FsKind::File)]));
 
     // `file.txt` begins at col 7 (`see my ` = 7 chars); hover col 9.
@@ -315,10 +276,7 @@ fn longest_existing_spaced_name_wins_over_a_shorter_one() {
 fn spaceless_filename_resolves_byte_identically() {
     // Rule D: a spaceless filename resolves to exactly the single token, with the
     // single-token cell extent - the expansion never changes the no-space case.
-    let Some(mut app) = build_app_with_cwd("open notes.txt now") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app_with_cwd("open notes.txt now");
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/notes.txt", FsKind::File)]));
 
     // `notes.txt` begins at col 5 (`open ` = 5 chars); hover col 8.
@@ -337,10 +295,7 @@ fn spaceless_filename_resolves_byte_identically() {
 #[test]
 fn spaced_filename_inert_when_feature_off() {
     // Guard (c): with interactive_paths off the candidate scan never runs.
-    let Some(mut app) = build_app_with_cwd("my notes.txt") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app_with_cwd("my notes.txt");
     app.set_interactive_paths_for_test(false);
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/my notes.txt", FsKind::File)]));
     app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 0.5);
@@ -358,10 +313,7 @@ fn spaced_filename_inert_when_feature_off() {
 /// path - the press would fall through to selection (byte-identical).
 #[test]
 fn ctrl_click_open_requires_ctrl() {
-    let Some(mut app) = build_app(b"/proj/src/main.rs") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"/proj/src/main.rs");
     app.set_interactive_paths_for_test(true);
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
     app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 0.5);
@@ -374,10 +326,7 @@ fn ctrl_click_open_requires_ctrl() {
 /// click lands where a path would be - the default click path is unchanged.
 #[test]
 fn ctrl_click_open_is_inert_when_setting_off() {
-    let Some(mut app) = build_app(b"/proj/src/main.rs") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"/proj/src/main.rs");
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
     app.set_ctrl_modifier_for_test(true);
     app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 0.5);
@@ -390,10 +339,7 @@ fn ctrl_click_open_is_inert_when_setting_off() {
 /// and the feature on.
 #[test]
 fn ctrl_click_open_is_inert_with_no_path() {
-    let Some(mut app) = build_app(b"plain text") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"plain text");
     app.set_interactive_paths_for_test(true);
     app.set_test_path_probe_for_test(MapProbe::default());
     app.set_ctrl_modifier_for_test(true);
@@ -406,10 +352,7 @@ fn ctrl_click_open_is_inert_with_no_path() {
 /// shell-evaluated. Asserts the vector; never spawns.
 #[test]
 fn ctrl_click_dispatch_builds_editor_argv_for_path_line_col() {
-    let Some(mut app) = build_app(b"/proj/src/main.rs:42:7") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"/proj/src/main.rs:42:7");
     app.set_interactive_paths_for_test(true);
     app.set_interactive_paths_editor_for_test("vim");
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
@@ -429,10 +372,7 @@ fn ctrl_click_dispatch_builds_editor_argv_for_path_line_col() {
 /// path passed through to the opener.
 #[test]
 fn ctrl_click_dispatch_builds_platform_open_for_plain_file() {
-    let Some(mut app) = build_app(b"/proj/src/main.rs") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"/proj/src/main.rs");
     app.set_interactive_paths_for_test(true);
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
     app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 0.5);
@@ -461,10 +401,7 @@ fn ctrl_click_dispatch_builds_platform_open_for_plain_file() {
 /// raises a visible, non-blocking notice naming the program.
 #[test]
 fn failed_open_spawn_raises_visible_notice() {
-    let Some(mut app) = build_app(b"") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"");
     assert!(app.open_notice_message_for_test().is_none(), "clean start");
     let argv = vec![
         "odytty-nonexistent-opener-xyz".to_owned(),
@@ -485,10 +422,7 @@ fn failed_open_spawn_raises_visible_notice() {
 /// exits immediately) does NOT raise a notice - the success path is silent.
 #[test]
 fn successful_open_spawn_raises_no_notice() {
-    let Some(mut app) = build_app(b"") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"");
     let argv = vec!["true".to_owned()];
     app.spawn_open_or_notice_for_test(&argv);
     assert!(

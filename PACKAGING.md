@@ -272,11 +272,12 @@ embedded in the binary, and their licences require the notices to accompany
 every copy. The same files ship in the deb and rpm (listed in `Cargo.toml`),
 the AUR package, the binary tarball, the AppImage and the macOS app, through
 `dist/install-font-licenses.sh`. The tarball's own `install.sh` (also run by
-the one-line installer's tarball branch) copies `LICENSE`, `NOTICE`, `THIRD-PARTY-LICENSES`
-and the font licences to `PREFIX/share/licenses/odytty` and, on `--uninstall`,
-removes exactly those files and the directories left empty (a file another
-package keeps there stays); `tests/packaging_font_licenses.rs` keeps the
-list equal to the licence files in `assets/fonts`.
+the one-line installer's tarball branch) copies `LICENSE`, `NOTICE`,
+`THIRD-PARTY-LICENSES` and the font licences to `PREFIX/share/licenses/odytty`
+and, on `--uninstall`, removes exactly those files and the directories left
+empty (a file another package keeps there stays);
+`tests/packaging_font_licenses.rs` keeps the list equal to the licence files in
+`assets/fonts`.
 
 `NOTICE` ships in every package and carries the Unicode License v3 text for the
 Unicode Character Database and emoji data tables embedded in the binary
@@ -299,9 +300,9 @@ says so; when it declares no authors the entry names the repository that keeps
 its copyright statement and states that the published source names no holder.
 COPYRIGHT and AUTHORS files in a crate's source are reproduced beside its
 licence texts, because for several crates they are the only statement of who
-holds the copyright. CI runs the script's `check` mode (it needs cargo network access), and
-`tests/packaging_third_party.rs` checks the file against `Cargo.lock` and every
-package definition without cargo.
+holds the copyright. CI runs the script's `check` mode (it needs cargo
+network access), and `tests/packaging_third_party.rs` checks the file against
+`Cargo.lock` and every package definition without cargo.
 
 It must not contain `.pdb` files, build directories, or installer work
 directories.

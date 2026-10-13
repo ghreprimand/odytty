@@ -21,8 +21,9 @@ use super::session::SessionToken;
 /// What the set records about a receiver when it is added.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::native) struct ReceiverInfo {
-    /// The pane's bytes leave the machine (an SSH or attached session), so the
-    /// on-screen label and the paste confirmation count it as remote.
+    /// The pane is an SSH or attached session. An attached session's socket is
+    /// local, but the disclosure is conservative: the on-screen label and the
+    /// paste confirmation count both as remote.
     pub(in crate::native) remote: bool,
 }
 

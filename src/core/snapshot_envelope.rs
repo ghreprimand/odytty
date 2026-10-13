@@ -20,7 +20,8 @@
 //! - [`encode`] -- producing wire bytes.
 //! - [`decode`] -- reading untrusted wire bytes back.
 //! - [`capture`] -- copying live terminal state into an envelope its own
-//!   default decoder is guaranteed to accept.
+//!   default decoder accepts, provided the visible grid stays within
+//!   `SnapshotEnvelopeCaps::max_self_decodable_visible_cells`.
 //!
 //! `format`, `compat`, `caps`, and `error` depend on nothing above them;
 //! `model` depends only on those; `encode`, `decode`, `validate`, and

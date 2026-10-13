@@ -539,9 +539,6 @@ impl QuickTerminalController {
         &self.settings
     }
 
-    // Read by the lifecycle tests; the toggle path uses the internal field
-    // directly, so this reader has no production caller.
-    #[allow(dead_code)]
     pub(in crate::native) fn visibility(&self) -> QuickVisibility {
         self.visibility
     }
@@ -553,7 +550,7 @@ impl QuickTerminalController {
     /// Whether the dedicated window has been created yet.
     // Exercised by the singleton/summon tests; the host tracks the window via
     // `identity`, so this accessor has no production caller.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(in crate::native) fn exists(&self) -> bool {
         self.identity.is_some()
     }
@@ -741,9 +738,8 @@ impl Accelerator {
     }
 
     /// Whether any modifier is held.
-    // Exercised by the accelerator-parsing tests; retained as part of the
-    // accelerator surface, without a production caller yet.
-    #[allow(dead_code)]
+    // Exercised by the accelerator-parsing tests only.
+    #[cfg(test)]
     pub(in crate::native) fn has_modifier(&self) -> bool {
         self.ctrl || self.alt || self.shift || self.meta
     }

@@ -5,8 +5,6 @@
 //! Headless (no GPU/window): the cell size the gutter geometry needs is injected
 //! via the same test seam the scrollbar tests use, and the jump is driven
 //! directly through the `App` handlers rather than synthesised key events.
-//! Skipped when no PTY is available (CI sandboxes), mirroring the other App-level
-//! suites.
 
 use super::*;
 
@@ -15,10 +13,10 @@ const ROWS: usize = 24;
 const CELL_W: u32 = 8;
 const CELL_H: u32 = 10;
 
-/// Build an `App` over a one-shot PTY with the given settings, feed `content`
-/// into its terminal, and inject the cell size so the gutter geometry can run
-/// without a GPU. Returns `None` when no PTY is available.
-fn build_app(settings: Settings, content: &[u8]) -> Option<App> {
+/// Build an `App` over a headless session with the given settings, feed
+/// `content` into its terminal, and inject the cell size so the gutter geometry
+/// can run without a GPU.
+fn build_app(settings: Settings, content: &[u8]) -> App {
     let dims = Dimensions::new(COLS, ROWS);
     let (mut app, terminal) = headless_app_with(NativeOptions::default(), dims, settings);
     {
@@ -26,7 +24,7 @@ fn build_app(settings: Settings, content: &[u8]) -> Option<App> {
         t.advance(content);
     }
     app.set_test_cell_for_test(cell(CELL_W, CELL_H));
-    Some(app)
+    app
 }
 
 /// Output with two prompt marks: a prompt on the oldest physical row (row 0),
@@ -45,13 +43,12 @@ fn two_prompts_with_scrollback() -> Vec<u8> {
 
 #[test]
 fn prompt_prev_from_live_tail_scrolls_to_the_earlier_prompt() {
-    let Some(mut app) = build_app(Settings::default(), &two_prompts_with_scrollback()) else {
-        return; // no PTY in this environment
-    };
+    let mut app = build_app(Settings::default(), &two_prompts_with_scrollback());
     // Enough output was fed to create scrollback with a prompt at row 0.
-    if app.scrollback_len_for_test() == 0 {
-        return;
-    }
+    assert!(
+        app.scrollback_len_for_test() > 0,
+        "the fixture creates scrollback"
+    );
     assert_eq!(app.viewport_offset_for_test(), 0, "starts at the live tail");
 
     // Prev finds the prompt above the viewport top and scrolls up to it.
@@ -86,12 +83,11 @@ fn single_prompt_in_scrollback() -> Vec<u8> {
 
 #[test]
 fn prompt_next_with_no_prompt_below_falls_through() {
-    let Some(mut app) = build_app(Settings::default(), &single_prompt_in_scrollback()) else {
-        return;
-    };
-    if app.scrollback_len_for_test() == 0 {
-        return;
-    }
+    let mut app = build_app(Settings::default(), &single_prompt_in_scrollback());
+    assert!(
+        app.scrollback_len_for_test() > 0,
+        "the fixture creates scrollback"
+    );
     // The only prompt sits above the live-tail viewport top, so a forward jump
     // clamps (no wrap) and falls through to the PTY.
     assert!(
@@ -111,9 +107,7 @@ fn prompt_next_with_no_prompt_below_falls_through() {
 fn prompt_jump_no_marks_is_inert() {
     // No OSC 133 marks at all: both directions fall through, byte-identical to
     // an unbound chord.
-    let Some(mut app) = build_app(Settings::default(), &b"plain output\r\n".repeat(40)) else {
-        return;
-    };
+    let mut app = build_app(Settings::default(), &b"plain output\r\n".repeat(40));
     assert!(!app.jump_prompt_prev());
     assert!(!app.jump_prompt_next());
 }
@@ -130,9 +124,7 @@ fn finished_command_with_output() -> &'static [u8] {
 
 #[test]
 fn verified_command_actions_select_copy_and_project_visible_text() {
-    let Some(mut app) = build_app(Settings::default(), finished_command_with_output()) else {
-        return;
-    };
+    let mut app = build_app(Settings::default(), finished_command_with_output());
 
     assert_eq!(
         app.command_output_text_for_export_for_test().as_deref(),
@@ -154,9 +146,7 @@ fn verified_command_actions_select_copy_and_project_visible_text() {
 #[test]
 fn command_export_projection_drops_terminal_metadata() {
     let stream = b"\x1b]133;A\x07$ demo\r\n\x1b]133;C\x07\x1b]7;file:///private/path\x07\x1b]8;;https://example.invalid/secret\x07LINK\x1b]8;;\x07\r\n\x1b]133;D;0\x07";
-    let Some(app) = build_app(Settings::default(), stream) else {
-        return;
-    };
+    let app = build_app(Settings::default(), stream);
     assert_eq!(
         app.command_output_text_for_export_for_test().as_deref(),
         Some("LINK")
@@ -166,9 +156,7 @@ fn command_export_projection_drops_terminal_metadata() {
 #[test]
 fn partial_or_stale_command_authority_fails_closed() {
     let partial = b"\x1b]133;A\x07$ demo\r\n\x1b]133;C\x07output";
-    let Some(mut partial_app) = build_app(Settings::default(), partial) else {
-        return;
-    };
+    let mut partial_app = build_app(Settings::default(), partial);
     partial_app.select_command_output_for_test(false);
     assert!(
         partial_app
@@ -176,9 +164,7 @@ fn partial_or_stale_command_authority_fails_closed() {
             .is_some_and(|message| message.contains("complete current OSC 133 range"))
     );
 
-    let Some(mut app) = build_app(Settings::default(), finished_command_with_output()) else {
-        return;
-    };
+    let mut app = build_app(Settings::default(), finished_command_with_output());
     let handle = app.command_handle_for_test().expect("verified handle");
     app.advance_primary_terminal_for_test(b"changed");
     app.select_command_handle_for_test(handle);
@@ -191,9 +177,7 @@ fn partial_or_stale_command_authority_fails_closed() {
 #[test]
 fn command_scoped_search_excludes_other_commands_and_invalidates_on_change() {
     let stream = b"\x1b]133;A\x07$ first\r\n\x1b]133;C\x07needle old\r\n\x1b]133;D;1\x07\x1b]133;A\x07$ second\r\n\x1b]133;C\x07needle new\r\n\x1b]133;D;0\x07";
-    let Some(mut app) = build_app(Settings::default(), stream) else {
-        return;
-    };
+    let mut app = build_app(Settings::default(), stream);
     app.search_command_output_for_test();
     app.drive_scoped_command_search_for_test("needle");
     assert_eq!(app.command_search_match_count_for_test(), 1);
@@ -211,9 +195,7 @@ fn gutter_off_emits_no_overlays_even_with_marks() {
         command_status_gutter: false,
         ..Settings::default()
     };
-    let Some(app) = build_app(off, finished_success_command()) else {
-        return;
-    };
+    let app = build_app(off, finished_success_command());
     let scrollback_len = app.scrollback_len_for_test();
     let input = app.gutter_frame_input_for_test();
     let overlays = app.command_status_gutter_overlays(
@@ -234,9 +216,7 @@ fn gutter_on_emits_a_bar_for_a_finished_command() {
         command_status_gutter: true,
         ..Settings::default()
     };
-    let Some(app) = build_app(on, finished_success_command()) else {
-        return;
-    };
+    let app = build_app(on, finished_success_command());
     let scrollback_len = app.scrollback_len_for_test();
     let input = app.gutter_frame_input_for_test();
     let overlays = app.command_status_gutter_overlays(
@@ -271,9 +251,7 @@ fn command_scoped_search_finds_matches_after_the_global_match_budget() {
         stream.extend_from_slice(b"\r\n");
     }
     stream.extend_from_slice(b"\x1b]133;A\x07$ run\r\n\x1b]133;C\x07late q\r\n\x1b]133;D;0\x07");
-    let Some(mut app) = build_app(Settings::default(), &stream) else {
-        return;
-    };
+    let mut app = build_app(Settings::default(), &stream);
     app.search_command_output_for_test();
     app.drive_scoped_command_search_for_test("q");
     assert_eq!(app.command_search_match_count_for_test(), 1);

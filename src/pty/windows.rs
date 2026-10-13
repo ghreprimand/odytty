@@ -784,7 +784,8 @@ impl PtySession {
     /// pane would otherwise stay blank. The child-waiter thread detects that
     /// abnormal-and-immediate exit, records a human-readable line into this slot
     /// and then closes the pseudoconsole, which makes the pump's output reader
-    /// observe EOF (the line is echoed to stderr afterwards). The pump takes the line from here on
+    /// observe EOF; a best-effort stderr copy follows on its own thread and is
+    /// not awaited. The pump takes the line from here on
     /// that EOF and writes it into the pane exactly once, replacing the old
     /// synchronous 250 ms spawn-path wait with a zero-cost path that surfaces the
     /// reason through the normal `ShellExited` teardown instead of blocking
@@ -1001,8 +1002,9 @@ fn should_report_startup_failure(code: u32, elapsed: Duration, teardown_requeste
 ///      the pump's blocked output reader observe EOF; the app then tears the
 ///      session down through its single existing `ShellExited` path, and the
 ///      pump writes the recorded diagnostic into the pane on that EOF; then
-///   3. echoes the line to stderr on a separate thread, so a blocked stderr
-///      cannot hold up this waiter (see `exit_report`).
+///   3. echoes the line to stderr on a separate, unjoined thread, so a
+///      blocked stderr cannot hold up this waiter (see `exit_report`). That
+///      copy is best-effort: a process that exits at once may not write it.
 ///
 /// A held child ([`crate::pty::spawn_held`]) is waited on together with its
 /// fallback event first: the waiter parks until the child exits (a kill) or

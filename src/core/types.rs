@@ -645,7 +645,9 @@ impl std::fmt::Debug for Cell {
     }
 }
 impl Cell {
-    /// A single-width cell carrying `ch` with `attrs` and no combining marks.
+    /// An owner cell carrying `ch` with `attrs`, no combining marks, and no
+    /// protection or padding flags. It also serves as the lead of a wide
+    /// glyph: the grid supplies the footprint by writing a spacer after it.
     pub fn new(ch: char, attrs: Attrs) -> Self {
         Self {
             ch,
@@ -665,8 +667,8 @@ impl Cell {
         }
     }
 
-    /// A mark-free cell built from all four of its non-combining fields in a
-    /// single initializer.
+    /// A mark-free cell built from its scalar, attributes and protection and
+    /// continuation flags in a single initializer; `layout_padding` is false.
     ///
     /// Exists for the scrollback ring's hydration path, which rebuilds a `Cell`
     /// per stored cell on every projection. The struct-update forms above go

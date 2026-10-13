@@ -43,10 +43,9 @@ fn lock_recover_yields_usable_guard_after_poison() {
     assert_eq!(*crate::native::lock_recover(&m), 42);
 }
 
-/// Build an `App` over a one-shot PTY, returning the App plus a *clone* of the
-/// shared terminal handle so a test can poison the lock out-of-band. `None` when
-/// no PTY is available (CI sandboxes), so callers skip cleanly.
-fn app_with_terminal_handle(content: &[u8]) -> Option<(App, Arc<Mutex<Terminal>>)> {
+/// Build an `App` over a headless session, returning the App plus a *clone* of
+/// the shared terminal handle so a test can poison the lock out-of-band.
+fn app_with_terminal_handle(content: &[u8]) -> (App, Arc<Mutex<Terminal>>) {
     let dims = Dimensions::new(80, 24);
     let (app, terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());
     {
@@ -54,15 +53,12 @@ fn app_with_terminal_handle(content: &[u8]) -> Option<(App, Arc<Mutex<Terminal>>
         t.advance(content);
     }
     let handle = Arc::clone(&terminal);
-    Some((app, handle))
+    (app, handle)
 }
 
 #[test]
 fn current_selection_text_survives_poisoned_terminal_lock() {
-    let Some((mut app, handle)) = app_with_terminal_handle(b"hello world there") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, handle) = app_with_terminal_handle(b"hello world there");
     // Select the first word so `current_selection_text` actually reaches the
     // terminal lock (it early-returns None with no active selection range). A
     // double-click snaps to the word; drag-extend off finalizes it cleanly (the

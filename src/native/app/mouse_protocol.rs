@@ -295,34 +295,22 @@ impl App {
     }
 }
 
-/// Convert a physical cursor pixel position to 1-based terminal pixel
-/// coordinates for SGR-pixel (1016) mouse reporting, clamped to the grid's
-/// pixel extent.
-///
-/// `x_px`/`y_px` are the raw `winit` `CursorMoved` coordinates, which are
-/// already physical pixels; `CellSize` and `padding` are likewise
-/// physical-pixel sized. The result first subtracts the window padding to get
-/// grid-relative coordinates, then floors to an integer pixel and shifts to the
-/// 1-based convention the protocol uses. A cursor left of or above the grid
-/// clamps to pixel 1; a cursor at or past the right/bottom edge (e.g. while
-/// dragging outside the window) clamps to the last in-grid pixel, mirroring how
-/// [`selection::cell_at_physical_with_padding`] saturates the cell path.
-/// SH-CLICK (F2): resolve a plain click against the core-derived
+/// Resolve a plain click against the core-derived
 /// [`InputRegion`](crate::core::InputRegion) into a signed glyph delta —
 /// how many Left (negative) or Right (positive) presses move the shell's
 /// line-editor caret from the cursor to the clicked position. `None` means
 /// no travel: the click was off the region, on the prompt side of the input
 /// start, on an untrustworthy geometry, or on the cursor's own position.
 ///
-/// Certainty ladder (F2 §3):
+/// Certainty ladder:
 /// - `Unknown` (stale mark, or a hard-newline multi-logical-line buffer per
 ///   the signal's `nl=` offsets) → `None`. Left/Right DO cross hard newlines
 ///   in every editor, but the continuation-prompt geometry (PS2 / `>>` /
-///   fish indent) is unmodeled, so an exact count is not computable — v1
-///   no-ops rather than landing the caret on the wrong logical line.
-/// - `Exact` (fresh private edit-region signal) → rune-precise travel over
-///   the reconciled `row_spans` (wrap fillers excluded), including soft-wrap
-///   multi-row travel.
+///   fish indent) is unmodeled, so an exact count is not computable; the
+///   click no-ops rather than landing the caret on the wrong logical line.
+/// - `Exact` (fresh private edit-region signal) → travel counted in cell
+///   owners over the reconciled `row_spans` (wrap fillers excluded),
+///   including soft-wrap multi-row travel.
 /// - `RightEdgeUnknown` (bash / PowerShell / fish mid-edit) → grapheme-cell
 ///   heuristic over the region bounds, also multi-row across soft wraps.
 ///   Off-by-one is tolerable here because motion is NON-destructive and
@@ -330,13 +318,12 @@ impl App {
 ///   click-again, never a wrong edit (contrast select+Delete's charter).
 ///
 /// Click mapping within the region's rows: a click left of a row's input
-/// span start (the prompt) is a no-op (F2 G2 — the shipped code walked the
-/// caret to buffer position 0 there); a click at or right of the span end
+/// span start (the prompt) is a no-op; a click at or right of the span end
 /// clamps to the end of that row's input (a decoration/autosuggestion click
 /// moves the caret to the true input end, extra motion absorbed by the
-/// shell's own clamp). Glyph counting skips wide-glyph continuation cells,
-/// so one wide glyph is one press — the shipped raw-cell delta over-sent
-/// arrows on CJK/emoji lines (F2-NF1).
+/// shell's own clamp). The count covers retained cell owners and skips
+/// wide-glyph continuation and layout-padding cells, so one wide glyph is
+/// one press.
 ///
 /// `subcell_round_up` is the half-cell (nearest-boundary) target: when the
 /// click fell in the right half of its cell the caret targets the NEXT column
@@ -465,8 +452,8 @@ pub(super) fn click_travel_delta(
 /// MUST be identical to a real arrow keypress in every mode.
 ///
 /// Pure and total: returns the exact bytes the PTY writer receives. A
-/// zero delta cannot reach here ([`click_travel_delta`] returns `None` for a
-/// same-position click), so `unsigned_abs` never overflows.
+/// negative delta is converted with `unsigned_abs`, which is defined for every
+/// `i32`; [`click_travel_delta`] never returns a zero delta.
 pub(super) fn click_position_bytes(delta: i32, modes: KeyModes) -> Vec<u8> {
     let (key, count) = if delta < 0 {
         (Key::Left, delta.unsigned_abs() as usize)
@@ -477,6 +464,18 @@ pub(super) fn click_position_bytes(delta: i32, modes: KeyModes) -> Vec<u8> {
     arrow.repeat(count)
 }
 
+/// Convert a physical cursor pixel position to 1-based terminal pixel
+/// coordinates for SGR-pixel (1016) mouse reporting, clamped to the grid's
+/// pixel extent.
+///
+/// `x_px`/`y_px` are the raw `winit` `CursorMoved` coordinates, which are
+/// already physical pixels; `CellSize` and `padding` are likewise
+/// physical-pixel sized. The result first subtracts the window padding to get
+/// grid-relative coordinates, then floors to an integer pixel and shifts to the
+/// 1-based convention the protocol uses. A cursor left of or above the grid
+/// clamps to pixel 1; a cursor at or past the right/bottom edge (e.g. while
+/// dragging outside the window) clamps to the last in-grid pixel, mirroring how
+/// [`selection::cell_at_physical_with_padding`] saturates the cell path.
 pub(super) fn pixel_coords_for_report(
     x_px: f64,
     y_px: f64,

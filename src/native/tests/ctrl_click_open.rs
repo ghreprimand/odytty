@@ -7,7 +7,7 @@
 //! the shipped policy unit tests drive the predicate directly and so could pass
 //! while the real winit press route stayed broken.
 //!
-//! Headless (no GPU/window): the App runs over a one-shot PTY whose writer is a
+//! Headless (no GPU/window): the App runs over a headless session whose writer is a
 //! recording buffer, so the SGR mouse report the app WOULD receive is observable
 //! byte-for-byte - an empty buffer proves the press was intercepted and opened
 //! instead of reported. The open dispatch is proven WITHOUT launching a real
@@ -49,11 +49,11 @@ impl Write for RecordingWriter {
     }
 }
 
-/// Build an App over a one-shot PTY whose writer records everything the app
+/// Build an App over a headless session whose writer records everything the app
 /// would send to the child (so an SGR mouse report is observable), feed
 /// `content` into the terminal, and return the app plus the captured-bytes
 /// handle. `None` when no PTY is available.
-fn build_app(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
+fn build_app(content: &[u8]) -> (App, Arc<Mutex<Vec<u8>>>) {
     let dims = Dimensions::new(COLS, ROWS);
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
@@ -65,7 +65,7 @@ fn build_app(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
         t.advance(content);
     }
     app.set_test_cell_for_test(cell(CELL_W, CELL_H));
-    Some((app, bytes))
+    (app, bytes)
 }
 
 /// Turn interactive paths on, install a stat-gate that resolves
@@ -110,10 +110,7 @@ fn left_press_release(app: &mut App) {
 
 #[test]
 fn ctrl_click_over_path_under_mouse_reporting_opens_and_does_not_report() {
-    let Some((mut app, pty_bytes)) = build_app(PATH_LINE) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, pty_bytes) = build_app(PATH_LINE);
     arm_path_open(&mut app);
     app.enable_mouse_reporting_for_test(); // DECSET 1000: a TUI now owns clicks
     hover_on_path(&mut app);
@@ -141,10 +138,7 @@ fn ctrl_click_over_path_under_mouse_reporting_opens_and_does_not_report() {
 
 #[test]
 fn ctrl_click_off_a_span_under_mouse_reporting_still_reports_to_the_app() {
-    let Some((mut app, pty_bytes)) = build_app(PATH_LINE) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, pty_bytes) = build_app(PATH_LINE);
     arm_path_open(&mut app);
     app.enable_mouse_reporting_for_test();
     hover_off_span(&mut app);
@@ -172,10 +166,7 @@ fn ctrl_click_off_a_span_under_mouse_reporting_still_reports_to_the_app() {
 
 #[test]
 fn plain_click_over_path_under_mouse_reporting_reports_as_before() {
-    let Some((mut app, pty_bytes)) = build_app(PATH_LINE) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, pty_bytes) = build_app(PATH_LINE);
     arm_path_open(&mut app);
     app.enable_mouse_reporting_for_test();
     hover_on_path(&mut app);

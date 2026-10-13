@@ -75,8 +75,8 @@ pub mod theme_author;
 /// NOT presence: rasterization drops zero-coverage samples before stem
 /// darkening is applied and returns the `0`/`255` endpoints exactly, so
 /// `ink > 0` scans and the ink-box geometry derived from them are invariant
-/// under the gain, and a test that supplies its own explicit colors never
-/// reaches the palette or the floor.
+/// under the gain. A test that supplies its own explicit colors bypasses the
+/// palette, but its foregrounds still pass through the contrast floor.
 ///
 /// The snapshot covers every process-global value the settings-reload seam can
 /// republish, audited from that seam outward rather than from the list of

@@ -99,7 +99,7 @@ fn cursor_moves_below_image_after_sixel() {
 }
 
 #[test]
-fn cursor_below_multi_row_image() {
+fn cursor_below_wide_one_row_image() {
     let mut t = Terminal::new(80, 24);
     // 32×12: 4 columns × 1 row
     t.advance(&solid_32x12_red());
@@ -108,7 +108,7 @@ fn cursor_below_multi_row_image() {
 }
 
 #[test]
-fn cursor_below_large_image_clamps_to_last_row() {
+fn cursor_below_two_row_image_lands_on_row_two() {
     let mut t = Terminal::new(80, 5);
     // 5 bands = 30px = ceil(30/16) = 2 display rows.
     let tall = sixel_dcs("0;0", "#0;2;100;0;0!8~-!8~-!8~-!8~-!8~");

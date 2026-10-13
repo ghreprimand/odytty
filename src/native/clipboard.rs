@@ -18,7 +18,7 @@ use arboard::{GetExtLinux, LinuxClipboardKind};
 
 use crate::core::{ClipboardSelection, Terminal};
 
-use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
+use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks};
 
 const BRACKETED_PASTE_START: &[u8] = b"\x1b[200~";
 const BRACKETED_PASTE_END: &[u8] = b"\x1b[201~";
@@ -240,8 +240,8 @@ impl ClipboardSelectionIo for NativeClipboard {
 
     // Platforms without an X11/Wayland-style PRIMARY selection (macOS, Android,
     // emscripten, non-unix) have no primary selection to read or write. These
-    // are no-ops so selection-driven copy/paste silently falls back to the
-    // regular clipboard path.
+    // are no-ops (a read returns `None`); these helpers do not fall back to the
+    // regular clipboard, so each caller decides its own fallback.
     #[cfg(not(all(
         unix,
         not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
@@ -272,12 +272,12 @@ impl NativeClipboard {
         self.write_clipboard_text(text)
     }
 
-    /// Read a clipboard image, PNG-encoded (F6-i7 / F6-NF5). Returns `None` when
+    /// Read a clipboard image, PNG-encoded. Returns `None` when
     /// the clipboard holds no image, the platform has no image support, or
     /// encoding fails — the paste path then falls through to text. The bytes are
-    /// re-encoded to PNG (lossless, deterministic, universally handled) from the
-    /// backend's RGBA image so the transfer format is fixed regardless of the
-    /// source. As with the text paths, unit tests never reach the real clipboard
+    /// re-encoded to PNG (lossless and universally handled) from the backend's
+    /// RGBA image so the transfer format is fixed regardless of the source. As
+    /// with the text paths, unit tests never reach the real clipboard
     /// (off-main-thread NSPasteboard crash + clobbering the developer's live
     /// clipboard); they inject bytes through `injected_clipboard_image`.
     pub(super) fn read_image_png(&mut self) -> Option<ClipboardImagePng> {
@@ -483,7 +483,8 @@ pub(super) fn read_clipboard_selection(
 /// framing can never tear (see [`encode_paste_chunks`]). The ceiling equals the
 /// attach protocol's client input limit, so the one policy holds for local and
 /// attached sessions alike: a paste the UI accepts always fits one attached
-/// input frame, and the host queue delivers that newest frame whole. A paste
+/// input frame, which travels whole (later delivery can still fail or drop
+/// the frame like any other input write). A paste
 /// over the cap is refused whole, since delivering a truncated body would
 /// silently corrupt the pasted content.
 pub(in crate::native) const MAX_BRACKETED_PASTE_BYTES: usize =
@@ -533,7 +534,7 @@ pub(super) fn write_paste_text(
     }
     if bracketed_paste {
         let chunks = encode_paste_chunks(text, true, PASTE_CHUNK_SIZE);
-        return write_chunks_blocking(writer, &chunks).map_err(PasteError::Write);
+        return write_chunks(writer, &chunks).map_err(PasteError::Write);
     }
     // Plain paste streams: one normalized chunk is built and written at a
     // time, so a long clipboard text is never copied whole (normalized) and

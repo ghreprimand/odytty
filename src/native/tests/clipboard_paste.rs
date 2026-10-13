@@ -479,11 +479,11 @@ fn bracketed_paste_chunks_strip_embedded_end_marker_only_from_payload() {
 }
 
 #[test]
-fn write_chunks_blocking_writes_all_chunks_and_flushes_once() {
+fn write_chunks_writes_all_chunks_and_flushes_once() {
     let (writer, bytes, flushes) = recording_writer();
     let chunks = vec![b"one".to_vec(), b"two".to_vec(), b"three".to_vec()];
 
-    write_chunks_blocking(&writer, &chunks).expect("chunk write");
+    write_chunks(&writer, &chunks).expect("chunk write");
 
     assert_eq!(&*bytes.lock().expect("bytes"), b"onetwothree");
     assert_eq!(*flushes.lock().expect("flushes"), 1);

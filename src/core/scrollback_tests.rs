@@ -1271,7 +1271,7 @@ fn stage_b_cell_shrink_projection() {
     let old_cell = std::mem::size_of::<Cell>();
     let slot = std::mem::size_of::<crate::core::scrollback::LogicalLine>();
     println!("Cell {old_cell}; rejected A {cell_a}; stored (B, live) {stored}; slot {slot}");
-    println!("shape depth ring_measured cell_bytes slot_bytes ring_if_A pct_A_vs_44");
+    println!("shape depth ring_measured cell_bytes slot_bytes ring_if_A pct_A_vs_full_cell");
     for wrapped in [false, true] {
         for depth in [1_000usize, 10_000, 100_000] {
             let mut term = Terminal::new(80, 24);
@@ -1293,13 +1293,15 @@ fn stage_b_cell_shrink_projection() {
             let slot_bytes = slots * slot;
             let ring = bytes.ring as usize;
             // What the ring would be under A, derived from the ring as it is
-            // now: add back the bytes B saved, then take A's smaller saving.
-            let ring_at_44 = ring + cells * (old_cell - stored);
-            let ring_a = ring_at_44 - cells * (old_cell - cell_a);
+            // now: add back the bytes B saved (full `Cell` size), then take
+            // A's smaller saving. The percentage is A's saving against that
+            // full-cell ring.
+            let ring_full_cell = ring + cells * (old_cell - stored);
+            let ring_a = ring_full_cell - cells * (old_cell - cell_a);
             println!(
                 "{} {depth} {ring} {cell_bytes} {slot_bytes} {ring_a} {:.1}",
                 if wrapped { "wrapped" } else { "hard" },
-                100.0 * (ring_at_44 - ring_a) as f64 / ring_at_44 as f64,
+                100.0 * (ring_full_cell - ring_a) as f64 / ring_full_cell as f64,
             );
         }
     }
@@ -1308,8 +1310,8 @@ fn stage_b_cell_shrink_projection() {
 /// Measurement, not an assertion: fill cost for the soft-wrapped merge path.
 ///
 /// Reclaiming capacity is a reallocate-and-copy, so the saving has to be
-/// weighed against what it costs to push. This times the fill alone (no
-/// projection read) so the number is the merge path and nothing else. Run with
+/// weighed against what it costs to push. This times the fill plus one
+/// scrollback-length read and the byte report, with no viewport read. Run with
 /// `cargo test -- --ignored --nocapture scrollback_fill_cost`.
 #[test]
 #[ignore = "measurement harness"]

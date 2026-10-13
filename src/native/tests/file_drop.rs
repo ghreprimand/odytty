@@ -17,8 +17,22 @@ fn powershell_drive_unc_quotes_and_unicode_are_literal() {
         assert!(!quoted.contains(['\r', '\n']));
     }
     assert_eq!(quote_powershell("a‘b’c").unwrap(), "'a‘‘b’’c'");
-    for path in ["a\nb", "a\rb", "a\u{1b}b", "a\0b"] {
-        assert_eq!(quote_powershell(path), Err(DropError::UnsupportedPath));
+    for path in [
+        "a\nb",
+        "a\rb",
+        "a\u{1b}b",
+        "a\0b",
+        "a\u{7f}b",
+        "a\u{85}b",
+        "a\u{9b}b",
+        "a\u{2028}b",
+        "a\u{2029}b",
+    ] {
+        assert_eq!(
+            quote_powershell(path),
+            Err(DropError::UnsupportedPath),
+            "{path:?}"
+        );
     }
 }
 
@@ -69,10 +83,15 @@ fn unix_controls_and_invalid_utf8_use_byte_escapes() {
         &b"/tmp/a\nb"[..],
         &b"/tmp/\xff\x1b'b"[..],
         &b"/tmp/a\rb"[..],
+        // DEL, and the C1 controls NEL and CSI encoded as valid UTF-8.
+        &b"/tmp/a\x7fb"[..],
+        "/tmp/a\u{85}b".as_bytes(),
+        "/tmp/a\u{9b}b".as_bytes(),
+        "/tmp/a\u{2029}b".as_bytes(),
     ] {
         for shell in [ShellKind::Bash, ShellKind::Zsh, ShellKind::Fish] {
             let text = quote_unix(source, shell).unwrap();
-            assert!(text.is_ascii());
+            assert!(text.is_ascii(), "{source:?} {shell:?}: {text:?}");
             assert!(!text.chars().any(char::is_control));
         }
     }
@@ -918,4 +937,15 @@ fn powershell_parser_roundtrips_drive_unc_device_and_quote_codepoints() {
             quote_powershell(path).unwrap()
         );
     }
+}
+
+/// The refusal names both limits it covers: the collected batch and the
+/// quoted insertion, which byte escapes can expand past the raw path bytes.
+#[test]
+fn too_large_refusal_names_the_batch_and_quoted_limits() {
+    assert_eq!(
+        DropError::TooLarge.to_string(),
+        "Drop fewer files (at most 128 files and 256 KiB of paths, \
+         and at most 1024 KiB once quoted for the shell)."
+    );
 }

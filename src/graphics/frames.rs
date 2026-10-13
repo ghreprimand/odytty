@@ -89,10 +89,10 @@ pub struct ImageFrames {
     /// Zero-based index of the frame currently displayed.
     current: usize,
     state: AnimationState,
-    /// Maximum completed wraps, or `None` for "loop forever". Kitty encodes
-    /// `v=1` as infinite and `v=n` as a limit of `n - 1` completed loops.
+    /// Total passes through the frame list, or `None` for "loop forever".
+    /// Kitty encodes `v=1` as infinite and `v=n` as `n - 1` total passes.
     max_loops: Option<u32>,
-    /// Wraps completed since the most recent playback-state change.
+    /// Pass ends reached since the most recent playback-state change.
     current_loop: u32,
     /// Clock reading at which the current frame started being displayed.
     frame_started_ms: Option<u64>,
@@ -465,7 +465,8 @@ impl ImageFrames {
     }
 
     /// Apply a loop count (`a=a` with `v=`). `v=0` is ignored, `v=1` is
-    /// infinite, and `v=n` plays `n - 1` further loops.
+    /// infinite, and `v=n` plays `n - 1` passes in total (`v=2` stops at the
+    /// end of the first pass).
     pub fn set_loops(&mut self, loops: u32) {
         match loops {
             0 => {}

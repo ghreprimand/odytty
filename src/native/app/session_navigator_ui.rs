@@ -12,8 +12,9 @@ use crate::native::session_navigator::{
 
 impl App {
     /// Snapshot the existing workspace arena and, on Unix, the existing
-    /// detached-session registry.  Opening performs no attach, restore, or
-    /// terminal read beyond bounded directory metadata.
+    /// detached-session registry. Opening performs no attach or restore; it
+    /// reads live pane metadata (such as each local pane's working directory)
+    /// and, when previews are on, bounded preview text.
     pub(super) fn open_session_navigator_overlay(&mut self) {
         self.open_session_navigator_overlay_selected(None);
     }

@@ -3,22 +3,21 @@
 //! extend, and - crucially, because the feature ships DEFAULT ON - the inverted
 //! parity proof that `selection_drag_extend = false` reproduces the historical
 //! click-to-finish behavior byte-identically. These drive a real `App` over a
-//! one-shot PTY (skipped when none is available, as in CI sandboxes), exercising
+//! headless session that owns no PTY child, exercising
 //! the production selection handlers directly (no GPU/pixel path needed).
 
 use super::*;
 
-/// Build an `App` over a one-shot PTY and feed `content` into its terminal so a
-/// selection has real words/lines to snap to. Returns the App plus the shared
-/// terminal handle, or `None` when no PTY is available (callers then skip).
-fn app_with_content(content: &[u8]) -> Option<App> {
+/// Build an `App` over a headless session and feed `content` into its
+/// terminal so a selection has real words/lines to snap to.
+fn app_with_content(content: &[u8]) -> App {
     let dims = Dimensions::new(80, 24);
     let (app, terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());
     {
         let mut t = terminal.lock().expect("terminal");
         t.advance(content);
     }
-    Some(app)
+    app
 }
 
 /// Register a click at the cached pointer cell `count` times (the
@@ -37,10 +36,7 @@ fn multiclick(app: &mut App, row: usize, column: usize, count: usize) {
 
 #[test]
 fn off_branch_double_click_finalizes_byte_identically() {
-    let Some(mut app) = app_with_content(b"hello world there") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = app_with_content(b"hello world there");
     app.set_selection_drag_extend_for_test(false);
 
     multiclick(&mut app, 0, 2, 2);
@@ -64,10 +60,7 @@ fn off_branch_double_click_finalizes_byte_identically() {
 
 #[test]
 fn off_branch_triple_click_finalizes_line() {
-    let Some(mut app) = app_with_content(b"hello world there") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = app_with_content(b"hello world there");
     app.set_selection_drag_extend_for_test(false);
 
     multiclick(&mut app, 0, 2, 3);
@@ -85,10 +78,7 @@ fn off_branch_triple_click_finalizes_line() {
 
 #[test]
 fn on_double_click_drag_extends_by_words() {
-    let Some(mut app) = app_with_content(b"hello world there") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = app_with_content(b"hello world there");
     // Default-on; double-click keeps the word drag live.
     multiclick(&mut app, 0, 2, 2);
     assert!(
@@ -112,10 +102,7 @@ fn on_double_click_drag_extends_by_words() {
 
 #[test]
 fn on_plain_double_click_does_not_arm_primary_write() {
-    let Some(mut app) = app_with_content(b"hello world there") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = app_with_content(b"hello world there");
     multiclick(&mut app, 0, 2, 2);
 
     // The drag is live, but a plain double-click that never dragged stays
@@ -130,10 +117,7 @@ fn on_plain_double_click_does_not_arm_primary_write() {
 
 #[test]
 fn on_triple_click_drag_extends_by_lines() {
-    let Some(mut app) = app_with_content(b"alpha beta\r\ngamma delta") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = app_with_content(b"alpha beta\r\ngamma delta");
     multiclick(&mut app, 0, 2, 3);
     assert!(app.selecting_for_test());
     assert_eq!(app.selection_text_for_test().as_deref(), Some("alpha beta"));
@@ -149,10 +133,7 @@ fn on_triple_click_drag_extends_by_lines() {
 
 #[test]
 fn on_shift_click_extends_existing_selection() {
-    let Some(mut app) = app_with_content(b"hello world there") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = app_with_content(b"hello world there");
     // Establish a selection by double-clicking "hello" and finalizing it.
     multiclick(&mut app, 0, 2, 2);
     app.finish_selection_for_test();
@@ -177,10 +158,7 @@ fn on_shift_click_extends_existing_selection() {
 
 #[test]
 fn off_branch_shift_click_starts_new_selection() {
-    let Some(mut app) = app_with_content(b"hello world there") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = app_with_content(b"hello world there");
     app.set_selection_drag_extend_for_test(false);
 
     // Establish a word selection.

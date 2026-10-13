@@ -2,8 +2,8 @@
 //! CLOSE-CONFIRM native-wiring integration: the confirmation dialog routes
 //! through the real overlay-key path so a confirm sets the App's `pending_exit`
 //! flag (which `window_event` turns into an actual exit), while a dismiss leaves
-//! it clear. These drive a real `App` over a one-shot PTY (skipped when none is
-//! available); no GPU is needed - the dialog state and exit flag are observable
+//! it clear. These drive a real `App` over a headless session that owns no
+//! PTY child; no GPU is needed - the dialog state and exit flag are observable
 //! without a surface.
 
 use super::*;
@@ -12,11 +12,11 @@ use winit::keyboard::Key as WinitKey;
 const COLS: usize = 60;
 const ROWS: usize = 12;
 
-/// Build an `App` over a one-shot PTY. Returns `None` when no PTY is available.
-fn build_app() -> Option<App> {
+/// Build an `App` over a headless session.
+fn build_app() -> App {
     let dims = Dimensions::new(COLS, ROWS);
     let (app, _terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());
-    Some(app)
+    app
 }
 
 #[test]
@@ -28,10 +28,7 @@ fn confirm_default_is_on() {
 
 #[test]
 fn enter_confirms_and_flags_pending_exit() {
-    let Some(mut app) = build_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app();
     assert!(!app.pending_exit_for_test());
 
     app.open_confirm_close_for_test();
@@ -55,10 +52,7 @@ fn enter_confirms_and_flags_pending_exit() {
 
 #[test]
 fn escape_dismisses_without_pending_exit() {
-    let Some(mut app) = build_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app();
     app.open_confirm_close_for_test();
     assert!(app.confirm_close_open_for_test());
 

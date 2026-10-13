@@ -44,7 +44,7 @@ impl SettingsPanel {
             SettingKind::Path => {
                 let original = entry.value.clone();
                 let start_dir = resolve_start_dir(&original);
-                // T-two-substates: clear editing before opening the picker.
+                // Editing and the path picker are exclusive: clear editing first.
                 self.editing = None;
                 self.path_picker = Some(PathPickerState::new(entry.key, start_dir, original));
                 SettingsPanelOutcome::Consumed

@@ -25,7 +25,7 @@ use super::viewport::wheel_lines;
 /// deliberate two-key sequence, short enough that a stray prefix clears fast.
 pub(super) const PREFIX_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Outcome of feeding a keychord to the multiplexer prefix engine (§7).
+/// Outcome of feeding a keychord to the multiplexer prefix engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PrefixOutcome {
     /// No prefix configured, or not pending and this chord is not the prefix -
@@ -44,18 +44,19 @@ pub(super) enum PrefixOutcome {
     /// A prefix-table pane action resolved while pending. The caller dispatches
     /// it and the engine returns to normal.
     Action(BindableAction),
-    /// Prefix was pending but this chord matched nothing in the table (or the
-    /// pending state had already timed out) - the caller swallows the chord,
+    /// Prefix was pending but this chord matched nothing in the table - the
+    /// caller swallows the chord,
     /// fires no action, and returns to normal (tmux swallows unknown prefix
     /// keys).
     Cancelled,
 }
 
-/// The multiplexer prefix-sequence engine (§7, K1). Holds the configurable
-/// prefix chord, the pane-action table resolved while pending, and the transient
-/// pending state. Additive by construction: when `prefix` is `None` or the
-/// engine is not pending, [`Self::on_chord`] returns [`PrefixOutcome::Inactive`]
-/// for every chord, so the existing input path is byte-identical.
+/// The multiplexer prefix-sequence engine. Holds the configurable prefix
+/// chord, the pane-action table resolved while pending, and the transient
+/// pending state. With no configured prefix every chord is
+/// [`PrefixOutcome::Inactive`]; an idle configured engine captures its prefix
+/// ([`PrefixOutcome::Entered`]) and passes every other chord as `Inactive`. A
+/// timed-out prefix reprocesses the next chord as fresh input.
 #[derive(Debug, Clone)]
 pub(super) struct PrefixEngine {
     /// The configured prefix chord; `None` disables the whole feature.
@@ -558,8 +559,9 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             BindableAction::JumpPromptNext,
         ),
         // Discoverability defaults (v0.3.1): each of these overlays previously
-        // had no default chord. They are all `Ctrl+Shift+<letter>`, which a TUI
-        // cannot receive as input, so no PTY input path is perturbed.
+        // had no default chord. They are all `Ctrl+Shift+<letter>` GUI
+        // shortcuts, which consume their chords before PTY encoding (a TUI
+        // using an enhanced keyboard protocol would otherwise see them).
         (
             char_chord('p', true, true, false, false),
             BindableAction::CommandPalette,
@@ -710,7 +712,7 @@ fn named_chord(
 }
 
 // Visibility widened to `pub(in crate::native)` so the chord-capture
-// bypass in `app/mod.rs::handle_overlay_key` can build a raw `KeyChord` from a
+// bypass in `app/keyboard.rs::handle_overlay_key` can build a raw `KeyChord` from a
 // live keypress without the lossy `overlay_input_from_winit` mapper. Stays
 // internal to the native module - no new public crate API surface.
 pub(in crate::native) fn chord_from_winit(
@@ -1572,8 +1574,8 @@ mod tests {
     #[test]
     fn discoverability_chords_resolve_to_their_overlays() {
         // v0.3.1: the four previously-unbound overlays gained default
-        // `Ctrl+Shift+<letter>` chords (a TUI cannot receive these, so no PTY
-        // input path is perturbed).
+        // `Ctrl+Shift+<letter>` chords, which these GUI shortcuts consume
+        // before PTY encoding.
         let bindings = KeyBindings::default();
         assert_eq!(
             bindings.action_for_chord(char_chord('p', true, true, false, false)),

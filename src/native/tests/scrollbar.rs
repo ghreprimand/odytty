@@ -7,8 +7,7 @@
 //!
 //! Headless (no GPU/window): the cell size the hit-test needs is injected via a
 //! test seam, and the press is driven through the real `handle_mouse_input`
-//! routing so the precedence is pinned, not reimplemented. Skipped when no PTY
-//! is available (CI sandboxes).
+//! routing so the precedence is pinned, not reimplemented.
 
 use super::*;
 
@@ -17,10 +16,10 @@ const ROWS: usize = 24;
 const CELL_W: u32 = 8;
 const CELL_H: u32 = 10;
 
-/// Build an `App` over a one-shot PTY, feed `content` into its terminal, and
-/// inject the cell size so the pointer hit-test can run without a GPU. Mirrors
-/// the `selection_extend` harness. Returns `None` when no PTY is available.
-fn build_app(content: &[u8]) -> Option<App> {
+/// Build an `App` over a headless session, feed `content` into its terminal,
+/// and inject the cell size so the pointer hit-test can run without a GPU.
+/// Mirrors the `selection_extend` harness.
+fn build_app(content: &[u8]) -> App {
     let dims = Dimensions::new(COLS, ROWS);
     let (mut app, terminal) =
         headless_app_with(NativeOptions::default(), dims, Settings::default());
@@ -29,20 +28,22 @@ fn build_app(content: &[u8]) -> Option<App> {
         t.advance(content);
     }
     app.set_test_cell_for_test(cell(CELL_W, CELL_H));
-    Some(app)
+    app
 }
 
 /// Build an app with enough output to create scrollback, then scroll up to the
 /// oldest row so the thumb is visible at the track top. Returns the app plus the
-/// rendered thumb quad (computed from the same geometry the press hit-tests),
-/// or `None` when no PTY / no scrollback materialized.
-fn app_scrolled_back() -> Option<(App, SolidQuad)> {
-    let mut app = build_app(&b"scrollback line\r\n".repeat(80))?;
+/// rendered thumb quad (computed from the same geometry the press hit-tests).
+/// Eighty lines into a headless terminal always create scrollback, so an empty
+/// history is a failure, not a skip.
+fn app_scrolled_back() -> (App, SolidQuad) {
+    let mut app = build_app(&b"scrollback line\r\n".repeat(80));
     app.scroll_up_for_test(usize::MAX); // clamps to the oldest row
     let len = app.scrollback_len_for_test();
-    if len == 0 {
-        return None;
-    }
+    assert!(
+        len > 0,
+        "80 lines on a {ROWS}-row grid must create scrollback"
+    );
     let offset = app.viewport_offset_for_test();
     let thumb = scroll_indicator_quad(
         offset,
@@ -52,15 +53,12 @@ fn app_scrolled_back() -> Option<(App, SolidQuad)> {
         [1.0, 1.0, 1.0, 0.62],
     )
     .expect("thumb visible while scrolled back");
-    Some((app, thumb))
+    (app, thumb)
 }
 
 #[test]
 fn press_on_thumb_grabs_and_beats_mouse_reporting() {
-    let Some((mut app, thumb)) = app_scrolled_back() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, thumb) = app_scrolled_back();
     // A mouse-reporting app is active...
     app.enable_mouse_reporting_for_test();
     assert!(app.would_report_mouse_to_pty_for_test());
@@ -83,10 +81,7 @@ fn press_on_thumb_grabs_and_beats_mouse_reporting() {
 
 #[test]
 fn press_off_thumb_still_reports_in_a_mouse_reporting_app() {
-    let Some((mut app, thumb)) = app_scrolled_back() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, thumb) = app_scrolled_back();
     app.enable_mouse_reporting_for_test();
 
     // A press well left of the thumb's grab band (the text area) is not a thumb
@@ -103,10 +98,7 @@ fn off_switch_does_not_grab_even_on_the_visible_thumb() {
     // Inverted-gate parity: with `scrollbar_drag = false`, a press on the
     // visible thumb does NOT grab - it falls through to a local selection,
     // byte-identical to before the feature existed.
-    let Some((mut app, thumb)) = app_scrolled_back() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, thumb) = app_scrolled_back();
     app.set_scrollbar_drag_for_test(false);
     let cx = ((thumb.rect[0] + thumb.rect[2]) / 2.0) as f64;
     let cy = ((thumb.rect[1] + thumb.rect[3]) / 2.0) as f64;
@@ -124,10 +116,7 @@ fn press_at_live_tail_never_grabs() {
     // Default offset (live tail): the thumb is hidden, so a right-edge press
     // does not grab - keeping the plain press path byte-identical. With no thumb
     // to grab, the press starts a local selection (the historical behavior).
-    let Some(mut app) = build_app(b"") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"");
     assert_eq!(app.viewport_offset_for_test(), 0, "starts at the live tail");
     // Press at the far right edge, where the thumb would be if it were visible.
     app.set_pointer_px_for_test((COLS as u32 * CELL_W) as f64 - 1.0, 5.0);
@@ -161,10 +150,10 @@ fn a_motionless_thumb_drag_under_a_shown_tab_bar_keeps_the_offset() {
         WindowPadding::ZERO,
     );
     let len = app.scrollback_len_for_test();
-    if len == 0 {
-        eprintln!("skipping: no scrollback materialized");
-        return;
-    }
+    assert!(
+        len > 0,
+        "120 lines on a {ROWS}-row grid must create scrollback"
+    );
     app.scroll_up_for_test(len / 2);
     let offset = app.viewport_offset_for_test();
     assert!(offset > 0 && offset < len, "the thumb sits mid-track");

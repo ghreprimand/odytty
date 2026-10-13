@@ -141,7 +141,7 @@ pub enum PaletteSelection {
     },
 }
 
-/// Ranked row exposed to a future overlay.
+/// Ranked row exposed to the palette overlay.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaletteResult {
     /// Index into the model's original candidate list.

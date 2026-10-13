@@ -319,7 +319,7 @@ mod follower_tests {
                 break;
             }
         }
-        assert!(wakes <= 20, "bounded at the 300 ms profile limit");
+        assert!(wakes <= 20, "bounded at the 340 ms profile limit");
         assert!(state.deadline().is_none());
 
         let mut disabled = start(

@@ -3,8 +3,8 @@
 //! `apply_settings` chokepoint updates the effective theme that feeds every
 //! renderer publish, while the off path leaves it byte-identical to the
 //! authored theme (the pixel-identical guarantee at the wiring level). These
-//! drive a real `App` over a one-shot PTY (skipped when none is available, as in
-//! CI sandboxes), exercising the production apply path - no GPU needed, since
+//! drive a real `App` over a headless session that owns no PTY child,
+//! exercising the production apply path - no GPU needed, since
 //! the effective theme is observable before any surface exists.
 
 use super::*;
@@ -24,25 +24,21 @@ fn confusable_theme() -> Theme {
     theme
 }
 
-/// Build an `App` over a one-shot PTY whose authored theme is `theme`. Returns
-/// `None` when no PTY is available.
-fn build_app(theme: Theme) -> Option<App> {
+/// Build an `App` over a headless session whose authored theme is `theme`.
+fn build_app(theme: Theme) -> App {
     let dims = Dimensions::new(COLS, ROWS);
     let settings = Settings {
         theme,
         ..Default::default()
     };
     let (app, _terminal) = headless_app_with(NativeOptions::default(), dims, settings);
-    Some(app)
+    app
 }
 
 #[test]
 fn default_off_publishes_the_authored_theme_unchanged() {
     let theme = confusable_theme();
-    let Some(app) = build_app(theme) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let app = build_app(theme);
     // cvd_mode defaults Off: the effective theme equals the authored one, so the
     // renderer sees byte-identical colors (the plain path is preserved).
     assert_eq!(
@@ -60,10 +56,7 @@ fn enabling_a_mode_through_apply_settings_adapts_the_published_theme() {
     // interleave a global write under another test's read.
     let _guard = crate::test_lock::render_globals_lock();
     let theme = confusable_theme();
-    let Some(mut app) = build_app(theme) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(theme);
     assert_eq!(app.effective_theme_for_test(), theme);
 
     // Turn deutan adaptation on through the real apply_settings path.
@@ -94,10 +87,7 @@ fn zero_strength_with_a_mode_set_is_an_exact_passthrough() {
     // republishes the process-global render state through the reload seam.
     let _guard = crate::test_lock::render_globals_lock();
     let theme = confusable_theme();
-    let Some(mut app) = build_app(theme) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(theme);
     // A mode is selected but strength 0 → the second pixel-identical net: the
     // published theme is the authored one, bypassing the palette re-floor.
     app.apply_cvd_for_test(CvdMode::Deutan, 0.0);

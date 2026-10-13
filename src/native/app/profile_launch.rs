@@ -396,7 +396,9 @@ mod tests {
 
     fn catalog() -> ProfileCatalog {
         let mut catalog = ProfileCatalog::default();
-        // Out of alphabetical order on insert so the sort is genuinely exercised.
+        // Inserted out of alphabetical order, though the catalog's BTreeMap
+        // already iterates by key, so these tests pin the resulting order
+        // rather than exercising the sort itself.
         let mut zeta = LaunchProfile::new("zeta").expect("profile");
         zeta.display_name = Some("Zeta Edge".to_owned());
         zeta.connection = Some("edge-host".to_owned());
@@ -412,7 +414,7 @@ mod tests {
     fn connection_rows_sort_by_name_and_carry_label_and_connection() {
         let rows = connection_profile_rows_for_manager(&catalog());
         assert_eq!(rows.len(), 2);
-        // Deterministic sort by profile name regardless of insert order.
+        // Deterministic order by profile name.
         assert_eq!(rows[0].name, "alpha");
         assert_eq!(rows[1].name, "zeta");
         // display_name fallback: absent -> the profile name itself.

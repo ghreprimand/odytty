@@ -11,9 +11,11 @@
 //!
 //! Privacy / safety: the overlay only displays whatever the App handed it
 //! through [`crate::session_host::list_live_sessions`]; it reads
-//! nothing itself. Session names carry the user-supplied `--title`, so they are
-//! control-char-sanitized before display exactly like host names - a malformed
-//! title can never inject escape sequences into the overlay's plain-text rows.
+//! nothing itself. Session names, details, status and ids are
+//! control-char-sanitized before display exactly like host names, so a
+//! malformed `--title` can never inject escape sequences into the overlay's
+//! plain-text rows. Preview lines arrive already bounded and stripped of
+//! control characters by the session host's preview redaction.
 
 use std::cell::Cell;
 use std::collections::hash_map::DefaultHasher;
@@ -313,7 +315,7 @@ impl SessionAttachOverlay {
     }
 
     /// Map a clicked body row to the selection cursor it represents - the
-    /// inverse of the [`Self::visible_lines`] windowing (UX4-P1 click→Activate).
+    /// inverse of the [`Self::visible_lines`] windowing (click to Activate).
     /// Row 0 is the `> query` prompt; results follow from the live
     /// `scroll_offset`. Returns `None` for the prompt row, the empty/"No
     /// matches" hint, or a click past the last result.
@@ -861,7 +863,7 @@ mod tests {
         assert!(!lines[1].text.contains('\u{7}'));
     }
 
-    // ── UX4-P1 click→Activate parity ───────────────────────────────────────
+    // ── click→Activate parity ───────────────────────────────────────
 
     #[test]
     fn click_row_zero_is_the_query_prompt_not_a_row() {

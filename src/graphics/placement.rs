@@ -622,8 +622,9 @@ impl ImageScene {
     /// changed, which the caller treats as "this frame must be repainted".
     ///
     /// Only visible placements are advanced: an animation nothing shows holds
-    /// its position and resumes from the current clock when it becomes visible
-    /// again, rather than burning frames off-screen.
+    /// its position rather than burning frames off-screen. When it becomes
+    /// visible again it catches up from its last frame clock, bounded by one
+    /// step per frame, and re-phases to the current clock if still behind.
     pub fn advance_animations(&mut self, now_ms: u64, visible: &[VisiblePlacement]) -> bool {
         if !self.store.has_animations() {
             return false;

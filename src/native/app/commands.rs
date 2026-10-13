@@ -554,12 +554,6 @@ impl App {
         self.on_active_session_changed();
     }
 
-    /// Create a fresh workspace - its own single-pane tab - and switch to it.
-    /// Driven by the rail `+` slot, the "New Workspace" context-menu item, and
-    /// (later work) the keyboard action. The new session is initialized
-    /// exactly like New Tab (theme / cursor / scrollback), and the switch may
-    /// make the rail auto-appear, so the content grid is reflowed and the
-    /// auto-hidden rail is flashed to confirm the change.
     /// Switch the active workspace to rail index `idx` (rail click / picker /
     /// keyboard). Reflows the content grid (chrome can change) and flashes the
     /// auto-hidden rail. No-op when already active or out of range.
@@ -679,7 +673,7 @@ impl App {
     }
 
     /// Create a fresh workspace (one single-pane tab) and switch to it - the
-    /// "New Workspace" action / palette entry / rail `+` slot (ODP-3/-5). Mirrors
+    /// "New Workspace" action / palette entry / rail `+` slot. Mirrors
     /// [`Self::handle_new_tab`] one level up: spawn the new workspace's shell,
     /// apply this window's presentation policy to it, then flash the rail so the
     /// new workspace is confirmed. The new session becomes the `Deref` target, so

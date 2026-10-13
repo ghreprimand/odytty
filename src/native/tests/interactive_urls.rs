@@ -10,8 +10,7 @@
 //! `crate::hints`; this only pins the App glue.
 //!
 //! Synthetic only: a bare URL is printed into the grid and resolved against the
-//! in-memory snapshot - no network, no filesystem. Skipped when no PTY is
-//! available (CI sandboxes).
+//! in-memory snapshot - no network, no filesystem.
 
 use super::*;
 use winit::window::CursorIcon;
@@ -27,7 +26,7 @@ const URL: &str = "https://example.com";
 const URL_START_COL: usize = 4;
 const URL_END_COL: usize = 22; // inclusive last cell of the 19-char URL
 
-fn build_app(content: &[u8]) -> Option<App> {
+fn build_app(content: &[u8]) -> App {
     let dims = Dimensions::new(COLS, ROWS);
     let (mut app, terminal) =
         headless_app_with(NativeOptions::default(), dims, Settings::default());
@@ -36,7 +35,7 @@ fn build_app(content: &[u8]) -> Option<App> {
         t.advance(content);
     }
     app.set_test_cell_for_test(cell(CELL_W, CELL_H));
-    Some(app)
+    app
 }
 
 /// Move the pointer onto the middle of the URL span at row 0.
@@ -50,10 +49,7 @@ fn hover_on_url(app: &mut App) {
 
 #[test]
 fn bare_url_latches_when_on_by_default() {
-    let Some(mut app) = build_app(LINE) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(LINE);
     // interactive_urls defaults on, so no explicit enable.
     hover_on_url(&mut app);
     assert_eq!(
@@ -65,10 +61,7 @@ fn bare_url_latches_when_on_by_default() {
 
 #[test]
 fn bare_url_inert_when_off() {
-    let Some(mut app) = build_app(LINE) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(LINE);
     app.set_interactive_urls_for_test(false);
     hover_on_url(&mut app);
     assert_eq!(
@@ -82,10 +75,7 @@ fn bare_url_inert_when_off() {
 fn non_openable_scheme_does_not_latch() {
     // ftp:// is detected by the hints scanner but is not on the open allowlist,
     // so it must not light the interactive-URL affordance.
-    let Some(mut app) = build_app(b"get ftp://example.com/file now") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"get ftp://example.com/file now");
     app.pointer_move_for_test(f64::from(CELL_W) * 10.5, f64::from(CELL_H) * 0.5);
     assert_eq!(
         app.hovered_url_for_test(),
@@ -98,10 +88,7 @@ fn non_openable_scheme_does_not_latch() {
 fn osc8_hyperlink_cell_wins_no_bare_url() {
     // An explicit OSC 8 hyperlink is handled by the OSC 8 path; the bare-URL
     // scan must not also latch on the same cell (no double-decoration).
-    let Some(mut app) = build_app(b"\x1b]8;;https://example.com\x07LINK\x1b]8;;\x07") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"\x1b]8;;https://example.com\x07LINK\x1b]8;;\x07");
     // Hover over the linked text (columns 0..=3 = "LINK").
     app.pointer_move_for_test(f64::from(CELL_W) * 1.5, f64::from(CELL_H) * 0.5);
     assert_eq!(
@@ -118,10 +105,7 @@ fn osc8_hyperlink_cell_wins_no_bare_url() {
 
 #[test]
 fn ctrl_hover_arms_underline_over_url() {
-    let Some(mut app) = build_app(LINE) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(LINE);
     hover_on_url(&mut app);
 
     // Plain hover: hand cursor only, no armed underline.

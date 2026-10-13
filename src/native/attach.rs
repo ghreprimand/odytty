@@ -15,9 +15,10 @@
 //!    [`Terminal`] - the "close window, reopen, full scrollback intact" step.
 //! 2. The connected `UnixStream` is `try_clone`d: the original is the write side
 //!    (App thread: input/resize/detach), the clone is the read side, driven by
-//!    [`spawn_attach_pump`] on a dedicated thread. Both share one kernel socket,
-//!    so frame ordering is preserved and no lock sits on the keystroke path -
-//!    mirroring the local-PTY pump in [`super::pty`].
+//!    [`spawn_attach_pump`] on a dedicated thread. Both share one kernel
+//!    socket, so frame ordering is preserved; keystrokes take the shared
+//!    client mutex that serializes writes. This mirrors the local-PTY pump in
+//!    [`super::pty`].
 //! 3. The client terminal is a **render mirror**: the host owns the authoritative
 //!    model and already answered device queries against its own terminal, so the
 //!    mirror's `take_host_output` is intentionally discarded (sending it back
@@ -152,8 +153,8 @@ impl AttachClient {
         )
     }
 
-    /// [`Self::connect`] with explicit decode caps and snapshot deadline, for
-    /// tests.
+    /// [`Self::connect_within`] with explicit decode caps and snapshot
+    /// deadline, for tests.
     fn connect_with(
         socket_path: &Path,
         session_id: &str,

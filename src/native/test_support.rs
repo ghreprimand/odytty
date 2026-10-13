@@ -177,8 +177,7 @@ mod tests {
             Settings::default(),
             writer,
         );
-        crate::native::pty::write_chunks_blocking(&app.writer, &[b"abc".to_vec()])
-            .expect("headless write");
+        crate::native::pty::write_chunks(&app.writer, &[b"abc".to_vec()]).expect("headless write");
         assert_eq!(bytes.lock().expect("bytes").as_slice(), b"abc");
     }
 

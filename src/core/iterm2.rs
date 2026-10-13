@@ -67,9 +67,9 @@ use crate::graphics::{GraphicsProtocol, ImageScene, PlacementRequest};
 use super::types::CellMetrics;
 
 /// Longest `name=` value accepted, in encoded bytes. The name is advisory
-/// metadata (iTerm2 shows it in its downloads UI); OdyTTY decodes it only far
-/// enough to validate the argument, so a small bound is sufficient and keeps
-/// an adversarial name from reserving memory.
+/// metadata (iTerm2 shows it in its downloads UI); OdyTTY checks only its
+/// length and never decodes or retains it, so a small bound is sufficient and
+/// keeps an adversarial name from reserving memory.
 const MAX_NAME_BYTES: usize = 1024;
 
 /// Tolerated difference between a declared `size=` and the decoded payload
@@ -118,8 +118,8 @@ pub(super) struct FileArgs {
     pub(super) height: Dimension,
     /// `preserveAspectRatio=0` disables aspect-preserving fit. Default on.
     pub(super) preserve_aspect_ratio: bool,
-    /// Whether a syntactically valid `name=` was present. The value itself is
-    /// advisory and not retained: OdyTTY has no downloads UI to show it in.
+    /// Whether a `name=` within [`MAX_NAME_BYTES`] was present. The value is
+    /// advisory and neither decoded nor retained: OdyTTY has no downloads UI.
     pub(super) has_name: bool,
 }
 
@@ -166,7 +166,7 @@ fn joined_payload(parts: &[&[u8]]) -> Vec<u8> {
 /// the separator after it, so the reconstructed length adds those five bytes
 /// to the rejoined argument/payload bytes. At exactly the cap the payload is
 /// assumed truncated: a legitimate command that lands precisely on the
-/// boundary is rejected too, which is the safe direction — the alternative is
+/// boundary is rejected too, which is the safe direction: the alternative is
 /// decoding a half-transferred file.
 fn payload_truncated(joined_len: usize) -> bool {
     joined_len.saturating_add(b"1337;".len()) >= crate::parser::MAX_OSC_RAW
@@ -184,10 +184,11 @@ fn split_args_and_payload(body: &[u8]) -> Option<(&[u8], &[u8])> {
 
 /// Parse the semicolon-separated `key=value` argument text.
 ///
-/// Returns `None` when a known key carries a malformed value, when a key is
-/// repeated, or when an argument is not in `key=value` form. Unknown keys are
-/// skipped so future iTerm2 arguments degrade to "ignored" rather than
-/// "rejects the image".
+/// Returns `None` when a known key carries a malformed value, when `inline`,
+/// `size`, `width`, `height` or `preserveAspectRatio` is repeated, or when an
+/// argument is not in `key=value` form. A repeated `name` is accepted, and
+/// unknown keys are skipped so future iTerm2 arguments degrade to "ignored"
+/// rather than "rejects the image".
 fn parse_args(args: &[u8]) -> Option<FileArgs> {
     let mut out = FileArgs::default();
     let mut seen_inline = false;

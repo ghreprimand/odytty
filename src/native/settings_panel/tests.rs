@@ -1201,7 +1201,7 @@ fn level_hitmap_switches_on_level_change() {
     );
 }
 
-/// T-scroll-per-level: Level-1 section_scroll and Level-2 scroll are
+/// Level-1 section_scroll and Level-2 scroll are
 /// independent; entering Level 2 starts at top; returning to Level 1
 /// restores section_scroll.
 #[test]
@@ -1338,7 +1338,7 @@ fn changed_count_survives_level_transitions() {
     );
 }
 
-/// T-two-substates: path_picker and pending_close_prompt are mutually
+/// path_picker and pending_close_prompt are mutually
 /// exclusive; activating one clears the other.
 #[test]
 fn two_substates_are_mutually_exclusive() {

@@ -553,10 +553,9 @@ fn image_view_opens_renders_caption_and_dismisses() {
     }
 }
 
-/// On a large terminal the panel must be substantially wider
-/// and taller than the old 22-row / 64-col-min caps. Also verifies that the
-/// hit-map still aligns 1:1 with visible_lines after the resize (their shared
-/// `build_visible_rows` walker guarantees this by construction).
+/// On a large terminal the panel must be substantially wider and taller than
+/// the old 22-row / 64-col-min caps, and the panel still produces a non-empty
+/// set of visible lines that fits its body height.
 #[test]
 fn overlay_rect_is_wider_and_taller_on_large_terminal() {
     let mut overlay = OverlayUi::default();
@@ -566,7 +565,6 @@ fn overlay_rect_is_wider_and_taller_on_large_terminal() {
     let rect = overlay_rect(&overlay, 120, 50).expect("rect");
 
     // Width: must be substantially wider than the old 64-col floor.
-    // At 120 cols: (120*3/4).max(80)+4 = 94 → capped at 120. At least 90.
     assert!(
         rect.width >= 90,
         "panel width should be wide on a 120-col terminal, got {}",
@@ -581,8 +579,6 @@ fn overlay_rect_is_wider_and_taller_on_large_terminal() {
         rect.height
     );
 
-    // visible_lines must produce at least as many rows as there are entries
-    // in the first group (the shared walker never drops rows vs. the hit-map).
     let lines = overlay
         .panel
         .visible_lines(rect.body_width, rect.body_height);
@@ -820,4 +816,29 @@ fn a_control_before_a_mark_measures_cuts_and_paints_alike() {
             .count();
         assert_eq!(used, measured, "paint {text:?}");
     }
+}
+
+/// The replace-tab confirmation keeps its closing question mark: a long host
+/// alias is shortened with an ellipsis instead of cutting the line, and a
+/// short alias is shown whole.
+#[test]
+fn replace_tab_prompt_keeps_the_question_for_a_long_alias() {
+    assert_eq!(
+        replace_tab_prompt("web1", 54),
+        "A program is running here. Replace it with web1?"
+    );
+    let long = replace_tab_prompt("production-database-replica-07", 54);
+    assert_eq!(long.chars().count(), 54);
+    assert!(long.ends_with("\u{2026}?"), "{long:?}");
+    assert!(long.starts_with("A program is running here. Replace it with produ"));
+    let mut overlay = OverlayUi::default();
+    overlay.open_confirm_replace_tab(
+        Box::new(connection_host("production-database-replica-07")),
+        crate::native::session::SessionToken(2),
+    );
+    let lines = overlay.visible_lines(54, 10);
+    assert!(
+        lines.iter().any(|line| line.text.ends_with("\u{2026}?")),
+        "the rendered prompt keeps its question mark"
+    );
 }

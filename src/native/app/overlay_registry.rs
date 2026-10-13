@@ -1,28 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Render-overlay registry + modal-input gate — the `app/mod.rs` chokepoint
-//! dissolver (foundation).
+//! Render-overlay registry and modal-input gate.
 //!
-//! Two registries built on the same dissolving pattern: `app/mod.rs` holds one
-//! *stable* call site, and the per-feature logic lives behind `pub(in
-//! crate::native)` / `pub(super)` methods in disjoint submodules, each a no-op
-//! while its feature is inactive.
+//! `app/mod.rs` holds one stable call site for each, and the per-feature logic
+//! lives behind `pub(in crate::native)` / `pub(super)` methods in separate
+//! submodules, each a no-op while its feature is inactive.
 //!
-//! - **Frame-overlay registry** — a fixed-ordered manifest of `paint_*_cells`
-//!   (snapshot cell mutators) and `paint_*_quads` (solid-quad emitters). The
-//!   four existing paints (selection → search → overlay → hyperlink) and the two
-//!   existing quad sources (scroll-indicator, status gutter) are relocated
-//!   behind wrappers here; the new contributor slots (hints / copy-mode /
-//!   cursor-trail / background) are no-ops until their feature fills in
-//!   the body in its own submodule.
-//! - **Modal-input gate** — [`ActiveModal`] plus [`App::active_modal`],
-//!   [`App::route_modal_key`], and [`App::modal_captures_pointer`]. Today every
-//!   modal predicate is `false`, so the gate routes nothing and the key/pointer
-//!   paths are byte-identical to before it existed.
+//! - **Frame-overlay registry**: ordered presentation painters, the
+//!   `paint_*_cells` snapshot cell mutators (selection, search, overlay,
+//!   hyperlink, hints, copy mode and the rest) and the `paint_*_quads`
+//!   solid-quad emitters (scroll indicator, status gutter, cursor trail and
+//!   the others).
+//! - **Modal-input gate**: [`ActiveModal`] plus [`App::active_modal`],
+//!   [`App::route_modal_key`], and [`App::modal_captures_pointer`]. Copy mode,
+//!   hint selection, tab rename and floating arrangement are live modals that
+//!   capture keys while active.
 //!
-//! Off-path contract (provable by construction): with no modal active and no
-//! contributor active, every `paint_*` early-returns or mutates nothing, the
-//! composite signature is constant-`Inert`, and `active_modal() == None` routes
-//! nothing — so the frame bytes and the input routing are identical to HEAD.
+//! Off-path contract: with no modal active and no contributor active, every
+//! `paint_*` early-returns or mutates nothing, the composite signature is
+//! constant-`Inert`, and `active_modal() == None` routes nothing, so the frame
+//! bytes and the input routing are unchanged.
 
 use super::rename_field::FieldOwners;
 use super::*;
@@ -38,7 +34,7 @@ pub(in crate::native) struct OverlayCtx {
     pub(in crate::native) cell: CellSize,
     pub(in crate::native) window_padding: WindowPadding,
     /// Cursor cell position (viewport coordinates) for cursor-layer overlay
-    /// contributors (ID1 glow, VE4 trail). Captured from the post-blink-resolve
+    /// contributors (cursor glow, cursor trail). Captured from the post-blink-resolve
     /// snapshot at the frame-composition call site.
     pub(in crate::native) cursor: Position,
     /// Whether the cursor is drawn this frame (already folds the blink
@@ -46,15 +42,16 @@ pub(in crate::native) struct OverlayCtx {
     /// when the cursor block does.
     pub(in crate::native) cursor_visible: bool,
     /// Frame composition instant, injected so per-frame overlay animations
-    /// (VE4 new-output fade) advance from a single coherent clock.
+    /// (the bell flash, the new-output fade's foreground multipliers) advance
+    /// from a single coherent clock.
     pub(in crate::native) now: Instant,
-    /// Active theme background clear color in linear RGB (alpha `1.0`). VE4's
-    /// fade quad is painted in this color so it is seamless against the frame
-    /// clear; `[0.0; 4]` when the GPU is not yet present (the caller has
-    /// already early-returned in that case, so this is just a total default).
+    /// Active theme background clear color in linear RGB (alpha `1.0`). The
+    /// bell flash picks its contrast tint from it; `[0.0; 4]` when the GPU is
+    /// not yet present (the caller has already early-returned in that case, so
+    /// this is just a total default).
     pub(in crate::native) clear_color: [f32; 4],
     /// Surface DPI scale factor (logical→physical px). Chrome thicknesses
-    /// authored in logical pixels (ID4 window border) are multiplied by this so
+    /// authored in logical pixels (the window border) are multiplied by this so
     /// the frame is a consistent visual weight across displays. `1.0` when the
     /// GPU is not yet present (the caller has already early-returned then).
     pub(in crate::native) scale: f32,
@@ -388,7 +385,7 @@ impl App {
         ));
     }
 
-    // VE4 cursor-trail quads: `paint_cursor_trail_quads` lives in `cursor_trail.rs`
+    // Cursor-trail quads: `paint_cursor_trail_quads` lives in `cursor_trail.rs`
     // alongside `cursor_trail_overlay_signature`, so the whole trail feature is
     // one submodule.
 
@@ -414,8 +411,8 @@ impl App {
         })
     }
 
-    /// ID3/U5 background-treatment quads — no-op slot (foundation). Filled by
-    /// the background-treatment feature.
+    /// Reserved no-op background quad slot. The background treatment is
+    /// supplied to the renderer separately, not through these quads.
     pub(in crate::native) fn paint_background_quads(
         &self,
         _ctx: &OverlayCtx,
@@ -423,10 +420,10 @@ impl App {
     ) {
     }
 
-    // VE4 cursor-trail cache fragment: `cursor_trail_overlay_signature` lives in
+    // Cursor-trail cache fragment: `cursor_trail_overlay_signature` lives in
     // `cursor_trail.rs` alongside the trail's quad emitter.
 
-    /// ID1 cursor-glow cache fragment. `Inert` while disabled, at zero
+    /// Cursor-glow cache fragment. `Inert` while disabled, at zero
     /// intensity, or under reduced motion, so the composite key is a
     /// frame-to-frame constant. When enabled it returns `CursorGlow { phase }`
     /// where `phase` quantizes the `cursor_glow_intensity`: the toggle flips
@@ -451,7 +448,7 @@ impl App {
         OverlayFragment::CursorGlow { phase }
     }
 
-    // Note: `background_overlay_signature()` (ID3/U5) lives in `background_ui.rs`
+    // Note: `background_overlay_signature()` lives in `background_ui.rs`
     // alongside `background_treatment_params()`, so the whole treatment feature
     // is one submodule.
 
@@ -913,7 +910,7 @@ impl App {
         rename_band_box(columns, rows)
     }
 
-    // --- cursor render-params aggregator (foundation) ---------------
+    // --- cursor render-params aggregator ----------------------------
 
     /// Fold the per-feature cursor render parameters into one [`CursorRenderParams`].
     /// Motion supplies the nearby offset, easing supplies alpha, window focus
@@ -921,9 +918,6 @@ impl App {
     /// suppresses the ordinary destination cursor while it owns presentation.
     /// Every contributor returns its identity at rest, so a settled focused
     /// cursor returns `CursorRenderParams::default()`.
-    ///
-    /// This aggregator dissolves the `push_cursor` collision: ID1 and VE4 each
-    /// own one field, so neither edits the other's file.
     pub(in crate::native) fn cursor_render_params(&self) -> CursorRenderParams {
         CursorRenderParams {
             offset: self.cursor_motion_offset(),

@@ -634,7 +634,7 @@ impl SettingsPanel {
     /// navigation will re-clamp scroll to the selection as before.
     /// Free pointer-driven scroll. At Level 1 (section list) scrolls
     /// `section_scroll`; at Level 2 or in search mode scrolls `scroll`.
-    /// (T-scroll-per-level: the two offsets are independent.)
+    /// (The two levels' scroll offsets are independent.)
     pub(in crate::native) fn scroll_lines(&mut self, delta: isize) {
         // Path picker owns wheel scroll when active.
         if let Some(picker) = self.path_picker.as_mut() {
@@ -1527,7 +1527,7 @@ mod tests {
         );
     }
 
-    // SETTINGS-COMPACT geometry: tall enough to spare footer rows while still
+    // Compact settings geometry: tall enough to spare footer rows while still
     // leaving a real content window (footer reserves up to 5 rows).
     const FH: usize = 24;
 

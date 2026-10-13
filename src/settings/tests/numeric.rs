@@ -92,7 +92,7 @@ fn numeric_spec_bounds_match_the_parser_clamp_constants() {
 
 #[test]
 fn numeric_spec_steps_preserve_the_folded_keyboard_steps() {
-    // UX4-P2 folds the former per-key `number_step` table into `spec.step`; the
+    // The former per-key `number_step` table is folded into `spec.step`; the
     // keyboard Left/Right step must be byte-for-byte what it was before.
     let info = Settings::default().setting_info();
     let step = |key: &str| {

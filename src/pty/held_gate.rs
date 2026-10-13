@@ -60,16 +60,16 @@ impl<H> HeldGate<H> {
     /// returned) is published; on failure the error is published.
     pub(crate) fn release(&self, resume: impl FnOnce(H) -> io::Result<()>) -> io::Result<bool> {
         let mut state = self.state();
-        let State::Held(_) = &*state else {
-            return Ok(false);
-        };
         // Placeholder while the handle is moved out; replaced below unless
         // `resume` panics, in which case the placeholder stays and the poisoned
-        // lock is recovered by `state()`.
-        let State::Held(handle) =
-            std::mem::replace(&mut *state, State::ResumeFailed(String::new()))
-        else {
-            return Ok(false);
+        // lock is recovered by `state()`. Resume closures must not panic. A
+        // state that is not `Held` is put back unchanged.
+        let handle = match std::mem::replace(&mut *state, State::ResumeFailed(String::new())) {
+            State::Held(handle) => handle,
+            other => {
+                *state = other;
+                return Ok(false);
+            }
         };
         match resume(handle) {
             Ok(()) => {

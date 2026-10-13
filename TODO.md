@@ -33,6 +33,23 @@ a full limit falls back to the home directory without starting another probe.
 Short picker bodies prioritize loading, entries and notices over the footer hint.
 Backspace in an empty profile launch field preserves the opposite launch choice.
 
+Settings path pickers include hidden directories and matching hidden files on
+Linux, macOS and Windows. Symlinks use their target type while retaining the
+selected path; broken links are omitted. Display labels omit controls and
+default-ignorable Unicode scalars without changing the selected path. Listings
+show an inert notice when the 1,024-entry limit is reached. Keyboard selection
+stays visible in short viewports, with entries taking priority over headings.
+
+Saved layout and profile filenames share a portable Windows device-stem rule.
+Layouts prefix reserved stems with an underscore, including superscript numbered
+COM/LPT ports and conservative COM0/LPT0 handling. Profiles retain ASCII-only
+validation and reject reserved stems.
+
+Saved-layout schema versions must be whole unsigned 32-bit numbers in their
+original decimal spelling. A fractional literal that rounds to a supported
+version is refused as malformed on Linux, macOS and Windows. Equivalent whole
+number spellings remain accepted.
+
 Profile saves refuse incomplete case-collision scans. Malformed-file recovery
 claims non-replacing hard-link backups and preserves the source on inspection
 or claim errors. Strict profile JSON admits at most 4,096 members per object.
@@ -2272,20 +2289,3 @@ support beyond the shipped Linux, Windows, and macOS targets.
 
 - [x] Held one-shot binding actions execute once per press; navigation and scrolling repeat.
 - [x] Move to Workspace picker destinations follow immutable workspace identity.
-
-Settings path pickers include hidden directories and matching hidden files on
-Linux, macOS and Windows. Symlinks use their target type while retaining the
-selected path; broken links are omitted. Display labels omit controls and
-default-ignorable Unicode scalars without changing the selected path. Listings
-show an inert notice when the 1,024-entry limit is reached. Keyboard selection
-stays visible in short viewports, with entries taking priority over headings.
-
-Saved layout and profile filenames share a portable Windows device-stem rule.
-Layouts prefix reserved stems with an underscore, including superscript numbered
-COM/LPT ports and conservative COM0/LPT0 handling. Profiles retain ASCII-only
-validation and reject reserved stems.
-
-Saved-layout schema versions must be whole unsigned 32-bit numbers in their
-original decimal spelling. A fractional literal that rounds to a supported
-version is refused as malformed on Linux, macOS and Windows. Equivalent whole
-number spellings remain accepted.

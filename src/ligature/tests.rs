@@ -509,7 +509,7 @@ fn arabic_harakat_ride_their_base_into_the_joining_run() {
 }
 
 #[test]
-fn disabled_renderer_is_byte_identical_and_allocates_nothing() {
+fn disabled_renderer_is_byte_identical_and_never_shapes() {
     // Cell vertices carry resolved COLOR, not just geometry: the render
     // path floors every foreground through the process-global
     // minimum-contrast seam and resolves default/indexed colors through the
@@ -855,9 +855,9 @@ fn every_selection_boundary_preserves_two_and_three_cell_ligature_geometry() {
                             "selection must not attenuate contextual glyph coverage"
                         );
 
-                        // CursorOnly rebuilds append to the cached Full cell
-                        // segment. Prove every boundary leaves that segment
-                        // byte-identical while the cursor layer changes.
+                        // A cursor-only rebuild appends to the cached cell
+                        // segment. Appending the cursor layer here must leave
+                        // that segment byte-identical at every boundary.
                         let cached_cells = selected_vertices.clone();
                         append_cursor_vertices_with_origin(
                             &mut selected_vertices,
@@ -934,7 +934,7 @@ fn wide_snapshot(text: &str, columns: usize) -> Snapshot {
     terminal.snapshot()
 }
 
-/// A-U037-02: a glyph-count-changing run longer than 255 cells (the widest span
+/// A glyph-count-changing run longer than 255 cells (the widest span
 /// an overlay key addresses) keeps its shaping. It is split at cluster
 /// boundaries instead of being discarded whole, so unrelated text appended to a
 /// compatible run cannot switch the row back to scalars.
@@ -966,7 +966,7 @@ fn long_length_changing_run_is_split_at_cluster_boundaries() {
     assert_eq!(glyphs, 130, "every cluster keeps exactly one glyph");
 }
 
-/// A-U037-02: the same for a same-glyph-count contiguous changed span.
+/// The same for a same-glyph-count contiguous changed span.
 #[test]
 fn long_changed_span_is_split_instead_of_discarded() {
     let fonts = Fonts(arabic_fixture_font());
@@ -996,6 +996,8 @@ fn split_refuses_to_cut_through_an_oversized_cluster() {
         marked: false,
     }];
     assert_eq!(split_at_cluster_boundaries(&one_cluster, 0..300), None);
+    // Endpoints are the caller's responsibility: a range that fits one piece
+    // is returned unchanged even when its end falls inside a cluster.
     let whole = split_at_cluster_boundaries(&one_cluster, 0..255).expect("fits one piece");
     assert_eq!(whole.len(), 1);
     assert_eq!((whole[0].start, whole[0].end), (0, 255));

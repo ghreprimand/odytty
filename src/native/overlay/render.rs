@@ -206,18 +206,12 @@ pub(in crate::native) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut Ov
     };
     // The context menu has its own no-title layout; dispatch and return.
     if overlay.mode == OverlayMode::ContextMenu {
-        // A connection-row menu is spawned from WITHIN the
-        // connection manager, which stays loaded underneath (the mode is
-        // ContextMenu, but `picker_return` restores Connections on dismiss).
-        // The overlay system draws only the active mode, so without this the
-        // manager vanishes and the menu floats on a blank screen. Paint the
-        // manager panel first (temporarily viewing the overlay AS Connections so
-        // `overlay_rect` / `visible_lines` / `title` resolve the manager), then
-        // let the opaque menu box composite over it.
-        // A connection-row menu paints the connection manager underneath; a
-        // navigator-row menu paints the session navigator underneath -
-        // both are menu-over-overlay surfaces whose underlying panel would
-        // otherwise vanish (the overlay system draws only the active mode).
+        // A connection-row menu paints the connection manager underneath and
+        // a navigator-row menu paints the session navigator underneath. The
+        // overlay system draws only the active mode, so the underlying panel
+        // is painted first (temporarily viewing the overlay as that mode so
+        // `overlay_rect` / `visible_lines` / `title` resolve it), then the
+        // opaque menu box composites over it.
         if let Some(underlay) = overlay.menu_underlay_mode() {
             let restore = overlay.mode;
             overlay.mode = underlay;
@@ -791,9 +785,7 @@ impl OverlayUi {
             // text; it is truncated to the body width and display-only here.
             OverlayMode::ConfirmReplaceTab => {
                 let prompt = match self.confirm_replace_tab.as_ref() {
-                    Some((host, _)) => {
-                        format!("A program is running here. Replace it with {}?", host.alias)
-                    }
+                    Some((host, _)) => replace_tab_prompt(&host.alias, body_width.max(1)),
                     None => "A program is running in this tab.".to_owned(),
                 };
                 let prompt: String = prompt.chars().take(body_width.max(1)).collect();
@@ -1436,4 +1428,22 @@ pub(super) fn dim_attrs() -> Attrs {
     let mut attrs = panel_attrs();
     attrs.foreground = Color::Indexed(8);
     attrs
+}
+
+/// The replace-tab confirmation line for `alias`, fitted to `width` cells. A
+/// long alias is shortened with an ellipsis so the closing question mark of
+/// this destructive confirmation always stays visible; only when the fixed
+/// wording itself does not fit is the line cut at the width.
+pub(super) fn replace_tab_prompt(alias: &str, width: usize) -> String {
+    const LEAD: &str = "A program is running here. Replace it with ";
+    let full = format!("{LEAD}{alias}?");
+    if full.chars().count() <= width {
+        return full;
+    }
+    let room = width.saturating_sub(LEAD.chars().count() + 2);
+    if room == 0 {
+        return full.chars().take(width).collect();
+    }
+    let shortened: String = alias.chars().take(room).collect();
+    format!("{LEAD}{shortened}\u{2026}?")
 }

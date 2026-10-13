@@ -848,12 +848,6 @@ impl App {
         self.overlay.render_signature()
     }
 
-    /// Test seam (OVERLAY-SMALL-WINDOW): composite the open overlay into a blank
-    /// `cols`×`rows` snapshot via the exact production `apply_overlay` path and
-    /// return the painted text of every row (grapheme per cell, trailing blanks
-    /// trimmed). Lets an end-to-end test assert that the *rendered* rows shift
-    /// when scroll/focus changes — proving the live repaint, not just geometry.
-    #[cfg(test)]
     /// Test seam: arm and refresh the external-palette follower as a settings
     /// change does.
     pub(in crate::native) fn sync_palette_follow_for_test(&mut self, now: std::time::Instant) {
@@ -877,6 +871,11 @@ impl App {
         self.palette_status_redraws
     }
 
+    /// Test seam: composite the open overlay into a blank `cols`×`rows`
+    /// snapshot via the exact production `apply_overlay` path and return the
+    /// painted text of every row (grapheme per cell, trailing blanks trimmed).
+    /// Lets an end-to-end test assert that the *rendered* rows shift when
+    /// scroll/focus changes, proving the live repaint, not just geometry.
     pub(in crate::native) fn render_overlay_rows_for_test(
         &mut self,
         cols: usize,

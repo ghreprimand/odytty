@@ -169,9 +169,9 @@ impl From<ListedSession> for NavigatorEntry {
     }
 }
 
-/// Snapshot every live pane in workspace, tab, pane order.  The only terminal
-/// read is the bounded OSC 7 working directory; no screen cells or command
-/// output enter the read model.
+/// Snapshot every live pane in workspace, tab, pane order. The terminal reads
+/// are the bounded OSC 7 working directory and, when `include_preview` is on,
+/// bounded preview lines from the presented cells.
 pub(super) fn live_entries(set: &WorkspaceSet, include_preview: bool) -> Vec<NavigatorEntry> {
     let mut entries = Vec::new();
     for (workspace_index, workspace) in set.workspaces.iter().enumerate() {

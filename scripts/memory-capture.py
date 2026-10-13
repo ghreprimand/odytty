@@ -238,21 +238,23 @@ def heap_field(
     return int(heap["rss_bytes"]), None
 
 
-def capture_linux(pid: int) -> dict[str, object]:
-    """Linux capture: smaps_rollup for totals, smaps for the decomposition."""
+def capture_linux(pid: int, read_text=None) -> dict[str, object]:
+    """Linux capture: smaps_rollup for totals, smaps for the decomposition.
+
+    `read_text` replaces the file reader so the self-test can drive the
+    unreadable paths.
+    """
+    read_text = read_text or _read_text
     unavailable: list[dict[str, str]] = []
     process: dict[str, object] = {}
 
-    rollup_text = _read_text(Path(f"/proc/{pid}/smaps_rollup"))
+    rollup_text = read_text(Path(f"/proc/{pid}/smaps_rollup"))
     if rollup_text is None:
         for field in ("rss_bytes", "pss_bytes", "anonymous_bytes", "swap_bytes"):
             process[field] = UNMEASURED
-        unavailable.append(
-            {
-                "field": "smaps_rollup",
-                "reason": f"/proc/{pid}/smaps_rollup is unreadable",
-            }
-        )
+            unavailable.append(
+                {"field": field, "reason": f"/proc/{pid}/smaps_rollup is unreadable"}
+            )
     else:
         rollup = parse_smaps_rollup(rollup_text)
         process["rss_bytes"] = rollup.get("Rss", UNMEASURED)
@@ -270,7 +272,7 @@ def capture_linux(pid: int) -> dict[str, object]:
                     {"field": field, "reason": f"smaps_rollup has no {key} field"}
                 )
 
-    status_text = _read_text(Path(f"/proc/{pid}/status"))
+    status_text = read_text(Path(f"/proc/{pid}/status"))
     if status_text is None:
         process["peak_rss_bytes"] = UNMEASURED
         unavailable.append(
@@ -287,13 +289,14 @@ def capture_linux(pid: int) -> dict[str, object]:
             )
 
     subject = _subject_binary(pid)
-    smaps_text = _read_text(Path(f"/proc/{pid}/smaps"))
+    smaps_text = read_text(Path(f"/proc/{pid}/smaps"))
     if smaps_text is None:
         mappings: list[dict[str, object]] = []
         process["heap_bytes"] = UNMEASURED
-        unavailable.append(
-            {"field": "mappings", "reason": f"/proc/{pid}/smaps is unreadable"}
-        )
+        for field in ("mappings", "heap_bytes"):
+            unavailable.append(
+                {"field": field, "reason": f"/proc/{pid}/smaps is unreadable"}
+            )
     else:
         mappings = parse_smaps(smaps_text, subject)
         process["heap_bytes"], heap_gap = heap_field(mappings)
@@ -674,7 +677,12 @@ def self_test() -> list[str]:
     windows_counters_unmeasured(windows_failed_process, windows_failed_gaps, "counters failed")
     no_rss = capture_macos(1, runner=lambda *args, **kwargs: _NoRss())
     no_ps = capture_macos(1, runner=_fails)
+    linux_unreadable = capture_linux(1, read_text=lambda _path: None)
+    linux_empty = capture_linux(1, read_text=lambda _path: "")
     for name, process, gaps in (
+        ("Linux with unreadable proc files", linux_unreadable["process"],
+         linux_unreadable["unavailable"]),
+        ("Linux with empty proc files", linux_empty["process"], linux_empty["unavailable"]),
         ("macOS", macos["process"], macos["unavailable"]),
         ("macOS without a resident size", no_rss["process"], no_rss["unavailable"]),
         ("macOS without ps", no_ps["process"], no_ps["unavailable"]),

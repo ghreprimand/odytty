@@ -185,7 +185,10 @@ impl App {
         false
     }
 
-    /// Put content back after a refused move, as if it never left.
+    /// Put content back after a refused move: restore the arena content and
+    /// its hold, compensate the focus-out a same-pane return would otherwise
+    /// miss, and raise the refusal notice. Transient input state cancelled
+    /// when the move began (drags, prompts) is not reinstated.
     pub(in crate::native) fn restore_after_failed_move(
         &mut self,
         content: MovedContent,

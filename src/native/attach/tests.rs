@@ -667,7 +667,8 @@ fn resize_rejects_zero_dimensions() {
 // Live-wiring tests: an attached session is a real `Session`/`WorkspaceSet` source.
 // These prove the source generalization routes resize/input/close to the
 // socket while the local-PTY path stays byte-identical (the latter is guarded
-// by `local_session_resize_routes_to_pty_unchanged` in `session.rs`).
+// by `local_session_resize_routes_to_pty_unchanged` in
+// `session/tests/transport.rs`).
 // ---------------------------------------------------------------------------
 
 /// Build an attached [`Session`] (no pump) connected to a fake host at `socket`,
@@ -1018,8 +1019,9 @@ fn oversized_input_rejection_does_not_poison_the_next_keystroke() {
 /// A send timeout AFTER partial progress is a desynced stream, not a
 /// droppable frame: the truncated frame's length header promises bytes that
 /// never arrived, so any later "clean" frame would be consumed as its payload
-/// by the host parser and forwarded to the shell as garbage. The writer must
-/// surface a fatal error so the session tears down visibly.
+/// by the host parser and forwarded to the shell as garbage. The input writer
+/// must return a fatal error after partial progress, which is what lets the
+/// session tear down visibly; this test drives the writer only.
 #[test]
 fn partial_write_timeout_tears_session_down() {
     let (ours, theirs) = UnixStream::pair().expect("socketpair");

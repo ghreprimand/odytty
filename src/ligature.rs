@@ -971,7 +971,10 @@ fn whole_run_overlays(
 /// Split `range` into consecutive pieces of at most 255 cells (the widest span
 /// an overlay key addresses), cutting only at columns that no shaped cluster
 /// straddles. `None` when some piece has no such cut, so a single cluster wider
-/// than the limit is dropped as before rather than cut through.
+/// than the limit is dropped as before rather than cut through. Only the
+/// interior cuts are chosen and checked here: the caller must pass `range`
+/// endpoints that are already cluster boundaries, and a range of at most 255
+/// cells is returned unchanged.
 fn split_at_cluster_boundaries(
     on: &[ShapedGlyph],
     range: Range<usize>,

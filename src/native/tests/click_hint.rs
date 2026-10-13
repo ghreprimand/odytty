@@ -11,8 +11,7 @@
 //!
 //! Synthetic only: an absolute path is printed into the grid and the stat-gate is
 //! a `MapProbe` over a fixed in-memory map, so no test reaches the real
-//! filesystem. `/proj/...` is fabricated, never a real machine path. Skipped when
-//! no PTY is available (CI sandboxes).
+//! filesystem. `/proj/...` is fabricated, never a real machine path.
 
 use super::*;
 use crate::native::app::interactive_paths::MapProbe;
@@ -27,7 +26,7 @@ const CELL_H: u32 = 10;
 const PATH: &[u8] = b"/proj/src/main.rs";
 const PATH_LEN: usize = 17; // "/proj/src/main.rs"
 
-fn build_app(content: &[u8]) -> Option<App> {
+fn build_app(content: &[u8]) -> App {
     let dims = Dimensions::new(COLS, ROWS);
     let (mut app, terminal) =
         headless_app_with(NativeOptions::default(), dims, Settings::default());
@@ -36,7 +35,7 @@ fn build_app(content: &[u8]) -> Option<App> {
         t.advance(content);
     }
     app.set_test_cell_for_test(cell(CELL_W, CELL_H));
-    Some(app)
+    app
 }
 
 /// Position the pointer inside the path span at row 0 (col ~5 of the 17-char
@@ -68,10 +67,7 @@ fn hold_open_modifier(app: &mut App, held: bool) {
 
 #[test]
 fn ctrl_hover_over_resolved_path_arms_the_underline() {
-    let Some(mut app) = build_app(PATH) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(PATH);
     app.set_interactive_paths_for_test(true);
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
     hover_on_path(&mut app);
@@ -99,10 +95,7 @@ fn ctrl_hover_over_resolved_path_arms_the_underline() {
 
 #[test]
 fn armed_underline_is_inert_when_feature_off() {
-    let Some(mut app) = build_app(PATH) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(PATH);
     // Feature OFF (default): even with the open modifier held over the path
     // text, nothing is hovered (the scanner never runs) so nothing is armed -
     // byte-identical.
@@ -115,10 +108,7 @@ fn armed_underline_is_inert_when_feature_off() {
 
 #[test]
 fn armed_underline_absent_over_unresolved_span() {
-    let Some(mut app) = build_app(PATH) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(PATH);
     app.set_interactive_paths_for_test(true);
     // Empty fs map: the span is syntactically a path but resolves to nothing.
     app.set_test_path_probe_for_test(MapProbe::default());
@@ -133,10 +123,7 @@ fn armed_underline_absent_over_unresolved_span() {
 #[test]
 fn hovered_path_keeps_retained_marks_and_maps_back_to_its_cells() {
     let content = "\u{4e00} /proj/cafe\u{301}.txt";
-    let Some(mut app) = build_app(content.as_bytes()) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(content.as_bytes());
     app.set_interactive_paths_for_test(true);
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/cafe\u{301}.txt", FsKind::File)]));
     hold_open_modifier(&mut app, true);
@@ -159,10 +146,7 @@ fn hovered_path_keeps_retained_marks_and_maps_back_to_its_cells() {
 
 #[test]
 fn two_plain_misclicks_on_a_path_raise_the_hint() {
-    let Some(mut app) = build_app(PATH) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(PATH);
     app.set_interactive_paths_for_test(true);
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
     hover_on_path(&mut app);
@@ -183,10 +167,7 @@ fn two_plain_misclicks_on_a_path_raise_the_hint() {
 
 #[test]
 fn hint_silenced_when_click_hint_knob_off() {
-    let Some(mut app) = build_app(PATH) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(PATH);
     app.set_interactive_paths_for_test(true);
     app.set_interactive_paths_click_hint_for_test(false);
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
@@ -203,10 +184,7 @@ fn hint_silenced_when_click_hint_knob_off() {
 
 #[test]
 fn hint_inert_when_interactive_paths_off() {
-    let Some(mut app) = build_app(PATH) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(PATH);
     // Master gate OFF (default): no hover, no mis-click tracking, no hint.
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
     hover_on_path(&mut app);
@@ -220,10 +198,7 @@ fn hint_inert_when_interactive_paths_off() {
 
 #[test]
 fn misclick_off_a_path_does_not_raise_the_hint() {
-    let Some(mut app) = build_app(b"plain text with no path") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"plain text with no path");
     app.set_interactive_paths_for_test(true);
     app.set_test_path_probe_for_test(MapProbe::default());
     // Hover over plain text - no resolved path.
@@ -242,9 +217,7 @@ fn misclick_off_a_path_does_not_raise_the_hint() {
 /// the stale hover clears.
 #[test]
 fn a_path_removed_after_the_hover_is_not_opened() {
-    let Some(mut app) = build_app(PATH) else {
-        return;
-    };
+    let mut app = build_app(PATH);
     app.set_interactive_paths_for_test(true);
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
     hover_on_path(&mut app);
@@ -263,9 +236,7 @@ fn a_path_removed_after_the_hover_is_not_opened() {
 
 #[test]
 fn a_path_that_still_exists_stays_openable() {
-    let Some(mut app) = build_app(PATH) else {
-        return;
-    };
+    let mut app = build_app(PATH);
     app.set_interactive_paths_for_test(true);
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
     hover_on_path(&mut app);

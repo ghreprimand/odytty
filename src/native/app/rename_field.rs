@@ -76,6 +76,8 @@ impl FieldOwners {
     /// The first visible owner for a field `width` cells wide. Text that fits
     /// is shown from its start; longer text scrolls so the owner under the
     /// caret (or one cell for a caret at the end) is the last thing shown.
+    /// The field must be at least as wide as the widest owner: when the caret
+    /// owner is wider than `width`, the owner is returned and nothing fits.
     pub(super) fn visible_start(&self, caret: usize, width: usize) -> usize {
         let total: usize = self.spans.iter().map(|span| span.width).sum();
         if total <= width {

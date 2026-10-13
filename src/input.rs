@@ -18,8 +18,8 @@
 ///
 /// Printable text is carried as [`Key::Char`]; everything else is a named key.
 /// This mirrors the distinction `winit` draws between `Key::Character` and
-/// `Key::Named`, so callers can map onto it without information loss for the
-/// keys the prototype handles.
+/// `Key::Named`. [`Key::Char`] holds one logical scalar: physical-key identity
+/// and multi-scalar generated text are passed to the encoder separately.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
     /// A printable character (the front end has already resolved Shift/layout,
@@ -57,9 +57,10 @@ pub enum Key {
 
 /// Active modifier keys at the time of the press.
 ///
-/// `shift` is included for completeness but is not consulted by [`encode_key`]:
-/// front ends resolve Shift into the produced [`Key::Char`] glyph (and into
-/// [`Key::BackTab`] for Shift-Tab) before encoding.
+/// Front ends resolve Shift into the produced [`Key::Char`] glyph (and into
+/// [`Key::BackTab`] for Shift-Tab) before encoding. `shift` is still consulted
+/// for named keys' modifier parameters and by the Kitty, modifyOtherKeys and
+/// Win32 encodings.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Modifiers {
     pub ctrl: bool,
@@ -172,8 +173,10 @@ pub const KITTY_REPORT_ASSOCIATED_TEXT: u16 = 0b10000;
 ///
 /// Returns an empty vector when the key has no defined encoding; callers should
 /// treat an empty result as "ignore". Alt prefixes printable characters with
-/// `ESC`, matching xterm's meta-sends-escape convention; named keys carry Alt
-/// through the xterm modifier table instead. Ctrl turns [`Key::Char`] letters
+/// `ESC`, matching xterm's meta-sends-escape convention; cursor, editing and
+/// function keys carry Alt through the xterm modifier table instead. In legacy
+/// mode Enter, Tab, Backspace, Escape, Back-tab and keypad keys encode without
+/// Alt. Ctrl turns [`Key::Char`] letters
 /// into control bytes and named keys into modified CSI forms. If a windowing
 /// system has already translated a Ctrl chord into text, that text is retained
 /// rather than silently discarded.

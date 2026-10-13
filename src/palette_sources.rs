@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Pure, bounded candidate sources for the future command palette.
+//! Pure, bounded candidate sources for the command palette.
 //!
 //! Privacy boundary: shell history is local user data. This module only reads a
 //! caller-provided path, or a path derived from caller-provided shell/home
@@ -259,8 +259,8 @@ impl Default for DirectorySourceLimits {
 
 /// Small bounded most-recent-first directory source.
 ///
-/// The live palette can feed this from OSC 7 cwd updates later; this type only
-/// owns the pure de-duplication and bounds behavior.
+/// The live palette feeds this from OSC 7 cwd updates; this type only owns
+/// the pure de-duplication and bounds behavior.
 #[derive(Debug, Clone)]
 pub struct RecentDirs {
     limits: DirectorySourceLimits,

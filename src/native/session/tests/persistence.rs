@@ -301,10 +301,11 @@ fn is_single_pristine_workspace_true_for_a_fresh_launch() {
     assert!(set.is_single_pristine_workspace());
 }
 
-/// PRISTINE-CONSUME judges the lone pane too: a running or unreadable
+/// The pristine check judges the lone pane too: a running or unreadable
 /// foreground job, a remote or attached session, a launch profile on the pane
-/// or the workspace, a read-only pane, and a stacked or zoomed tab each make
-/// the window real state, so opening a layout asks instead of closing it.
+/// or the workspace, a read-only pane, and a stacked, floating or zoomed tab
+/// each make the window real state, so opening a layout asks instead of
+/// closing it.
 #[test]
 fn is_single_pristine_workspace_false_for_a_pane_with_real_state() {
     for job in [
@@ -343,6 +344,10 @@ fn is_single_pristine_workspace_false_for_a_pane_with_real_state() {
     let mut stacked = idle_fresh_launch();
     stacked.workspaces[0].tabs[0].arrangement = crate::native::float_layout::Arrangement::Stacked;
     assert!(!stacked.is_single_pristine_workspace(), "stacked");
+    let mut floating = idle_fresh_launch();
+    floating.workspaces[0].tabs[0].arrangement =
+        crate::native::float_layout::Arrangement::Floating(Default::default());
+    assert!(!floating.is_single_pristine_workspace(), "floating");
     let mut zoomed = idle_fresh_launch();
     zoomed.workspaces[0].tabs[0].zoomed = true;
     assert!(!zoomed.is_single_pristine_workspace(), "zoomed");

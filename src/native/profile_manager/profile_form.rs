@@ -461,7 +461,10 @@ impl ProfileManager {
                 ));
                 return ProfileManagerOutcome::Consumed;
             }
-            match optional_bool_field(&self.draft_follow_external_palette) {
+            match optional_bool_field(
+                &self.draft_follow_external_palette,
+                "follow external palette",
+            ) {
                 Ok(value) => profile.appearance.follow_external_palette = value,
                 Err(message) => {
                     self.error = Some(message);
@@ -512,21 +515,21 @@ impl ProfileManager {
             profile.cursor.style = enum_opt(&self.draft_cursor_style);
             profile.cursor.blink = enum_opt(&self.draft_cursor_blink);
             profile.effects.render_quality = enum_opt(&self.draft_render_quality);
-            profile.effects.bloom = match optional_bool_field(&self.draft_bloom) {
+            profile.effects.bloom = match optional_bool_field(&self.draft_bloom, "bloom") {
                 Ok(value) => value,
                 Err(_) => {
                     self.error = Some("bloom must be on, off, or inherit".to_owned());
                     return ProfileManagerOutcome::Consumed;
                 }
             };
-            profile.effects.crt = match optional_bool_field(&self.draft_crt) {
+            profile.effects.crt = match optional_bool_field(&self.draft_crt, "crt") {
                 Ok(value) => value,
                 Err(_) => {
                     self.error = Some("crt must be on, off, or inherit".to_owned());
                     return ProfileManagerOutcome::Consumed;
                 }
             };
-            profile.effects.retro = match optional_bool_field(&self.draft_retro) {
+            profile.effects.retro = match optional_bool_field(&self.draft_retro, "retro") {
                 Ok(value) => value,
                 Err(_) => {
                     self.error = Some("retro must be on, off, or inherit".to_owned());
@@ -1104,8 +1107,9 @@ fn nonempty_opt(value: &str) -> Option<String> {
 
 /// Interpret a tri-state toggle draft: `inherit`/empty is `None`, `on`/`off`
 /// (and common synonyms) are `Some(bool)`, anything else is a hard error the
-/// form surfaces inline rather than guessing.
-fn optional_bool_field(value: &str) -> Result<Option<bool>, String> {
+/// form surfaces inline rather than guessing. `field` names the setting in
+/// that error.
+fn optional_bool_field(value: &str, field: &str) -> Result<Option<bool>, String> {
     let trimmed = value.trim();
     if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("inherit") {
         return Ok(None);
@@ -1114,7 +1118,7 @@ fn optional_bool_field(value: &str) -> Result<Option<bool>, String> {
         "on" | "true" | "1" | "yes" => Ok(Some(true)),
         "off" | "false" | "0" | "no" => Ok(Some(false)),
         other => Err(format!(
-            "follow external palette must be inherit, on, or off, not {other:?}"
+            "{field} must be inherit, on, or off, not {other:?}"
         )),
     }
 }

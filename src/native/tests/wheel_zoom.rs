@@ -8,24 +8,22 @@
 //!
 //! Headless (no GPU/window): the wheel is driven through the real
 //! `handle_mouse_wheel` routing so the precedence is pinned, not reimplemented.
-//! Skipped when no PTY is available (CI sandboxes).
 
 use super::*;
 
 const COLS: usize = 80;
 const ROWS: usize = 24;
 
-/// Build an `App` over a one-shot PTY, feed `content` into its terminal, and
-/// return it. Mirrors the `scrollbar` harness. Returns `None` when no PTY is
-/// available.
-fn build_app(content: &[u8]) -> Option<App> {
+/// Build an `App` over a headless session, feed `content` into its terminal,
+/// and return it. Mirrors the `scrollbar` harness.
+fn build_app(content: &[u8]) -> App {
     let dims = Dimensions::new(COLS, ROWS);
     let (app, terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());
     {
         let mut t = terminal.lock().expect("terminal");
         t.advance(content);
     }
-    Some(app)
+    app
 }
 
 /// A PTY writer that records every byte written to it, so a test can assert the
@@ -49,10 +47,8 @@ impl Write for RecordingWriter {
 
 /// Like [`build_app`], but routes the App's PTY writes to a recording writer so
 /// a test can assert the bytes a Ctrl+wheel emits while a TUI has mouse
-/// reporting enabled. A real `PtySession` is still spawned for the session
-/// handle; only the write side is swapped. Returns `None` when no PTY is
-/// available.
-fn build_recording_app(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
+/// reporting enabled. Only the write side is swapped.
+fn build_recording_app(content: &[u8]) -> (App, Arc<Mutex<Vec<u8>>>) {
     let dims = Dimensions::new(COLS, ROWS);
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
@@ -63,15 +59,12 @@ fn build_recording_app(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
         let mut t = terminal.lock().expect("terminal");
         t.advance(content);
     }
-    Some((app, bytes))
+    (app, bytes)
 }
 
 #[test]
 fn ctrl_wheel_zooms_font_when_reporting_off() {
-    let Some(mut app) = build_app(b"") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"");
     let base = app.font_size_px_for_test();
     assert_eq!(base, DEFAULT_FONT_SIZE_PX);
 
@@ -94,10 +87,7 @@ fn ctrl_wheel_zooms_font_when_reporting_off() {
 fn plain_wheel_without_ctrl_never_zooms() {
     // The byte-identical default path: a wheel with no Ctrl scrolls scrollback
     // and never touches the font size, even with `wheel_zoom` on.
-    let Some(mut app) = build_app(&b"scrollback line\r\n".repeat(80)) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(&b"scrollback line\r\n".repeat(80));
     let base = app.font_size_px_for_test();
     // Ctrl is never set in this test, so the zoom branch cannot fire.
     app.dispatch_wheel_for_test(1.0);
@@ -117,10 +107,7 @@ fn ctrl_wheel_does_not_zoom_in_a_mouse_reporting_app() {
     // put AND the emitted bytes match the production wheel-up report at the
     // pointer cell - so this proves the report path actually ran, not merely
     // that the zoom branch was skipped.
-    let Some((mut app, pty_bytes)) = build_recording_app(b"") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, pty_bytes) = build_recording_app(b"");
     let base = app.font_size_px_for_test();
     app.enable_mouse_reporting_for_test();
     assert!(app.would_report_mouse_to_pty_for_test());
@@ -178,10 +165,7 @@ fn ctrl_wheel_over_open_overlay_does_not_zoom() {
     // first to scroll its own list, before the report gate or the zoom branch.
     // So Ctrl+wheel over an open overlay must not change the font size - this is
     // intentional, not an oversight.
-    let Some(mut app) = build_app(b"") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"");
     app.open_settings_overlay_for_test();
     let base = app.font_size_px_for_test();
     app.set_ctrl_modifier_for_test(true);
@@ -199,10 +183,7 @@ fn wheel_zoom_off_switch_routes_ctrl_wheel_as_plain_scroll() {
     // Inverted-gate parity: with `wheel_zoom = false`, Ctrl+wheel falls through
     // to plain scrollback movement - the font is untouched and the viewport
     // scrolls into history exactly as a plain wheel would.
-    let Some(mut app) = build_app(&b"scrollback line\r\n".repeat(80)) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(&b"scrollback line\r\n".repeat(80));
     if app.scrollback_len_for_test() == 0 {
         eprintln!("skipping: no scrollback materialized");
         return;
@@ -234,10 +215,7 @@ fn ctrl_wheel_clamps_at_font_size_bounds() {
     // physical notch (the cap that ends runaway zoom), so reaching a bound takes
     // one notch per pixel of headroom rather than a single giant event. Each
     // `dispatch_wheel_for_test(1.0)` is one clean discrete notch == one step.
-    let Some(mut app) = build_app(b"") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(b"");
     app.set_ctrl_modifier_for_test(true);
 
     // Step up one notch at a time until pinned at the maximum. The font range is

@@ -701,7 +701,7 @@ mod tests {
         let first = layout.entries[0].rect.unwrap();
         let second = layout.entries[1].rect.unwrap();
         assert_eq!(first.col, 0);
-        assert!(first.col + first.cols <= second.col + 1, "tiles stay apart");
+        assert!(first.col + first.cols <= second.col, "tiles stay apart");
         assert_eq!(first.rows, 25);
     }
 

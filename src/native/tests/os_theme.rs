@@ -3,8 +3,8 @@
 //! appearance preference selects between a configured dark and light theme
 //! through the real override path, while the off path (and an unset/unknown
 //! direction) leaves the authored theme in place - byte-identical to before the
-//! feature existed. These drive a real `App` over a one-shot PTY (skipped when
-//! none is available); no GPU is needed since the active theme is observable
+//! feature existed. These drive a real `App` over a headless session that owns
+//! no PTY child; no GPU is needed since the active theme is observable
 //! before any surface exists.
 
 use super::*;
@@ -13,26 +13,22 @@ use winit::window::Theme as WinitTheme;
 const COLS: usize = 40;
 const ROWS: usize = 8;
 
-/// Build an `App` over a one-shot PTY whose authored theme is `theme`. Returns
-/// `None` when no PTY is available.
-fn build_app(theme: Theme) -> Option<App> {
+/// Build an `App` over a headless session whose authored theme is `theme`.
+fn build_app(theme: Theme) -> App {
     let dims = Dimensions::new(COLS, ROWS);
     let settings = Settings {
         theme,
         ..Default::default()
     };
     let (app, _terminal) = headless_app_with(NativeOptions::default(), dims, settings);
-    Some(app)
+    app
 }
 
 #[test]
 fn following_off_keeps_the_authored_theme_on_any_os_signal() {
     let _render_globals = crate::test_lock::render_globals_lock();
     let authored = Theme::ODYSSEY;
-    let Some(mut app) = build_app(authored) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(authored);
     // The pure resolver returns the authored theme exactly while following is
     // off - the byte-identical off-path guarantee.
     assert_eq!(app.resolve_active_theme_for_test(), authored);
@@ -53,10 +49,7 @@ fn following_off_keeps_the_authored_theme_on_any_os_signal() {
 fn following_on_switches_between_dark_and_light_themes() {
     let _render_globals = crate::test_lock::render_globals_lock();
     let authored = Theme::ODYSSEY;
-    let Some(mut app) = build_app(authored) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(authored);
 
     // Dark signal selects the configured dark theme.
     let dark = app.apply_os_theme_for_test(
@@ -83,10 +76,7 @@ fn following_on_switches_between_dark_and_light_themes() {
 fn unset_or_unknown_direction_falls_back_to_the_authored_theme() {
     let _render_globals = crate::test_lock::render_globals_lock();
     let authored = Theme::ODYSSEY;
-    let Some(mut app) = build_app(authored) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(authored);
 
     // Dark direction unset → a dark signal keeps the authored theme (no guess).
     let resolved = app.apply_os_theme_for_test(true, None, Some("plain"), Some(WinitTheme::Dark));
@@ -125,10 +115,7 @@ fn defaults_are_off_path_identity() {
 fn profile_theme_survives_sweeps_and_drives_chrome() {
     let _render_globals = crate::test_lock::render_globals_lock();
     let authored = Theme::ODYSSEY;
-    let Some(mut app) = build_app(authored) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = build_app(authored);
     let dracula = Theme::from_name("dracula").expect("dracula builtin");
 
     // The active (only) session is a plain tab: chrome is the global theme.

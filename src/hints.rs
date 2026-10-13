@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Pattern hints (HINTS core): a pure scanner that finds URLs, filesystem
+//! Pattern hints: a pure scanner that finds URLs, filesystem
 //! paths, and git SHAs in a text snapshot and hands back labeled, absolute-cell
 //! matches a front end can light up for keyboard quick-select.
 //!
-//! This is the rendering-free core. The native layer supplies keyboard
-//! activation, the label overlay, and the copy/open action; everything here is
-//! a pure function of its input.
+//! This is the rendering-free core of hints mode. The native layer supplies
+//! keyboard activation, the label overlay, and the copy/open action;
+//! everything here is a pure function of its input.
 //!
 //! ## Input
 //!
@@ -26,11 +26,13 @@
 //! the last covered cell, `+1` on a wide glyph). Reusing it keeps hints, search,
 //! and selection on one coordinate convention.
 //!
-//! ## What matches (v1)
+//! ## What matches
 //!
 //! * **URLs** - a recognized scheme (`http`/`https`/`ftp`/`ftps`/`ssh`/`git`/
 //!   `file://`, plus `mailto:`) followed by a non-empty body of URL characters.
-//! * **Paths** - absolute (`/…`), home (`~/…`), and relative (`./…`, `../…`).
+//! * **Paths** - Unix-style absolute (`/…`), home (`~/…`), and relative
+//!   (`./…`, `../…`) prefixes, on every platform. Windows drive-letter and
+//!   backslash paths are not matched.
 //! * **SHAs** - a word-bounded run of 7–40 hex digits that is not purely decimal.
 //!
 //! All matching is hand-rolled (no regex dependency) and deterministic.

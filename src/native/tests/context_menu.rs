@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! IN2 App-level right-click context-menu tests. These drive a real `App` (with
-//! a one-shot PTY, skipped when none is available) through the production
+//! App-level right-click context-menu tests. These drive a real `App` (over a
+//! headless session that owns no PTY child) through the production
 //! `handle_mouse_input` routing, pinning the load-bearing traps from the
 //! ratified design: the TUI passthrough gate, the Shift override,
 //! main-overlay precedence, off-path identity, Copy gating, and
@@ -16,13 +16,9 @@ use super::super::context_menu_ui::{
 use super::super::session::{Session, SessionToken, WorkspaceSet};
 use super::*;
 
-fn app_for_test() -> Option<(App, Arc<Mutex<Terminal>>)> {
+fn app_for_test() -> (App, Arc<Mutex<Terminal>>) {
     let dims = Dimensions::new(80, 24);
-    Some(headless_app_with(
-        NativeOptions::default(),
-        dims,
-        Settings::default(),
-    ))
+    headless_app_with(NativeOptions::default(), dims, Settings::default())
 }
 
 fn app_for_test_with_proxy() -> Result<App, &'static str> {
@@ -60,7 +56,7 @@ impl Write for RecordingWriter {
     }
 }
 
-fn app_with_recording_writer(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
+fn app_with_recording_writer(content: &[u8]) -> (App, Arc<Mutex<Vec<u8>>>) {
     let dims = Dimensions::new(80, 24);
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
@@ -68,7 +64,7 @@ fn app_with_recording_writer(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>
     let (app, terminal) =
         headless_app_with_writer(NativeOptions::default(), dims, Settings::default(), writer);
     terminal.lock().expect("terminal").advance(content);
-    Some((app, bytes))
+    (app, bytes)
 }
 
 /// RC-19b: same as [`app_with_recording_writer`], but also hands back the
@@ -79,7 +75,7 @@ fn app_with_recording_writer(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>
 #[allow(clippy::type_complexity)]
 fn app_with_recording_writer_and_terminal(
     content: &[u8],
-) -> Option<(App, Arc<Mutex<Vec<u8>>>, Arc<Mutex<Terminal>>)> {
+) -> (App, Arc<Mutex<Vec<u8>>>, Arc<Mutex<Terminal>>) {
     let dims = Dimensions::new(80, 24);
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
@@ -87,7 +83,7 @@ fn app_with_recording_writer_and_terminal(
     let (app, terminal) =
         headless_app_with_writer(NativeOptions::default(), dims, Settings::default(), writer);
     terminal.lock().expect("terminal").advance(content);
-    Some((app, bytes, terminal))
+    (app, bytes, terminal)
 }
 
 /// Click the open context-menu item whose rendered row contains `needle`,
@@ -154,10 +150,7 @@ fn activate_workspace_rename(app: &mut App, idx: usize) {
 fn workspace_rename_is_visible_and_restores_input_for_split_active_and_inactive_targets() {
     use winit::keyboard::NamedKey;
 
-    let Some((mut app, _base_bytes)) = app_with_recording_writer(b"") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _base_bytes) = app_with_recording_writer(b"");
     let dims = Dimensions::new(80, 24);
     app.set_test_cell_for_test(cell(10, 20));
     app.set_test_surface_for_test(800, 480, WindowPadding::ZERO);
@@ -558,10 +551,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
 
 #[test]
 fn right_click_opens_menu_in_a_plain_shell() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     app.set_pointer_cell_for_test(5, 10);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
 
@@ -580,10 +570,7 @@ fn right_click_opens_menu_in_a_plain_shell() {
 
 #[test]
 fn context_menu_open_replaces_the_grid_i_beam_immediately() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     app.set_test_cell_for_test(cell(8, 10));
     app.pointer_move_for_test(28.0, 25.0);
     assert_eq!(
@@ -607,10 +594,7 @@ fn right_click_over_resolved_path_shows_file_section() {
     // Right-clicking over a resolved interactive path (feature on) re-detects
     // the path at the click cell and surfaces the file section. Synthetic only:
     // the stat-gate is a MapProbe over a fixed map; `/proj/...` is fabricated.
-    let Some((mut app, terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, terminal) = app_for_test();
     terminal
         .lock()
         .expect("terminal")
@@ -651,10 +635,7 @@ fn right_click_over_resolved_path_shows_file_section() {
 fn right_click_over_path_with_feature_off_has_no_file_section() {
     // BYTE-IDENTITY GUARD: with the feature off (default), the same right-click
     // over path-looking text never scans and the menu carries no file section.
-    let Some((mut app, terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, terminal) = app_for_test();
     terminal
         .lock()
         .expect("terminal")
@@ -687,10 +668,7 @@ fn right_click_over_path_with_feature_off_has_no_file_section() {
 
 #[test]
 fn right_clicking_tab_enables_rename_for_that_tab() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal2 = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
@@ -722,10 +700,7 @@ fn right_clicking_tab_enables_rename_for_that_tab() {
 
 #[test]
 fn plain_context_menu_open_disables_rename_tab() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal2 = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
@@ -744,10 +719,7 @@ fn plain_context_menu_open_disables_rename_tab() {
 
 #[test]
 fn right_click_with_no_pointer_cell_does_not_open() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     // No pointer cell injected: open is a no-op.
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(!app.context_menu_open_for_test());
@@ -757,10 +729,7 @@ fn right_click_with_no_pointer_cell_does_not_open() {
 /// PTY (report gate, step 6) and the menu never opens (step 7 unreached).
 #[test]
 fn tui_right_click_reports_and_does_not_open_menu() {
-    let Some((mut app, terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, terminal) = app_for_test();
     enable_tui_mouse_reporting(&terminal);
     assert!(
         app.would_report_mouse_to_pty_for_test(),
@@ -783,10 +752,7 @@ fn tui_right_click_reports_and_does_not_open_menu() {
 /// `should_report_mouse_to_pty`), so the menu opens even inside a TUI.
 #[test]
 fn shift_right_click_opens_menu_even_in_a_tui() {
-    let Some((mut app, terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, terminal) = app_for_test();
     enable_tui_mouse_reporting(&terminal);
     app.set_shift_modifier_for_test(true);
     assert!(
@@ -810,10 +776,7 @@ fn shift_right_click_opens_menu_even_in_a_tui() {
 /// overlay handler (step 1), never reaching the context-menu open step.
 #[test]
 fn right_click_while_settings_overlay_open_does_not_open_context_menu() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     app.open_settings_overlay_for_test();
     let rect = app.overlay_rect_for_test().expect("overlay rect");
     // The top-left corner is inside the panel box but on the border (inert), so
@@ -834,10 +797,7 @@ fn right_click_while_settings_overlay_open_does_not_open_context_menu() {
 /// at the default, so the closed-overlay render is byte-identical to today.
 #[test]
 fn off_path_signature_is_default_and_closed() {
-    let Some((app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (app, _terminal) = app_for_test();
     let sig = app.overlay_signature_for_test();
     assert_ne!(sig.mode, OverlayMode::ContextMenu);
     assert_eq!(
@@ -850,10 +810,7 @@ fn off_path_signature_is_default_and_closed() {
 /// Copy is gated on a live selection: disabled with none, enabled with one.
 #[test]
 fn copy_gating_reflects_live_selection() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     // No selection: Copy disabled.
     app.set_pointer_cell_for_test(5, 10);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
@@ -878,11 +835,9 @@ fn copy_gating_reflects_live_selection() {
 
 #[test]
 fn cut_delete_gating_requires_editable_prompt_input() {
-    let Some((mut app, _bytes)) = app_with_recording_writer(
+    let (mut app, _bytes) = app_with_recording_writer(
         b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
-    ) else {
-        return;
-    };
+    );
     app.set_pointer_cell_for_test(5, 10);
 
     app.force_selection_for_test(0, 0, 0, 4);
@@ -914,9 +869,7 @@ fn cut_delete_gating_requires_editable_prompt_input() {
 
 #[test]
 fn cut_delete_disabled_hint_points_to_shell_integration_when_prompt_mark_missing() {
-    let Some((mut app, _bytes)) = app_with_recording_writer(b"$ abc") else {
-        return;
-    };
+    let (mut app, _bytes) = app_with_recording_writer(b"$ abc");
     app.force_selection_for_test(0, 0, 0, 4);
     app.set_pointer_cell_for_test(5, 10);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
@@ -938,11 +891,9 @@ fn cut_delete_disabled_hint_points_to_shell_integration_when_prompt_mark_missing
 
 #[test]
 fn cut_delete_enabled_when_prompt_mark_is_present() {
-    let Some((mut app, _bytes)) = app_with_recording_writer(
+    let (mut app, _bytes) = app_with_recording_writer(
         b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
-    ) else {
-        return;
-    };
+    );
     app.force_selection_for_test(0, 0, 0, 4);
     app.set_pointer_cell_for_test(5, 10);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
@@ -955,11 +906,9 @@ fn cut_delete_enabled_when_prompt_mark_is_present() {
 
 #[test]
 fn delete_selected_input_sends_shell_edit_bytes_without_copying() {
-    let Some((mut app, bytes)) = app_with_recording_writer(
+    let (mut app, bytes) = app_with_recording_writer(
         b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
-    ) else {
-        return;
-    };
+    );
     app.force_selection_for_test(0, 0, 0, 4);
     app.set_pointer_cell_for_test(5, 10);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
@@ -985,11 +934,9 @@ fn delete_selected_input_sends_shell_edit_bytes_without_copying() {
 /// Delete item, and clears the stale visual selection.
 #[test]
 fn delete_key_deletes_editable_selection_like_menu() {
-    let Some((mut app, bytes)) = app_with_recording_writer(
+    let (mut app, bytes) = app_with_recording_writer(
         b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
-    ) else {
-        return;
-    };
+    );
     app.force_selection_for_test(0, 0, 0, 4);
     app.set_pointer_cell_for_test(5, 10);
 
@@ -1015,11 +962,9 @@ fn delete_key_deletes_editable_selection_like_menu() {
 /// (the universal GUI convention - either key removes the selection).
 #[test]
 fn backspace_key_deletes_editable_selection() {
-    let Some((mut app, bytes)) = app_with_recording_writer(
+    let (mut app, bytes) = app_with_recording_writer(
         b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
-    ) else {
-        return;
-    };
+    );
     app.force_selection_for_test(0, 0, 0, 4);
     app.set_pointer_cell_for_test(5, 10);
 
@@ -1036,9 +981,7 @@ fn backspace_key_deletes_editable_selection() {
 
 #[test]
 fn delete_key_with_missing_prompt_mark_clears_selection_and_hints() {
-    let Some((mut app, bytes)) = app_with_recording_writer(b"$ abc") else {
-        return;
-    };
+    let (mut app, bytes) = app_with_recording_writer(b"$ abc");
     app.force_selection_for_test(0, 0, 0, 4);
     app.set_pointer_cell_for_test(5, 10);
 
@@ -1072,11 +1015,9 @@ fn delete_key_on_input_row_outside_input_no_ops_with_hint() {
     // non-input cells (here the prompt "$"; same rung as a right-aligned
     // decoration) must consume the key as a hinted no-op - never forward a
     // blind Delete byte that would eat a character at the cursor.
-    let Some((mut app, bytes)) = app_with_recording_writer(
+    let (mut app, bytes) = app_with_recording_writer(
         b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
-    ) else {
-        return;
-    };
+    );
     // Prompt-only selection (column 0..1 covers "$"): no editable clipped text.
     app.force_selection_for_test(0, 0, 0, 1);
     app.set_pointer_cell_for_test(5, 10);
@@ -1103,11 +1044,9 @@ fn delete_key_on_input_row_outside_input_no_ops_with_hint() {
 /// normal key encode - byte-identical to before the feature.
 #[test]
 fn delete_key_falls_through_when_selection_not_on_input_region() {
-    let Some((mut app, bytes)) = app_with_recording_writer(
+    let (mut app, bytes) = app_with_recording_writer(
         b"output line\r\n\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
-    ) else {
-        return;
-    };
+    );
     // Select on row 0 ("output line"), while the prompt input lives on row 1.
     app.force_selection_for_test(0, 0, 0, 5);
     app.set_pointer_cell_for_test(5, 10);
@@ -1123,9 +1062,7 @@ fn delete_key_falls_through_when_selection_not_on_input_region() {
 
 #[test]
 fn delete_key_without_selection_still_falls_through() {
-    let Some((mut app, bytes)) = app_with_recording_writer(b"$ abc") else {
-        return;
-    };
+    let (mut app, bytes) = app_with_recording_writer(b"$ abc");
 
     app.drive_named_key_for_test(NamedKey::Delete);
 
@@ -1148,9 +1085,7 @@ fn right_aligned_decoration_is_not_deletable_as_input() {
     // Prompt + "abc", then a decoration painted at column 15 with the cursor
     // saved/restored back to the input, then the edit-region report (len=3).
     let content = b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b7\x1b[1;16H23.1s\x1b8\x1b]133;P;odytty-edit;len=3;cur=3\x07";
-    let Some((mut app, bytes)) = app_with_recording_writer(content) else {
-        return;
-    };
+    let (mut app, bytes) = app_with_recording_writer(content);
     // Select the decoration cells only (columns 15..19).
     app.force_selection_for_test(0, 15, 0, 19);
     app.set_pointer_cell_for_test(5, 10);
@@ -1172,9 +1107,7 @@ fn right_aligned_decoration_is_not_deletable_as_input() {
 #[test]
 fn whole_row_selection_deletes_only_the_reported_input() {
     let content = b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b7\x1b[1;16H23.1s\x1b8\x1b]133;P;odytty-edit;len=3;cur=3\x07";
-    let Some((mut app, bytes)) = app_with_recording_writer(content) else {
-        return;
-    };
+    let (mut app, bytes) = app_with_recording_writer(content);
     // Select the entire row: prompt, input, gap, decoration.
     app.force_selection_for_test(0, 0, 0, 19);
     app.set_pointer_cell_for_test(5, 10);
@@ -1199,9 +1132,7 @@ fn mid_input_cursor_reconciles_and_deletes_exactly() {
     // then report len=4 cur=2.
     let content =
         b"\x1b]133;A\x07$ \x1b]133;B\x07abcd\x1b[2D\x1b]133;P;odytty-edit;len=4;cur=2\x07";
-    let Some((mut app, bytes)) = app_with_recording_writer(content) else {
-        return;
-    };
+    let (mut app, bytes) = app_with_recording_writer(content);
     // Select all four input cells (columns 2..5).
     app.force_selection_for_test(0, 2, 0, 5);
     app.set_pointer_cell_for_test(5, 10);
@@ -1224,10 +1155,7 @@ fn mid_input_cursor_reconciles_and_deletes_exactly() {
 /// select+Delete off for every shell without the private OSC.
 #[test]
 fn input_without_edit_region_report_deletes_single_row_heuristically() {
-    let Some((mut app, bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
-    else {
-        return;
-    };
+    let (mut app, bytes) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc");
     app.force_selection_for_test(0, 2, 0, 4);
     app.set_pointer_cell_for_test(5, 10);
 
@@ -1255,11 +1183,7 @@ fn input_without_edit_region_report_deletes_single_row_heuristically() {
 /// no-op on Windows under the strict ODP-3 gate.
 #[test]
 fn powershell_prompt_without_report_deletes_single_row_heuristically() {
-    let Some((mut app, bytes)) =
-        app_with_recording_writer(b"\x1b]133;A\x07PS C:\\> \x1b]133;B\x07dir")
-    else {
-        return;
-    };
+    let (mut app, bytes) = app_with_recording_writer(b"\x1b]133;A\x07PS C:\\> \x1b]133;B\x07dir");
     // Prompt "PS C:\> " spans columns 0..7; input "dir" sits at columns 8..10.
     app.force_selection_for_test(0, 8, 0, 10);
     app.set_pointer_cell_for_test(5, 10);
@@ -1284,9 +1208,7 @@ fn multi_row_input_without_report_stays_a_hinted_no_op() {
     // 78 bytes fill row 0 from column 2 to the 80-column right edge, so the
     // input soft-wraps onto row 1 - a two-row region with no signal.
     let content = wrapped_input_content(&[b'a'; 78], b"bbb", b"");
-    let Some((mut app, bytes)) = app_with_recording_writer(&content) else {
-        return;
-    };
+    let (mut app, bytes) = app_with_recording_writer(&content);
     app.force_selection_for_test(1, 0, 1, 2);
     app.set_pointer_cell_for_test(5, 10);
 
@@ -1325,9 +1247,7 @@ fn no_signal_decoration_is_heuristically_deletable_by_design() {
     // Prompt + "abc" (cursor restored to column 5), decoration at columns
     // 15..19 - and NO edit-region report.
     let content = b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b7\x1b[1;16H23.1s\x1b8";
-    let Some((mut app, bytes)) = app_with_recording_writer(content) else {
-        return;
-    };
+    let (mut app, bytes) = app_with_recording_writer(content);
     // Select the decoration cells only (columns 15..19).
     app.force_selection_for_test(0, 15, 0, 19);
     app.set_pointer_cell_for_test(5, 10);
@@ -1351,9 +1271,7 @@ fn malformed_edit_region_report_blocks_selection_delete() {
         let content = format!(
             "\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07\x1b]133;P;odytty-edit;{report}\x07"
         );
-        let Some((mut app, bytes)) = app_with_recording_writer(content.as_bytes()) else {
-            return;
-        };
+        let (mut app, bytes) = app_with_recording_writer(content.as_bytes());
         app.force_selection_for_test(0, 2, 0, 4);
         app.set_pointer_cell_for_test(5, 10);
         app.drive_named_key_for_test(NamedKey::Delete);
@@ -1389,9 +1307,7 @@ fn wrapped_selection_crossing_wrap_deletes_exactly() {
         &[b'b'; 5],
         b"\x1b]133;P;odytty-edit;len=83;cur=83\x07",
     );
-    let Some((mut app, bytes)) = app_with_recording_writer(&content) else {
-        return;
-    };
+    let (mut app, bytes) = app_with_recording_writer(&content);
     // Select row 0 cols 70..79 (10 glyphs) through row 1 cols 0..2 (3 glyphs).
     app.force_selection_for_test(0, 70, 1, 2);
     app.set_pointer_cell_for_test(5, 10);
@@ -1428,9 +1344,7 @@ fn wrapped_cursor_before_wrap_synthesizes_right_motion() {
         b"\x1b]133;P;odytty-edit;len=83;cur=73\x07",
     );
     content.extend_from_slice(b"\x1b[1;76H"); // cursor to (0, 75), 0-based
-    let Some((mut app, bytes)) = app_with_recording_writer(&content) else {
-        return;
-    };
+    let (mut app, bytes) = app_with_recording_writer(&content);
     // Select row 1 cols 1..3 (glyph offsets 79..81).
     app.force_selection_for_test(1, 1, 1, 3);
     app.set_pointer_cell_for_test(5, 10);
@@ -1459,9 +1373,7 @@ fn wide_glyph_straddling_wrap_counts_exactly() {
         &second,
         b"\x1b]133;P;odytty-edit;len=80;cur=80\x07",
     );
-    let Some((mut app, bytes)) = app_with_recording_writer(&content) else {
-        return;
-    };
+    let (mut app, bytes) = app_with_recording_writer(&content);
     // Select row 0 cols 75..79 (4 glyphs + the filler) through row 1 cols
     // 0..1 (the wide glyph, 1 glyph): 5 buffer glyphs, filler excluded.
     app.force_selection_for_test(0, 75, 1, 1);
@@ -1485,9 +1397,7 @@ fn wide_glyph_straddling_wrap_counts_exactly() {
 fn hard_newline_report_no_ops_with_hint() {
     let content =
         b"\x1b]133;A\x07$ \x1b]133;B\x07for x in 1\r\necho\x1b]133;P;odytty-edit;len=15;cur=15;nl=10\x07";
-    let Some((mut app, bytes)) = app_with_recording_writer(content) else {
-        return;
-    };
+    let (mut app, bytes) = app_with_recording_writer(content);
     app.force_selection_for_test(0, 2, 0, 8);
     app.set_pointer_cell_for_test(5, 10);
 
@@ -1512,9 +1422,7 @@ fn wrapped_selection_beyond_input_end_no_ops() {
         &[b'b'; 5],
         b"\x1b]133;P;odytty-edit;len=83;cur=83\x07",
     );
-    let Some((mut app, bytes)) = app_with_recording_writer(&content) else {
-        return;
-    };
+    let (mut app, bytes) = app_with_recording_writer(&content);
     // Row 1 input ends at col 5 (exclusive); select cols 10..15.
     app.force_selection_for_test(1, 10, 1, 15);
     app.set_pointer_cell_for_test(5, 10);
@@ -1534,11 +1442,9 @@ fn wrapped_selection_beyond_input_end_no_ops() {
 /// activated) but the text and selection survive intact.
 #[test]
 fn cut_clipboard_failure_leaves_input_and_selection_intact() {
-    let Some((mut app, bytes)) = app_with_recording_writer(
+    let (mut app, bytes) = app_with_recording_writer(
         b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
-    ) else {
-        return;
-    };
+    );
     // Force clipboard writes to fail so we exercise the fail-safe path.
     app.force_clipboard_write_fail_for_test();
 
@@ -1575,11 +1481,9 @@ fn cut_clipboard_failure_leaves_input_and_selection_intact() {
 /// twin forces it to fail), so Cut that stops sending the edit bytes fails here.
 #[test]
 fn cut_selected_input_sends_edit_bytes_when_clipboard_succeeds() {
-    let Some((mut app, bytes)) = app_with_recording_writer(
+    let (mut app, bytes) = app_with_recording_writer(
         b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
-    ) else {
-        return;
-    };
+    );
 
     app.force_selection_for_test(0, 0, 0, 4);
     app.set_pointer_cell_for_test(5, 10);
@@ -1607,10 +1511,7 @@ fn cut_selected_input_sends_edit_bytes_when_clipboard_succeeds() {
 /// whole buffer (the absolute range from row 0 to the last visible row).
 #[test]
 fn clicking_select_all_selects_whole_buffer_and_closes() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     app.set_pointer_cell_for_test(5, 10);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
@@ -1636,10 +1537,7 @@ fn clicking_select_all_selects_whole_buffer_and_closes() {
 /// Clicking outside the open menu dismisses it (existing out-of-rect path).
 #[test]
 fn clicking_outside_the_menu_dismisses_it() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     app.set_pointer_cell_for_test(5, 10);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
@@ -1685,10 +1583,7 @@ fn clicking_new_tab_spawns_session_and_closes_menu() {
 
 #[test]
 fn clicking_close_tab_closes_active_session_and_keeps_neighbor_active() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal2 = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
@@ -1715,10 +1610,7 @@ fn clicking_close_tab_closes_active_session_and_keeps_neighbor_active() {
 /// onto the wrong row.
 #[test]
 fn clicking_settings_opens_settings_panel_and_closes_menu() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     app.set_pointer_cell_for_test(5, 10);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(
@@ -1746,10 +1638,7 @@ fn clicking_settings_opens_settings_panel_and_closes_menu() {
 
 #[test]
 fn tab_strip_menu_settings_opens_tabs_and_panes() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     app.set_pointer_cell_for_test(5, 10);
     app.open_empty_tab_strip_menu_for_test();
     click_menu_item(&mut app, "Settings");
@@ -1758,10 +1647,7 @@ fn tab_strip_menu_settings_opens_tabs_and_panes() {
 
 #[test]
 fn workspace_menu_settings_opens_tabs_and_panes() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     app.set_pointer_cell_for_test(5, 10);
     app.open_workspace_rail_menu_for_test(0);
     // Settings is the ninth selectable row: New, New with Profile, Duplicate,
@@ -1788,10 +1674,7 @@ fn workspace_menu_settings_opens_tabs_and_panes() {
 /// is taken.
 #[test]
 fn clicking_separator_rows_is_inert() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     app.set_pointer_cell_for_test(5, 10);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
@@ -1834,10 +1717,7 @@ fn clicking_separator_rows_is_inert() {
 /// `set_accelerators` path covers them and they auto-track rebinds.
 #[test]
 fn launcher_items_show_live_accelerator_labels() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     app.set_pointer_cell_for_test(5, 10);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
@@ -1883,10 +1763,7 @@ fn launcher_items_show_live_accelerator_labels() {
 /// opens the matching overlay through the production outcome→App apply path.
 #[test]
 fn clicking_connection_manager_opens_the_connection_overlay() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     app.set_pointer_cell_for_test(5, 10);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
@@ -1901,10 +1778,7 @@ fn clicking_connection_manager_opens_the_connection_overlay() {
 
 #[test]
 fn clicking_command_palette_opens_the_palette_overlay() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     app.set_pointer_cell_for_test(5, 10);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
@@ -1919,10 +1793,7 @@ fn clicking_command_palette_opens_the_palette_overlay() {
 
 #[test]
 fn clicking_session_replay_opens_the_replay_overlay() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     app.set_pointer_cell_for_test(5, 10);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
@@ -1941,10 +1812,7 @@ fn clicking_session_replay_opens_the_replay_overlay() {
 /// empty-list hint state - the assertion is on the overlay mode switch.
 #[test]
 fn clicking_attach_session_opens_the_session_attach_overlay() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     app.set_pointer_cell_for_test(5, 10);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
@@ -1962,10 +1830,7 @@ fn clicking_attach_session_opens_the_session_attach_overlay() {
 /// names the default directory - the assertion is on the overlay mode switch.
 #[test]
 fn clicking_detach_switch_opens_the_choice_dialog() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     app.set_pointer_cell_for_test(5, 10);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
@@ -1984,10 +1849,7 @@ fn clicking_detach_switch_opens_the_choice_dialog() {
 #[test]
 #[cfg(unix)]
 fn detach_switch_spawn_failure_raises_notice_and_keeps_panes() {
-    let Some((mut app, _terminal)) = app_for_test() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _terminal) = app_for_test();
     let before = app.session_count_for_test();
     assert!(
         app.open_notice_message_for_test().is_none(),
@@ -2034,10 +1896,7 @@ fn editable_input_selection_survives_a_width_change_resize() {
         b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
     );
 
-    let Some((mut app, _bytes, terminal)) = app_with_recording_writer_and_terminal(&content) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _bytes, terminal) = app_with_recording_writer_and_terminal(&content);
 
     // PRE: locate the live input row in absolute (scrollback + cursor) terms
     // and select across the prompt text into the input, exactly like
@@ -2083,8 +1942,8 @@ fn editable_input_selection_survives_a_width_change_resize() {
 /// FIX-A helper: a left-rail App with two workspaces, so a right-press on rail
 /// slot 0 opens the `WorkspaceSlot` context menu through the real
 /// `handle_mouse_input` route. `None` when no PTY fixture is available.
-fn rail_two_workspace_app() -> Option<App> {
-    let (mut app, _terminal) = app_for_test()?;
+fn rail_two_workspace_app() -> App {
+    let (mut app, _terminal) = app_for_test();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_workspace_rail_for_test("left");
     // A second workspace so the rail has a real slot 0 to right-click.
@@ -2093,7 +1952,7 @@ fn rail_two_workspace_app() -> Option<App> {
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     app.push_headless_workspace_for_test(terminal, writer, dims);
-    Some(app)
+    app
 }
 
 #[test]
@@ -2103,10 +1962,7 @@ fn opening_a_rail_context_menu_never_probes_the_clipboard() {
     // open, blocking the winit event-loop thread. The Paste item is now shown
     // optimistically, so the open path must not touch the clipboard at all. Drive
     // the real right-press route on a rail slot and assert zero clipboard reads.
-    let Some(mut app) = rail_two_workspace_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_two_workspace_app();
     assert_eq!(
         app.clipboard_read_text_calls_for_test(),
         0,
@@ -2137,10 +1993,7 @@ fn a_chrome_right_click_skips_the_interactive_path_scan() {
     // and can hang on a stalled mount. A right-click on chrome (a rail slot) can
     // never sit over a content path, so the scan is skipped there even with
     // `interactive_paths` on -- while a content right-click still runs it.
-    let Some(mut app) = rail_two_workspace_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_two_workspace_app();
     app.set_interactive_paths_for_test(true);
 
     // Rail slot right-click: chrome surface, scan skipped.
@@ -2170,10 +2023,7 @@ fn a_stale_press_burst_into_a_fresh_workspace_menu_activates_nothing() {
     // unintended item. A press landing on a workspace-rail menu within its open
     // debounce window is now swallowed. Open the rail menu, then fire a burst of
     // presses onto the menu body: the workspace count must not change.
-    let Some(mut app) = rail_two_workspace_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_two_workspace_app();
     app.pointer_move_for_test(12.0, 24.0);
     app.mouse_right_press_for_test();
     assert!(app.context_menu_open_for_test());
@@ -2215,10 +2065,7 @@ fn workspace_slot_action_follows_the_clicked_workspace_identity() {
     // open time. The action follows the clicked workspace's immutable
     // identity: a rename keeps it, a rail shift re-resolves it, and a closed
     // workspace drops the action.
-    let Some((mut app, _)) = app_with_recording_writer(b"") else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _) = app_with_recording_writer(b"");
     app.set_test_cell_for_test(cell(10, 20));
     app.set_test_surface_for_test(800, 480, WindowPadding::ZERO);
     app.push_headless_workspace_for_test(
