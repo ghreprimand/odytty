@@ -556,8 +556,10 @@ the most deliberate omissions.
   connection boundary without exposing them in the pathname. The containing
   directory is effective-UID-owned, non-symlink, and mode `0700`. Reachability
   probes use `BatchMode=yes` so no authentication prompt can be triggered by a
-  probe, with probe error output bounded at `PROBE_STDERR_CAP` = 8 KiB
-  (`src/native/app/connection_probe.rs`). Remote image-paste uploads and their
+  probe. Probe error output is read to its end one line at a time and
+  reduced to a few flags and the last offered-method list; at most
+  `PROBE_EVIDENCE_LINE_CAP` = 2 KiB of one line is held at once
+  (`src/ssh_connect.rs`, `src/native/app/connection_probe.rs`). Remote image-paste uploads and their
   cleanup are one-shot `ssh` commands with `ConnectTimeout=10`; each child is
   killed and reaped at its deadline (120 s for an upload, 15 s for cleanup) or
   when its tab closes, at most two uploads run at once, and an upload that

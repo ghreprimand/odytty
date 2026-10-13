@@ -872,10 +872,7 @@ fn layout_save_list_load_delete_round_trip() {
     delete_layout_in(&dir, "dev").expect("idempotent delete");
 }
 
-/// `layout_exists_in` reports presence keyed by the SAME
-/// sanitized stem the writer uses, so a name that maps onto an existing file is
-/// detected even when it differs only in unsanitized characters - the check can
-/// never disagree with the writer about which file a name means.
+/// Ordinary names collide after the same sanitization the writer uses.
 #[test]
 fn layout_exists_matches_the_writer_stem() {
     let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-test-");
@@ -1619,8 +1616,8 @@ fn legacy_zero_port_layouts_remain_listed_loadable_and_deletable() {
         };
         assert_eq!(loaded, snapshot);
         assert!(
-            !layout_exists_in(&dir, name),
-            "new saves still address the portable stem"
+            layout_exists_in(&dir, name),
+            "legacy entries collide with the portable save name"
         );
         let stamp = layout_stamp_in(&dir, name).unwrap();
         assert_eq!(
@@ -1629,7 +1626,7 @@ fn legacy_zero_port_layouts_remain_listed_loadable_and_deletable() {
         );
         assert_eq!(
             delete_layout_if_unchanged_in(&dir, name, stamp).unwrap(),
-            LayoutDeleteOutcome::Deleted
+            LayoutDeleteOutcome::Gone
         );
         assert!(dir.join(format!("_{name}.json")).is_file());
         assert!(!dir.join(format!("{name}.json")).exists());
@@ -1711,11 +1708,138 @@ fn gone_legacy_layout_cannot_retarget_delete_to_its_portable_name() {
     write_atomic(&dir.join("COM0.json"), &snapshot.to_json_pretty()).unwrap();
     let stamp = layout_stamp_in(&dir, "COM0").unwrap();
     save_layout_in(&dir, "COM0", &snapshot).unwrap();
-    std::fs::remove_file(dir.join("COM0.json")).unwrap();
+    assert!(
+        !dir.join("COM0.json").exists(),
+        "save already migrated the legacy entry"
+    );
     assert_eq!(
         delete_layout_if_unchanged_in(&dir, "COM0", stamp).unwrap(),
         LayoutDeleteOutcome::Gone
     );
     assert!(dir.join("_COM0.json").is_file());
     assert!(matches!(load_layout_in(&dir, "COM0"), LoadOutcome::Absent));
+}
+
+#[test]
+fn legacy_layout_save_collision_migrates_to_one_safe_entry() {
+    let scratch = crate::test_dirs::ScratchDir::new("layout-legacy-collision-");
+    let dir = scratch.path().join("state");
+    crate::state_dir::prepare_private_dir(&dir).unwrap();
+    let snapshot = sample_snapshot();
+    write_atomic(&dir.join("COM0.json"), &snapshot.to_json_pretty()).unwrap();
+    assert!(layout_exists_in(&dir, "COM0"));
+    assert_eq!(save_layout_in(&dir, "COM0", &snapshot).unwrap(), "_COM0");
+    assert_eq!(list_layout_names_in(&dir).names, vec!["_COM0"]);
+    assert!(!dir.join("COM0.json").exists());
+}
+
+#[test]
+fn joiner_and_selector_layout_collisions_keep_only_the_new_stored_name() {
+    for modifier in ['\u{200c}', '\u{200d}', '\u{fe0e}', '\u{fe0f}'] {
+        let scratch = crate::test_dirs::ScratchDir::new("layout-modifier-collision-");
+        let dir = scratch.path().join("state");
+        let snapshot = sample_snapshot();
+        save_layout_in(&dir, "work", &snapshot).unwrap();
+        let name = format!("work{modifier}");
+        assert!(layout_exists_in(&dir, &name));
+        assert_eq!(save_layout_in(&dir, &name, &snapshot).unwrap(), name);
+        assert_eq!(list_layout_names_in(&dir).names, vec![name.clone()]);
+        assert!(matches!(
+            load_layout_in(&dir, &name),
+            LoadOutcome::Loaded(_)
+        ));
+        assert!(layout_exists_in(&dir, "work"));
+        save_layout_in(&dir, "work", &snapshot).unwrap();
+        assert_eq!(list_layout_names_in(&dir).names, vec!["work"]);
+    }
+}
+
+#[test]
+fn layout_collision_keys_agree_with_sanitization_and_keep_distinct_visible_names() {
+    for name in ["\u{200d}work", "COM0\u{200d}", "LPT0\u{fe0f}"] {
+        let scratch = crate::test_dirs::ScratchDir::new("layout-collision-sanitization-");
+        let dir = scratch.path().join("state");
+        let snapshot = sample_snapshot();
+        let stem = save_layout_in(&dir, name, &snapshot).unwrap();
+        assert!(layout_exists_in(&dir, name));
+        assert!(layout_exists_in(&dir, &stem));
+    }
+    let scratch = crate::test_dirs::ScratchDir::new("layout-distinct-names-");
+    let dir = scratch.path().join("state");
+    save_layout_in(&dir, "work", &sample_snapshot()).unwrap();
+    assert!(!layout_exists_in(&dir, "other"));
+    assert!(!layout_exists_in(&dir, ""));
+}
+
+#[test]
+fn incomplete_layout_collision_scan_refuses_to_overwrite_existing_data() {
+    let scratch = crate::test_dirs::ScratchDir::new("layout-collision-bound-");
+    let dir = scratch.path().join("state");
+    let old = sample_snapshot();
+    save_layout_in(&dir, "work", &old).unwrap();
+    for index in 0..MAX_LAYOUT_DIR_SCAN_ENTRIES {
+        std::fs::create_dir(dir.join(format!("noise-{index}"))).unwrap();
+    }
+    let mut replacement = old.clone();
+    replacement.workspaces[0].name = "replacement".to_owned();
+    assert!(save_layout_in(&dir, "work", &replacement).is_err());
+    assert!(
+        matches!(load_layout_in(&dir, "work"), LoadOutcome::Loaded(snapshot) if snapshot == old)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn unsafe_layout_collision_is_refused_before_any_alias_write() {
+    let scratch = crate::test_dirs::ScratchDir::new("layout-unsafe-collision-");
+    let dir = scratch.path().join("state");
+    crate::state_dir::prepare_private_dir(&dir).unwrap();
+    let target = scratch.path().join("target");
+    std::fs::write(&target, b"preserve").unwrap();
+    std::os::unix::fs::symlink(&target, dir.join("work.json")).unwrap();
+    assert!(layout_exists_in(&dir, "work\u{200d}"));
+    assert!(save_layout_in(&dir, "work\u{200d}", &sample_snapshot()).is_err());
+    assert!(!dir.join("work\u{200d}.json").exists());
+    assert_eq!(std::fs::read(&target).unwrap(), b"preserve");
+}
+
+#[test]
+fn legacy_layout_can_still_be_deleted_without_a_save() {
+    let scratch = crate::test_dirs::ScratchDir::new("layout-legacy-delete-");
+    let dir = scratch.path().join("state");
+    crate::state_dir::prepare_private_dir(&dir).unwrap();
+    write_atomic(&dir.join("LPT0.json"), &sample_snapshot().to_json_pretty()).unwrap();
+    let stamp = layout_stamp_in(&dir, "LPT0").unwrap();
+    assert!(matches!(
+        load_layout_in(&dir, "LPT0"),
+        LoadOutcome::Loaded(_)
+    ));
+    assert_eq!(
+        delete_layout_if_unchanged_in(&dir, "LPT0", stamp).unwrap(),
+        LayoutDeleteOutcome::Deleted
+    );
+    assert!(list_layout_names_in(&dir).names.is_empty());
+}
+
+#[test]
+fn layout_save_checks_preserve_the_filesystems_case_semantics() {
+    let scratch = crate::test_dirs::ScratchDir::new("layout-case-collision-");
+    let dir = scratch.path().join("state");
+    let snapshot = sample_snapshot();
+    save_layout_in(&dir, "work", &snapshot).unwrap();
+    let same_file = dir.join("Work.json").is_file();
+    assert_eq!(layout_exists_in(&dir, "Work"), same_file);
+    if same_file {
+        save_layout_in(&dir, "Work", &snapshot).unwrap();
+        assert_eq!(list_layout_names_in(&dir).names.len(), 1);
+    }
+    write_atomic(&dir.join("com0.json"), &snapshot.to_json_pretty()).unwrap();
+    if dir.join("COM0.json").is_file() {
+        assert!(layout_exists_in(&dir, "COM0"));
+        save_layout_in(&dir, "COM0", &snapshot).unwrap();
+        assert!(!dir.join("com0.json").exists());
+        assert!(dir.join("_COM0.json").is_file());
+    } else {
+        assert!(!layout_exists_in(&dir, "COM0"));
+    }
 }

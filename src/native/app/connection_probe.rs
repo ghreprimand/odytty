@@ -17,7 +17,7 @@ use crate::native::event_waker::EventWaker;
 
 use super::super::pty::UserEvent;
 use super::super::session::SessionToken;
-use crate::ssh_connect::{ProbeClass, SshCommand, classify_probe};
+use crate::ssh_connect::{PROBE_EVIDENCE_LINE_CAP, ProbeClass, ProbeEvidence, SshCommand};
 
 /// Completion channel bound to the requesting form's identity.
 pub(super) struct PendingConnectionProbe {
@@ -61,12 +61,6 @@ pub(super) fn spawn_connection_probe(
     Ok(())
 }
 
-/// Upper bound on retained probe stderr. The classifier only needs the early
-/// auth/permission/reachability keywords, so a small cap is plenty; the reader
-/// keeps draining past this bound (discarding the overflow) so the pipe never
-/// fills and the child never blocks.
-const PROBE_STDERR_CAP: usize = 8 * 1024;
-
 /// Run the probe child to completion (or the hard timeout) and classify it.
 fn run_probe(command: SshCommand) -> Result<ProbeClass, String> {
     let (program, args) = command.into_program_args();
@@ -95,7 +89,7 @@ fn run_probe(command: SshCommand) -> Result<ProbeClass, String> {
     let reader = child.stderr.take().and_then(|pipe| {
         let (tx, rx) = std::sync::mpsc::channel();
         match crate::spawn_util::spawn_named("odytty-probe-stderr", move || {
-            let _ = tx.send(drain_bounded(pipe));
+            let _ = tx.send(drain_reader(pipe));
         }) {
             Ok(_detached) => Some(rx),
             Err(err) => {
@@ -110,7 +104,7 @@ fn run_probe(command: SshCommand) -> Result<ProbeClass, String> {
         match child.try_wait() {
             Ok(Some(status)) => {
                 let stderr = collect_stderr(reader.as_ref(), PROBE_STDERR_GRACE);
-                return Ok(classify_probe(status.success(), &stderr));
+                return Ok(stderr.classify(status.success()));
             }
             Ok(None) => {
                 if Instant::now() >= deadline {
@@ -131,45 +125,49 @@ fn run_probe(command: SshCommand) -> Result<ProbeClass, String> {
     }
 }
 
-/// The reader's text, or what is known so far (empty) when it has not
+/// The reader's evidence, or what is known so far (none) when it has not
 /// finished within `grace`. A reader that never started yields nothing.
-fn collect_stderr(reader: Option<&std::sync::mpsc::Receiver<String>>, grace: Duration) -> String {
+fn collect_stderr(
+    reader: Option<&std::sync::mpsc::Receiver<ProbeEvidence>>,
+    grace: Duration,
+) -> ProbeEvidence {
     reader
         .and_then(|rx| rx.recv_timeout(grace).ok())
         .unwrap_or_default()
 }
 
-/// Continuously read the child's stderr to EOF, retaining at most
-/// [`PROBE_STDERR_CAP`] bytes. Draining never stops early on a full buffer, so a
-/// verbose child can never block on a full pipe; only appending stops at the cap.
-/// The text is parsed, never shown raw, and nothing credential-shaped is read
+/// Read the child's stderr to EOF, folding it into [`ProbeEvidence`] one line
+/// at a time. Draining never stops early, so a verbose child can never block on
+/// a full pipe, and no more than one line (at most
+/// [`PROBE_EVIDENCE_LINE_CAP`] bytes, the rest of a longer line discarded) is
+/// held at once, so the final method list is seen however much precedes it. The
+/// text is parsed, never shown raw, and nothing credential-shaped is read
 /// (BatchMode prints no secret).
-fn drain_bounded(pipe: std::process::ChildStderr) -> String {
-    drain_reader(pipe, PROBE_STDERR_CAP)
-}
-
-/// Generic bounded drain over any reader, so the cap behavior is unit-testable
-/// without a live child. Reads to EOF, appending at most `cap` bytes but always
-/// consuming the rest (so the source never blocks on backpressure).
-fn drain_reader<R: std::io::Read>(mut reader: R, cap: usize) -> String {
-    let mut buf: Vec<u8> = Vec::new();
+pub(super) fn drain_reader<R: std::io::Read>(mut reader: R) -> ProbeEvidence {
+    let mut evidence = ProbeEvidence::default();
+    let mut line: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 1024];
     loop {
         match reader.read(&mut chunk) {
             Ok(0) => break,
             Ok(n) => {
-                if buf.len() < cap {
-                    let room = cap - buf.len();
-                    buf.extend_from_slice(&chunk[..n.min(room)]);
+                for &byte in &chunk[..n] {
+                    if byte == b'\n' {
+                        evidence.observe_line(&String::from_utf8_lossy(&line));
+                        line.clear();
+                    } else if line.len() < PROBE_EVIDENCE_LINE_CAP {
+                        line.push(byte);
+                    }
                 }
-                // Past the cap the bytes are read-and-discarded so the pipe keeps
-                // draining and the child never blocks.
             }
             Err(ref err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(_) => break,
         }
     }
-    String::from_utf8_lossy(&buf).into_owned()
+    if !line.is_empty() {
+        evidence.observe_line(&String::from_utf8_lossy(&line));
+    }
+    evidence
 }
 
 #[cfg(test)]
@@ -177,21 +175,66 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
+    /// Stderr shaped like `ssh -v` output: an early offer of interactive
+    /// methods, far more diagnostics than any fixed prefix could hold, then the
+    /// final publickey-only offer and denial.
+    fn superseded_method_list_transcript() -> Vec<u8> {
+        let mut text =
+            String::from("debug1: Authentications that can continue: publickey,password\n");
+        while text.len() < PROBE_EVIDENCE_LINE_CAP * 8 {
+            text.push_str("debug1: intermediate diagnostic line with no verdict in it\n");
+        }
+        text.push_str("debug1: Authentications that can continue: publickey\n");
+        text.push_str("user@host: Permission denied (publickey).\n");
+        text.into_bytes()
+    }
+
     #[test]
-    fn drain_reader_retains_only_the_capped_prefix() {
-        // PLAUS-01: a verbose child (far more than the cap) must be fully
-        // consumed (no blocking) while only the leading `cap` bytes are kept.
-        let input = vec![b'x'; PROBE_STDERR_CAP * 4];
-        let drained = drain_reader(Cursor::new(input), PROBE_STDERR_CAP);
+    fn the_final_method_list_wins_however_much_precedes_it() {
+        let evidence = drain_reader(Cursor::new(superseded_method_list_transcript()));
+        assert_eq!(evidence.classify(false), ProbeClass::AuthRejected);
+    }
+
+    #[test]
+    fn a_later_interactive_list_still_wins_after_a_long_gap() {
+        let mut text = String::from("debug1: Authentications that can continue: publickey\n");
+        for _ in 0..400 {
+            text.push_str("debug1: intermediate diagnostic line with no verdict in it\n");
+        }
+        text.push_str("debug1: Authentications that can continue: publickey,password\n");
+        let evidence = drain_reader(Cursor::new(text.into_bytes()));
+        assert_eq!(evidence.classify(false), ProbeClass::InteractiveAuth);
+    }
+
+    #[test]
+    fn a_host_key_change_far_past_the_start_still_takes_precedence() {
+        let mut text = String::from("debug1: Authentications that can continue: password\n");
+        for _ in 0..400 {
+            text.push_str("debug1: intermediate diagnostic line with no verdict in it\n");
+        }
+        text.push_str("WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\n");
+        text.push_str("Host key verification failed.\n");
+        let evidence = drain_reader(Cursor::new(text.into_bytes()));
+        assert_eq!(evidence.classify(false), ProbeClass::HostKeyMismatch);
+    }
+
+    #[test]
+    fn a_denial_without_a_method_list_past_the_old_cap_is_still_a_rejection() {
+        let mut text = String::new();
+        for _ in 0..400 {
+            text.push_str("debug1: intermediate diagnostic line with no verdict in it\n");
+        }
+        text.push_str("Permission denied, please try again.");
+        let evidence = drain_reader(Cursor::new(text.into_bytes()));
         assert_eq!(
-            drained.len(),
-            PROBE_STDERR_CAP,
-            "retained buffer must be clamped to the cap"
+            evidence.classify(false),
+            ProbeClass::AuthRejected,
+            "an unterminated final line is still read"
         );
     }
 
     /// Counts every byte handed out, so a test can see the source was drained
-    /// to its end, not only that the kept text was capped.
+    /// to its end, not only that the evidence was bounded.
     struct CountingReader {
         remaining: usize,
         consumed: std::rc::Rc<std::cell::Cell<usize>>,
@@ -208,39 +251,49 @@ mod tests {
     }
 
     #[test]
-    fn drain_reader_consumes_the_whole_source_past_the_cap() {
-        let total = PROBE_STDERR_CAP * 4 + 17;
+    fn drain_reader_consumes_the_whole_source_without_holding_it() {
+        // One endless line: the pipe is drained to EOF, nothing is retained,
+        // and the line buffer never outgrows its cap.
+        let total = PROBE_EVIDENCE_LINE_CAP * 64 + 17;
         let consumed = std::rc::Rc::new(std::cell::Cell::new(0));
         let reader = CountingReader {
             remaining: total,
             consumed: std::rc::Rc::clone(&consumed),
         };
-        let drained = drain_reader(reader, PROBE_STDERR_CAP);
-        assert_eq!(drained.len(), PROBE_STDERR_CAP);
+        let evidence = drain_reader(reader);
+        assert_eq!(evidence, ProbeEvidence::default());
         assert_eq!(consumed.get(), total, "the pipe is drained to EOF");
     }
 
     #[test]
     fn a_reader_held_open_past_the_child_does_not_hold_the_probe() {
-        let (_tx, rx) = std::sync::mpsc::channel::<String>();
+        let (_tx, rx) = std::sync::mpsc::channel::<ProbeEvidence>();
         let start = Instant::now();
-        assert_eq!(collect_stderr(Some(&rx), Duration::from_millis(20)), "");
+        assert_eq!(
+            collect_stderr(Some(&rx), Duration::from_millis(20)),
+            ProbeEvidence::default()
+        );
         assert!(
             start.elapsed() < Duration::from_secs(5),
             "the wait is bounded by the grace"
         );
         let (tx, rx) = std::sync::mpsc::channel();
-        tx.send("Permission denied".to_owned()).expect("send");
+        let mut evidence = ProbeEvidence::default();
+        evidence.observe_line("Permission denied");
+        tx.send(evidence.clone()).expect("send");
         assert_eq!(
             collect_stderr(Some(&rx), Duration::from_millis(20)),
-            "Permission denied"
+            evidence
         );
-        assert_eq!(collect_stderr(None, Duration::from_millis(20)), "");
+        assert_eq!(
+            collect_stderr(None, Duration::from_millis(20)),
+            ProbeEvidence::default()
+        );
     }
 
     #[test]
-    fn drain_reader_keeps_short_output_intact() {
-        let drained = drain_reader(Cursor::new(b"permission denied (publickey)".to_vec()), 4096);
-        assert_eq!(drained, "permission denied (publickey)");
+    fn drain_reader_keeps_short_output_classifiable() {
+        let evidence = drain_reader(Cursor::new(b"permission denied (publickey)".to_vec()));
+        assert_eq!(evidence.classify(false), ProbeClass::AuthRejected);
     }
 }

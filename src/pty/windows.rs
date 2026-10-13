@@ -671,29 +671,9 @@ impl PtySession {
     }
 
     pub fn try_wait(&mut self) -> Result<Option<ExitStatus>> {
-        let mut code: u32 = 0;
         // SAFETY: `self.process` is a live, owned process handle.
-        unsafe {
-            GetExitCodeProcess(self.process_handle(), &mut code).context("poll child")?;
-        }
-        if code == STILL_ACTIVE_CODE {
-            // 259 is the `STILL_ACTIVE` sentinel AND a legitimate process exit
-            // code, so `GetExitCodeProcess` alone cannot tell a live child from
-            // one that genuinely exited 259. Confirm liveness directly against
-            // the process object: a zero-timeout wait times out only while the
-            // process is actually still running; a signaled object means it has
-            // exited (with the real code 259).
-            // SAFETY: live owned process handle; a 0ms wait returns immediately.
-            let status = unsafe { WaitForSingleObject(self.process_handle(), 0) };
-            if status == WAIT_FAILED {
-                return Err(io::Error::last_os_error()).context("poll child liveness");
-            }
-            if status == WAIT_TIMEOUT {
-                return Ok(None);
-            }
-            return Ok(Some(ExitStatus::from_raw(code)));
-        }
-        Ok(Some(ExitStatus::from_raw(code)))
+        let code = unsafe { poll_exit_code(self.process_handle()) }?;
+        Ok(code.map(ExitStatus::from_raw))
     }
 
     pub fn wait(&mut self) -> Result<ExitStatus> {
@@ -984,6 +964,39 @@ fn should_report_startup_failure(code: u32, elapsed: Duration, teardown_requeste
         && code != 0
         && code != STILL_ACTIVE_CODE
         && elapsed < STARTUP_FAILURE_WINDOW
+}
+
+/// The exit code of the process behind `handle` once it has exited, `None`
+/// while it runs (see [`super::exit_poll`] for why two reads are needed).
+///
+/// # Safety
+///
+/// `handle` must be a live process handle with query and synchronize access.
+unsafe fn poll_exit_code(handle: HANDLE) -> Result<Option<u32>> {
+    let read = || -> io::Result<u32> {
+        let mut code: u32 = 0;
+        // SAFETY: the caller guarantees a live process handle.
+        unsafe { GetExitCodeProcess(handle, &mut code) }.map_err(io::Error::from)?;
+        Ok(code)
+    };
+    let first = read().context("poll child")?;
+    super::exit_poll::exit_code_if_exited(
+        first,
+        STILL_ACTIVE_CODE,
+        || {
+            // SAFETY: as above; a 0ms wait returns immediately.
+            let status = unsafe { WaitForSingleObject(handle, 0) };
+            if status == WAIT_FAILED {
+                Err(io::Error::last_os_error())
+            } else if status == WAIT_TIMEOUT {
+                Ok(super::exit_poll::Liveness::Running)
+            } else {
+                Ok(super::exit_poll::Liveness::Exited)
+            }
+        },
+        read,
+    )
+    .context("poll child liveness")
 }
 
 /// Spawn the child-waiter thread for a freshly created session.

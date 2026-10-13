@@ -725,12 +725,89 @@ fn existing_layout_path_in(dir: &Path, name: &str) -> Option<PathBuf> {
     layout_path_in(dir, name)
 }
 
+/// The save collision key ignores presentation modifiers while the stored stem
+/// keeps them. Sanitization also maps a legacy port alias to its safe stem.
+fn layout_collision_key(name: &str) -> Option<String> {
+    let stem = sanitize_layout_name(name)?;
+    sanitize_layout_name(
+        &stem
+            .chars()
+            .filter(|ch| !matches!(ch, '\u{200c}' | '\u{200d}' | '\u{fe0e}' | '\u{fe0f}'))
+            .collect::<String>(),
+    )
+}
+
+/// Capture all same-name targets before writing. An incomplete scan refuses
+/// replacement rather than silently overlooking another saved layout.
+fn layout_collisions_in(dir: &Path, name: &str) -> io::Result<Vec<(String, LayoutStamp)>> {
+    let Some(key) = layout_collision_key(name) else {
+        return Ok(Vec::new());
+    };
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let mut collisions = Vec::new();
+    // Probe the legacy alias through the filesystem too: its case behavior may
+    // differ from the exact strings returned by directory enumeration.
+    if let Some(legacy) = key
+        .strip_prefix('_')
+        .filter(|name| is_legacy_layout_stem(name))
+    {
+        let path = dir.join(format!("{legacy}.json"));
+        match std::fs::symlink_metadata(&path) {
+            Ok(_) => {
+                crate::state_dir::inspect_existing_sensitive(&path)?;
+                let stamp = layout_stamp_in(dir, legacy)
+                    .ok_or_else(|| io::Error::other("legacy layout changed during scan"))?;
+                collisions.push((legacy.to_owned(), stamp));
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    for (index, entry) in entries.enumerate() {
+        if index >= MAX_LAYOUT_DIR_SCAN_ENTRIES {
+            return Err(io::Error::other("layout collision scan is incomplete"));
+        }
+        let path = entry?.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        if !listed_layout_stem(stem) || layout_collision_key(stem).as_ref() != Some(&key) {
+            continue;
+        }
+        crate::state_dir::inspect_existing_sensitive(&path)?;
+        let stamp = layout_stamp_in(dir, stem)
+            .ok_or_else(|| io::Error::other("layout collision changed during scan"))?;
+        if !collisions.iter().any(|(old, _)| old == stem) {
+            collisions.push((stem.to_owned(), stamp));
+        }
+    }
+    Ok(collisions)
+}
+
 /// Serialize and atomically write a named layout into `dir` (WP3 / 8g core).
 fn save_layout_in(dir: &Path, name: &str, snapshot: &ShapeSnapshot) -> io::Result<String> {
     let stem = sanitize_layout_name(name)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty layout name"))?;
+    crate::state_dir::prepare_private_dir(dir)?;
+    let collisions = layout_collisions_in(dir, &stem)?;
     let path = dir.join(format!("{stem}.json"));
     write_atomic(&path, &snapshot.to_json_pretty())?;
+    // Preserve old data until the new snapshot is durable. Never remove an
+    // alias that changed while this save was in progress.
+    for (old, stamp) in collisions {
+        if old != stem
+            && delete_layout_if_unchanged_in(dir, &old, stamp)? == LayoutDeleteOutcome::Changed
+        {
+            return Err(io::Error::other("layout collision changed before cleanup"));
+        }
+    }
     Ok(stem)
 }
 
@@ -744,14 +821,14 @@ pub(crate) fn save_layout(name: &str, snapshot: &ShapeSnapshot) -> io::Result<St
     save_layout_in(&prepared_layouts_dir()?, name, snapshot)
 }
 
-/// Whether a saved layout already exists for `name` in `dir`.
-/// Keyed by the SAME sanitized stem [`save_layout_in`] writes, so the existence
-/// check can never disagree with the writer about which file a name maps to. An
-/// unusable name (nothing survives sanitization) can never collide, so it is
-/// reported absent.
+/// Whether a save name collides, including legacy aliases and presentation
+/// modifiers. Incomplete scans fail closed: confirmation cannot bypass the
+/// writer's own scan and security checks.
 fn layout_exists_in(dir: &Path, name: &str) -> bool {
+    // Keep the filesystem's existing case semantics for the actual save path.
     layout_path_in(dir, name)
         .is_some_and(|path| crate::state_dir::open_existing_sensitive(&path).is_ok())
+        || layout_collisions_in(dir, name).map_or(true, |collisions| !collisions.is_empty())
 }
 
 /// Whether a saved layout already exists for `name`. The save

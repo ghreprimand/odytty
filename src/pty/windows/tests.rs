@@ -117,39 +117,45 @@ fn session_close_kills_the_whole_child_tree() {
 }
 
 #[test]
-fn try_wait_reports_a_genuine_exit_code_259_not_still_running() {
+fn polling_reports_a_genuine_exit_code_259_not_still_running() {
     // F22 regression: exit code 259 collides with the `STILL_ACTIVE`
     // sentinel, so `GetExitCodeProcess` alone cannot distinguish a child
-    // that really exited 259 from a live one. Pre-fix `try_wait` reported
-    // such a child as still running (`Ok(None)`) forever. A child that
-    // exits 259 must be observed as exited with code 259.
-    let mut session = PtySession::spawn_shell_command(
-        Dimensions {
-            rows: 24,
-            columns: 80,
-        },
-        "exit 259",
-    )
-    .expect("spawn shell that exits 259");
+    // that really exited 259 from a live one. A child that exits 259 must be
+    // observed as exited with code 259. The child is an ordinary process, not
+    // a pseudoconsole client: whether a pseudoconsole starts its shell in time
+    // is a separate matter (a CI runner under load has killed a shell at
+    // startup), and the exit-code reading under test does not depend on it.
+    let comspec = std::env::var_os("SystemRoot")
+        .map(|root| PathBuf::from(root).join("System32").join("cmd.exe"))
+        .expect("SystemRoot is set on Windows");
+    let mut child = std::process::Command::new(comspec)
+        .args(["/D", "/C", "exit 259"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn a process that exits 259");
+    let handle = HANDLE(child.as_raw_handle());
 
     let deadline = Instant::now() + Duration::from_secs(15);
-    let status = loop {
-        match session.try_wait().expect("poll child") {
-            Some(status) => break status,
+    let code = loop {
+        // SAFETY: `child` owns a live process handle for the whole loop.
+        match unsafe { poll_exit_code(handle) }.expect("poll child") {
+            Some(code) => break code,
             None => {
                 assert!(
                     Instant::now() < deadline,
-                    "try_wait never observed the exit-259 child terminating"
+                    "polling never observed the exit-259 child terminating"
                 );
-                std::thread::sleep(Duration::from_millis(50));
+                std::thread::sleep(Duration::from_millis(20));
             }
         }
     };
     assert_eq!(
-        status.code(),
-        Some(259),
+        code, 259,
         "a child that exits 259 must report exit code 259, not be treated as still running"
     );
+    let _ = child.wait();
 }
 
 #[test]

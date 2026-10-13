@@ -115,42 +115,95 @@ pub fn ssh_probe_command_for_host(host: &ConnectionHost) -> Result<SshCommand, S
     Ok(SshCommand::new("ssh", args))
 }
 
+/// Longest stretch of one diagnostic line [`ProbeEvidence`] looks at. The
+/// keywords it needs sit at the start of OpenSSH's short lines; the rest of a
+/// longer line is read and discarded.
+pub const PROBE_EVIDENCE_LINE_CAP: usize = 2048;
+
+/// What the classifier keeps of OpenSSH's English diagnostics: a few flags and
+/// the final offered-method list, never the text. It is fed one line at a time,
+/// so a probe that prints far more than any fixed prefix still reports the
+/// authentication outcome of its last method list, and its memory use is
+/// bounded by [`PROBE_EVIDENCE_LINE_CAP`] whatever the output length.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProbeEvidence {
+    host_key_changed: bool,
+    host_key_untrusted: bool,
+    permission_denied: bool,
+    /// Lower-cased method list of the most recent explicit offer or denial.
+    methods: Option<String>,
+}
+
+impl ProbeEvidence {
+    /// Fold one diagnostic line into the evidence.
+    pub fn observe_line(&mut self, line: &str) {
+        let mut lower = line.to_ascii_lowercase();
+        if lower.len() > PROBE_EVIDENCE_LINE_CAP {
+            let mut end = PROBE_EVIDENCE_LINE_CAP;
+            while !lower.is_char_boundary(end) {
+                end -= 1;
+            }
+            lower.truncate(end);
+        }
+        if lower.contains("remote host identification has changed") {
+            self.host_key_changed = true;
+        }
+        if lower.contains("host key verification failed") {
+            self.host_key_untrusted = true;
+        }
+        if lower.contains("permission denied") {
+            self.permission_denied = true;
+        }
+        if let Some((_, list)) = lower.split_once("authentications that can continue:") {
+            self.methods = Some(list.trim().to_owned());
+        } else if let Some((_, denial)) = lower.split_once("permission denied (")
+            && let Some((list, _)) = denial.split_once(')')
+        {
+            self.methods = Some(list.trim().to_owned());
+        }
+    }
+
+    /// Fold every line of `text` into the evidence.
+    pub fn observe_text(&mut self, text: &str) {
+        for line in text.lines() {
+            self.observe_line(line);
+        }
+    }
+
+    /// Classify a completed probe. Only explicit offered-method lists establish
+    /// interactive authentication, and the last list wins.
+    pub fn classify(&self, exit_ok: bool) -> ProbeClass {
+        if exit_ok {
+            return ProbeClass::AuthOk;
+        }
+        if self.host_key_changed {
+            return ProbeClass::HostKeyMismatch;
+        }
+        if self.host_key_untrusted {
+            return ProbeClass::HostKeyUntrusted;
+        }
+        if let Some(methods) = &self.methods {
+            if methods
+                .split(',')
+                .any(|method| matches!(method.trim(), "password" | "keyboard-interactive"))
+            {
+                return ProbeClass::InteractiveAuth;
+            }
+            return ProbeClass::AuthRejected;
+        }
+        if self.permission_denied {
+            return ProbeClass::AuthRejected;
+        }
+        ProbeClass::Unreachable
+    }
+}
+
 /// Classify OpenSSH's English diagnostics without retaining their contents.
 /// Only explicit offered-method lists establish interactive authentication.
 pub fn classify_probe(exit_ok: bool, stderr: &str) -> ProbeClass {
-    if exit_ok {
-        return ProbeClass::AuthOk;
-    }
-    let lower = stderr.to_ascii_lowercase();
-    if lower.contains("remote host identification has changed") {
-        return ProbeClass::HostKeyMismatch;
-    }
-    if lower.contains("host key verification failed") {
-        return ProbeClass::HostKeyUntrusted;
-    }
-    let mut methods = None;
-    for line in lower.lines() {
-        if let Some((_, list)) = line.split_once("authentications that can continue:") {
-            methods = Some(list.trim());
-        } else if let Some((_, denial)) = line.split_once("permission denied (")
-            && let Some((list, _)) = denial.split_once(')')
-        {
-            methods = Some(list.trim());
-        }
-    }
-    if let Some(methods) = methods {
-        if methods
-            .split(',')
-            .any(|method| matches!(method.trim(), "password" | "keyboard-interactive"))
-        {
-            return ProbeClass::InteractiveAuth;
-        }
-        return ProbeClass::AuthRejected;
-    }
-    if lower.contains("permission denied") {
-        return ProbeClass::AuthRejected;
-    }
-    ProbeClass::Unreachable
+    let mut evidence = ProbeEvidence::default();
+    evidence.observe_text(stderr);
+    evidence.classify(exit_ok)
 }
 
 /// OdyTTY-owned entries override the port; imported aliases delegate it to OpenSSH.

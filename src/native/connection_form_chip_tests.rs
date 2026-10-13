@@ -81,3 +81,50 @@ fn the_browser_signature_covers_the_candidate_names() {
         signature(&["/k/id_a", "/k/id_b"])
     );
 }
+
+#[test]
+fn unfocused_browse_chip_clicks_use_the_last_drawn_edges() {
+    for (width, column, opens) in [
+        (40, 17, true),
+        (40, 24, true),
+        (40, 16, false),
+        (40, 25, false),
+        (24, 17, true),
+        (24, 23, true),
+        (24, 24, false),
+        (23, 17, false),
+    ] {
+        let mut form = form_with_key("/k");
+        assert_ne!(form.focus, FormField::IdentityFile);
+        form.visible_lines(width, 40);
+        let row = (0..40)
+            .find(|&row| form.field_at_row(row) == Some(FormField::IdentityFile))
+            .unwrap();
+        assert_eq!(
+            form.handle_pointer_press(row, column, width),
+            if opens {
+                ConnectionFormOutcome::BrowseIdentityKeys
+            } else {
+                ConnectionFormOutcome::Consumed
+            },
+            "width={width} column={column}"
+        );
+    }
+}
+
+#[test]
+fn browse_target_survives_focus_changes_before_the_next_draw() {
+    let mut form = form_with_key("/k");
+    form.visible_lines(40, 40);
+    let row = (0..40)
+        .find(|&row| form.field_at_row(row) == Some(FormField::IdentityFile))
+        .unwrap();
+    assert_eq!(
+        form.handle_pointer_press(row, 0, 40),
+        ConnectionFormOutcome::Consumed
+    );
+    assert_eq!(
+        form.handle_pointer_press(row, 17, 40),
+        ConnectionFormOutcome::BrowseIdentityKeys
+    );
+}

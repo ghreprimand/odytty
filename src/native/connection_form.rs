@@ -333,6 +333,7 @@ pub(super) struct ConnectionForm {
     focus: FormField,
     scroll_offset: Cell<usize>,
     rendered_fields: RefCell<Vec<Option<FormField>>>,
+    rendered_browse_chip: Cell<Option<(usize, usize, usize)>>,
     error: Option<String>,
     /// The Test Connection probe state (ODP-8).
     test: TestState,
@@ -637,7 +638,7 @@ impl ConnectionForm {
         &mut self,
         row: usize,
         col: usize,
-        body_width: usize,
+        _body_width: usize,
     ) -> ConnectionFormOutcome {
         // While the key browser is open a click selects (and accepts) a row.
         if let Some(browse) = self.browse.as_mut() {
@@ -654,17 +655,12 @@ impl ConnectionForm {
         let Some(field) = self.field_at_row(row) else {
             return ConnectionFormOutcome::Consumed;
         };
+        let browse_hit = self
+            .rendered_browse_chip
+            .get()
+            .is_some_and(|(chip_row, start, end)| row == chip_row && col >= start && col < end);
         self.focus = field;
-        // A click landing on the IdentityFile row's trailing browse chip opens the
-        // `~/.ssh` key browser regardless of field content (BROWSE-UX). The chip
-        // span is derived from the rendered row, so the hit target always matches
-        // what is drawn — a narrow body that truncates the chip off simply yields
-        // no span and the click falls through to plain focus.
-        if field == FormField::IdentityFile
-            && let Some((chip_start, chip_end)) = self.identity_browse_chip_span(body_width)
-            && col >= chip_start
-            && col < chip_end
-        {
+        if field == FormField::IdentityFile && browse_hit {
             return ConnectionFormOutcome::BrowseIdentityKeys;
         }
         // Clicking an action row (or the disclosure) acts immediately; clicking
@@ -989,6 +985,7 @@ impl ConnectionForm {
         body_width: usize,
         body_height: usize,
     ) -> Vec<ConnectionFormLine> {
+        self.rendered_browse_chip.set(None);
         // The IdentityFile key browser owns the whole body while it is open.
         if let Some(browse) = self.browse.as_ref() {
             self.rendered_fields.borrow_mut().clear();
@@ -1027,7 +1024,15 @@ impl ConnectionForm {
                 _ => None,
             });
             match row {
-                FormRow::Field(field) => lines.push(self.render_field(field, body_width)),
+                FormRow::Field(field) => {
+                    if field == FormField::IdentityFile
+                        && let Some((start, end)) = self.identity_browse_chip_span(body_width)
+                    {
+                        self.rendered_browse_chip
+                            .set(Some((lines.len(), start, end)));
+                    }
+                    lines.push(self.render_field(field, body_width));
+                }
                 FormRow::Spacer => lines.push(ConnectionFormLine {
                     text: String::new(),
                     focused: false,

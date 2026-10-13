@@ -426,3 +426,131 @@ fn the_tarball_uninstall_refuses_a_package_managed_prefix() {
     assert_system_prefix_is_refused(&["--uninstall"], false);
     assert_system_prefix_is_refused(&["--uninstall"], true);
 }
+
+/// Fake merged-/usr tree: real symlinks stay in scratch storage, while the
+/// canonicalization seam presents the protected subtree as /usr.
+#[cfg(target_os = "linux")]
+fn assert_destination_alias_is_refused(args: &[&str], directory: &str) {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let fixture = TarballFixture::new();
+    let usr = fixture.scratch.join("usr");
+    let icon = fixture
+        .stage
+        .join("share/icons/hicolor/48x48/apps/io.unfinished_works.odytty.png");
+    std::fs::create_dir_all(icon.parent().expect("icon parent")).expect("icon source directory");
+    std::fs::write(icon, b"synthetic icon fixture\n").expect("icon source");
+    let package_dir = usr.join(directory);
+    std::fs::create_dir_all(&package_dir).expect("package directory");
+    let destination = fixture.prefix.join(directory);
+    std::fs::create_dir_all(destination.parent().expect("parent")).expect("prefix parent");
+    symlink(&package_dir, &destination).expect("merged directory alias");
+    let package = usr.join("bin/odytty");
+    std::fs::create_dir_all(package.parent().expect("binary directory")).expect("package bin");
+    std::fs::write(&package, b"package-owned binary\n").expect("package binary");
+    let local_binary = fixture.prefix.join("bin/odytty");
+    if directory != "bin" {
+        std::fs::create_dir_all(local_binary.parent().expect("local bin"))
+            .expect("local directory");
+        std::fs::write(&local_binary, b"local binary fixture\n").expect("local binary");
+    }
+    let tools = fixture.scratch.join("tools");
+    std::fs::create_dir(&tools).expect("tool directory");
+    let realpath = std::process::Command::new("sh")
+        .args(["-c", "command -v realpath"])
+        .output()
+        .expect("resolve realpath");
+    assert!(realpath.status.success());
+    let shim = tools.join("realpath");
+    std::fs::write(&shim, "#!/bin/sh\nresolved=$(\"$FIXTURE_REALPATH\" \"$@\") || exit 1\ncase \"$resolved\" in \"$FIXTURE_USR\"|\"$FIXTURE_USR\"/*) printf '/usr%s\\n' \"${resolved#\"$FIXTURE_USR\"}\";; \"$FIXTURE_ROOT\") printf '/\\n';; *) printf '%s\\n' \"$resolved\";; esac\n")
+        .expect("realpath seam");
+    std::fs::set_permissions(shim, std::fs::Permissions::from_mode(0o755))
+        .expect("executable seam");
+    let mut search = vec![tools];
+    search.extend(std::env::split_paths(
+        &std::env::var_os("PATH").expect("PATH"),
+    ));
+    let output = fixture
+        .command()
+        .args(args)
+        .env("PATH", std::env::join_paths(search).expect("tool path"))
+        .env(
+            "FIXTURE_REALPATH",
+            String::from_utf8(realpath.stdout).expect("realpath").trim(),
+        )
+        .env("FIXTURE_USR", &usr)
+        .env("FIXTURE_ROOT", &fixture.prefix)
+        .output()
+        .expect("run installer");
+    assert_eq!(
+        std::fs::read(&package).ok().as_deref(),
+        Some(b"package-owned binary\n".as_slice()),
+        "merged-/usr binary must survive"
+    );
+    assert!(
+        !output.status.success(),
+        "protected destination alias must be refused"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("reserved for package-managed installations")
+    );
+    if directory != "bin" {
+        assert_eq!(
+            std::fs::read(local_binary).ok().as_deref(),
+            Some(b"local binary fixture\n".as_slice()),
+            "refusal must precede any binary modification"
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_tarball_install_refuses_merged_usr_and_data_directory_aliases() {
+    let font_set = format!(
+        "share/licenses/odytty/fonts/{}",
+        Path::new(&listed()[0])
+            .strip_prefix("assets/fonts")
+            .expect("font path")
+            .parent()
+            .expect("font set")
+            .display()
+    );
+    for directory in [
+        "bin",
+        "share",
+        "share/applications",
+        "share/metainfo",
+        "share/icons/hicolor",
+        "share/licenses/odytty/fonts",
+        "share/icons/hicolor/48x48/apps",
+        &font_set,
+    ] {
+        assert_destination_alias_is_refused(&[], directory);
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_tarball_uninstall_refuses_merged_usr_and_data_directory_aliases() {
+    let font_set = format!(
+        "share/licenses/odytty/fonts/{}",
+        Path::new(&listed()[0])
+            .strip_prefix("assets/fonts")
+            .expect("font path")
+            .parent()
+            .expect("font set")
+            .display()
+    );
+    for directory in [
+        "bin",
+        "share",
+        "share/applications",
+        "share/metainfo",
+        "share/icons/hicolor",
+        "share/licenses/odytty/fonts",
+        "share/icons/hicolor/48x48/apps",
+        &font_set,
+    ] {
+        assert_destination_alias_is_refused(&["--uninstall"], directory);
+    }
+}

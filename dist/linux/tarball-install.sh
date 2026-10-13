@@ -19,27 +19,52 @@
 # binary lands in PREFIX/bin (ensure that is on your PATH). For a system-wide
 # install under /usr/local, pass PREFIX through env: sudo resets the
 # environment, so a PREFIX assigned before sudo never reaches the script.
-# /usr is reserved for package-managed installs; neither operation accepts it,
-# including paths and symlink aliases that resolve there.
+# Destinations under /usr, except /usr/local, are reserved for package-managed
+# installs. Neither operation accepts aliases into those directories.
 set -eu
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 PREFIX="${PREFIX:-$HOME/.local}"
-# Resolve before any mutation, including uninstall. GNU realpath -m also
-# handles a fresh prefix whose directories have not been created yet.
-if ! RESOLVED_PREFIX="$(realpath -m -- "$PREFIX")"; then
-    echo "error: cannot resolve PREFIX; no files changed." >&2
-    exit 1
-fi
-if [ "$RESOLVED_PREFIX" = "/usr" ]; then
-    echo "error: /usr is reserved for package-managed installations; use the package manager, or choose ~/.local or /usr/local for the tarball." >&2
-    exit 1
-fi
 BIN_DIR="$PREFIX/bin"
 DATA_DIR="$PREFIX/share"
 
 DESKTOP_ID="io.unfinished_works.odytty"
 LICENSE_DIR="$DATA_DIR/licenses/odytty"
+
+# Check the entire destination layout before either operation changes a file.
+# Prefix-only checks miss /bin -> /usr/bin and aliases inside a custom prefix.
+# GNU realpath -m also resolves destinations not created yet.
+check_destination() {
+    if ! resolved="$(realpath -m -- "$1")"; then
+        echo "error: cannot resolve destination; no files changed." >&2
+        exit 1
+    fi
+    case "$resolved" in
+        /usr/local|/usr/local/*) ;;
+        /usr|/usr/*)
+            echo "error: destination is reserved for package-managed installations; use a separate ~/.local or /usr/local prefix." >&2
+            exit 1
+            ;;
+    esac
+}
+
+for directory in "$PREFIX" "$BIN_DIR" "$DATA_DIR" \
+    "$DATA_DIR/applications" "$DATA_DIR/metainfo" "$DATA_DIR/icons/hicolor" \
+    "$LICENSE_DIR" "$LICENSE_DIR/fonts"; do
+    check_destination "$directory"
+done
+# A source file's parent can resolve through a nested icon or font-set alias.
+for tree in icons/hicolor licenses/odytty/fonts; do
+    case "$tree" in
+        icons/hicolor) source_dir="$SELF_DIR/share/icons/hicolor" ;;
+        licenses/odytty/fonts) source_dir="$SELF_DIR/licenses/fonts" ;;
+    esac
+    if [ -d "$source_dir" ]; then
+        ( cd "$source_dir" && find . -type f -print ) | while IFS= read -r file; do
+            check_destination "$(dirname "$DATA_DIR/$tree/$file")"
+        done
+    fi
+done
 
 # Remove only the licence files this tarball installs: the named notices and the
 # font licence files listed in the tarball's own licenses/fonts tree. Never a

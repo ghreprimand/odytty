@@ -335,11 +335,13 @@ no-root per-user install (make sure `~/.local/bin` is on your `PATH`); run
 drops a `PREFIX` assigned before it). Remove a previous install, licence texts
 included, with `./install.sh --uninstall` from the extracted tarball (honoring
 the same `PREFIX`).
-Both install and uninstall refuse `PREFIX=/usr`, including dot components,
-trailing slashes and symlink aliases that resolve to `/usr`. There is no
-override: manage a package installation with apt, dnf, rpm, or pacman and an
-AUR helper. The tarball uses GNU `realpath` to check the prefix before
-changing any files. In an allowed prefix, uninstall removes the binary,
+Both install and uninstall refuse destinations under `/usr`, except
+`/usr/local`. GNU `realpath` checks the prefix, binary directory and every data
+destination directory before changing files, including nested icon and font
+licence directories. This also refuses `PREFIX=/` on merged-`/usr` systems
+and symlink aliases inside an otherwise allowed prefix. There is no override:
+use apt, dnf, rpm, pacman or an AUR helper to manage a package installation.
+In an allowed prefix, uninstall removes the binary,
 desktop files, named licence texts and bundled font licences, and leaves other
 licence files and nonempty licence directories in place. Use a separate prefix
 for the tarball rather than sharing it with another installation.

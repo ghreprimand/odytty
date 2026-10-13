@@ -1957,7 +1957,9 @@ list and manual-entry hint. This scan is shared across Linux, macOS, and Windows
 
 The `[Browse]` chip is located from the row's own layout, not by searching the
 drawn text, so a key path that itself contains `[Browse` is never mistaken for
-it; a chip is a click target while its `[Browse` opening is fully drawn. A
+it; a chip is a click target while its `[Browse` opening is fully drawn. Clicks
+use the last rendered chip span before changing focus, including a partly
+clipped chip. A
 replaced candidate list, a host's theme or source tag and the picker purpose
 all repaint the overlay even when the query, selection and row count match.
 
@@ -2409,7 +2411,11 @@ Saved layout and profile filenames share a portable Windows device-stem rule.
 New layouts prefix reserved stems with an underscore, including superscript
 numbered COM/LPT ports and conservative COM0/LPT0 handling. Existing COM0/LPT0
 regular layout files remain listed, openable and deletable under their original
-names. Profiles retain ASCII-only validation and reject reserved stems.
+names. Saving a colliding legacy name asks to replace, then writes the safe
+name and removes the unchanged legacy file. Names equal after removing ZWJ,
+ZWNJ, VS15 and VS16 share the replace check; the new stored name keeps those
+characters. Incomplete collision scans refuse the save. Profiles retain
+ASCII-only validation and reject reserved stems.
 Layout names retain ZWJ, ZWNJ, VS15 and VS16 after visible text. Leading
 modifiers, bidi controls, other default-ignorables and Unicode line/paragraph
 separators become underscores.

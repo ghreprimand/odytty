@@ -22,6 +22,8 @@ use std::process::Command;
 #[cfg(any(windows, test))]
 mod env_block;
 #[cfg(any(windows, test))]
+mod exit_poll;
+#[cfg(any(windows, test))]
 mod exit_report;
 #[cfg(any(windows, test))]
 mod held_gate;

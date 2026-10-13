@@ -84,3 +84,32 @@ fn an_overwrite_confirmed_after_its_workspace_closed_saves_nothing() {
     });
     let _ = std::fs::remove_dir_all(base);
 }
+
+#[test]
+fn legacy_and_invisible_name_collisions_prompt_before_replacement() {
+    for legacy in [true, false] {
+        let scratch = crate::test_dirs::ScratchDir::new("layout-name-prompt-");
+        super::config_env::with_config_base(scratch.path(), true, || {
+            let mut app = three_workspaces();
+            let old = if legacy { "COM0" } else { "work" };
+            app.rename_workspace_for_test(1, old);
+            save_through_prompt(&mut app, 1);
+            if legacy {
+                let dir = crate::native::persistence::layouts_dir();
+                std::fs::rename(dir.join("_COM0.json"), dir.join("COM0.json")).unwrap();
+            }
+            let new = if legacy { "COM0" } else { "work\u{200d}" };
+            app.rename_workspace_for_test(1, new);
+            save_through_prompt(&mut app, 1);
+            assert!(
+                app.overlay_open_for_test(),
+                "same visible name must ask first"
+            );
+            app.drive_named_key_for_test(NamedKey::Enter);
+            assert_eq!(
+                crate::native::persistence::list_layout_names(),
+                vec![if legacy { "_COM0" } else { new }]
+            );
+        });
+    }
+}

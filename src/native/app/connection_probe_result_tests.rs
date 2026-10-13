@@ -190,3 +190,24 @@ fn untrusted_host_key_probe_result_repaints_trust_through_app() {
     assert_ne!(before, app.overlay_signature_for_test());
     assert!(app.connection_probe.is_none());
 }
+
+#[test]
+fn a_superseded_method_list_past_the_stderr_reader_still_repaints_rejection() {
+    // The production composition: the bounded reader's evidence, classified
+    // after far more diagnostics than a fixed prefix would hold, delivered
+    // through the App completion route.
+    let mut text = String::from("debug1: Authentications that can continue: publickey,password\n");
+    for _ in 0..600 {
+        text.push_str("debug1: intermediate diagnostic line with no verdict in it\n");
+    }
+    text.push_str("debug1: Authentications that can continue: publickey\n");
+    text.push_str("user@host: Permission denied (publickey).\n");
+    let evidence = super::connection_probe::drain_reader(std::io::Cursor::new(text.into_bytes()));
+    let mut app = form_app();
+    let tx = injected_probe(&mut app);
+    tx.send(Ok(evidence.classify(false))).unwrap();
+    app.poll_connection_probe();
+    let rows = rows(&mut app);
+    assert!(rows.contains("Authentication rejected"), "{rows}");
+    assert!(!rows.contains("interactive authentication"), "{rows}");
+}
