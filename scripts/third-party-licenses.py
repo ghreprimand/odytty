@@ -14,7 +14,9 @@ because they are normal dependencies, even though they run at build time. The
 text of every licence file in a crate's published source is reproduced once per
 distinct text, with the crates it applies to. A crate whose source carries no
 licence file gets the standard text of each licence its manifest declares, with
-the authors the manifest declares, and the file says so.
+the authors the manifest declares (or, when it declares none, the repository that
+keeps its copyright statement), and the file says so. COPYRIGHT and AUTHORS files
+are reproduced beside the licence texts.
 
 The file is checked in, so building a package needs no network and no extra
 tool. `check` needs the crate sources in the cargo registry for every shipped
@@ -46,7 +48,18 @@ TARGETS = (
     "aarch64-apple-darwin",
 )
 
-LICENSE_FILE_PREFIXES = ("LICENSE", "LICENCE", "COPYING", "UNLICENSE", "NOTICE")
+# COPYRIGHT and AUTHORS files sit beside the licence texts because they are
+# often the only statement of who holds the copyright: a LICENSE-MIT with no
+# copyright line is completed by them.
+LICENSE_FILE_PREFIXES = (
+    "LICENSE",
+    "LICENCE",
+    "COPYING",
+    "UNLICENSE",
+    "NOTICE",
+    "COPYRIGHT",
+    "AUTHORS",
+)
 
 # Section markers; tests/packaging_third_party.rs reads the same lines.
 CRATES_BEGIN = "=== CRATES ==="
@@ -160,6 +173,19 @@ def author_names(package: dict) -> str:
     return ", ".join(names) if names else "none declared"
 
 
+def holder_note(package: dict) -> str:
+    """Where a crate with no declared authors keeps its copyright statement.
+
+    Such a crate's published source names no holder (its licence files, when
+    it has any, stay at the repository root, outside the package), so the file
+    points at the repository its manifest declares and says so.
+    """
+    place = package.get("repository") or package.get("homepage")
+    if place:
+        return f"holder: not named in the published source; see {place}"
+    return "holder: not named in the published source and no repository is declared"
+
+
 def render(linked: dict[tuple[str, str], dict], unlinked: set[tuple[str, str]]) -> str:
     texts: dict[str, list[str]] = {}  # normalised text -> crates it applies to
     order: list[str] = []
@@ -192,10 +218,14 @@ def render(linked: dict[tuple[str, str], dict], unlinked: set[tuple[str, str]]) 
                     )
                 if licence not in standard_ids:
                     standard_ids.append(licence)
-            entries.append(
+            authors = author_names(package)
+            entry = (
                 f"crate: {label} | {expression} | standard text: {' '.join(wanted)}"
-                f" | authors: {author_names(package)}"
+                f" | authors: {authors}"
             )
+            if not package.get("authors") or authors == "none declared":
+                entry += f" | {holder_note(package)}"
+            entries.append(entry)
 
     out: list[str] = []
     out.append("THIRD-PARTY LICENSES")
@@ -219,7 +249,8 @@ def render(linked: dict[tuple[str, str], dict], unlinked: set[tuple[str, str]]) 
         "\nLICENCE TEXTS). A crate whose published source carries no licence file is marked"
         "\n\"standard text\": the standard text of each licence its manifest declares is given"
         "\nunder STANDARD TEXTS, to be read with the authors the manifest names for that crate;"
-        "\nthe year and holder placeholders in those texts stand for them."
+        "\nthe year and holder placeholders in those texts stand for them. A crate that names no"
+        "\nauthors there also says where its copyright statement is kept (its repository)."
     )
     out.append("")
     out.append(f"linked crates: {len(linked)}")

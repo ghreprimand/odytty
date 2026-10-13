@@ -14,10 +14,11 @@ texts from its published source (T001 and so on, reproduced once each under
 LICENCE TEXTS). A crate whose published source carries no licence file is marked
 "standard text": the standard text of each licence its manifest declares is given
 under STANDARD TEXTS, to be read with the authors the manifest names for that crate;
-the year and holder placeholders in those texts stand for them.
+the year and holder placeholders in those texts stand for them. A crate that names no
+authors there also says where its copyright statement is kept (its repository).
 
 linked crates: 276
-licence texts: 160
+licence texts: 168
 
 === CRATES ===
 crate: ab_glyph_rasterizer 0.1.10 | Apache-2.0 | texts: T001
@@ -60,241 +61,241 @@ crate: codespan-reporting 0.13.1 | Apache-2.0 | texts: T032
 crate: concurrent-queue 2.5.0 | Apache-2.0 OR MIT | texts: T005 T004
 crate: core-foundation 0.9.4 | MIT OR Apache-2.0 | texts: T005 T033
 crate: core-foundation-sys 0.8.7 | MIT OR Apache-2.0 | texts: T005 T033
-crate: core-graphics 0.23.2 | MIT OR Apache-2.0 | texts: T005 T033
+crate: core-graphics 0.23.2 | MIT OR Apache-2.0 | texts: T034 T005 T033
 crate: core-graphics-types 0.1.3 | MIT OR Apache-2.0 | texts: T005 T033
-crate: crc32fast 1.5.0 | MIT OR Apache-2.0 | texts: T034 T035
-crate: crossbeam-utils 0.8.21 | MIT OR Apache-2.0 | texts: T005 T036
-crate: crossfont 0.8.1 | Apache-2.0 | texts: T037
-crate: cstr 0.2.12 | MIT | texts: T038
-crate: cursor-icon 1.2.0 | MIT OR Apache-2.0 OR Zlib | texts: T039 T040 T041
-crate: data-url 0.3.2 | MIT OR Apache-2.0 | texts: T005 T042
+crate: crc32fast 1.5.0 | MIT OR Apache-2.0 | texts: T035 T036
+crate: crossbeam-utils 0.8.21 | MIT OR Apache-2.0 | texts: T005 T037
+crate: crossfont 0.8.1 | Apache-2.0 | texts: T038
+crate: cstr 0.2.12 | MIT | texts: T039
+crate: cursor-icon 1.2.0 | MIT OR Apache-2.0 OR Zlib | texts: T040 T041 T042
+crate: data-url 0.3.2 | MIT OR Apache-2.0 | texts: T005 T043
 crate: dispatch 0.2.0 | MIT | standard text: MIT | authors: Steven Sheldon
 crate: dispatch2 0.3.1 | Zlib OR Apache-2.0 OR MIT | standard text: Zlib Apache-2.0 MIT | authors: Mads Marquart, Mary
-crate: dlib 0.5.3 | MIT | texts: T043
-crate: document-features 0.2.12 | MIT OR Apache-2.0 | texts: T044 T045
-crate: downcast-rs 1.2.1 | MIT/Apache-2.0 | texts: T020 T046
-crate: dpi 0.1.2 | Apache-2.0 AND MIT | texts: T047 T048
+crate: dlib 0.5.3 | MIT | texts: T044
+crate: document-features 0.2.12 | MIT OR Apache-2.0 | texts: T045 T046
+crate: downcast-rs 1.2.1 | MIT/Apache-2.0 | texts: T020 T047
+crate: dpi 0.1.2 | Apache-2.0 AND MIT | texts: T048 T049
 crate: endi 1.1.1 | MIT | texts: T004
-crate: enumflags2 0.7.12 | MIT OR Apache-2.0 | texts: T049 T050
-crate: enumflags2_derive 0.7.12 | MIT OR Apache-2.0 | texts: T051 T052
-crate: equivalent 1.0.2 | Apache-2.0 OR MIT | texts: T005 T053
-crate: errno 0.3.14 | MIT OR Apache-2.0 | texts: T005 T054
-crate: error-code 3.3.2 | BSL-1.0 | texts: T055
-crate: euclid 0.22.14 | MIT OR Apache-2.0 | texts: T005 T033
+crate: enumflags2 0.7.12 | MIT OR Apache-2.0 | texts: T050 T051
+crate: enumflags2_derive 0.7.12 | MIT OR Apache-2.0 | texts: T052 T053
+crate: equivalent 1.0.2 | Apache-2.0 OR MIT | texts: T005 T054
+crate: errno 0.3.14 | MIT OR Apache-2.0 | texts: T005 T055
+crate: error-code 3.3.2 | BSL-1.0 | texts: T056
+crate: euclid 0.22.14 | MIT OR Apache-2.0 | texts: T034 T005 T033
 crate: event-listener 5.4.2 | Apache-2.0 OR MIT | texts: T005 T004
 crate: event-listener-strategy 0.5.4 | Apache-2.0 OR MIT | texts: T005 T004
 crate: fastrand 2.5.0 | Apache-2.0 OR MIT | texts: T005 T004
-crate: fax 0.2.7 | MIT | texts: T056
-crate: fdeflate 0.3.7 | MIT OR Apache-2.0 | texts: T008 T057
-crate: fixedbitset 0.5.7 | MIT OR Apache-2.0 | texts: T005 T058
-crate: flate2 1.1.9 | MIT OR Apache-2.0 | texts: T005 T059
-crate: float-cmp 0.9.0 | MIT | texts: T060
-crate: foldhash 0.1.5 | Zlib | texts: T061
-crate: foldhash 0.2.0 | Zlib | texts: T061
-crate: font-types 0.11.3 | MIT OR Apache-2.0 | texts: T062 T063
-crate: foreign-types 0.5.0 | MIT/Apache-2.0 | texts: T034 T064
-crate: foreign-types-macros 0.2.3 | MIT/Apache-2.0 | texts: T034 T064
-crate: foreign-types-shared 0.3.1 | MIT/Apache-2.0 | texts: T034 T064
-crate: freetype-rs 0.36.0 | MIT | texts: T065
-crate: freetype-sys 0.20.1 | MIT | texts: T065
-crate: futures-core 0.3.32 | MIT OR Apache-2.0 | texts: T066 T067
-crate: futures-io 0.3.34 | MIT OR Apache-2.0 | texts: T066 T067
+crate: fax 0.2.7 | MIT | texts: T057
+crate: fdeflate 0.3.7 | MIT OR Apache-2.0 | texts: T008 T058
+crate: fixedbitset 0.5.7 | MIT OR Apache-2.0 | texts: T005 T059
+crate: flate2 1.1.9 | MIT OR Apache-2.0 | texts: T005 T060
+crate: float-cmp 0.9.0 | MIT | texts: T061
+crate: foldhash 0.1.5 | Zlib | texts: T062
+crate: foldhash 0.2.0 | Zlib | texts: T062
+crate: font-types 0.11.3 | MIT OR Apache-2.0 | texts: T063 T064
+crate: foreign-types 0.5.0 | MIT/Apache-2.0 | texts: T035 T065
+crate: foreign-types-macros 0.2.3 | MIT/Apache-2.0 | texts: T035 T065
+crate: foreign-types-shared 0.3.1 | MIT/Apache-2.0 | texts: T035 T065
+crate: freetype-rs 0.36.0 | MIT | texts: T066
+crate: freetype-sys 0.20.1 | MIT | texts: T066
+crate: futures-core 0.3.32 | MIT OR Apache-2.0 | texts: T067 T068
+crate: futures-io 0.3.34 | MIT OR Apache-2.0 | texts: T067 T068
 crate: futures-lite 2.6.1 | Apache-2.0 OR MIT | texts: T005 T004 T018
 crate: gethostname 1.1.0 | Apache-2.0 | texts: T005
-crate: getrandom 0.3.4 | MIT OR Apache-2.0 | texts: T068 T069
-crate: glow 0.17.0 | MIT OR Apache-2.0 OR Zlib | texts: T005 T004 T070
-crate: glutin_wgl_sys 0.6.1 | Apache-2.0 | texts: T071
-crate: gpu-allocator 0.28.0 | MIT OR Apache-2.0 | texts: T072 T073
+crate: getrandom 0.3.4 | MIT OR Apache-2.0 | texts: T069 T070
+crate: glow 0.17.0 | MIT OR Apache-2.0 OR Zlib | texts: T005 T004 T071
+crate: glutin_wgl_sys 0.6.1 | Apache-2.0 | texts: T072
+crate: gpu-allocator 0.28.0 | MIT OR Apache-2.0 | texts: T073 T074
 crate: gpu-descriptor 0.3.2 | MIT OR Apache-2.0 | standard text: MIT Apache-2.0 | authors: Zakarum
 crate: gpu-descriptor-types 0.2.0 | MIT OR Apache-2.0 | standard text: MIT Apache-2.0 | authors: Zakarum
-crate: half 2.7.1 | MIT OR Apache-2.0 | texts: T001 T074
-crate: harfrust 0.8.4 | MIT | texts: T075
-crate: hashbrown 0.15.5 | MIT OR Apache-2.0 | texts: T005 T076
-crate: hashbrown 0.16.1 | MIT OR Apache-2.0 | texts: T005 T076
-crate: hashbrown 0.17.1 | MIT OR Apache-2.0 | texts: T005 T076
-crate: hex 0.4.3 | MIT OR Apache-2.0 | texts: T034 T077
+crate: half 2.7.1 | MIT OR Apache-2.0 | texts: T001 T075
+crate: harfrust 0.8.4 | MIT | texts: T076
+crate: hashbrown 0.15.5 | MIT OR Apache-2.0 | texts: T005 T077
+crate: hashbrown 0.16.1 | MIT OR Apache-2.0 | texts: T005 T077
+crate: hashbrown 0.17.1 | MIT OR Apache-2.0 | texts: T005 T077
+crate: hex 0.4.3 | MIT OR Apache-2.0 | texts: T035 T078
 crate: hexf-parse 0.2.1 | CC0-1.0 | standard text: CC0-1.0 | authors: Kang Seonghoon
-crate: image 0.25.10 | MIT OR Apache-2.0 | texts: T008 T057
-crate: image-webp 0.2.4 | MIT OR Apache-2.0 | texts: T008 T057
-crate: imagesize 0.13.0 | MIT | texts: T078
-crate: indexmap 2.14.0 | Apache-2.0 OR MIT | texts: T005 T079
+crate: image 0.25.10 | MIT OR Apache-2.0 | texts: T008 T058
+crate: image-webp 0.2.4 | MIT OR Apache-2.0 | texts: T008 T058
+crate: imagesize 0.13.0 | MIT | texts: T079
+crate: indexmap 2.14.0 | Apache-2.0 OR MIT | texts: T005 T080
 crate: khronos-egl 6.0.0 | MIT/Apache-2.0 | texts: T005 T004
-crate: kurbo 0.11.3 | Apache-2.0 OR MIT | texts: T012 T080
-crate: lazy_static 1.5.0 | MIT OR Apache-2.0 | texts: T005 T081
-crate: libc 0.2.186 | MIT OR Apache-2.0 | texts: T007 T082
-crate: libloading 0.8.9 | ISC | texts: T083
-crate: libm 0.2.16 | MIT | texts: T084
-crate: linux-raw-sys 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | texts: T005 T085 T004
-crate: linux-raw-sys 0.4.15 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | texts: T005 T085 T004
-crate: litrs 1.0.0 | MIT OR Apache-2.0 | texts: T007 T086
-crate: lock_api 0.4.14 | MIT OR Apache-2.0 | texts: T005 T087
+crate: kurbo 0.11.3 | Apache-2.0 OR MIT | texts: T012 T081
+crate: lazy_static 1.5.0 | MIT OR Apache-2.0 | texts: T005 T082
+crate: libc 0.2.186 | MIT OR Apache-2.0 | texts: T007 T083
+crate: libloading 0.8.9 | ISC | texts: T084
+crate: libm 0.2.16 | MIT | texts: T085
+crate: linux-raw-sys 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | texts: T086 T005 T087 T004
+crate: linux-raw-sys 0.4.15 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | texts: T086 T005 T087 T004
+crate: litrs 1.0.0 | MIT OR Apache-2.0 | texts: T007 T088
+crate: lock_api 0.4.14 | MIT OR Apache-2.0 | texts: T005 T089
 crate: log 0.4.32 | MIT OR Apache-2.0 | texts: T005 T023
-crate: memchr 2.8.1 | Unlicense OR MIT | texts: T088 T027 T028
-crate: memmap2 0.9.11 | MIT OR Apache-2.0 | texts: T089 T090
-crate: miniz_oxide 0.8.9 | MIT OR Zlib OR Apache-2.0 | texts: T091 T008 T092 T093
-crate: moxcms 0.8.1 | BSD-3-Clause OR Apache-2.0 | texts: T094 T095
-crate: naga 29.0.3 | MIT OR Apache-2.0 | texts: T001 T096
-crate: nom 8.0.0 | MIT | texts: T097
-crate: nu-ansi-term 0.50.3 | MIT | texts: T098
+crate: memchr 2.8.1 | Unlicense OR MIT | texts: T090 T027 T028
+crate: memmap2 0.9.11 | MIT OR Apache-2.0 | texts: T091 T092
+crate: miniz_oxide 0.8.9 | MIT OR Zlib OR Apache-2.0 | texts: T093 T008 T094 T095
+crate: moxcms 0.8.1 | BSD-3-Clause OR Apache-2.0 | texts: T096 T097
+crate: naga 29.0.3 | MIT OR Apache-2.0 | texts: T001 T098
+crate: nom 8.0.0 | MIT | texts: T099
+crate: nu-ansi-term 0.50.3 | MIT | texts: T100
 crate: num-traits 0.2.19 | MIT OR Apache-2.0 | texts: T005 T023
 crate: objc-sys 0.3.5 | MIT | standard text: MIT | authors: Mads Marquart
 crate: objc2 0.5.2 | MIT | standard text: MIT | authors: Steven Sheldon, Mads Marquart
 crate: objc2 0.6.4 | MIT | standard text: MIT | authors: Mads Marquart
-crate: objc2-app-kit 0.2.2 | MIT | standard text: MIT | authors: none declared
-crate: objc2-app-kit 0.3.2 | Zlib OR Apache-2.0 OR MIT | standard text: Zlib Apache-2.0 MIT | authors: none declared
-crate: objc2-core-data 0.2.2 | MIT | standard text: MIT | authors: none declared
-crate: objc2-core-foundation 0.3.2 | Zlib OR Apache-2.0 OR MIT | standard text: Zlib Apache-2.0 MIT | authors: none declared
-crate: objc2-core-graphics 0.3.2 | Zlib OR Apache-2.0 OR MIT | standard text: Zlib Apache-2.0 MIT | authors: none declared
-crate: objc2-core-image 0.2.2 | MIT | standard text: MIT | authors: none declared
+crate: objc2-app-kit 0.2.2 | MIT | standard text: MIT | authors: none declared | holder: not named in the published source; see https://github.com/madsmtm/objc2
+crate: objc2-app-kit 0.3.2 | Zlib OR Apache-2.0 OR MIT | standard text: Zlib Apache-2.0 MIT | authors: none declared | holder: not named in the published source; see https://github.com/madsmtm/objc2
+crate: objc2-core-data 0.2.2 | MIT | standard text: MIT | authors: none declared | holder: not named in the published source; see https://github.com/madsmtm/objc2
+crate: objc2-core-foundation 0.3.2 | Zlib OR Apache-2.0 OR MIT | standard text: Zlib Apache-2.0 MIT | authors: none declared | holder: not named in the published source; see https://github.com/madsmtm/objc2
+crate: objc2-core-graphics 0.3.2 | Zlib OR Apache-2.0 OR MIT | standard text: Zlib Apache-2.0 MIT | authors: none declared | holder: not named in the published source; see https://github.com/madsmtm/objc2
+crate: objc2-core-image 0.2.2 | MIT | standard text: MIT | authors: none declared | holder: not named in the published source; see https://github.com/madsmtm/objc2
 crate: objc2-encode 4.1.0 | MIT | standard text: MIT | authors: Mads Marquart
-crate: objc2-foundation 0.2.2 | MIT | standard text: MIT | authors: none declared
-crate: objc2-foundation 0.3.2 | MIT | standard text: MIT | authors: none declared
-crate: objc2-io-surface 0.3.2 | Zlib OR Apache-2.0 OR MIT | standard text: Zlib Apache-2.0 MIT | authors: none declared
-crate: objc2-metal 0.2.2 | MIT | standard text: MIT | authors: none declared
-crate: objc2-metal 0.3.2 | Zlib OR Apache-2.0 OR MIT | standard text: Zlib Apache-2.0 MIT | authors: none declared
-crate: objc2-quartz-core 0.2.2 | MIT | standard text: MIT | authors: none declared
-crate: objc2-quartz-core 0.3.2 | Zlib OR Apache-2.0 OR MIT | standard text: Zlib Apache-2.0 MIT | authors: none declared
+crate: objc2-foundation 0.2.2 | MIT | standard text: MIT | authors: none declared | holder: not named in the published source; see https://github.com/madsmtm/objc2
+crate: objc2-foundation 0.3.2 | MIT | standard text: MIT | authors: none declared | holder: not named in the published source; see https://github.com/madsmtm/objc2
+crate: objc2-io-surface 0.3.2 | Zlib OR Apache-2.0 OR MIT | standard text: Zlib Apache-2.0 MIT | authors: none declared | holder: not named in the published source; see https://github.com/madsmtm/objc2
+crate: objc2-metal 0.2.2 | MIT | standard text: MIT | authors: none declared | holder: not named in the published source; see https://github.com/madsmtm/objc2
+crate: objc2-metal 0.3.2 | Zlib OR Apache-2.0 OR MIT | standard text: Zlib Apache-2.0 MIT | authors: none declared | holder: not named in the published source; see https://github.com/madsmtm/objc2
+crate: objc2-quartz-core 0.2.2 | MIT | standard text: MIT | authors: none declared | holder: not named in the published source; see https://github.com/madsmtm/objc2
+crate: objc2-quartz-core 0.3.2 | Zlib OR Apache-2.0 OR MIT | standard text: Zlib Apache-2.0 MIT | authors: none declared | holder: not named in the published source; see https://github.com/madsmtm/objc2
 crate: once_cell 1.21.4 | MIT OR Apache-2.0 | texts: T005 T004
-crate: ordered-float 5.3.0 | MIT | texts: T099
+crate: ordered-float 5.3.0 | MIT | texts: T101
 crate: ordered-stream 0.2.0 | MIT OR Apache-2.0 | texts: T005 T004
-crate: os_pipe 1.2.3 | MIT | texts: T100
-crate: parking 2.2.1 | Apache-2.0 OR MIT | texts: T005 T004 T101
-crate: parking_lot 0.12.5 | MIT OR Apache-2.0 | texts: T005 T087
-crate: parking_lot_core 0.9.12 | MIT OR Apache-2.0 | texts: T005 T087
-crate: percent-encoding 2.3.2 | MIT OR Apache-2.0 | texts: T005 T042
-crate: petgraph 0.8.3 | MIT OR Apache-2.0 | texts: T005 T102
-crate: pico-args 0.5.0 | MIT | texts: T103
+crate: os_pipe 1.2.3 | MIT | texts: T102
+crate: parking 2.2.1 | Apache-2.0 OR MIT | texts: T005 T004 T103
+crate: parking_lot 0.12.5 | MIT OR Apache-2.0 | texts: T005 T089
+crate: parking_lot_core 0.9.12 | MIT OR Apache-2.0 | texts: T005 T089
+crate: percent-encoding 2.3.2 | MIT OR Apache-2.0 | texts: T005 T043
+crate: petgraph 0.8.3 | MIT OR Apache-2.0 | texts: T005 T104
+crate: pico-args 0.5.0 | MIT | texts: T105
 crate: pin-project-lite 0.2.17 | Apache-2.0 OR MIT | texts: T008 T004
 crate: piper 0.2.5 | MIT OR Apache-2.0 | texts: T005 T004
-crate: png 0.17.16 | MIT OR Apache-2.0 | texts: T005 T104
-crate: png 0.18.1 | MIT OR Apache-2.0 | texts: T005 T104
+crate: png 0.17.16 | MIT OR Apache-2.0 | texts: T005 T106
+crate: png 0.18.1 | MIT OR Apache-2.0 | texts: T005 T106
 crate: polling 3.11.0 | Apache-2.0 OR MIT | texts: T005 T004
-crate: pollster 0.4.0 | Apache-2.0/MIT | texts: T005 T105
-crate: presser 0.3.1 | MIT OR Apache-2.0 | texts: T020 T106
+crate: pollster 0.4.0 | Apache-2.0/MIT | texts: T005 T107
+crate: presser 0.3.1 | MIT OR Apache-2.0 | texts: T020 T108
 crate: proc-macro-crate 3.5.0 | MIT OR Apache-2.0 | texts: T003 T004
 crate: proc-macro2 1.0.106 | MIT OR Apache-2.0 | texts: T007 T004
 crate: profiling 1.0.18 | MIT OR Apache-2.0 | standard text: MIT Apache-2.0 | authors: Philip Degarmo
-crate: pxfm 0.1.29 | BSD-3-Clause OR Apache-2.0 | texts: T094 T095
-crate: quick-error 2.0.1 | MIT/Apache-2.0 | texts: T034 T107
-crate: quick-xml 0.41.0 | MIT | texts: T108
+crate: pxfm 0.1.29 | BSD-3-Clause OR Apache-2.0 | texts: T096 T097
+crate: quick-error 2.0.1 | MIT/Apache-2.0 | texts: T035 T109
+crate: quick-xml 0.41.0 | MIT | texts: T110
 crate: quote 1.0.45 | MIT OR Apache-2.0 | texts: T007 T004
-crate: range-alloc 0.1.5 | MIT OR Apache-2.0 | texts: T001 T109
-crate: raw-window-handle 0.6.2 | MIT OR Apache-2.0 OR Zlib | texts: T008 T110 T111
-crate: raw-window-metal 1.1.0 | MIT OR Apache-2.0 | texts: T012 T112
-crate: read-fonts 0.39.2 | MIT OR Apache-2.0 | texts: T062 T063
-crate: renderdoc-sys 1.1.0 | MIT OR Apache-2.0 | texts: T005 T113
-crate: resvg 0.45.1 | Apache-2.0 OR MIT | texts: T001 T114
-crate: rfd 0.17.2 | MIT | texts: T115
-crate: rgb 0.8.53 | MIT | texts: T116
-crate: roxmltree 0.20.0 | MIT OR Apache-2.0 | texts: T005 T117
+crate: range-alloc 0.1.5 | MIT OR Apache-2.0 | texts: T001 T111
+crate: raw-window-handle 0.6.2 | MIT OR Apache-2.0 OR Zlib | texts: T008 T112 T113
+crate: raw-window-metal 1.1.0 | MIT OR Apache-2.0 | texts: T012 T114
+crate: read-fonts 0.39.2 | MIT OR Apache-2.0 | texts: T063 T064
+crate: renderdoc-sys 1.1.0 | MIT OR Apache-2.0 | texts: T005 T115
+crate: resvg 0.45.1 | Apache-2.0 OR MIT | texts: T001 T116
+crate: rfd 0.17.2 | MIT | texts: T117
+crate: rgb 0.8.53 | MIT | texts: T118
+crate: roxmltree 0.20.0 | MIT OR Apache-2.0 | texts: T005 T119
 crate: rustc-hash 1.1.0 | Apache-2.0/MIT | texts: T005 T004
-crate: rustix 0.38.44 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | texts: T005 T085 T004
-crate: rustix 1.1.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | texts: T005 T085 T004
+crate: rustix 0.38.44 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | texts: T120 T005 T087 T004
+crate: rustix 1.1.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | texts: T120 T005 T087 T004
 crate: scoped-tls 1.0.1 | MIT/Apache-2.0 | texts: T005 T031
-crate: scopeguard 1.2.0 | MIT OR Apache-2.0 | texts: T005 T118
-crate: sctk-adwaita 0.10.1 | MIT | texts: T115
+crate: scopeguard 1.2.0 | MIT OR Apache-2.0 | texts: T005 T121
+crate: sctk-adwaita 0.10.1 | MIT | texts: T117
 crate: serde 1.0.228 | MIT OR Apache-2.0 | texts: T007 T004
 crate: serde_core 1.0.228 | MIT OR Apache-2.0 | texts: T007 T004
 crate: serde_derive 1.0.228 | MIT OR Apache-2.0 | texts: T007 T004
 crate: serde_repr 0.1.21 | MIT OR Apache-2.0 | texts: T007 T004
-crate: sharded-slab 0.1.7 | MIT | texts: T119
-crate: signal-hook-registry 1.4.8 | MIT OR Apache-2.0 | texts: T005 T120
-crate: simd-adler32 0.3.9 | MIT | texts: T121
-crate: simplecss 0.2.2 | Apache-2.0 OR MIT | texts: T005 T122
-crate: siphasher 1.0.4 | MIT OR Apache-2.0 | texts: T123 T012 T112
-crate: skrifa 0.42.1 | MIT OR Apache-2.0 | texts: T062 T063
-crate: slab 0.4.12 | MIT | texts: T124
-crate: smallvec 1.15.1 | MIT OR Apache-2.0 | texts: T005 T125
+crate: sharded-slab 0.1.7 | MIT | texts: T122
+crate: signal-hook-registry 1.4.8 | MIT OR Apache-2.0 | texts: T005 T123
+crate: simd-adler32 0.3.9 | MIT | texts: T124
+crate: simplecss 0.2.2 | Apache-2.0 OR MIT | texts: T125 T005 T126
+crate: siphasher 1.0.4 | MIT OR Apache-2.0 | texts: T127 T012 T114
+crate: skrifa 0.42.1 | MIT OR Apache-2.0 | texts: T063 T064
+crate: slab 0.4.12 | MIT | texts: T128
+crate: smallvec 1.15.1 | MIT OR Apache-2.0 | texts: T005 T129
 crate: smithay-client-toolkit 0.19.2 | MIT | texts: T029
 crate: smol_str 0.2.2 | MIT OR Apache-2.0 | texts: T005 T004
 crate: spirv 0.4.0+sdk-1.4.341.0 | Apache-2.0 | standard text: Apache-2.0 | authors: Lei Zhang
-crate: static_assertions 1.1.0 | MIT OR Apache-2.0 | texts: T012 T126
-crate: strict-num 0.1.1 | MIT | texts: T127
-crate: svgtypes 0.15.3 | Apache-2.0 OR MIT | texts: T005 T128
-crate: swash 0.2.9 | Apache-2.0 OR MIT | texts: T005 T129
+crate: static_assertions 1.1.0 | MIT OR Apache-2.0 | texts: T012 T130
+crate: strict-num 0.1.1 | MIT | texts: T131
+crate: svgtypes 0.15.3 | Apache-2.0 OR MIT | texts: T132 T005 T133
+crate: swash 0.2.9 | Apache-2.0 OR MIT | texts: T005 T134
 crate: syn 2.0.117 | MIT OR Apache-2.0 | texts: T007 T004
 crate: syn 3.0.5 | MIT OR Apache-2.0 | texts: T007 T004
-crate: termcolor 1.4.1 | Unlicense OR MIT | texts: T088 T027 T028
+crate: termcolor 1.4.1 | Unlicense OR MIT | texts: T090 T027 T028
 crate: thiserror 1.0.69 | MIT OR Apache-2.0 | texts: T007 T004
 crate: thiserror 2.0.18 | MIT OR Apache-2.0 | texts: T007 T004
 crate: thiserror-impl 1.0.69 | MIT OR Apache-2.0 | texts: T007 T004
 crate: thiserror-impl 2.0.18 | MIT OR Apache-2.0 | texts: T007 T004
-crate: thread_local 1.1.9 | MIT OR Apache-2.0 | texts: T005 T087
-crate: tiff 0.11.3 | MIT | texts: T130
-crate: tiny-skia 0.11.4 | BSD-3-Clause | texts: T131
-crate: tiny-skia-path 0.11.4 | BSD-3-Clause | texts: T131
-crate: toml_datetime 1.1.1+spec-1.1.0 | MIT OR Apache-2.0 | texts: T034 T132
-crate: toml_edit 0.25.12+spec-1.1.0 | MIT OR Apache-2.0 | texts: T034 T132
-crate: toml_parser 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 | texts: T034 T132
-crate: tracing 0.1.44 | MIT | texts: T133
-crate: tracing-attributes 0.1.31 | MIT | texts: T133
-crate: tracing-core 0.1.36 | MIT | texts: T133
-crate: tracing-log 0.2.0 | MIT | texts: T133
-crate: tracing-subscriber 0.3.23 | MIT | texts: T133
-crate: tree_magic_mini 3.2.2 | MIT | texts: T134
-crate: unicode-bidi 0.3.18 | MIT OR Apache-2.0 | texts: T005 T135
-crate: unicode-ident 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | texts: T007 T004 T136
-crate: unicode-segmentation 1.13.3 | MIT OR Apache-2.0 | texts: T005 T135
-crate: unicode-width 0.2.2 | MIT OR Apache-2.0 | texts: T005 T135
-crate: usvg 0.45.1 | Apache-2.0 OR MIT | texts: T001 T114
-crate: uuid 1.26.0 | Apache-2.0 OR MIT | texts: T005 T137
-crate: wayland-backend 0.3.15 | MIT | texts: T138
-crate: wayland-client 0.31.14 | MIT | texts: T138
-crate: wayland-csd-frame 0.3.0 | MIT | texts: T040
-crate: wayland-cursor 0.31.14 | MIT | texts: T138
-crate: wayland-protocols 0.32.12 | MIT | texts: T138
-crate: wayland-protocols-plasma 0.3.12 | MIT | texts: T138
-crate: wayland-protocols-wlr 0.3.12 | MIT | texts: T138
-crate: wayland-scanner 0.31.11 | MIT | texts: T138
-crate: wayland-sys 0.31.11 | MIT | texts: T138
-crate: weezl 0.1.12 | MIT OR Apache-2.0 | texts: T005 T139
-crate: wgpu 29.0.3 | MIT OR Apache-2.0 | texts: T001 T096
-crate: wgpu-core 29.0.3 | MIT OR Apache-2.0 | texts: T001 T096
-crate: wgpu-core-deps-apple 29.0.3 | MIT OR Apache-2.0 | texts: T001 T096
-crate: wgpu-core-deps-windows-linux-android 29.0.3 | MIT OR Apache-2.0 | texts: T001 T096
-crate: wgpu-hal 29.0.3 | MIT OR Apache-2.0 | texts: T001 T096
-crate: wgpu-naga-bridge 29.0.3 | MIT OR Apache-2.0 | texts: T001 T096
-crate: wgpu-types 29.0.3 | MIT OR Apache-2.0 | texts: T001 T096
-crate: winapi-util 0.1.11 | Unlicense OR MIT | texts: T088 T140 T028
-crate: windows 0.62.2 | MIT OR Apache-2.0 | texts: T141 T142
-crate: windows-collections 0.3.2 | MIT OR Apache-2.0 | texts: T141 T142
-crate: windows-core 0.62.2 | MIT OR Apache-2.0 | texts: T141 T142
-crate: windows-future 0.3.2 | MIT OR Apache-2.0 | texts: T141 T142
-crate: windows-implement 0.60.2 | MIT OR Apache-2.0 | texts: T141 T142
-crate: windows-interface 0.59.3 | MIT OR Apache-2.0 | texts: T141 T142
-crate: windows-link 0.2.1 | MIT OR Apache-2.0 | texts: T141 T142
-crate: windows-numerics 0.3.1 | MIT OR Apache-2.0 | texts: T141 T142
-crate: windows-result 0.4.1 | MIT OR Apache-2.0 | texts: T141 T142
-crate: windows-strings 0.5.1 | MIT OR Apache-2.0 | texts: T141 T142
-crate: windows-sys 0.52.0 | MIT OR Apache-2.0 | texts: T141 T142
-crate: windows-sys 0.59.0 | MIT OR Apache-2.0 | texts: T141 T142
-crate: windows-sys 0.61.2 | MIT OR Apache-2.0 | texts: T141 T142
-crate: windows-targets 0.52.6 | MIT OR Apache-2.0 | texts: T141 T142
-crate: windows-threading 0.2.1 | MIT OR Apache-2.0 | texts: T141 T142
-crate: windows_x86_64_msvc 0.52.6 | MIT OR Apache-2.0 | texts: T141 T142
-crate: winit 0.30.13 | Apache-2.0 | texts: T047
-crate: winnow 1.0.3 | MIT | texts: T143
-crate: wl-clipboard-rs 0.9.3 | MIT/Apache-2.0 | texts: T005 T144
+crate: thread_local 1.1.9 | MIT OR Apache-2.0 | texts: T005 T089
+crate: tiff 0.11.3 | MIT | texts: T135
+crate: tiny-skia 0.11.4 | BSD-3-Clause | texts: T136
+crate: tiny-skia-path 0.11.4 | BSD-3-Clause | texts: T136
+crate: toml_datetime 1.1.1+spec-1.1.0 | MIT OR Apache-2.0 | texts: T035 T137
+crate: toml_edit 0.25.12+spec-1.1.0 | MIT OR Apache-2.0 | texts: T035 T137
+crate: toml_parser 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 | texts: T035 T137
+crate: tracing 0.1.44 | MIT | texts: T138
+crate: tracing-attributes 0.1.31 | MIT | texts: T138
+crate: tracing-core 0.1.36 | MIT | texts: T138
+crate: tracing-log 0.2.0 | MIT | texts: T138
+crate: tracing-subscriber 0.3.23 | MIT | texts: T138
+crate: tree_magic_mini 3.2.2 | MIT | texts: T139
+crate: unicode-bidi 0.3.18 | MIT OR Apache-2.0 | texts: T140 T141 T005 T142
+crate: unicode-ident 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | texts: T007 T004 T143
+crate: unicode-segmentation 1.13.3 | MIT OR Apache-2.0 | texts: T144 T005 T142
+crate: unicode-width 0.2.2 | MIT OR Apache-2.0 | texts: T144 T005 T142
+crate: usvg 0.45.1 | Apache-2.0 OR MIT | texts: T001 T116
+crate: uuid 1.26.0 | Apache-2.0 OR MIT | texts: T005 T145
+crate: wayland-backend 0.3.15 | MIT | texts: T146
+crate: wayland-client 0.31.14 | MIT | texts: T146
+crate: wayland-csd-frame 0.3.0 | MIT | texts: T041
+crate: wayland-cursor 0.31.14 | MIT | texts: T146
+crate: wayland-protocols 0.32.12 | MIT | texts: T146
+crate: wayland-protocols-plasma 0.3.12 | MIT | texts: T146
+crate: wayland-protocols-wlr 0.3.12 | MIT | texts: T146
+crate: wayland-scanner 0.31.11 | MIT | texts: T146
+crate: wayland-sys 0.31.11 | MIT | texts: T146
+crate: weezl 0.1.12 | MIT OR Apache-2.0 | texts: T005 T147
+crate: wgpu 29.0.3 | MIT OR Apache-2.0 | texts: T001 T098
+crate: wgpu-core 29.0.3 | MIT OR Apache-2.0 | texts: T001 T098
+crate: wgpu-core-deps-apple 29.0.3 | MIT OR Apache-2.0 | texts: T001 T098
+crate: wgpu-core-deps-windows-linux-android 29.0.3 | MIT OR Apache-2.0 | texts: T001 T098
+crate: wgpu-hal 29.0.3 | MIT OR Apache-2.0 | texts: T001 T098
+crate: wgpu-naga-bridge 29.0.3 | MIT OR Apache-2.0 | texts: T001 T098
+crate: wgpu-types 29.0.3 | MIT OR Apache-2.0 | texts: T001 T098
+crate: winapi-util 0.1.11 | Unlicense OR MIT | texts: T090 T148 T028
+crate: windows 0.62.2 | MIT OR Apache-2.0 | texts: T149 T150
+crate: windows-collections 0.3.2 | MIT OR Apache-2.0 | texts: T149 T150
+crate: windows-core 0.62.2 | MIT OR Apache-2.0 | texts: T149 T150
+crate: windows-future 0.3.2 | MIT OR Apache-2.0 | texts: T149 T150
+crate: windows-implement 0.60.2 | MIT OR Apache-2.0 | texts: T149 T150
+crate: windows-interface 0.59.3 | MIT OR Apache-2.0 | texts: T149 T150
+crate: windows-link 0.2.1 | MIT OR Apache-2.0 | texts: T149 T150
+crate: windows-numerics 0.3.1 | MIT OR Apache-2.0 | texts: T149 T150
+crate: windows-result 0.4.1 | MIT OR Apache-2.0 | texts: T149 T150
+crate: windows-strings 0.5.1 | MIT OR Apache-2.0 | texts: T149 T150
+crate: windows-sys 0.52.0 | MIT OR Apache-2.0 | texts: T149 T150
+crate: windows-sys 0.59.0 | MIT OR Apache-2.0 | texts: T149 T150
+crate: windows-sys 0.61.2 | MIT OR Apache-2.0 | texts: T149 T150
+crate: windows-targets 0.52.6 | MIT OR Apache-2.0 | texts: T149 T150
+crate: windows-threading 0.2.1 | MIT OR Apache-2.0 | texts: T149 T150
+crate: windows_x86_64_msvc 0.52.6 | MIT OR Apache-2.0 | texts: T149 T150
+crate: winit 0.30.13 | Apache-2.0 | texts: T048
+crate: winnow 1.0.3 | MIT | texts: T151
+crate: wl-clipboard-rs 0.9.3 | MIT/Apache-2.0 | texts: T005 T152
 crate: x11-dl 2.21.0 | MIT | texts: T004
-crate: x11rb 0.13.2 | MIT OR Apache-2.0 | texts: T012 T145
-crate: x11rb-protocol 0.13.2 | MIT OR Apache-2.0 | texts: T012 T145
-crate: xcursor 0.3.10 | MIT | texts: T146
-crate: xkbcommon-dl 0.4.2 | MIT | texts: T147
-crate: xkeysym 0.2.1 | MIT OR Apache-2.0 OR Zlib | texts: T148 T149 T150
-crate: xmlwriter 0.1.0 | MIT | texts: T151
-crate: yazi 0.2.1 | Apache-2.0 OR MIT | texts: T005 T152
-crate: yeslogic-fontconfig-sys 5.0.0 | MIT | texts: T153
-crate: zbus 5.19.0 | MIT | texts: T154
-crate: zbus_macros 5.19.0 | MIT | texts: T154
-crate: zbus_names 4.3.4 | MIT | texts: T154
-crate: zcheapstr 1.1.0 | MIT | texts: T155
-crate: zeno 0.3.3 | Apache-2.0 OR MIT | texts: T005 T129
-crate: zerocopy 0.8.50 | BSD-2-Clause OR Apache-2.0 OR MIT | texts: T156 T157 T158
-crate: zerocopy-derive 0.8.50 | BSD-2-Clause OR Apache-2.0 OR MIT | texts: T156 T157 T158
-crate: zune-core 0.5.1 | MIT OR Apache-2.0 OR Zlib | texts: T032 T159 T160
-crate: zune-jpeg 0.5.15 | MIT OR Apache-2.0 OR Zlib | texts: T032 T159 T160
-crate: zvariant 5.15.0 | MIT | texts: T154
-crate: zvariant_derive 5.15.0 | MIT | texts: T154
+crate: x11rb 0.13.2 | MIT OR Apache-2.0 | texts: T012 T153
+crate: x11rb-protocol 0.13.2 | MIT OR Apache-2.0 | texts: T012 T153
+crate: xcursor 0.3.10 | MIT | texts: T154
+crate: xkbcommon-dl 0.4.2 | MIT | texts: T155
+crate: xkeysym 0.2.1 | MIT OR Apache-2.0 OR Zlib | texts: T156 T157 T158
+crate: xmlwriter 0.1.0 | MIT | texts: T159
+crate: yazi 0.2.1 | Apache-2.0 OR MIT | texts: T005 T160
+crate: yeslogic-fontconfig-sys 5.0.0 | MIT | texts: T161
+crate: zbus 5.19.0 | MIT | texts: T162
+crate: zbus_macros 5.19.0 | MIT | texts: T162
+crate: zbus_names 4.3.4 | MIT | texts: T162
+crate: zcheapstr 1.1.0 | MIT | texts: T163
+crate: zeno 0.3.3 | Apache-2.0 OR MIT | texts: T005 T134
+crate: zerocopy 0.8.50 | BSD-2-Clause OR Apache-2.0 OR MIT | texts: T164 T165 T166
+crate: zerocopy-derive 0.8.50 | BSD-2-Clause OR Apache-2.0 OR MIT | texts: T164 T165 T166
+crate: zune-core 0.5.1 | MIT OR Apache-2.0 OR Zlib | texts: T032 T167 T168
+crate: zune-jpeg 0.5.15 | MIT OR Apache-2.0 OR Zlib | texts: T032 T167 T168
+crate: zvariant 5.15.0 | MIT | texts: T162
+crate: zvariant_derive 5.15.0 | MIT | texts: T162
 crate: zvariant_utils 4.2.0 | MIT | texts: T004
 
 === NOT LINKED ===
@@ -2874,6 +2875,15 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 --- T034 ---
+Applies to: core-graphics 0.23.2, euclid 0.22.14
+
+Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+<LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+option. All files in the project carrying such notice may not be
+copied, modified, or distributed except according to those terms.
+
+--- T035 ---
 Applies to: crc32fast 1.5.0, foreign-types 0.5.0, foreign-types-macros 0.2.3, foreign-types-shared 0.3.1, hex 0.4.3, quick-error 2.0.1, toml_datetime 1.1.1+spec-1.1.0, toml_edit 0.25.12+spec-1.1.0, toml_parser 1.1.2+spec-1.1.0
 
                                  Apache License
@@ -3078,7 +3088,7 @@ Applies to: crc32fast 1.5.0, foreign-types 0.5.0, foreign-types-macros 0.2.3, fo
    See the License for the specific language governing permissions and
    limitations under the License.
 
---- T035 ---
+--- T036 ---
 Applies to: crc32fast 1.5.0
 
 MIT License
@@ -3103,7 +3113,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T036 ---
+--- T037 ---
 Applies to: crossbeam-utils 0.8.21
 
 The MIT License (MIT)
@@ -3134,7 +3144,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T037 ---
+--- T038 ---
 Applies to: crossfont 0.8.1
 
                               Apache License
@@ -3339,7 +3349,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
---- T038 ---
+--- T039 ---
 Applies to: cstr 0.2.12
 
 Copyright (c) 2018-2020 Xidorn Quan
@@ -3368,7 +3378,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T039 ---
+--- T040 ---
 Applies to: cursor-icon 1.2.0
 
 
@@ -3574,7 +3584,7 @@ Applies to: cursor-icon 1.2.0
    See the License for the specific language governing permissions and
    limitations under the License.
 
---- T040 ---
+--- T041 ---
 Applies to: cursor-icon 1.2.0, wayland-csd-frame 0.3.0
 
 Copyright (c) 2023 Kirill Chibisov
@@ -3597,7 +3607,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T041 ---
+--- T042 ---
 Applies to: cursor-icon 1.2.0
 
 Copyright (c) 2023 Kirill Chibisov
@@ -3612,7 +3622,7 @@ Permission is granted to anyone to use this software for any purpose, including 
 
 3. This notice may not be removed or altered from any source distribution.
 
---- T042 ---
+--- T043 ---
 Applies to: data-url 0.3.2, percent-encoding 2.3.2
 
 Copyright (c) 2013-2025 The rust-url developers
@@ -3641,7 +3651,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T043 ---
+--- T044 ---
 Applies to: dlib 0.5.3
 
 Copyright (c) 2015 Victor Berger
@@ -3664,7 +3674,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
---- T044 ---
+--- T045 ---
 Applies to: document-features 0.2.12
 
 Apache License
@@ -3741,7 +3751,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
---- T045 ---
+--- T046 ---
 Applies to: document-features 0.2.12
 
 Copyright (c) 2020 Olivier Goffart <ogoffart@sixtyfps.io>
@@ -3764,7 +3774,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T046 ---
+--- T047 ---
 Applies to: downcast-rs 1.2.1
 
 Copyright (c) 2020 Ashish Myles and contributors
@@ -3793,7 +3803,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T047 ---
+--- T048 ---
 Applies to: dpi 0.1.2, winit 0.30.13
 
 Apache License
@@ -3998,7 +4008,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
---- T048 ---
+--- T049 ---
 Applies to: dpi 0.1.2
 
 rust-lang/libm as a whole is available for use under the MIT license:
@@ -4053,7 +4063,7 @@ and labelled as such in comments in the individual source files. All
 have been licensed under extremely permissive terms.
 ------------------------------------------------------------------------------
 
---- T049 ---
+--- T050 ---
 Applies to: enumflags2 0.7.12
 
 Apache License
@@ -4125,7 +4135,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
---- T050 ---
+--- T051 ---
 Applies to: enumflags2 0.7.12
 
 Copyright (c) 2017-2023 Maik Klein, Maja Kądziołka
@@ -4154,7 +4164,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T051 ---
+--- T052 ---
 Applies to: enumflags2_derive 0.7.12
 
 Apache License
@@ -4226,7 +4236,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
---- T052 ---
+--- T053 ---
 Applies to: enumflags2_derive 0.7.12
 
 Copyright (c) 2017 Maik Klein
@@ -4255,7 +4265,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T053 ---
+--- T054 ---
 Applies to: equivalent 1.0.2
 
 Copyright (c) 2016--2023
@@ -4284,7 +4294,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T054 ---
+--- T055 ---
 Applies to: errno 0.3.14
 
 Copyright (c) 2014 Chris Wong
@@ -4313,7 +4323,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T055 ---
+--- T056 ---
 Applies to: error-code 3.3.2
 
 Boost Software License - Version 1.0 - August 17th, 2003
@@ -4340,7 +4350,7 @@ FOR ANY DAMAGES OR OTHER LIABILITY, WHETHER IN CONTRACT, TORT OR OTHERWISE,
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T056 ---
+--- T057 ---
 Applies to: fax 0.2.7
 
 Copyright © 2021 The pdf-rs contributers.
@@ -4351,7 +4361,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
---- T057 ---
+--- T058 ---
 Applies to: fdeflate 0.3.7, image 0.25.10, image-webp 0.2.4
 
 MIT License
@@ -4380,7 +4390,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T058 ---
+--- T059 ---
 Applies to: fixedbitset 0.5.7
 
 Copyright (c) 2015-2017
@@ -4409,7 +4419,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T059 ---
+--- T060 ---
 Applies to: flate2 1.1.9
 
 Copyright (c) 2014-2026 Alex Crichton
@@ -4438,7 +4448,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T060 ---
+--- T061 ---
 Applies to: float-cmp 0.9.0
 
 Copyright (c) 2014-2020 Optimal Computing (NZ) Ltd
@@ -4461,7 +4471,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 
---- T061 ---
+--- T062 ---
 Applies to: foldhash 0.1.5, foldhash 0.2.0
 
 Copyright (c) 2024 Orson Peters
@@ -4484,7 +4494,7 @@ the following restrictions:
 
 3. This notice may not be removed or altered from any source distribution.
 
---- T062 ---
+--- T063 ---
 Applies to: font-types 0.11.3, read-fonts 0.39.2, skrifa 0.42.1
 
 Apache License
@@ -4555,7 +4565,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
---- T063 ---
+--- T064 ---
 Applies to: font-types 0.11.3, read-fonts 0.39.2, skrifa 0.42.1
 
 Copyright (c) 2019 Colin Rothfels
@@ -4584,7 +4594,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T064 ---
+--- T065 ---
 Applies to: foreign-types 0.5.0, foreign-types-macros 0.2.3, foreign-types-shared 0.3.1
 
 Copyright (c) 2017 The foreign-types Developers
@@ -4607,7 +4617,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T065 ---
+--- T066 ---
 Applies to: freetype-rs 0.36.0, freetype-sys 0.20.1
 
 The MIT License (MIT)
@@ -4632,7 +4642,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T066 ---
+--- T067 ---
 Applies to: futures-core 0.3.32, futures-io 0.3.34
 
                               Apache License
@@ -4838,7 +4848,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
---- T067 ---
+--- T068 ---
 Applies to: futures-core 0.3.32, futures-io 0.3.34
 
 Copyright (c) 2016 Alex Crichton
@@ -4868,7 +4878,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T068 ---
+--- T069 ---
 Applies to: getrandom 0.3.4
 
                               Apache License
@@ -5073,7 +5083,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
---- T069 ---
+--- T070 ---
 Applies to: getrandom 0.3.4
 
 Copyright (c) 2018-2025 The rust-random Project Developers
@@ -5103,7 +5113,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T070 ---
+--- T071 ---
 Applies to: glow 0.17.0
 
 This software is provided 'as-is', without any express or implied
@@ -5122,7 +5132,7 @@ freely, subject to the following restrictions:
    misrepresented as being the original software.
 3. This notice may not be removed or altered from any source distribution.
 
---- T071 ---
+--- T072 ---
 Applies to: glutin_wgl_sys 0.6.1
 
 Apache License
@@ -5327,7 +5337,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
---- T072 ---
+--- T073 ---
 Applies to: gpu-allocator 0.28.0
 
                               Apache License
@@ -5532,7 +5542,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
---- T073 ---
+--- T074 ---
 Applies to: gpu-allocator 0.28.0
 
 Copyright (c) 2021 Traverse Research B.V.
@@ -5543,7 +5553,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
---- T074 ---
+--- T075 ---
 Applies to: half 2.7.1
 
 MIT License
@@ -5566,7 +5576,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T075 ---
+--- T076 ---
 Applies to: harfrust 0.8.4
 
 The MIT License (MIT)
@@ -5592,7 +5602,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T076 ---
+--- T077 ---
 Applies to: hashbrown 0.15.5, hashbrown 0.16.1, hashbrown 0.17.1
 
 Copyright (c) 2016 Amanieu d'Antras
@@ -5621,7 +5631,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T077 ---
+--- T078 ---
 Applies to: hex 0.4.3
 
 Copyright (c) 2013-2014 The Rust Project Developers.
@@ -5645,7 +5655,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T078 ---
+--- T079 ---
 Applies to: imagesize 0.13.0
 
 MIT License
@@ -5670,7 +5680,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T079 ---
+--- T080 ---
 Applies to: indexmap 2.14.0
 
 Copyright (c) 2016--2017
@@ -5699,7 +5709,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T080 ---
+--- T081 ---
 Applies to: kurbo 0.11.3
 
 Copyright (c) 2018 Raph Levien
@@ -5728,7 +5738,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T081 ---
+--- T082 ---
 Applies to: lazy_static 1.5.0
 
 Copyright (c) 2010 The Rust Project Developers
@@ -5757,7 +5767,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T082 ---
+--- T083 ---
 Applies to: libc 0.2.186
 
 Copyright (c) The Rust Project Developers
@@ -5786,7 +5796,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T083 ---
+--- T084 ---
 Applies to: libloading 0.8.9
 
 Copyright © 2015, Simonas Kazlauskas
@@ -5802,7 +5812,7 @@ WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF 
 NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
---- T084 ---
+--- T085 ---
 Applies to: libm 0.2.16
 
 rust-lang/libm as a whole is available for use under the MIT license:
@@ -6064,7 +6074,40 @@ have been licensed under extremely permissive terms.
 
 Copyright notices are retained in src/* files where relevant.
 
---- T085 ---
+--- T086 ---
+Applies to: linux-raw-sys 0.12.1, linux-raw-sys 0.4.15
+
+Short version for non-lawyers:
+
+`linux-raw-sys` is triple-licensed under Apache 2.0 with the LLVM Exception,
+Apache 2.0, and MIT terms.
+
+
+Longer version:
+
+Copyrights in the `linux-raw-sys` project are retained by their contributors.
+No copyright assignment is required to contribute to the `linux-raw-sys`
+project.
+
+Some files include code derived from Rust's `libstd`; see the comments in
+the code for details.
+
+Except as otherwise noted (below and/or in individual files), `linux-raw-sys`
+is licensed under:
+
+ - the Apache License, Version 2.0, with the LLVM Exception
+   <LICENSE-Apache-2.0_WITH_LLVM-exception> or
+   <http://llvm.org/foundation/relicensing/LICENSE.txt>
+ - the Apache License, Version 2.0
+   <LICENSE-APACHE> or
+   <http://www.apache.org/licenses/LICENSE-2.0>,
+ - or the MIT license
+   <LICENSE-MIT> or
+   <http://opensource.org/licenses/MIT>,
+
+at your option.
+
+--- T087 ---
 Applies to: linux-raw-sys 0.12.1, linux-raw-sys 0.4.15, rustix 0.38.44, rustix 1.1.4
 
 
@@ -6287,7 +6330,7 @@ prospectively choose to deem waived or otherwise exclude such Section(s) of
 the License, but only in their entirety and only with respect to the Combined
 Software.
 
---- T086 ---
+--- T088 ---
 Applies to: litrs 1.0.0
 
 Copyright (c) 2020 Project Developers
@@ -6316,7 +6359,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T087 ---
+--- T089 ---
 Applies to: lock_api 0.4.14, parking_lot 0.12.5, parking_lot_core 0.9.12, thread_local 1.1.9
 
 Copyright (c) 2016 The Rust Project Developers
@@ -6345,14 +6388,14 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T088 ---
+--- T090 ---
 Applies to: memchr 2.8.1, termcolor 1.4.1, winapi-util 0.1.11
 
 This project is dual-licensed under the Unlicense and MIT licenses.
 
 You may use this code under the terms of either license.
 
---- T089 ---
+--- T091 ---
 Applies to: memmap2 0.9.11
 
                               Apache License
@@ -6557,7 +6600,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
---- T090 ---
+--- T092 ---
 Applies to: memmap2 0.9.11
 
 Copyright (c) 2020 Yevhenii Reizner
@@ -6587,64 +6630,64 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T091 ---
-Applies to: miniz_oxide 0.8.9
-
-MIT License
-
-Copyright 2013-2014 RAD Game Tools and Valve Software
-Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
-Copyright (c) 2017 Frommi
-Copyright (c) 2017-2024 oyvindln
-
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
---- T092 ---
-Applies to: miniz_oxide 0.8.9
-
-MIT License
-
-Copyright 2013-2014 RAD Game Tools and Valve Software
-Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
-Copyright (c) 2017 Frommi
-Copyright (c) 2017-2024 oyvindln
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
 --- T093 ---
+Applies to: miniz_oxide 0.8.9
+
+MIT License
+
+Copyright 2013-2014 RAD Game Tools and Valve Software
+Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
+Copyright (c) 2017 Frommi
+Copyright (c) 2017-2024 oyvindln
+
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--- T094 ---
+Applies to: miniz_oxide 0.8.9
+
+MIT License
+
+Copyright 2013-2014 RAD Game Tools and Valve Software
+Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
+Copyright (c) 2017 Frommi
+Copyright (c) 2017-2024 oyvindln
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--- T095 ---
 Applies to: miniz_oxide 0.8.9
 
 Copyright 2013-2014 RAD Game Tools and Valve Software
@@ -6662,7 +6705,7 @@ Permission is granted to anyone to use this software for any purpose, including 
 
 3. This notice may not be removed or altered from any source distribution.
 
---- T094 ---
+--- T096 ---
 Applies to: moxcms 0.8.1, pxfm 0.1.29
 
                                  Apache License
@@ -6867,7 +6910,7 @@ Applies to: moxcms 0.8.1, pxfm 0.1.29
    See the License for the specific language governing permissions and
    limitations under the License.
 
---- T095 ---
+--- T097 ---
 Applies to: moxcms 0.8.1, pxfm 0.1.29
 
 Copyright (c) Radzivon Bartoshyk. All rights reserved.
@@ -6897,7 +6940,7 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
---- T096 ---
+--- T098 ---
 Applies to: naga 29.0.3, wgpu 29.0.3, wgpu-core 29.0.3, wgpu-core-deps-apple 29.0.3, wgpu-core-deps-windows-linux-android 29.0.3, wgpu-hal 29.0.3, wgpu-naga-bridge 29.0.3, wgpu-types 29.0.3
 
 MIT License
@@ -6922,7 +6965,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T097 ---
+--- T099 ---
 Applies to: nom 8.0.0
 
 Copyright (c) 2014-2019 Geoffroy Couprie
@@ -6946,7 +6989,7 @@ LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
---- T098 ---
+--- T100 ---
 Applies to: nu-ansi-term 0.50.3
 
 The MIT License (MIT)
@@ -6972,7 +7015,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T099 ---
+--- T101 ---
 Applies to: ordered-float 5.3.0
 
 Copyright (c) 2015 Jonathan Reem
@@ -7001,7 +7044,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T100 ---
+--- T102 ---
 Applies to: os_pipe 1.2.3
 
 The MIT License (MIT)
@@ -7024,7 +7067,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
---- T101 ---
+--- T103 ---
 Applies to: parking 2.2.1
 
 ===============================================================================
@@ -7037,7 +7080,7 @@ http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
 option. All files in the project carrying such notice may not be
 copied, modified, or distributed except according to those terms.
 
---- T102 ---
+--- T104 ---
 Applies to: petgraph 0.8.3
 
 Copyright (c) 2015
@@ -7066,7 +7109,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T103 ---
+--- T105 ---
 Applies to: pico-args 0.5.0
 
 Copyright (c) 2019 Yevhenii Reizner
@@ -7089,7 +7132,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
---- T104 ---
+--- T106 ---
 Applies to: png 0.17.16, png 0.18.1
 
 Copyright (c) 2015 nwin
@@ -7118,7 +7161,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T105 ---
+--- T107 ---
 Applies to: pollster 0.4.0
 
 Copyright (c) 2020-2021 Joshua Barretto
@@ -7147,7 +7190,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T106 ---
+--- T108 ---
 Applies to: presser 0.3.1
 
 Copyright (c) 2019 Embark Studios
@@ -7176,7 +7219,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T107 ---
+--- T109 ---
 Applies to: quick-error 2.0.1
 
 Copyright (c) 2015 The quick-error Developers
@@ -7199,7 +7242,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T108 ---
+--- T110 ---
 Applies to: quick-xml 0.41.0
 
 The MIT License (MIT)
@@ -7226,7 +7269,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
---- T109 ---
+--- T111 ---
 Applies to: range-alloc 0.1.5
 
 MIT License
@@ -7251,7 +7294,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T110 ---
+--- T112 ---
 Applies to: raw-window-handle 0.6.2
 
 MIT License
@@ -7276,7 +7319,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T111 ---
+--- T113 ---
 Applies to: raw-window-handle 0.6.2
 
 Copyright (c) 2020 Osspial
@@ -7291,7 +7334,7 @@ Permission is granted to anyone to use this software for any purpose, including 
 
 3. This notice may not be removed or altered from any source distribution.
 
---- T112 ---
+--- T114 ---
 Applies to: raw-window-metal 1.1.0, siphasher 1.0.4
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -7312,7 +7355,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T113 ---
+--- T115 ---
 Applies to: renderdoc-sys 1.1.0
 
 Copyright (c) 2022 Eyal Kalderon
@@ -7341,7 +7384,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T114 ---
+--- T116 ---
 Applies to: resvg 0.45.1, usvg 0.45.1
 
 Copyright 2017 the Resvg Authors
@@ -7370,7 +7413,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T115 ---
+--- T117 ---
 Applies to: rfd 0.17.2, sctk-adwaita 0.10.1
 
 MIT License
@@ -7395,7 +7438,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T116 ---
+--- T118 ---
 Applies to: rgb 0.8.53
 
 MIT License
@@ -7420,7 +7463,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T117 ---
+--- T119 ---
 Applies to: roxmltree 0.20.0
 
 The MIT License (MIT)
@@ -7445,7 +7488,40 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T118 ---
+--- T120 ---
+Applies to: rustix 0.38.44, rustix 1.1.4
+
+Short version for non-lawyers:
+
+`rustix` is triple-licensed under Apache 2.0 with the LLVM Exception,
+Apache 2.0, and MIT terms.
+
+
+Longer version:
+
+Copyrights in the `rustix` project are retained by their contributors.
+No copyright assignment is required to contribute to the `rustix`
+project.
+
+Some files include code derived from Rust's `libstd`; see the comments in
+the code for details.
+
+Except as otherwise noted (below and/or in individual files), `rustix`
+is licensed under:
+
+ - the Apache License, Version 2.0, with the LLVM Exception
+   <LICENSE-Apache-2.0_WITH_LLVM-exception> or
+   <http://llvm.org/foundation/relicensing/LICENSE.txt>
+ - the Apache License, Version 2.0
+   <LICENSE-APACHE> or
+   <http://www.apache.org/licenses/LICENSE-2.0>,
+ - or the MIT license
+   <LICENSE-MIT> or
+   <http://opensource.org/licenses/MIT>,
+
+at your option.
+
+--- T121 ---
 Applies to: scopeguard 1.2.0
 
 Copyright (c) 2016-2019 Ulrik Sverdrup "bluss" and scopeguard developers
@@ -7474,7 +7550,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T119 ---
+--- T122 ---
 Applies to: sharded-slab 0.1.7
 
 Copyright (c) 2019 Eliza Weisman
@@ -7497,7 +7573,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
---- T120 ---
+--- T123 ---
 Applies to: signal-hook-registry 1.4.8
 
 Copyright (c) 2017 tokio-jsonrpc developers
@@ -7526,7 +7602,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T121 ---
+--- T124 ---
 Applies to: simd-adler32 0.3.9
 
 MIT License
@@ -7551,7 +7627,18 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T122 ---
+--- T125 ---
+Applies to: simplecss 0.2.2
+
+# This is the list of SimpleCSS's significant contributors.
+#
+# This does not necessarily list everyone who has contributed code,
+# especially since many employees of one corporation may be contributing.
+# To see the full list of contributors, see the revision history in
+# source control.
+Yevhenii Reizner
+
+--- T126 ---
 Applies to: simplecss 0.2.2
 
 The MIT License (MIT)
@@ -7576,7 +7663,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T123 ---
+--- T127 ---
 Applies to: siphasher 1.0.4
 
 Copyright 2012-2016 The Rust Project Developers.
@@ -7587,7 +7674,7 @@ http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
 <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 option.
 
---- T124 ---
+--- T128 ---
 Applies to: slab 0.4.12
 
 Copyright (c) 2019 Carl Lerche
@@ -7616,7 +7703,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T125 ---
+--- T129 ---
 Applies to: smallvec 1.15.1
 
 Copyright (c) 2018 The Servo Project Developers
@@ -7645,7 +7732,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T126 ---
+--- T130 ---
 Applies to: static_assertions 1.1.0
 
 MIT License
@@ -7670,7 +7757,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T127 ---
+--- T131 ---
 Applies to: strict-num 0.1.1
 
 Copyright (c) 2022 Yevhenii Reizner
@@ -7693,7 +7780,18 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
---- T128 ---
+--- T132 ---
+Applies to: svgtypes 0.15.3
+
+# This is the list of svgtypes' significant contributors.
+#
+# This does not necessarily list everyone who has contributed code,
+# especially since many employees of one corporation may be contributing.
+# To see the full list of contributors, see the revision history in
+# source control.
+Yevhenii Reizner
+
+--- T133 ---
 Applies to: svgtypes 0.15.3
 
 Copyright (c) 2018 Yevhenii Reizner
@@ -7716,7 +7814,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
---- T129 ---
+--- T134 ---
 Applies to: swash 0.2.9, zeno 0.3.3
 
 Copyright (c) 2020 Chad Brokaw
@@ -7745,7 +7843,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T130 ---
+--- T135 ---
 Applies to: tiff 0.11.3
 
 MIT License
@@ -7770,7 +7868,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T131 ---
+--- T136 ---
 Applies to: tiny-skia 0.11.4, tiny-skia-path 0.11.4
 
 Copyright (c) 2011 Google Inc. All rights reserved.
@@ -7804,7 +7902,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
---- T132 ---
+--- T137 ---
 Applies to: toml_datetime 1.1.1+spec-1.1.0, toml_edit 0.25.12+spec-1.1.0, toml_parser 1.1.2+spec-1.1.0
 
 Copyright (c) Individual contributors
@@ -7827,7 +7925,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T133 ---
+--- T138 ---
 Applies to: tracing 0.1.44, tracing-attributes 0.1.31, tracing-core 0.1.36, tracing-log 0.2.0, tracing-subscriber 0.3.23
 
 Copyright (c) 2019 Tokio Contributors
@@ -7856,7 +7954,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T134 ---
+--- T139 ---
 Applies to: tree_magic_mini 3.2.2
 
 MIT License
@@ -7881,7 +7979,27 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T135 ---
+--- T140 ---
+Applies to: unicode-bidi 0.3.18
+
+This software was written by the following people:
+
+Matt Brubeck <mbrubeck@limpet.net>
+Behnam Esfahbod <behnam@zwnj.org>
+
+--- T141 ---
+Applies to: unicode-bidi 0.3.18
+
+This project is copyright 2015, The Servo Project Developers (given in the
+file AUTHORS).
+
+Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+http://www.apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
+http://opensource.org/licenses/MIT>, at your option. All files in the project
+carrying such notice may not be copied, modified, or distributed except
+according to those terms.
+
+--- T142 ---
 Applies to: unicode-bidi 0.3.18, unicode-segmentation 1.13.3, unicode-width 0.2.2
 
 Copyright (c) 2015 The Rust Project Developers
@@ -7910,7 +8028,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T136 ---
+--- T143 ---
 Applies to: unicode-ident 1.0.24
 
 UNICODE LICENSE V3
@@ -7953,7 +8071,18 @@ not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
 
---- T137 ---
+--- T144 ---
+Applies to: unicode-segmentation 1.13.3, unicode-width 0.2.2
+
+Licensed under the Apache License, Version 2.0
+<LICENSE-APACHE or
+http://www.apache.org/licenses/LICENSE-2.0> or the MIT
+license <LICENSE-MIT or http://opensource.org/licenses/MIT>,
+at your option. All files in the project carrying such
+notice may not be copied, modified, or distributed except
+according to those terms.
+
+--- T145 ---
 Applies to: uuid 1.26.0
 
 Copyright (c) 2014 The Rust Project Developers
@@ -7983,7 +8112,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T138 ---
+--- T146 ---
 Applies to: wayland-backend 0.3.15, wayland-client 0.31.14, wayland-cursor 0.31.14, wayland-protocols 0.32.12, wayland-protocols-plasma 0.3.12, wayland-protocols-wlr 0.3.12, wayland-scanner 0.31.11, wayland-sys 0.31.11
 
 Copyright (c) 2015 Elinor Berger
@@ -8006,7 +8135,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
---- T139 ---
+--- T147 ---
 Applies to: weezl 0.1.12
 
 The MIT License (MIT)
@@ -8031,7 +8160,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T140 ---
+--- T148 ---
 Applies to: winapi-util 0.1.11
 
 The MIT License (MIT)
@@ -8056,7 +8185,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
---- T141 ---
+--- T149 ---
 Applies to: windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-implement 0.60.2, windows-interface 0.59.3, windows-link 0.2.1, windows-numerics 0.3.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.52.0, windows-sys 0.59.0, windows-sys 0.61.2, windows-targets 0.52.6, windows-threading 0.2.1, windows_x86_64_msvc 0.52.6
 
                                  Apache License
@@ -8261,7 +8390,7 @@ Applies to: windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, wind
    See the License for the specific language governing permissions and
    limitations under the License.
 
---- T142 ---
+--- T150 ---
 Applies to: windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, windows-future 0.3.2, windows-implement 0.60.2, windows-interface 0.59.3, windows-link 0.2.1, windows-numerics 0.3.1, windows-result 0.4.1, windows-strings 0.5.1, windows-sys 0.52.0, windows-sys 0.59.0, windows-sys 0.61.2, windows-targets 0.52.6, windows-threading 0.2.1, windows_x86_64_msvc 0.52.6
 
     MIT License
@@ -8286,7 +8415,7 @@ Applies to: windows 0.62.2, windows-collections 0.3.2, windows-core 0.62.2, wind
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE
 
---- T143 ---
+--- T151 ---
 Applies to: winnow 1.0.3
 
 Permission is hereby granted, free of charge, to any person obtaining
@@ -8308,7 +8437,7 @@ LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
---- T144 ---
+--- T152 ---
 Applies to: wl-clipboard-rs 0.9.3
 
 Copyright (c) 2019 Ivan Molodetskikh
@@ -8337,7 +8466,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T145 ---
+--- T153 ---
 Applies to: x11rb 0.13.2, x11rb-protocol 0.13.2
 
 Copyright 2019 x11rb Contributers
@@ -8366,7 +8495,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T146 ---
+--- T154 ---
 Applies to: xcursor 0.3.10
 
 MIT License
@@ -8391,7 +8520,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T147 ---
+--- T155 ---
 Applies to: xkbcommon-dl 0.4.2
 
 The MIT License (MIT)
@@ -8416,7 +8545,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T148 ---
+--- T156 ---
 Applies to: xkeysym 0.2.1
 
 
@@ -8622,7 +8751,7 @@ Applies to: xkeysym 0.2.1
    See the License for the specific language governing permissions and
    limitations under the License.
 
---- T149 ---
+--- T157 ---
 Applies to: xkeysym 0.2.1
 
 Copyright (c) 2022-2023 John Nunley
@@ -8645,7 +8774,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T150 ---
+--- T158 ---
 Applies to: xkeysym 0.2.1
 
 Copyright (c) 2022-2023 John Nunley
@@ -8660,7 +8789,7 @@ Permission is granted to anyone to use this software for any purpose, including 
 
 3. This notice may not be removed or altered from any source distribution.
 
---- T151 ---
+--- T159 ---
 Applies to: xmlwriter 0.1.0
 
 The MIT License (MIT)
@@ -8685,7 +8814,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T152 ---
+--- T160 ---
 Applies to: yazi 0.2.1
 
 Copyright (c) 2020 Chad Brokaw
@@ -8708,7 +8837,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
---- T153 ---
+--- T161 ---
 Applies to: yeslogic-fontconfig-sys 5.0.0
 
 The MIT License (MIT)
@@ -8736,7 +8865,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T154 ---
+--- T162 ---
 Applies to: zbus 5.19.0, zbus_macros 5.19.0, zbus_names 4.3.4, zvariant 5.15.0, zvariant_derive 5.15.0
 
 Copyright (c) 2024 Zeeshan Ali Khan & zbus contributors
@@ -8765,7 +8894,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T155 ---
+--- T163 ---
 Applies to: zcheapstr 1.1.0
 
 Copyright (c) 2026 Zeeshan Ali Khan & zcheapstr contributors
@@ -8794,7 +8923,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T156 ---
+--- T164 ---
 Applies to: zerocopy 0.8.50, zerocopy-derive 0.8.50
 
                                  Apache License
@@ -8999,7 +9128,7 @@ Applies to: zerocopy 0.8.50, zerocopy-derive 0.8.50
    See the License for the specific language governing permissions and
    limitations under the License.
 
---- T157 ---
+--- T165 ---
 Applies to: zerocopy 0.8.50, zerocopy-derive 0.8.50
 
 Copyright 2019 The Fuchsia Authors.
@@ -9027,7 +9156,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
---- T158 ---
+--- T166 ---
 Applies to: zerocopy 0.8.50, zerocopy-derive 0.8.50
 
 Copyright 2023 The Fuchsia Authors
@@ -9056,7 +9185,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
---- T159 ---
+--- T167 ---
 Applies to: zune-core 0.5.1, zune-jpeg 0.5.15
 
 MIT License
@@ -9081,7 +9210,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- T160 ---
+--- T168 ---
 Applies to: zune-core 0.5.1, zune-jpeg 0.5.15
 
 zlib License

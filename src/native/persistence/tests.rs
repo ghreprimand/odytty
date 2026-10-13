@@ -770,9 +770,10 @@ fn sanitize_layout_name_mangles_windows_reserved_device_stems() {
     // dot is neutralized to `_` first, so "con.bak" becomes the non-device
     // "con_bak" and needs no mangling.
     assert_eq!(sanitize_layout_name("con.bak"), Some("con_bak".to_owned()));
+    // Zero-numbered ports follow the conservative shared profile rule.
+    assert_eq!(sanitize_layout_name("COM0"), Some("_COM0".to_owned()));
+    assert_eq!(sanitize_layout_name("LPT0"), Some("_LPT0".to_owned()));
     // Non-reserved lookalikes are left untouched.
-    assert_eq!(sanitize_layout_name("COM0"), Some("COM0".to_owned()));
-    assert_eq!(sanitize_layout_name("LPT0"), Some("LPT0".to_owned()));
     assert_eq!(sanitize_layout_name("console"), Some("console".to_owned()));
     assert_eq!(sanitize_layout_name("COM10"), Some("COM10".to_owned()));
 }
@@ -1558,4 +1559,75 @@ fn layout_names_preserve_unicode_and_bound_utf8_bytes() {
         sanitize_layout_name("\u{65e5}\u{672c}"),
         sanitize_layout_name("\u{0645}\u{0644}")
     );
+}
+
+#[test]
+fn layout_names_replace_default_ignorable_scalars() {
+    for ch in [
+        '\u{ad}',
+        '\u{34f}',
+        '\u{61c}',
+        '\u{115f}',
+        '\u{17b4}',
+        '\u{180b}',
+        '\u{200b}',
+        '\u{200c}',
+        '\u{200d}',
+        '\u{200e}',
+        '\u{200f}',
+        '\u{202a}',
+        '\u{202b}',
+        '\u{202c}',
+        '\u{202d}',
+        '\u{202e}',
+        '\u{2060}',
+        '\u{2066}',
+        '\u{2067}',
+        '\u{2068}',
+        '\u{2069}',
+        '\u{3164}',
+        '\u{fe0f}',
+        '\u{feff}',
+        '\u{ffa0}',
+        '\u{fff0}',
+        '\u{1bca0}',
+        '\u{1d173}',
+        '\u{e0001}',
+        '\u{e0100}',
+    ] {
+        assert_eq!(
+            sanitize_layout_name(&format!("visible{ch}name")),
+            Some("visible_name".to_owned()),
+            "U+{:04X}",
+            ch as u32
+        );
+    }
+}
+
+#[test]
+fn layout_names_mangle_superscript_windows_device_stems() {
+    for prefix in ["COM", "LPT", "com", "lpt"] {
+        for digit in ['\u{b9}', '\u{b2}', '\u{b3}'] {
+            let name = format!("{prefix}{digit}");
+            assert_eq!(sanitize_layout_name(&name), Some(format!("_{name}")));
+        }
+    }
+}
+
+#[test]
+fn layout_names_mangle_zero_device_stems_like_profiles() {
+    for name in ["COM0", "LPT0", "com0", "lpt0"] {
+        assert!(crate::profiles::validate_profile_name(name).is_err());
+        assert_eq!(sanitize_layout_name(name), Some(format!("_{name}")));
+    }
+}
+
+#[test]
+fn layout_names_replace_unicode_line_and_paragraph_separators() {
+    for ch in ['\u{2028}', '\u{2029}'] {
+        assert_eq!(
+            sanitize_layout_name(&format!("visible{ch}name")),
+            Some("visible_name".to_owned())
+        );
+    }
 }

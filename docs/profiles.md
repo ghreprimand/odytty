@@ -16,6 +16,11 @@ Profile resolution happens on summon; quick access defaults off. See the
 [quick-terminal contract](v0.15.0-foundation.md#quick-terminal-role)
 and [runtime settings](runtime-knobs.md).
 
+Backspace in an empty Shell or Command program field preserves the existing
+launch choice and arguments. Typing a replacement still switches between the
+exclusive shell and command choices. This behavior is shared by Linux, macOS
+and Windows.
+
 ## Contents
 
 - [Where profiles live](#where-profiles-live)
@@ -81,12 +86,16 @@ schema-owned objects retain unknown keys for saving, including a `switch`
 object that holds only unknown keys. An unknown number is kept as written when
 its literal has more than 15 significant digits, which a 64-bit float cannot
 always hold exactly, so a large integer or a long decimal in a field this build
-does not own survives a save unchanged; shorter numbers are written in their
+does not own survives a save unchanged. The same applies to a shorter number
+whose nearest 64-bit float is a different number, such as `1e-400`, which
+would otherwise round to zero. Other numbers are written in their
 shortest form, using exponent notation when that is shorter, so `1E+2` is
 saved as `100` and `1e300` stays `1e300`. A field this build owns is always
 written from its typed value, never from the source literal.
 The version gate is separate from field preservation: `schema_version` must be a
-whole number that does not exceed the version this build understands. A document
+whole number, judged from its written digits, so `0.99999999999999999999` is
+refused although it rounds to 1, and it must not exceed the version this build
+understands. A document
 declaring a newer `schema_version` is rejected outright rather than partially
 read, and a missing or zero version is rejected as malformed.
 

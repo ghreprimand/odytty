@@ -115,6 +115,7 @@ pub use button::{
 // Only the width tests outside this module read it directly now.
 #[cfg(test)]
 pub(crate) use char_width::char_display_width;
+pub(crate) use char_width::is_default_ignorable;
 pub(crate) use emoji_width::has_two_cell_footprint as emoji_owner_is_two_cells;
 pub use encoding::{encode_focus_event, encode_mouse_event, encode_mouse_event_pixel};
 pub use hyperlink::{Hyperlink, MAX_URI_BYTES, uri_has_openable_scheme};

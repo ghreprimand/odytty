@@ -74,8 +74,12 @@ pub(in crate::native) fn helper_command(program: impl AsRef<OsStr>) -> std::io::
         std::env::var_os("SystemRoot"),
         path_entries,
     );
-    crate::pty::program_path::helper_program(program, dirs, std::path::Path::is_file)
-        .map(Command::new)
+    crate::pty::program_path::helper_program(
+        program,
+        dirs,
+        crate::pty::program_path::is_program_file,
+    )
+    .map(Command::new)
 }
 
 /// Non-Windows form: unchanged `Command::new`.

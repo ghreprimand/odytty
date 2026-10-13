@@ -47,6 +47,7 @@ impl SettingsPanel {
     pub(in crate::native) fn update_body_height(&mut self, body_height: usize) {
         if let Some(picker) = self.path_picker.as_mut() {
             picker.poll_pending();
+            picker.update_body_height(body_height);
         }
         if body_height > 0 {
             self.last_body_height = body_height;

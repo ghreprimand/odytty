@@ -222,6 +222,35 @@ fn every_linked_crate_has_its_licence_text_and_every_text_is_used() {
 }
 
 #[test]
+fn a_crate_with_no_declared_authors_says_where_its_holder_is_stated() {
+    let text = read(FILE);
+    let mut checked = 0;
+    for line in text.lines().filter(|line| line.starts_with("crate: ")) {
+        if line.contains(" | authors: none declared") {
+            checked += 1;
+            assert!(
+                line.contains(" | holder: not named in the published source"),
+                "{line} names neither authors nor where the copyright statement is kept"
+            );
+        }
+    }
+    assert!(checked > 0, "no crate without authors was found to check");
+}
+
+#[test]
+fn copyright_files_that_are_a_crates_only_holder_statement_are_reproduced() {
+    let text = read(FILE);
+    for name in ["rustix", "linux-raw-sys"] {
+        let statement =
+            format!("Copyrights in the `{name}` project are retained by their contributors.");
+        assert!(
+            text.contains(&statement),
+            "the {name} COPYRIGHT file is missing from {FILE}"
+        );
+    }
+}
+
+#[test]
 fn every_package_definition_ships_the_file() {
     let manifest = read("Cargo.toml");
     let deb = manifest

@@ -246,3 +246,60 @@ fn strict_object_member_bound_accepts_exact_limit_and_lenient_sibling_stays_open
     assert!(json::parse_strict(&beyond).is_err());
     assert!(json::parse(&beyond).is_ok(), "tool-output reader contract");
 }
+
+#[test]
+fn unknown_numbers_that_underflow_or_lose_subnormal_digits_keep_their_literal() {
+    // Each literal is short, but its nearest `f64` is a different number: zero
+    // for the first two, a subnormal with fewer digits for the third.
+    let literals = ["1e-400", "-1e-400", "1.234567e-322"];
+    let text = profile_text(&format!(
+        ", \"future\": [{}, {}, {}]",
+        literals[0], literals[1], literals[2]
+    ));
+    let (written, _) = saved(&text);
+    for literal in literals {
+        assert!(written.contains(literal), "{literal} in {written}");
+    }
+    assert!(!written.contains("\n    0,"), "{written}");
+}
+
+#[test]
+fn short_numbers_whose_f64_reads_back_unchanged_are_not_retained() {
+    // Controls: the smallest subnormal, a normal tiny value, zero spellings
+    // and an ordinary decimal all read back as the same decimal number.
+    for literal in ["5e-324", "1e-300", "-0", "0.000", "0e999", "0.1", "-2.5E-3"] {
+        match json::parse_strict(literal).expect("number") {
+            json::Json::Num(_) => {}
+            other => panic!("{literal} -> {other:?}"),
+        }
+    }
+    match json::parse_strict("1e-400").expect("number") {
+        json::Json::Exact(value, literal) => {
+            assert_eq!(value, 0.0);
+            assert_eq!(literal, "1e-400");
+        }
+        other => panic!("1e-400 -> {other:?}"),
+    }
+}
+
+#[test]
+fn a_schema_version_that_only_rounds_to_a_whole_number_is_refused() {
+    for version in ["1.00000000000000000001", "0.99999999999999999999"] {
+        let text = format!("{{\"schema_version\": {version}, \"name\": \"dev\"}}");
+        let message = malformed(&text);
+        assert!(message.contains("whole number"), "{version}: {message}");
+    }
+    // Whole spellings with any exponent or trailing zeros are still version 1.
+    for version in [
+        "1",
+        "1e0",
+        "10e-1",
+        "1.0000000000000000000000",
+        "100000000000000000000e-20",
+    ] {
+        let text = format!("{{\"schema_version\": {version}, \"name\": \"dev\"}}");
+        let profile = LaunchProfile::parse_json(&text, Some("dev"))
+            .unwrap_or_else(|error| panic!("{version}: {error:?}"));
+        assert_eq!(profile.schema_version, 1, "{version}");
+    }
+}

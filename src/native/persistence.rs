@@ -653,8 +653,9 @@ fn repair_direct_layout_files(dir: &Path) -> io::Result<()> {
 
 /// Sanitize a layout name into a safe single-segment filename stem (WP3 / 8e).
 /// Keeps ASCII letters, digits, spaces, `-`, `_`, and non-ASCII text.
-/// Other ASCII punctuation and control characters become `_`, blocking traversal
-/// and hidden names. Truncation respects UTF-8 boundaries within 96 bytes.
+/// Other ASCII punctuation, controls, Unicode line/paragraph separators and
+/// default-ignorable scalars become `_`, blocking traversal and hidden names.
+/// Truncation respects UTF-8 boundaries within 96 bytes.
 /// Returns `None` for an empty trimmed name. Existing sanitized names remain
 /// usable; saving a Unicode name does not rename an older underscore alias.
 pub(crate) fn sanitize_layout_name(name: &str) -> Option<String> {
@@ -664,7 +665,10 @@ pub(crate) fn sanitize_layout_name(name: &str) -> Option<String> {
             || ch == ' '
             || ch == '-'
             || ch == '_'
-            || (!ch.is_ascii() && !ch.is_control())
+            || (!ch.is_ascii()
+                && !ch.is_control()
+                && !matches!(ch, '\u{2028}' | '\u{2029}')
+                && !crate::core::is_default_ignorable(ch))
         {
             ch
         } else {
@@ -679,30 +683,14 @@ pub(crate) fn sanitize_layout_name(name: &str) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
-    // Windows reserved device stems (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
-    // are illegal filenames on Windows EVEN WITH an extension -- "CON.json"
-    // resolves to the console device, not a file. Mangle them cross-platform so
+    // Windows device stems include ASCII and superscript numbered ports.
+    // They are reserved even with an extension: "CON.json" resolves to the
+    // console device. Mangle them cross-platform so
     // a layout saved on any OS is portable and can never open a device.
-    if is_windows_reserved_stem(&trimmed) {
+    if crate::state_dir::is_windows_reserved_stem(&trimmed) {
         return Some(format!("_{trimmed}"));
     }
     Some(trimmed)
-}
-
-/// Whether `stem` (a filename stem, no extension) collides with a Windows
-/// reserved device name, compared case-insensitively against the segment before
-/// any dot. `create_temp_sibling` and `sanitize_layout_name` both keep files off
-/// these names so persistence stays portable to Windows.
-fn is_windows_reserved_stem(stem: &str) -> bool {
-    let head = stem.split('.').next().unwrap_or(stem).trim();
-    let upper = head.to_ascii_uppercase();
-    if matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL") {
-        return true;
-    }
-    // COM1-COM9 and LPT1-LPT9 (COM0 / LPT0 are not reserved).
-    (upper.starts_with("COM") || upper.starts_with("LPT"))
-        && upper.len() == 4
-        && matches!(upper.as_bytes()[3], b'1'..=b'9')
 }
 
 /// Absolute path of the layout file for `name` under `dir`, or `None` when the

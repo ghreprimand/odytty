@@ -79,8 +79,8 @@ pub(crate) fn owner_display_width(base: char, extensions: &[char], ambiguous_wid
 
 /// Unicode 17.0.0 DerivedCoreProperties.txt Default_Ignorable_Code_Point.
 /// https://www.unicode.org/Public/17.0.0/ucd/DerivedCoreProperties.txt
-/// The caller also
-/// requires scalar width zero; visible fillers keep their existing widths.
+/// Terminal owner callers also require scalar width zero; visible fillers
+/// keep their existing widths. Filename filtering uses the property directly.
 /// Standalone source retention for these scalars remains unsupported.
 pub(crate) fn is_default_ignorable(ch: char) -> bool {
     matches!(ch as u32,

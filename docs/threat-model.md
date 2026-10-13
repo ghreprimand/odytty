@@ -1237,7 +1237,9 @@ because the process model differs at the foundation.
   or an absolute `PATH` entry, and refuses a name found nowhere. `std` alone
   would also search relative `PATH` entries, so a planted helper there could run
   before a later genuine one. A program given with a directory part (a
-  configured editor path) is the user's own choice and is used as given. The
+  configured editor path) is the user's own choice and is used as given. A Store
+  app execution alias counts as a program file; a directory, a dangling link or
+  a link to a directory does not. The
   `%ProgramFiles%` and `%SystemRoot%` bases of the default shell lookup must be
   drive-absolute. Unix and macOS lookup is unchanged.
 - **Process containment.** Terminating a child tree uses a per-session job

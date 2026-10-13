@@ -14,7 +14,7 @@ tpl = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tpl)
 
 
-def package(root: Path, name: str, version: str, license_expr, files: dict, authors=()):
+def package(root: Path, name: str, version: str, license_expr, files: dict, authors=(), repository=None):
     source = root / f"{name}-{version}"
     source.mkdir()
     (source / "Cargo.toml").write_text("[package]\n")
@@ -25,6 +25,7 @@ def package(root: Path, name: str, version: str, license_expr, files: dict, auth
         "version": version,
         "license": license_expr,
         "authors": list(authors),
+        "repository": repository,
         "manifest_path": str(source / "Cargo.toml"),
     }
 
@@ -78,6 +79,51 @@ class GeneratorTests(unittest.TestCase):
     def test_no_declared_authors_is_stated(self):
         crate = package(self.root, "bare", "0.1.0", "Zlib", {})
         self.assertIn("authors: none declared", self.render([crate]))
+
+    def test_no_declared_authors_points_at_the_repository_that_keeps_the_notice(self):
+        crate = package(
+            self.root, "bare", "0.1.0", "Zlib", {}, repository="https://example.invalid/bare"
+        )
+        output = self.render([crate])
+        self.assertIn(
+            "| authors: none declared | holder: not named in the published source;"
+            " see https://example.invalid/bare",
+            output,
+        )
+
+    def test_no_declared_authors_and_no_repository_says_so_per_crate(self):
+        crate = package(self.root, "bare", "0.1.0", "MIT", {})
+        self.assertIn(
+            "| authors: none declared | holder: not named in the published source"
+            " and no repository is declared",
+            self.render([crate]),
+        )
+
+    def test_declared_authors_need_no_holder_note(self):
+        crate = package(
+            self.root, "bare", "0.1.0", "MIT", {}, authors=["Sam Roe"], repository="https://x.invalid"
+        )
+        self.assertNotIn("holder:", self.render([crate]))
+
+    def test_copyright_and_authors_files_are_reproduced_beside_the_licence(self):
+        crate = package(
+            self.root,
+            "held",
+            "1.0.0",
+            "MIT",
+            {
+                "LICENSE-MIT": b"Permission is hereby granted\n",
+                "COPYRIGHT": b"Copyrights in this project are retained by contributors.\n",
+                "AUTHORS": b"Jane Doe\n",
+                "README.md": b"not a notice\n",
+            },
+        )
+        output = self.render([crate])
+        self.assertIn("crate: held 1.0.0 | MIT | texts: T", output)
+        self.assertIn("Copyrights in this project are retained by contributors.", output)
+        self.assertIn("Jane Doe", output)
+        self.assertNotIn("not a notice", output)
+        self.assertIn("licence texts: 3", output)
 
     def test_a_declared_licence_with_no_standard_text_is_an_error(self):
         crate = package(self.root, "odd", "0.1.0", "Imaginary-1.0", {})

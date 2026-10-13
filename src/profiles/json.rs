@@ -10,8 +10,10 @@
 //! (forward compatibility); the writer emits pretty-printed, hand-editable
 //! output with a stable key order and two-space indentation. Numbers are held
 //! as `f64`; a profile-document number with more than 15 significant digits,
-//! which may not survive the trip through `f64` back to decimal, also keeps
-//! its validated literal so a save writes it back unchanged. Other numbers are
+//! which may not survive the trip through `f64` back to decimal, or whose
+//! nearest `f64` is a different number (a nonzero value that underflows to
+//! zero or loses digits as a subnormal), also keeps its validated literal so a
+//! save writes it back unchanged. Other numbers are
 //! written in their shortest round-tripping form, using exponent notation
 //! when that is shorter, so the spelling of a hand-written number may change.
 
@@ -26,9 +28,10 @@ pub(crate) enum Json {
     Bool(bool),
     Num(f64),
     /// A number whose literal has more than [`EXACT_DIGITS`] significant
-    /// digits, so `f64` may not hold it exactly: the `f64` for arithmetic and
-    /// the literal, already checked against the JSON number grammar, for
-    /// writing. Only the strict reader produces it.
+    /// digits, or whose nearest `f64` reads back as a different decimal
+    /// number: the `f64` for arithmetic and the literal, already checked
+    /// against the JSON number grammar, for writing and for exact checks such
+    /// as [`is_whole_literal`]. Only the strict reader produces it.
     Exact(f64, String),
     Str(String),
     Arr(Vec<Json>),
@@ -170,6 +173,78 @@ fn significant_digits(literal: &str) -> usize {
         .rposition(|digit| *digit != b'0')
         .unwrap_or(first);
     last - first + 1
+}
+
+/// A JSON number literal in normalized scientific form: the sign, the
+/// significant digits without leading or trailing zeros, and the decimal
+/// exponent of the first of them. Zero has no digits and no sign, so `-0`,
+/// `0.0` and `0e5` are all equal.
+#[derive(Debug, PartialEq, Eq)]
+struct Decimal {
+    negative: bool,
+    digits: Vec<u8>,
+    exponent: i64,
+}
+
+/// `literal` in normalized form, or `None` when it is not a plain decimal
+/// literal or its exponent does not fit in `i64`.
+fn decimal(literal: &str) -> Option<Decimal> {
+    let (negative, rest) = match literal.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, literal),
+    };
+    let (mantissa, exponent) = match rest.find(['e', 'E']) {
+        Some(at) => (&rest[..at], &rest[at + 1..]),
+        None => (rest, "0"),
+    };
+    let exponent: i64 = exponent.parse().ok()?;
+    let (integer, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let all: Vec<u8> = integer.bytes().chain(fraction.bytes()).collect();
+    if all.is_empty() || !all.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    let Some(first) = all.iter().position(|digit| *digit != b'0') else {
+        return Some(Decimal {
+            negative: false,
+            digits: Vec::new(),
+            exponent: 0,
+        });
+    };
+    let last = all
+        .iter()
+        .rposition(|digit| *digit != b'0')
+        .unwrap_or(first);
+    let exponent = exponent
+        .checked_add(i64::try_from(integer.len()).ok()?)?
+        .checked_sub(i64::try_from(first).ok()?)?
+        .checked_sub(1)?;
+    Some(Decimal {
+        negative,
+        digits: all[first..=last].to_vec(),
+        exponent,
+    })
+}
+
+/// Whether `value`, written in its shortest round-tripping form, is the same
+/// decimal number as `literal`. False for a nonzero literal that rounds to
+/// zero or to a subnormal with fewer digits, and for any literal that cannot
+/// be normalized.
+fn round_trips(literal: &str, value: f64) -> bool {
+    match decimal(literal) {
+        Some(source) => decimal(&format!("{value:e}")).as_ref() == Some(&source),
+        None => false,
+    }
+}
+
+/// Whether a JSON number literal is a whole number, judged from its decimal
+/// digits rather than from a rounded `f64`, so `1.00000000000000000001` is
+/// not whole although its nearest `f64` is 1.
+pub(crate) fn is_whole_literal(literal: &str) -> bool {
+    decimal(literal).is_some_and(|number| {
+        number.digits.is_empty()
+            || usize::try_from(number.exponent)
+                .is_ok_and(|exponent| number.digits.len() <= exponent.saturating_add(1))
+    })
 }
 
 fn write_number(out: &mut String, n: f64) {
@@ -461,7 +536,11 @@ impl Parser {
             Ok(value) if self.strict && !value.is_finite() => {
                 Err(format!("number '{slice}' is out of range"))
             }
-            Ok(value) if self.strict && significant_digits(&slice) > EXACT_DIGITS => {
+            Ok(value)
+                if self.strict
+                    && (significant_digits(&slice) > EXACT_DIGITS
+                        || !round_trips(&slice, value)) =>
+            {
                 Ok(Json::Exact(value, slice))
             }
             Ok(value) => Ok(Json::Num(value)),

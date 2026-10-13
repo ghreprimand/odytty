@@ -979,6 +979,9 @@ def run_bounded(
     (default `DRAIN_GRACE_SECONDS`) to reach end of file; a reader still running
     then means a descendant holds the pipe, so the group is killed and the run
     is returned with `incomplete` set instead of a prefix passed off as whole.
+    Any other exception, including `KeyboardInterrupt`, kills the group and is
+    re-raised, because the session start means the interrupt reaches only this
+    process.
     """
     grace = DRAIN_GRACE_SECONDS if drain_grace is None else drain_grace
     popen_extra: dict[str, Any] = (
@@ -1027,32 +1030,45 @@ def run_bounded(
         return not any(thread.is_alive() for thread in threads)
 
     try:
-        process.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        _kill_tree(process)
         try:
-            process.wait(timeout=REAP_SECONDS)
+            process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            pass
-        join_readers(grace)
-        raise
-    if not join_readers(grace):
-        _kill_tree(process)
-        join_readers(grace)
+            _kill_tree(process)
+            try:
+                process.wait(timeout=REAP_SECONDS)
+            except subprocess.TimeoutExpired:
+                pass
+            join_readers(grace)
+            raise
+        if not join_readers(grace):
+            _kill_tree(process)
+            join_readers(grace)
+            return BoundedRun(
+                process.returncode,
+                bytes(chunks["stdout"]),
+                bytes(chunks["stderr"]),
+                overflow["stdout"] or overflow["stderr"],
+                incomplete=True,
+            )
         return BoundedRun(
             process.returncode,
             bytes(chunks["stdout"]),
             bytes(chunks["stderr"]),
             overflow["stdout"] or overflow["stderr"],
-            incomplete=True,
+            incomplete=broken["stdout"] or broken["stderr"],
         )
-    return BoundedRun(
-        process.returncode,
-        bytes(chunks["stdout"]),
-        bytes(chunks["stderr"]),
-        overflow["stdout"] or overflow["stderr"],
-        incomplete=broken["stdout"] or broken["stderr"],
-    )
+    except subprocess.TimeoutExpired:
+        raise
+    except BaseException:
+        # The child runs in its own session, so a terminal interrupt reaches
+        # only this process. Take the child and its group down before the
+        # interrupt propagates, or its window would outlive the run.
+        _kill_tree(process)
+        try:
+            process.wait(timeout=REAP_SECONDS)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -2518,6 +2534,62 @@ class SelfTest(unittest.TestCase):
         kill_tree.assert_called_once_with(process)
         self.assertEqual(len(waits), 2)
         self.assertNotIn(None, waits, "every wait carries a bound")
+
+    def test_an_interrupt_kills_the_childs_group_and_propagates(self) -> None:
+        process = mock.MagicMock()
+        process.pid = 2**22 + 12345
+        process.stdout = io.BytesIO(b"")
+        process.stderr = io.BytesIO(b"")
+        waits: list[object] = []
+
+        def wait(timeout=None):
+            waits.append(timeout)
+            if len(waits) == 1:
+                raise KeyboardInterrupt
+            return 0
+
+        process.wait.side_effect = wait
+        with (
+            mock.patch(__name__ + ".subprocess.Popen", return_value=process),
+            mock.patch(__name__ + "._kill_tree") as kill_tree,
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                run_bounded(["fake"], env={}, cwd=os.getcwd(), timeout=60, drain_grace=0.05)
+        kill_tree.assert_called_once_with(process)
+        self.assertEqual(len(waits), 2, "the group is reaped after the kill")
+        self.assertNotIn(None, waits, "every wait carries a bound")
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(signal, "setitimer"), "needs POSIX signals and process groups"
+    )
+    def test_an_interrupt_during_the_wait_leaves_no_child_running(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pid_file = Path(tmp) / "child.pid"
+            # The shell records its pid, then sleeps well past the interrupt.
+            script = f"echo $$ > '{pid_file}'; sleep 60"
+
+            def interrupt(_signum, _frame):
+                raise KeyboardInterrupt
+
+            previous = signal.signal(signal.SIGALRM, interrupt)
+            signal.setitimer(signal.ITIMER_REAL, 1.0)
+            try:
+                with self.assertRaises(KeyboardInterrupt):
+                    run_bounded(["sh", "-c", script], env=dict(os.environ), cwd=tmp, timeout=60)
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+                signal.signal(signal.SIGALRM, previous)
+            child = int(pid_file.read_text().strip())
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(child, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.05)
+            else:
+                os.kill(child, signal.SIGKILL)
+                self.fail("the child outlived the interrupt")
 
     @unittest.skipUnless(os.name == "posix", "needs sh and POSIX process groups")
     def test_a_replay_case_that_leaves_a_process_holding_its_output_fails(self) -> None:

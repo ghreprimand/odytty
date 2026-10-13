@@ -2340,9 +2340,16 @@ exact fits and truncate to the overlay renderer's display-cell width.
 
 Saved-layout names preserve non-ASCII text on Linux, macOS and Windows, within
 96 UTF-8 bytes. ASCII letters, digits, spaces, hyphens and underscores remain;
-other ASCII punctuation and control characters become underscores. Truncation
-ends before a complete scalar would exceed the byte limit. Existing
-underscore aliases stay usable and are not renamed automatically.
+other ASCII punctuation, controls, Unicode line/paragraph separators and
+default-ignorable Unicode scalars become underscores. Truncation ends before a
+complete scalar would exceed the byte limit. Existing underscore aliases stay
+usable and are not renamed automatically.
+
+Path-picker starting probes and directory listings share a four-worker limit
+on Linux, macOS and Windows. A timed-out probe retains its slot until it exits;
+a full limit falls back to the home directory without starting another probe.
+Short picker bodies prioritize loading, entries and notices over the footer hint.
+Backspace in an empty profile launch field preserves the opposite launch choice.
 
 Profile saves refuse incomplete case-collision scans. Malformed-file recovery
 claims non-replacing hard-link backups and preserves the source on inspection
@@ -2370,3 +2377,15 @@ See `docs/profiles.md` for filesystem limits and recovery behavior.
 The Move to Workspace picker follows the chosen workspace's immutable identity
 through rail reorders and ignores destinations that have closed. Duplicate
 workspace names do not change the destination.
+
+Settings path pickers include hidden directories and matching hidden files on
+Linux, macOS and Windows. Symlinks use their target type while retaining the
+selected path; broken links are omitted. Display labels omit controls and
+default-ignorable Unicode scalars without changing the selected path. Listings
+show an inert notice when the 1,024-entry limit is reached. Keyboard selection
+stays visible in short viewports, with entries taking priority over headings.
+
+Saved layout and profile filenames share a portable Windows device-stem rule.
+Layouts prefix reserved stems with an underscore, including superscript numbered
+COM/LPT ports and conservative COM0/LPT0 handling. Profiles retain ASCII-only
+validation and reject reserved stems.

@@ -11,6 +11,24 @@ use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 
+/// Whether the segment before the first dot collides with a Windows device.
+/// Both profile and layout persistence apply this portable rule. ASCII digits
+/// include zero conservatively; Windows also recognizes superscript 1, 2 and 3.
+pub(crate) fn is_windows_reserved_stem(name: &str) -> bool {
+    let head = name.split('.').next().unwrap_or(name).trim();
+    let upper = head.to_ascii_uppercase();
+    matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ["COM", "LPT"].iter().any(|prefix| {
+            upper.strip_prefix(prefix).is_some_and(|suffix| {
+                let mut chars = suffix.chars();
+                matches!(
+                    chars.next(),
+                    Some('0'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}')
+                ) && chars.next().is_none()
+            })
+        })
+}
+
 // Unix owner-only mode bits. The Windows path uses inherited ACLs and never
 // references these, so they are scoped to the platforms that apply them.
 #[cfg(unix)]

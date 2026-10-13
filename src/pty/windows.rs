@@ -1289,7 +1289,10 @@ fn resolve_pwsh() -> Option<OsString> {
     if let Some(found) = find_on_path("pwsh.exe") {
         return Some(found);
     }
-    pwsh_from_program_files(std::env::var_os("ProgramFiles"), Path::is_file)
+    pwsh_from_program_files(
+        std::env::var_os("ProgramFiles"),
+        super::program_path::is_program_file,
+    )
 }
 
 /// The default PowerShell 7 install when `program_files` is a drive-absolute
@@ -1306,7 +1309,10 @@ fn pwsh_from_program_files(
 /// Windows install). Resolved by absolute path rather than `%PATH%` lookup so a
 /// stripped `PATH` cannot hide it.
 fn resolve_windows_powershell() -> Option<OsString> {
-    powershell_from_system_root(std::env::var_os("SystemRoot"), Path::is_file)
+    powershell_from_system_root(
+        std::env::var_os("SystemRoot"),
+        super::program_path::is_program_file,
+    )
 }
 
 /// Windows PowerShell 5.1 under `system_root` (`C:\Windows` when that value
@@ -1341,7 +1347,11 @@ fn pin_bare_program(command: &mut CommandBuilder) -> Result<()> {
         std::env::var_os("SystemRoot"),
         path_entries,
     );
-    if let Some(found) = super::program_path::pin_program(&command.program, dirs, Path::is_file)? {
+    if let Some(found) = super::program_path::pin_program(
+        &command.program,
+        dirs,
+        super::program_path::is_program_file,
+    )? {
         command.program = found.into_os_string();
     }
     Ok(())
@@ -1363,7 +1373,9 @@ fn find_exe_in_dirs<I: IntoIterator<Item = PathBuf>>(dirs: I, exe: &str) -> Opti
     dirs.into_iter()
         .filter(|dir| !dir.as_os_str().is_empty())
         .map(|dir| dir.join(exe))
-        .find(|candidate| candidate.is_absolute() && candidate.is_file())
+        .find(|candidate| {
+            candidate.is_absolute() && super::program_path::is_program_file(candidate)
+        })
         .map(PathBuf::into_os_string)
 }
 

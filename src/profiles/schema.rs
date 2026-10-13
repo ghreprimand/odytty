@@ -349,26 +349,12 @@ pub fn validate_profile_name(raw: &str) -> Result<String, ProfileError> {
             "use ASCII letters, digits, hyphen, underscore, or dot".to_owned(),
         ));
     }
-    if is_reserved_device_stem(trimmed) {
+    if crate::state_dir::is_windows_reserved_stem(trimmed) {
         return Err(ProfileError::InvalidName(format!(
             "{trimmed:?} is a reserved device name on Windows"
         )));
     }
     Ok(trimmed.to_owned())
-}
-
-/// Whether the part of `name` before its first dot is a Windows device name
-/// (`CON`, `PRN`, `AUX`, `NUL`, `COM0`-`COM9`, `LPT0`-`LPT9`, any case). Win32
-/// name parsing treats `nul.profile.json` as the device, so the file would be
-/// silently discarded there. Profile files are portable between platforms, so
-/// the names are refused everywhere.
-fn is_reserved_device_stem(name: &str) -> bool {
-    let stem = name.split('.').next().unwrap_or(name).to_ascii_lowercase();
-    matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
-        || ["com", "lpt"].iter().any(|prefix| {
-            stem.strip_prefix(prefix)
-                .is_some_and(|digit| matches!(digit.as_bytes(), [b'0'..=b'9']))
-        })
 }
 
 pub fn profile_file_name(name: &str) -> String {
@@ -559,6 +545,11 @@ fn read_u32(
     known.insert(key.to_owned());
     match obj.iter().find(|(entry_key, _)| entry_key == key) {
         None => Ok(None),
+        // A retained literal is judged by its own digits: its `f64` may have
+        // rounded a fraction such as `0.99999999999999999999` to a whole one.
+        Some((_, Json::Exact(_, literal))) if !json::is_whole_literal(literal) => Err(
+            ProfileError::Malformed(format!("{key} must be a whole number")),
+        ),
         Some((_, Json::Num(value) | Json::Exact(value, _)))
             if value.is_finite()
                 && value.fract() == 0.0

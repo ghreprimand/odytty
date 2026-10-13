@@ -181,7 +181,9 @@ code; `portable-pty` and `crossterm` are gone from the dependency tree.
   and the file opener or a bare editor name) are resolved the same way, from
   the executable's directory, `System32`, the Windows directory and absolute
   `PATH` entries only: a relative or empty `PATH` entry never supplies a helper,
-  and a bare helper found nowhere is not started. Dropping a
+  and a bare helper found nowhere is not started. A Microsoft Store app execution
+  alias on `PATH` counts as a program file, so a program available only as an
+  alias still starts. Dropping a
   session waits at most one second for a killed child before detaching its
   waiter thread. `spawn_shell_command`
   selects the one-shot flag by shell family - `cmd /C <command>` for cmd,
@@ -2313,9 +2315,10 @@ release-authentication boundary. Version 0.16.0 and earlier lack update info.
 
 Saved-layout names preserve non-ASCII text on Linux, macOS and Windows, within
 96 UTF-8 bytes. ASCII letters, digits, spaces, hyphens and underscores remain;
-other ASCII punctuation and control characters become underscores. Truncation
-ends before a complete scalar would exceed the byte limit. Existing
-underscore aliases stay usable and are not renamed automatically.
+other ASCII punctuation, controls, Unicode line/paragraph separators and
+default-ignorable Unicode scalars become underscores. Truncation ends before a
+complete scalar would exceed the byte limit. Existing underscore aliases stay
+usable and are not renamed automatically.
 
 Profile-form shell and command edits are mutually exclusive. Clearing a command
 program selects the default shell; choosing a shell replaces the command and
@@ -2327,6 +2330,12 @@ The profile catalog keeps an explicit mouse-wheel scroll position through
 redraws. Keyboard navigation and filtering resume following the selected row.
 Catalog filters and form text fields ignore control characters. Labels preserve
 exact fits and truncate to the overlay renderer's display-cell width.
+
+Path-picker starting probes and directory listings share a four-worker limit
+on Linux, macOS and Windows. A timed-out probe retains its slot until it exits;
+a full limit falls back to the home directory without starting another probe.
+Short picker bodies prioritize loading, entries and notices over the footer hint.
+Backspace in an empty profile launch field preserves the opposite launch choice.
 
 Profile saves refuse incomplete case-collision scans. Malformed-file recovery
 claims non-replacing hard-link backups and preserves the source on inspection
@@ -3233,3 +3242,15 @@ mark the atlas dirty. The renderer omits refused color runs and leaves fallback
 rendering visible. No eviction policy is added. The bound applies on Linux
 Wayland, Linux X11, macOS and Windows; this is a capacity change, with no
 measured performance claim.
+
+Settings path pickers include hidden directories and matching hidden files on
+Linux, macOS and Windows. Symlinks use their target type while retaining the
+selected path; broken links are omitted. Display labels omit controls and
+default-ignorable Unicode scalars without changing the selected path. Listings
+show an inert notice when the 1,024-entry limit is reached. Keyboard selection
+stays visible in short viewports, with entries taking priority over headings.
+
+Saved layout and profile filenames share a portable Windows device-stem rule.
+Layouts prefix reserved stems with an underscore, including superscript numbered
+COM/LPT ports and conservative COM0/LPT0 handling. Profiles retain ASCII-only
+validation and reject reserved stems.

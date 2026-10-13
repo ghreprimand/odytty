@@ -812,15 +812,7 @@ impl ProfileManager {
         let buffer = match field {
             FormField::Name => &mut self.draft_name,
             FormField::DisplayName => &mut self.draft_display_name,
-            FormField::Shell => {
-                self.draft_command_program.clear();
-                self.draft_command_args.clear();
-                self.pending_shell_command = None;
-                if let Some(base) = &mut self.draft_base {
-                    base.launch.command = None;
-                }
-                &mut self.draft_shell
-            }
+            FormField::Shell => &mut self.draft_shell,
             FormField::WorkingDirectory => &mut self.draft_working_directory,
             FormField::Theme => &mut self.draft_theme,
             FormField::ExternalPaletteProvider => &mut self.draft_external_palette_provider,
@@ -828,11 +820,7 @@ impl ProfileManager {
             FormField::FontFamily => &mut self.draft_font_family,
             FormField::Title => &mut self.draft_title,
             FormField::Connection => &mut self.draft_connection,
-            FormField::CommandProgram => {
-                self.pending_shell_command = None;
-                self.draft_shell.clear();
-                &mut self.draft_command_program
-            }
+            FormField::CommandProgram => &mut self.draft_command_program,
             FormField::CommandArg(index) => match self.draft_command_args.get_mut(index) {
                 Some(value) => value,
                 None => return,
@@ -878,7 +866,28 @@ impl ProfileManager {
             | FormField::AddMatchDirectory
             | FormField::RemoveMatchDirectory(_) => return,
         };
+        let before =
+            matches!(field, FormField::Shell | FormField::CommandProgram).then(|| buffer.clone());
         edit(buffer);
+        if before.as_ref().is_some_and(|before| buffer == before) {
+            return;
+        }
+        // Switch exclusive launch choices only after a substantive edit.
+        match field {
+            FormField::Shell => {
+                self.draft_command_program.clear();
+                self.draft_command_args.clear();
+                self.pending_shell_command = None;
+                if let Some(base) = &mut self.draft_base {
+                    base.launch.command = None;
+                }
+            }
+            FormField::CommandProgram => {
+                self.pending_shell_command = None;
+                self.draft_shell.clear();
+            }
+            _ => {}
+        }
         if field == FormField::CommandProgram && self.draft_command_program.trim().is_empty() {
             self.draft_command_args.clear();
         }

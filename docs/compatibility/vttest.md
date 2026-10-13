@@ -76,7 +76,9 @@ These are design decisions, not missing features:
   upstream case is skipped, instead of reading the bytes seen so far as the
   whole output. Cleanup of started processes uses a process group on Linux and
   macOS and `taskkill /T` on Windows, which the Windows leg of CI does not
-  exercise.
+  exercise. An interrupt (Ctrl-C) reaches only the runner, because each case
+  starts in its own session, so the runner kills the case's process group and
+  then re-raises the interrupt instead of leaving the subject's window behind.
 - **It does not vendor, cache inside the repo, or write to your real
   configuration.** Each case runs against a private, throwaway state directory.
 

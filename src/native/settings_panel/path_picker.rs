@@ -27,7 +27,7 @@ const MAX_DIR_ENTRIES: usize = 1024;
 const MAX_CACHED_DIRS: usize = 16;
 const MAX_CACHED_ENTRIES: usize = 4096;
 
-/// Directory reads that may be in flight at once, across every picker. A read
+/// Directory reads and starting probes in flight across every picker. A read
 /// of a stalled mount can block its thread indefinitely, and navigating away
 /// abandons it without cancelling it, so reads past this cap are refused (the
 /// picker shows the directory as unreadable) instead of piling up threads.
@@ -62,8 +62,8 @@ pub(super) struct PathPickerState {
     /// the selection against this, not a fixed count; eight until the first
     /// render.
     capacity: Cell<usize>,
-    /// The original setting value; restored on Esc. Kept for callers that
-    /// need to restore the value if the picker is externally cancelled.
+    body_height: usize,
+    /// Setting value at picker entry. Cancelling leaves settings untouched.
     #[allow(dead_code)]
     pub(super) original: String,
 }
@@ -90,6 +90,7 @@ struct PathEntry {
     /// that commits this literal string instead of its (empty) path. `None`
     /// for ordinary filesystem entries, which commit their path.
     commit_override: Option<&'static str>,
+    is_notice: bool,
 }
 
 /// One directory read: the listing and how many names were left out.
@@ -149,7 +150,7 @@ struct ReadLimiter {
     max: usize,
 }
 
-/// Every picker's reads.
+/// Every picker's directory reads and starting probes.
 static READS: ReadLimiter = ReadLimiter::new(MAX_CONCURRENT_READS);
 
 impl ReadLimiter {
@@ -199,13 +200,13 @@ pub(super) enum PathPickerOutcome {
     Consumed,
     /// A file was selected - commit this path string.
     Selected(String),
-    /// Picker was cancelled; restore the original value.
+    /// Picker was cancelled; leave the setting unchanged.
     Cancelled,
 }
 
 impl PathPickerState {
     /// Create a new picker for `key`, starting in `start_dir`. `original` is
-    /// the setting's current value - restored if the user presses Esc.
+    /// the setting's current value, kept unchanged until a file is selected.
     pub(super) fn new(key: &'static str, start_dir: PathBuf, original: String) -> Self {
         let mut picker = Self {
             key,
@@ -219,6 +220,7 @@ impl PathPickerState {
             selected: 0,
             scroll: 0,
             capacity: Cell::new(8),
+            body_height: 0,
             original,
         };
         picker.navigate_to(start_dir);
@@ -362,6 +364,9 @@ impl PathPickerState {
         let Some(entry) = self.entries.get(self.selected).cloned() else {
             return PathPickerOutcome::Consumed;
         };
+        if entry.is_notice {
+            return PathPickerOutcome::Consumed;
+        }
         if entry.is_dir {
             self.navigate_to(entry.path);
             PathPickerOutcome::Consumed
@@ -413,13 +418,22 @@ impl PathPickerState {
         self.scroll = self.scroll.min(self.entries.len() - 1);
     }
 
+    pub(super) fn update_body_height(&mut self, body_height: usize) {
+        if body_height > 0 && self.body_height != body_height {
+            self.body_height = body_height;
+            self.build_visible_rows(1, body_height);
+            self.clamp_scroll();
+        }
+    }
+
     /// Build the body rows for the picker panel (used by `build_visible_rows`).
     ///
     /// Layout: breadcrumb, separator, an optional loading row, the entry rows,
     /// notice rows (unreadable, empty, names not shown), then a footer hint.
-    /// Every row is added only while the body has room, and the footer keeps
-    /// its row when the body is at least four rows high. The number of entry
-    /// rows is recorded so keyboard focus can follow the selection.
+    /// Every row is added only while the body has room. At least one entry
+    /// takes priority over notices and the footer. Bodies at least four rows
+    /// high reserve a footer when loading, entries and notices fit; otherwise
+    /// notices take its space. Record entry capacity for keyboard focus.
     pub(super) fn build_visible_rows(
         &self,
         body_width: usize,
@@ -446,7 +460,7 @@ impl PathPickerState {
 
         // Directory breadcrumb header, cut to display columns so the trailing
         // path component stays visible whatever the scripts in the path.
-        let dir_str = self.current_dir.display().to_string();
+        let dir_str = clean_picker_label(&self.current_dir.display().to_string());
         let dir_display = if text_display_width(&dir_str) > body_width.saturating_sub(3) {
             format!(
                 "…{}",
@@ -455,10 +469,12 @@ impl PathPickerState {
         } else {
             dir_str
         };
-        rows.push(text_row(format!("  {dir_display}")));
+        if body_height > 1 {
+            rows.push(text_row(format!("  {dir_display}")));
+        }
 
-        // Separator.
-        if rows.len() < body_height {
+        // Reserve at least one entry row in short bodies.
+        if body_height > 2 {
             let sep = "─".repeat(body_width.min(48));
             rows.push(text_row(format!("  {sep}")));
         }
@@ -496,17 +512,18 @@ impl PathPickerState {
             let max_name = body_width.saturating_sub(4);
             // Cut by display columns, with one column kept for the `~` marker;
             // a body too narrow to hold even that renders an empty name.
-            let name = if text_display_width(&entry.name) > max_name {
+            let clean_name = clean_picker_label(&entry.name);
+            let name = if text_display_width(&clean_name) > max_name {
                 match max_name.checked_sub(1) {
                     Some(keep) => {
-                        let mut n = fit_chars(&entry.name, keep);
+                        let mut n = fit_chars(&clean_name, keep);
                         n.push('~');
                         n
                     }
                     None => String::new(),
                 }
             } else {
-                entry.name.clone()
+                clean_name
             };
             rows.push((
                 SettingsPanelLine {
@@ -516,8 +533,12 @@ impl PathPickerState {
                 },
                 RowHit {
                     // entry_index carries the path-entry index for pointer clicks.
-                    entry_index: Some(index),
-                    zone: RowZone::Value { value_x0: 0 },
+                    entry_index: (!entry.is_notice).then_some(index),
+                    zone: if entry.is_notice {
+                        RowZone::GroupHeader
+                    } else {
+                        RowZone::Value { value_x0: 0 }
+                    },
                 },
             ));
         }
@@ -588,13 +609,15 @@ fn spawn_read_dir_limited(
     }
 }
 
-/// Read the entries of `dir`: directories first (sorted), then files whose
-/// extension matches `ext_filter` (sorted). If `ext_filter` is empty, all
-/// non-directory files are shown. Hidden entries (starting with `.`), files and
-/// directories alike, are not listed, and a symlink is neither a file nor a
-/// directory here: the picker lists real entries only. A file whose path is not
-/// valid UTF-8 cannot be written to a setting value without becoming a
-/// different path, so it is not listed and is counted in the second field.
+fn clean_picker_label(text: &str) -> String {
+    text.chars()
+        .filter(|ch| !ch.is_control() && !crate::core::is_default_ignorable(*ch))
+        .collect()
+}
+
+/// List matching files and directories, including hidden names and symlink
+/// targets, while retaining the selected path. Invalid UTF-8 files are counted
+/// but not offered. A bounded listing ends with a visible, inert limit notice.
 /// `None` means the directory could not be read at all.
 fn list_dir(dir: &Path, ext_filter: &[&str]) -> Option<(Vec<PathEntry>, usize)> {
     let read = std::fs::read_dir(dir).ok()?;
@@ -606,25 +629,25 @@ fn list_dir(dir: &Path, ext_filter: &[&str]) -> Option<(Vec<PathEntry>, usize)> 
         dirs.push(parent);
     }
 
+    let mut truncated = false;
     for entry in read.flatten() {
         if dirs.len() + files.len() >= MAX_DIR_ENTRIES {
+            truncated = true;
             break;
         }
         let path = entry.path();
-        let Ok(file_type) = entry.file_type() else {
+        let Ok(file_type) = std::fs::metadata(&path) else {
             continue;
         };
         let name_os = entry.file_name();
         let name = name_os.to_string_lossy();
-        if name.starts_with('.') {
-            continue;
-        }
         if file_type.is_dir() {
             dirs.push(PathEntry {
                 name: format!("{name}/"),
                 path,
                 is_dir: true,
                 commit_override: None,
+                is_notice: false,
             });
         } else if file_type.is_file() {
             if !ext_filter.is_empty() {
@@ -646,6 +669,7 @@ fn list_dir(dir: &Path, ext_filter: &[&str]) -> Option<(Vec<PathEntry>, usize)> 
                 path,
                 is_dir: false,
                 commit_override: None,
+                is_notice: false,
             });
         }
     }
@@ -658,6 +682,15 @@ fn list_dir(dir: &Path, ext_filter: &[&str]) -> Option<(Vec<PathEntry>, usize)> 
     }
     files.sort_by(|a, b| a.name.cmp(&b.name));
     dirs.extend(files);
+    if truncated {
+        dirs.push(PathEntry {
+            name: "Listing limited to 1024 entries; some entries are hidden".to_owned(),
+            path: PathBuf::new(),
+            is_dir: false,
+            commit_override: None,
+            is_notice: true,
+        });
+    }
     Some((dirs, skipped))
 }
 
@@ -690,12 +723,14 @@ fn action_entries(key: &str) -> Vec<PathEntry> {
                 path: PathBuf::new(),
                 is_dir: false,
                 commit_override: Some(crate::settings::BUNDLED_BACKGROUND_TOKEN),
+                is_notice: false,
             },
             PathEntry {
                 name: "None (no image)".to_owned(),
                 path: PathBuf::new(),
                 is_dir: false,
                 commit_override: Some("none"),
+                is_notice: false,
             },
         ]
     } else {
@@ -721,6 +756,7 @@ fn parent_entry_for(dir: &Path) -> Option<PathEntry> {
         path: parent.to_path_buf(),
         is_dir: true,
         commit_override: None,
+        is_notice: false,
     })
 }
 
@@ -747,10 +783,11 @@ fn probe_start(value: &Path) -> StartKind {
 /// [`START_PROBE_TIMEOUT`]: a value on a stalled mount, or a worker that cannot
 /// be created, falls back to the home directory instead of freezing the window.
 pub(super) fn resolve_start_dir(current_value: &str) -> PathBuf {
-    resolve_start_dir_with(current_value, START_PROBE_TIMEOUT, probe_start)
+    resolve_start_dir_with(&READS, current_value, START_PROBE_TIMEOUT, probe_start)
 }
 
 fn resolve_start_dir_with(
+    limiter: &'static ReadLimiter,
     current_value: &str,
     timeout: Duration,
     probe: impl FnOnce(&Path) -> StartKind + Send + 'static,
@@ -758,12 +795,17 @@ fn resolve_start_dir_with(
     let value = PathBuf::from(current_value.trim());
     let (tx, rx) = mpsc::channel();
     let worker_value = value.clone();
-    let started = std::thread::Builder::new()
-        .name("odytty-path-picker-probe".to_owned())
-        .spawn(move || {
-            let _ = tx.send(probe(&worker_value));
-        })
-        .is_ok();
+    // A timed-out receiver does not stop filesystem work. Keep the shared
+    // permit in the worker until it exits, and refuse immediately when full.
+    let started = limiter.acquire().is_some_and(|slot| {
+        std::thread::Builder::new()
+            .name("odytty-path-picker-probe".to_owned())
+            .spawn(move || {
+                let _slot = slot;
+                let _ = tx.send(probe(&worker_value));
+            })
+            .is_ok()
+    });
     let kind = if started {
         rx.recv_timeout(timeout).unwrap_or(StartKind::Other)
     } else {
@@ -871,12 +913,14 @@ mod tests {
                 path: PathBuf::from("/köln/über/naïve/文档/résumé/café_文档"),
                 is_dir: true,
                 commit_override: None,
+                is_notice: false,
             },
             PathEntry {
                 name: "αναφορά_ναı.txt".to_owned(),
                 path: PathBuf::from("/köln/über/naïve/文档/résumé/αναφορά_ναı.txt"),
                 is_dir: false,
                 commit_override: None,
+                is_notice: false,
             },
         ];
         // Sweep the pathological narrow widths (and 0) - the test passing is the
@@ -913,7 +957,9 @@ mod tests {
         fs::create_dir(dir.join("sub")).expect("create child dir");
         fs::write(dir.join("pic.png"), b"png").expect("write png");
 
-        let pending = spawn_read_dir(dir.clone(), extension_filter("background_image"));
+        static LIMITER: ReadLimiter = ReadLimiter::new(1);
+        let pending =
+            spawn_read_dir_limited(&LIMITER, dir.clone(), extension_filter("background_image"));
         let rx = pending.rx.lock().expect("lock receiver");
         let Listing {
             dir: got_dir,
@@ -942,7 +988,7 @@ mod tests {
     }
 
     #[test]
-    fn hidden_entries_are_not_listed_whether_file_or_directory() {
+    fn hidden_entries_are_listed_whether_file_or_directory() {
         let dir = temp_dir("hidden");
         fs::create_dir(dir.join(".hidden-dir")).expect("hidden dir");
         fs::create_dir(dir.join("shown-dir")).expect("shown dir");
@@ -953,13 +999,16 @@ mod tests {
             .map(|entry| entry.name)
             .filter(|name| name != "../")
             .collect();
-        assert_eq!(names, ["shown-dir/", "shown.png"]);
+        assert_eq!(
+            names,
+            [".hidden-dir/", "shown-dir/", ".hidden.png", "shown.png"]
+        );
         fs::remove_dir_all(dir).expect("remove temp dir");
     }
 
     #[cfg(unix)]
     #[test]
-    fn a_symlinked_file_is_not_listed_either() {
+    fn a_symlinked_file_is_listed() {
         use std::os::unix::fs::symlink;
 
         let dir = temp_dir("symlink-file");
@@ -972,14 +1021,18 @@ mod tests {
             .map(|entry| entry.name)
             .filter(|name| name != "../")
             .collect();
-        assert_eq!(names, ["real.png"], "only the real file is listed");
+        assert_eq!(
+            names,
+            ["linked.png", "real.png"],
+            "matching file symlinks retain their names"
+        );
         fs::remove_dir_all(dir).expect("remove temp dir");
         fs::remove_dir_all(target).expect("remove target dir");
     }
 
     #[cfg(unix)]
     #[test]
-    fn symlink_targets_are_not_followed_during_listing() {
+    fn symlink_targets_are_available_during_listing() {
         use std::os::unix::fs::symlink;
 
         let dir = temp_dir("symlink");
@@ -989,8 +1042,8 @@ mod tests {
 
         let entries = read_dir_entries(&dir, extension_filter("background_image"));
         assert!(
-            entries.iter().all(|entry| entry.name != "linked-target/"),
-            "listing must not follow symlinked directories"
+            entries.iter().any(|entry| entry.name == "linked-target/"),
+            "directory symlinks are navigable"
         );
 
         fs::remove_dir_all(dir).expect("remove temp dir");
@@ -1004,6 +1057,7 @@ mod tests {
                 path: PathBuf::from(format!("/pictures/file-{index:03}.png")),
                 is_dir: false,
                 commit_override: None,
+                is_notice: false,
             })
             .collect()
     }
@@ -1141,6 +1195,7 @@ mod tests {
             path: PathBuf::from(OsStr::from_bytes(b"/pictures/bad-\xff.png")),
             is_dir: false,
             commit_override: None,
+            is_notice: false,
         }]);
         assert_eq!(picker.activate_index(0), PathPickerOutcome::Consumed);
     }
@@ -1201,6 +1256,7 @@ mod tests {
             path: PathBuf::from("/pictures/文档文档文档文档文档.png"),
             is_dir: false,
             commit_override: None,
+            is_notice: false,
         }]);
         for width in 4..=24 {
             let rows = picker.build_visible_rows(width, 6);
@@ -1232,9 +1288,11 @@ mod tests {
 
     #[test]
     fn a_stalled_start_probe_falls_back_to_home_within_the_timeout() {
+        static LIMITER: ReadLimiter = ReadLimiter::new(1);
         let (release, wait) = mpsc::channel::<()>();
         let started = std::time::Instant::now();
         let resolved = resolve_start_dir_with(
+            &LIMITER,
             "/mounts/stalled/wallpaper.png",
             Duration::from_millis(30),
             move |_| {
@@ -1251,14 +1309,192 @@ mod tests {
 
     #[test]
     fn the_start_probe_resolves_a_file_to_its_directory_and_a_directory_to_itself() {
+        static LIMITER: ReadLimiter = ReadLimiter::new(2);
         let long = Duration::from_secs(5);
         assert_eq!(
-            resolve_start_dir_with("/pictures/wall.png", long, |_| StartKind::File),
+            resolve_start_dir_with(&LIMITER, "/pictures/wall.png", long, |_| StartKind::File),
             PathBuf::from("/pictures")
         );
         assert_eq!(
-            resolve_start_dir_with("/pictures", long, |_| StartKind::Dir),
+            resolve_start_dir_with(&LIMITER, "/pictures", long, |_| StartKind::Dir),
             PathBuf::from("/pictures")
         );
+    }
+    #[test]
+    fn timed_out_probes_keep_shared_read_permits_until_worker_exit() {
+        static LIMITER: ReadLimiter = ReadLimiter::new(1);
+        let (release, wait) = mpsc::channel::<()>();
+        let (ended_tx, ended_rx) = mpsc::channel();
+        let _ = resolve_start_dir_with(
+            &LIMITER,
+            "/fixture/stalled",
+            Duration::from_millis(30),
+            move |_| {
+                let _ = wait.recv();
+                let _ = ended_tx.send(());
+                StartKind::Dir
+            },
+        );
+        let active = LIMITER.active.load(Ordering::Acquire);
+        let refused = spawn_read_dir_limited(&LIMITER, PathBuf::from("/fixture/absent"), &[]);
+        let disconnected = matches!(
+            refused.rx.lock().unwrap().try_recv(),
+            Err(mpsc::TryRecvError::Disconnected)
+        );
+        let calls = Arc::new(AtomicUsize::new(0));
+        for _ in 0..8 {
+            let count = calls.clone();
+            let _ = resolve_start_dir_with(
+                &LIMITER,
+                "/fixture/refused",
+                Duration::from_secs(1),
+                move |_| {
+                    count.fetch_add(1, Ordering::AcqRel);
+                    StartKind::Dir
+                },
+            );
+        }
+        release.send(()).unwrap();
+        ended_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while LIMITER.active.load(Ordering::Acquire) != 0 && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(active, 1, "timed-out worker remains counted");
+        assert!(disconnected, "listings share probe admission");
+        assert_eq!(
+            calls.load(Ordering::Acquire),
+            0,
+            "full limiter refuses probe work"
+        );
+        assert!(
+            LIMITER.acquire().is_some(),
+            "worker exit releases its permit"
+        );
+    }
+
+    #[test]
+    fn small_bodies_prioritize_action_rows_and_notices_over_footer() {
+        let mut picker = picker_with(with_actions("background_image", Vec::new()));
+        picker.load_failed = true;
+        picker.skipped = 1;
+        for height in [4, 5] {
+            let rows = picker.build_visible_rows(80, height);
+            assert_eq!(rows.len(), height);
+            assert!(rows.iter().any(|(_, hit)| hit.entry_index == Some(0)));
+            assert!(
+                rows.iter()
+                    .any(|(line, _)| line.text.contains("could not be read"))
+            );
+            assert!(
+                !rows
+                    .iter()
+                    .any(|(line, _)| line.text.contains("Esc cancel"))
+            );
+        }
+    }
+    #[test]
+    fn hidden_directories_and_matching_hidden_files_are_visible() {
+        let dir = temp_dir("hidden");
+        fs::create_dir(dir.join(".fonts")).unwrap();
+        fs::write(dir.join(".face.ttf"), b"fixture").unwrap();
+        let entries = read_dir_entries(&dir, extension_filter("font"));
+        assert!(entries.iter().any(|entry| entry.name == ".fonts/"));
+        assert!(entries.iter().any(|entry| entry.name == ".face.ttf"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_files_and_directories_are_available_without_changing_paths() {
+        use std::os::unix::fs::symlink;
+        let dir = temp_dir("linked-files");
+        fs::create_dir(dir.join("target")).unwrap();
+        fs::write(dir.join("target").join("image.png"), b"fixture").unwrap();
+        let link = dir.join("linked.png");
+        symlink(dir.join("target").join("image.png"), &link).unwrap();
+        symlink(dir.join("target"), dir.join("linked-dir")).unwrap();
+        symlink(dir.join("missing"), dir.join("broken.png")).unwrap();
+        let entries = read_dir_entries(&dir, extension_filter("background_image"));
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.name == "linked.png" && entry.path == link)
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.name == "linked-dir/" && entry.is_dir)
+        );
+        assert!(!entries.iter().any(|entry| entry.name == "broken.png"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn capped_listing_has_a_visible_inert_notice() {
+        let dir = temp_dir("limit");
+        for index in 0..MAX_DIR_ENTRIES + 1 {
+            fs::write(dir.join(format!("image-{index}.png")), b"fixture").unwrap();
+        }
+        let entries = read_dir_entries(&dir, extension_filter("background_image"));
+        let index = entries
+            .iter()
+            .position(|entry| entry.name.contains("Listing limited"))
+            .expect("visible limit notice");
+        let mut picker = PathPickerState::new("font", dir.clone(), String::new());
+        picker.entries = entries;
+        picker.pending = None;
+        picker.loading = false;
+        assert_eq!(picker.activate_index(index), PathPickerOutcome::Consumed);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn short_viewport_keeps_keyboard_selection_visible() {
+        let dir = temp_dir("short");
+        for index in 0..12 {
+            fs::create_dir(dir.join(format!("child-{index}"))).unwrap();
+        }
+        for height in [1, 2, 3, 5] {
+            let mut picker = PathPickerState::new("font", dir.clone(), String::new());
+            picker.entries = read_dir_entries(&dir, extension_filter("font"));
+            picker.pending = None;
+            picker.loading = false;
+            let mut panel = super::super::SettingsPanel::new(&crate::settings::Settings::default());
+            panel.path_picker = Some(picker);
+            panel.update_body_height(height);
+            panel.handle_input(OverlayInput::End);
+            let rows = panel.build_visible_rows(80, height);
+            assert!(
+                rows.iter().any(|(line, _)| line.focused),
+                "selected entry visible at height {height}"
+            );
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn picker_display_strips_controls_but_preserves_selected_path() {
+        let dir = temp_dir("controls");
+        let mut picker = PathPickerState::new("font", dir.clone(), String::new());
+        picker.pending = None;
+        picker.loading = false;
+        picker.entries = vec![PathEntry {
+            name: "face\n\x1b.ttf".to_owned(),
+            path: dir.join("face.ttf"),
+            is_dir: false,
+            commit_override: None,
+            is_notice: false,
+        }];
+        let rows = picker.build_visible_rows(80, 6);
+        assert!(
+            rows.iter()
+                .all(|(line, _)| !line.text.chars().any(char::is_control))
+        );
+        assert_eq!(
+            picker.activate_index(0),
+            PathPickerOutcome::Selected(dir.join("face.ttf").display().to_string())
+        );
+        fs::remove_dir_all(dir).unwrap();
     }
 }

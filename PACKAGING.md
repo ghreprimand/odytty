@@ -294,7 +294,11 @@ Windows x86_64 and macOS aarch64), so a dependency change that alters the
 closure needs a regenerated file in the same commit. A crate whose published
 source has no licence file gets the standard text of its declared licence from
 `scripts/third-party-licenses-spdx/`, with its declared authors, and the file
-says so. CI runs the script's `check` mode (it needs cargo network access), and
+says so; when it declares no authors the entry names the repository that keeps
+its copyright statement and states that the published source names no holder.
+COPYRIGHT and AUTHORS files in a crate's source are reproduced beside its
+licence texts, because for several crates they are the only statement of who
+holds the copyright. CI runs the script's `check` mode (it needs cargo network access), and
 `tests/packaging_third_party.rs` checks the file against `Cargo.lock` and every
 package definition without cargo.
 

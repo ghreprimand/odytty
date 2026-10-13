@@ -20,6 +20,22 @@ pub(crate) fn is_bare_program(program: &OsStr) -> bool {
         .any(|byte| matches!(byte, b'\\' | b'/' | b':'))
 }
 
+/// Whether `path` names something a program lookup may accept: a file, or a
+/// directory-entry that is not a directory and is not a plain symbolic link.
+///
+/// `Path::is_file` follows reparse points and reports a Microsoft Store App
+/// Execution Alias (a reparse point under `WindowsApps` that `CreateProcessW`
+/// launches but that cannot be opened as a file) as absent whenever the
+/// standard library cannot open it, so a program available only as an alias
+/// would be refused. The entry's own type is therefore consulted when following
+/// it finds no file: an alias reports as a file there, a directory or a
+/// dangling or directory link does not. Anything accepted here is still
+/// started by `CreateProcessW`, which fails visibly for a non-executable entry.
+pub(crate) fn is_program_file(path: &Path) -> bool {
+    path.is_file()
+        || std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
+}
+
 /// The file name `CreateProcessW` looks for: it appends `.exe` to a name with
 /// no dot.
 fn searched_name(program: &OsStr) -> OsString {
@@ -440,5 +456,89 @@ mod tests {
         )
         .expect_err("the working directory is never searched");
         assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn a_program_file_is_a_file_and_not_a_directory_or_a_missing_name() {
+        let scratch = crate::test_dirs::ScratchDir::new("odytty-program-file-");
+        let file = scratch.path().join("tool.exe");
+        std::fs::write(&file, b"x").expect("file");
+        let dir = scratch.path().join("dir.exe");
+        std::fs::create_dir(&dir).expect("dir");
+        assert!(is_program_file(&file));
+        assert!(!is_program_file(&dir));
+        assert!(!is_program_file(&scratch.path().join("missing.exe")));
+    }
+
+    /// Links are followed to their target: one to a file counts, a dangling
+    /// one or one to a directory does not. (Where the account cannot create
+    /// links the case is skipped, never passed.)
+    #[test]
+    fn a_link_counts_only_when_it_leads_to_a_file() {
+        let scratch = crate::test_dirs::ScratchDir::new("odytty-program-link-");
+        let file = scratch.path().join("real.exe");
+        std::fs::write(&file, b"x").expect("file");
+        let dir = scratch.path().join("realdir");
+        std::fs::create_dir(&dir).expect("dir");
+        #[cfg(unix)]
+        let link = |target: &Path, name: &str| {
+            let path = scratch.path().join(name);
+            std::os::unix::fs::symlink(target, &path).map(|()| path)
+        };
+        #[cfg(windows)]
+        let link = |target: &Path, name: &str| {
+            let path = scratch.path().join(name);
+            if target.is_dir() {
+                std::os::windows::fs::symlink_dir(target, &path)
+            } else {
+                std::os::windows::fs::symlink_file(target, &path)
+            }
+            .map(|()| path)
+        };
+        let to_file = match link(&file, "to-file.exe") {
+            Ok(path) => path,
+            Err(error) => {
+                eprintln!("skipped: cannot create links here: {error}");
+                return;
+            }
+        };
+        let to_dir = link(&dir, "to-dir.exe").expect("directory link");
+        let dangling = link(&scratch.path().join("gone"), "dangling.exe").expect("dangling link");
+        assert!(is_program_file(&to_file));
+        assert!(!is_program_file(&to_dir));
+        assert!(!is_program_file(&dangling));
+    }
+
+    /// The real Store aliases, where the account has any: every `.exe` entry in
+    /// `%LOCALAPPDATA%\Microsoft\WindowsApps` is a program file and resolves
+    /// by its bare file name. An account with no aliases reports a skip, which is
+    /// not a pass for this case.
+    #[cfg(windows)]
+    #[test]
+    fn store_app_execution_aliases_are_program_files() {
+        let Some(local) = std::env::var_os("LOCALAPPDATA") else {
+            eprintln!("skipped: no LOCALAPPDATA");
+            return;
+        };
+        let apps = PathBuf::from(local).join(r"Microsoft\WindowsApps");
+        let aliases: Vec<PathBuf> = std::fs::read_dir(&apps)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "exe"))
+            .take(8)
+            .collect();
+        if aliases.is_empty() {
+            eprintln!("skipped: no Store app execution aliases on this account");
+            return;
+        }
+        for alias in aliases {
+            assert!(is_program_file(&alias), "{alias:?}");
+            let name = alias.file_name().expect("file name").to_os_string();
+            let found = helper_program(&name, [apps.clone()], is_program_file)
+                .unwrap_or_else(|error| panic!("{alias:?}: {error}"));
+            assert_eq!(PathBuf::from(found), alias);
+        }
     }
 }
