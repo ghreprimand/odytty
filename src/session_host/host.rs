@@ -58,13 +58,13 @@ const MAX_CLIENT_EVENTS_PER_TICK: usize = CLIENT_EVENT_QUEUE_CAP;
 /// if another process transiently holds the slave fd open) can never wedge the
 /// host indefinitely. Generous so a slow runner still flushes output in order.
 const CHILD_EXIT_DRAIN_GRACE: Duration = Duration::from_secs(2);
-const ATTACH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
+pub(super) const ATTACH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 const ATTACH_WRITE_TIMEOUT: Duration = Duration::from_millis(500);
 /// Absolute bound on writing one host frame (hello, snapshot, output, exit).
 /// The per-write timeout above only bounds a write that makes no progress; a
 /// peer reading slowly could otherwise stretch a multi-megabyte snapshot over
 /// many successful writes while the whole host loop waits.
-const FRAME_SEND_DEADLINE: Duration = Duration::from_secs(2);
+pub(super) const FRAME_SEND_DEADLINE: Duration = Duration::from_secs(2);
 /// Connections accepted per loop turn. The rest stay in the listen backlog
 /// until the next turn, after PTY output and client input have been served.
 const MAX_ACCEPTS_PER_TICK: usize = 8;
