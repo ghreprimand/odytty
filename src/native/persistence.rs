@@ -725,16 +725,19 @@ fn existing_layout_path_in(dir: &Path, name: &str) -> Option<PathBuf> {
     layout_path_in(dir, name)
 }
 
-/// The save collision key ignores presentation modifiers while the stored stem
-/// keeps them. Sanitization also maps a legacy port alias to its safe stem.
+/// Non-ASCII visible names keep exact scalar identity. ASCII labels ignore
+/// presentation modifiers. Sanitization maps legacy port aliases to safe stems.
 fn layout_collision_key(name: &str) -> Option<String> {
     let stem = sanitize_layout_name(name)?;
-    sanitize_layout_name(
-        &stem
-            .chars()
-            .filter(|ch| !matches!(ch, '\u{200c}' | '\u{200d}' | '\u{fe0e}' | '\u{fe0f}'))
-            .collect::<String>(),
-    )
+    let ascii_label: String = stem
+        .chars()
+        .filter(|ch| !matches!(ch, '\u{200c}' | '\u{200d}' | '\u{fe0e}' | '\u{fe0f}'))
+        .collect();
+    if ascii_label.is_ascii() {
+        sanitize_layout_name(&ascii_label)
+    } else {
+        Some(stem)
+    }
 }
 
 /// Capture all same-name targets before writing. An incomplete scan refuses
@@ -966,7 +969,8 @@ fn layout_stamp_in(dir: &Path, name: &str) -> Option<LayoutStamp> {
     })
 }
 
-/// The current [`LayoutStamp`] of layout `name`, or `None` when it is absent.
+/// The current [`LayoutStamp`] of layout `name`, or `None` when its identity
+/// cannot be verified, including absence or an unreadable or refused file.
 /// Capturing palette targets never creates directories or repairs permissions.
 pub(crate) fn layout_stamp(name: &str) -> Option<LayoutStamp> {
     crate::state_dir::validate_private_dir(&state_log_dir()).ok()?;

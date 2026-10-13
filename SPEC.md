@@ -3308,9 +3308,13 @@ New layouts prefix reserved stems with an underscore, including superscript
 numbered COM/LPT ports and conservative COM0/LPT0 handling. Existing COM0/LPT0
 regular layout files remain listed, openable and deletable under their original
 names. Saving a colliding legacy name asks to replace, then writes the safe
-name and removes the unchanged legacy file. Names equal after removing ZWJ,
-ZWNJ, VS15 and VS16 share the replace check; the new stored name keeps those
-characters. Incomplete collision scans refuse the save. Profiles retain
+name and removes the unchanged legacy file. Names containing non-ASCII
+visible text compare by exact scalar identity, preserving distinct emoji and
+script forms. ASCII labels equal after removing ZWJ, ZWNJ, VS15 and VS16 share
+the replace check; the new stored name keeps those characters. Collision scans
+examine at most 1,024 folder entries, counting
+non-layout entries too. A folder above that limit refuses every save, including
+a new name, because the collision check is incomplete. Profiles retain
 ASCII-only validation and reject reserved stems.
 Layout names retain ZWJ, ZWNJ, VS15 and VS16 after visible text. Leading
 modifiers, bidi controls, other default-ignorables and Unicode line/paragraph
@@ -3324,7 +3328,25 @@ number spellings remain accepted.
 Layout preparation validates the directory without scanning or repairing sibling
 files. Load, save and delete enforce the sensitive-file policy on their own
 target; one stray JSON directory or symlink cannot disable other layouts.
+A workspace save reports a refused save if its target closes during the
+collision dialog or name prompt. A Delete Layout row without a captured file
+identity refuses deletion and reports that verification was unavailable; it
+does not claim the file is absent. These notices apply on Linux, macOS and
+Windows.
 
 Desktop notification helpers use a ten-second timeout with kill and reap.
 Windows toast requests distinguish the four application-owned notification
 kinds through fixed scripts; terminal-authored text never enters those scripts.
+
+The profile editor preserves environment value whitespace, including values
+made entirely of spaces. Empty values still require completing or clearing
+the row. Schema length, NUL and secret validation remains enforced. Profile
+form theme suggestions retain all built-ins and examine at most 1,024 user
+theme-directory entries before filtering or sorting. Typing a valid theme
+name remains available beyond the suggestion bound. These rules apply on
+Linux, macOS and Windows.
+
+Quick-terminal settings metadata classifies `quick_terminal_edge` and
+`quick_terminal_animation` as fixed choices. Settings > Sessions lists exactly
+`top`, `bottom`, `left`, `right` and `slide`, `instant`, respectively. Both
+remain startup-only on Linux, macOS and Windows.

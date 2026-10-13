@@ -565,6 +565,7 @@ impl App {
             LayoutSaveKind::WholeApp => RenameTarget::SaveAllLayout,
             LayoutSaveKind::Workspace(identity) => {
                 if self.sessions.workspace_index_of(identity).is_none() {
+                    self.notice_layout_workspace_closed();
                     return;
                 }
                 RenameTarget::SaveLayout(identity)
@@ -718,10 +719,11 @@ impl App {
                 // An empty name cancels the save (never writes an
                 // unnamed layout file); otherwise capture the workspace at `idx`
                 // under the typed name via the shared save path.
-                if !text.is_empty()
-                    && let Some(idx) = self.workspace_index_for_prompt_anchor(anchor)
-                {
-                    self.save_workspace_as_layout(idx, Some(&text));
+                if !text.is_empty() {
+                    match self.workspace_index_for_prompt_anchor(anchor) {
+                        Some(idx) => self.save_workspace_as_layout(idx, Some(&text)),
+                        None => self.notice_layout_workspace_closed(),
+                    }
                 }
             }
             RenameTarget::SaveAllLayout => {

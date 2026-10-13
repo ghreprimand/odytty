@@ -246,3 +246,10 @@ impl SettingsPanel {
         }
     }
 }
+
+#[cfg(test)]
+impl SettingsPanel {
+    pub(in crate::native) fn selected_info_for_test(&self) -> Option<SettingInfo> {
+        self.selected_entry().cloned()
+    }
+}

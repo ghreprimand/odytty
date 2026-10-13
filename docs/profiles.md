@@ -216,7 +216,9 @@ import, export, and delete.
   values; platforms select inherit, Linux, macOS, Windows, or all without
   executing any platform command.
 - The theme row cycles the built-in roster plus your theme files with Left and
-  Right (typing a name still works). An unknown theme name is rejected at save,
+  Right. Discovery examines at most 1,024 folder entries before filtering and
+  sorting; built-ins are always included. Typing a valid theme name beyond that
+  suggestion bound still works. An unknown theme name is rejected at save,
   not silently ignored at launch.
 - A starting directory you set or change is checked for existence at save. A
   value loaded unchanged from an existing profile round-trips even if it is
@@ -224,7 +226,9 @@ import, export, and delete.
   (`\\server\share`, `\\wsl.localhost\Distro\home`) is kept as typed and is
   not probed at save, so a missing share is reported when the tab starts.
 - An environment row with an empty key or an empty value blocks save with an
-  inline error rather than being dropped.
+  inline error rather than being dropped. Value whitespace is preserved,
+  including a value made entirely of spaces; NUL, length and secret checks
+  still apply.
 - Press `/` to filter the catalog. While filtering, every printable character
   reaches the query, so single-key hotkeys never steal a character of a name.
 - The form and catalog scroll under the mouse wheel without moving focus and show

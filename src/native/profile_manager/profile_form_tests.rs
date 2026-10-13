@@ -897,3 +897,65 @@ fn profile_temp_fixture_cleans_written_files_after_assertion_unwind() {
     assert!(result.is_err());
     assert!(!recorded.borrow().as_ref().unwrap().exists());
 }
+
+#[test]
+fn env_editor_preserves_intentional_value_whitespace_on_save() {
+    let _suggestions = SuggestionFixture::new();
+    for value in [
+        " leading",
+        "trailing ",
+        " both ",
+        " ",
+        "\u{2003}value\u{2003}",
+    ] {
+        let mut manager = ProfileManager::new();
+        manager.open(ProfileCatalog::default(), None);
+        manager.open_add();
+        manager.draft_name = "dev".to_owned();
+        manager.activate_form_field(FormField::AddEnv);
+        manager.draft_env[0].0 = "ODY_TEST".to_owned();
+        focus_field(&mut manager, FormField::EnvValue(0));
+        for ch in value.chars() {
+            manager.handle_input(OverlayInput::Char(ch));
+        }
+        let ProfileManagerOutcome::Persist { profile, .. } = manager.try_save() else {
+            panic!("valid value spaces must save: {:?}", manager.error);
+        };
+        assert_eq!(
+            profile.launch.env.get("ODY_TEST").map(String::as_str),
+            Some(value)
+        );
+        let round_trip =
+            LaunchProfile::parse_json(&profile.serialize_pretty(), Some("dev")).unwrap();
+        assert_eq!(round_trip.launch.env, profile.launch.env);
+    }
+}
+
+#[test]
+fn theme_suggestions_keep_builtins_and_bound_user_directory_entries() {
+    let scratch = crate::test_dirs::ScratchDir::new("profile-theme-limit-");
+    crate::native::tests::config_env::with_config_base(scratch.path(), true, || {
+        let dir = crate::settings::theme_dir_path().unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        for index in 0..1_025 {
+            std::fs::write(dir.join(format!("fixture-{index:04}.theme")), b"{}").unwrap();
+        }
+        let names = discovered_theme_names();
+        let builtins: Vec<_> = crate::theme::names().collect();
+        for name in &builtins {
+            assert!(names.iter().any(|listed| listed == name));
+        }
+        assert!(
+            names.len() <= builtins.len() + 1_024,
+            "the user roster is bounded before sorting"
+        );
+        let user = &names[builtins.len()..];
+        assert!(user.windows(2).all(|pair| pair[0] <= pair[1]));
+        // The bound limits suggestions, not direct typed theme resolution.
+        let omitted = (0..1_025)
+            .map(|i| format!("fixture-{i:04}"))
+            .find(|name| !names.contains(name))
+            .unwrap();
+        assert!(theme_name_is_known(&omitted));
+    });
+}

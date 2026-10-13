@@ -126,6 +126,13 @@ impl App {
         self.overlay.open_settings_section_for_test(name);
     }
 
+    #[cfg(test)]
+    pub(in crate::native) fn settings_selected_info_for_test(
+        &self,
+    ) -> Option<crate::settings::SettingInfo> {
+        self.overlay.settings_selected_info_for_test()
+    }
+
     /// Test seam (RAIL-AUTOHIDE-CTL panel coherence): the value string the open
     /// settings panel would render for `key`. Used to prove an external chevron
     /// toggle keeps the panel's Layout row in sync with the live setting.

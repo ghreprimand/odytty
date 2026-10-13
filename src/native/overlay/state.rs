@@ -265,6 +265,13 @@ impl OverlayUi {
         self.panel.displayed_value_for_test(key)
     }
 
+    #[cfg(test)]
+    pub(in crate::native) fn settings_selected_info_for_test(
+        &self,
+    ) -> Option<crate::settings::SettingInfo> {
+        self.panel.selected_info_for_test()
+    }
+
     /// Refresh the read-only About data on the settings panel (ABOUT). Called by
     /// the App when toggling the settings overlay so the About view reflects the
     /// live GPU adapter (available once the renderer is up).

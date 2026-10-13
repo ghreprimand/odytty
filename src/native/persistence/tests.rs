@@ -1843,3 +1843,37 @@ fn layout_save_checks_preserve_the_filesystems_case_semantics() {
         assert!(!layout_exists_in(&dir, "COM0"));
     }
 }
+
+#[test]
+fn non_ascii_layout_names_keep_joiner_and_selector_identity() {
+    for (first, second) in [
+        (
+            "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}",
+            "\u{1f468}\u{1f469}\u{1f467}",
+        ),
+        ("\u{2764}\u{fe0f}", "\u{2764}\u{fe0e}"),
+        (
+            "\u{0915}\u{094d}\u{200d}\u{0937}",
+            "\u{0915}\u{094d}\u{0937}",
+        ),
+    ] {
+        let scratch = crate::test_dirs::ScratchDir::new("layout-non-ascii-identity-");
+        let dir = scratch.path().join("state");
+        let original = sample_snapshot();
+        let mut other = original.clone();
+        other.workspaces[0].name = "second".to_owned();
+        save_layout_in(&dir, first, &original).unwrap();
+        assert!(
+            !layout_exists_in(&dir, second),
+            "distinct scalar identities"
+        );
+        save_layout_in(&dir, second, &other).unwrap();
+        assert_eq!(list_layout_names_in(&dir).names.len(), 2);
+        assert!(
+            matches!(load_layout_in(&dir, first), LoadOutcome::Loaded(value) if value == original)
+        );
+        assert!(
+            matches!(load_layout_in(&dir, second), LoadOutcome::Loaded(value) if value == other)
+        );
+    }
+}

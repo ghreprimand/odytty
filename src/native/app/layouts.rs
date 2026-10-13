@@ -159,12 +159,15 @@ impl App {
             LayoutSaveKind::Workspace(identity) => match self.sessions.workspace_index_of(identity)
             {
                 Some(idx) => self.write_workspace_layout(idx, name),
-                None => self.raise_open_notice(
-                    "The workspace closed, so the layout was not saved.".to_owned(),
-                ),
+                None => self.notice_layout_workspace_closed(),
             },
             LayoutSaveKind::WholeApp => self.write_all_workspaces_layout(name),
         }
+    }
+
+    /// Report a refused workspace save without naming a different target.
+    pub(super) fn notice_layout_workspace_closed(&mut self) {
+        self.raise_open_notice("The workspace closed, so the layout was not saved.".to_owned());
     }
 
     /// Open a saved layout, deciding how it lands on the current window.
@@ -263,13 +266,17 @@ impl App {
     /// Delete a saved layout (8e) named by a palette row. The delete happens
     /// only while the file still matches `stamp`, the identity captured when
     /// the row was listed: a layout removed, replaced, or rewritten since then
-    /// is left alone and a notice says so. A one-line notice reports the result.
+    /// is left alone and a notice says so. Without a captured stamp, deletion
+    /// is refused without claiming the file is absent. A notice reports the result.
     pub(super) fn delete_layout(&mut self, name: &str, stamp: Option<persistence::LayoutStamp>) {
         use persistence::LayoutDeleteOutcome;
-        let outcome = match stamp {
-            Some(stamp) => persistence::delete_layout_if_unchanged(name, stamp),
-            None => Ok(LayoutDeleteOutcome::Gone),
+        let Some(stamp) = stamp else {
+            self.raise_open_notice(format!(
+                "Couldn't verify layout \u{201c}{name}\u{201d} when the palette opened; nothing was deleted."
+            ));
+            return;
         };
+        let outcome = persistence::delete_layout_if_unchanged(name, stamp);
         let notice = match outcome {
             Ok(LayoutDeleteOutcome::Deleted) => format!("Deleted layout \u{201c}{name}\u{201d}."),
             Ok(LayoutDeleteOutcome::Gone) => {
@@ -350,5 +357,43 @@ mod tests {
         let n = layout_open_notice("remote", 2, 3, 1, 0);
         assert!(n.contains("2 of 3 sessions reattached"), "{n}");
         assert!(n.contains("some panes opened at home"), "{n}");
+    }
+    #[test]
+    fn an_unverifiable_layout_palette_row_reports_refusal_without_claiming_absence() {
+        use crate::core::Dimensions;
+        use crate::native::options::NativeOptions;
+        use crate::native::test_support::headless_app_with;
+        use crate::settings::Settings;
+        use winit::keyboard::NamedKey;
+        let scratch = crate::test_dirs::ScratchDir::new("layout-delete-unverified-");
+        crate::native::tests::config_env::with_config_base(scratch.path(), true, || {
+            let (mut app, _) = headless_app_with(
+                NativeOptions::default(),
+                Dimensions::new(80, 24),
+                Settings::default(),
+            );
+            app.save_all_workspaces_as_layout(Some("work"));
+            let path = crate::native::persistence::layouts_dir().join("work.json");
+            let bytes = std::fs::read(&path).unwrap();
+            app.drive_char_with_mods_for_test('p', true, true);
+            assert!(app.overlay_open_for_test());
+            // Inject only the unavailable metadata captured by discovery. The
+            // row, filtering, Enter key and dispatch remain production paths.
+            app.capture_palette_targets(Vec::new(), Vec::new(), vec![("work".to_owned(), None)]);
+            for ch in "Delete Layout: work".chars() {
+                app.drive_char_with_mods_for_test(ch, false, false);
+            }
+            let before = app.open_notice_overlay_signature();
+            app.drive_named_key_for_test(NamedKey::Enter);
+            assert!(!app.overlay_open_for_test());
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            assert_eq!(
+                app.open_notice_message_for_test().as_deref(),
+                Some(
+                    "Couldn't verify layout \u{201c}work\u{201d} when the palette opened; nothing was deleted."
+                )
+            );
+            assert_ne!(app.open_notice_overlay_signature(), before);
+        });
     }
 }

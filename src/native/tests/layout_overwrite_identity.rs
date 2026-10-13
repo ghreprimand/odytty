@@ -113,3 +113,64 @@ fn legacy_and_invisible_name_collisions_prompt_before_replacement() {
         });
     }
 }
+
+#[test]
+fn renaming_a_layout_after_its_workspace_closed_reports_the_refused_save() {
+    let scratch = crate::test_dirs::ScratchDir::new("layout-rename-closed-");
+    super::config_env::with_config_base(scratch.path(), true, || {
+        let mut app = three_workspaces();
+        save_through_prompt(&mut app, 1);
+        save_through_prompt(&mut app, 1);
+        app.close_workspace_at_for_test(1);
+        let before = app.open_notice_overlay_signature();
+        app.drive_char_with_mods_for_test('r', false, false);
+        assert!(!app.overlay_open_for_test());
+        assert!(!app.rename_overlay_open_for_test());
+        assert_eq!(
+            app.open_notice_message_for_test().as_deref(),
+            Some("The workspace closed, so the layout was not saved.")
+        );
+        assert_ne!(app.open_notice_overlay_signature(), before);
+        assert_eq!(saved_workspace_name("w1").as_deref(), Some("w1"));
+        assert_eq!(app.workspace_names_for_test(), ["w0", "w2"]);
+    });
+}
+
+#[test]
+fn a_layout_name_committed_after_its_workspace_closed_reports_the_refused_save() {
+    let scratch = crate::test_dirs::ScratchDir::new("layout-name-closed-");
+    super::config_env::with_config_base(scratch.path(), true, || {
+        let mut app = three_workspaces();
+        save_through_prompt(&mut app, 1);
+        save_through_prompt(&mut app, 1);
+        app.drive_char_with_mods_for_test('r', false, false);
+        assert!(app.rename_overlay_open_for_test());
+        app.close_workspace_at_for_test(1);
+        let before = app.open_notice_overlay_signature();
+        app.commit_rename_for_test("other");
+        assert!(!app.rename_overlay_open_for_test());
+        assert_eq!(
+            app.open_notice_message_for_test().as_deref(),
+            Some("The workspace closed, so the layout was not saved.")
+        );
+        assert_ne!(app.open_notice_overlay_signature(), before);
+        assert_eq!(saved_workspace_name("w1").as_deref(), Some("w1"));
+        assert_eq!(saved_workspace_name("other"), None);
+        assert_eq!(app.workspace_names_for_test(), ["w0", "w2"]);
+    });
+}
+
+#[test]
+fn cancelling_a_layout_name_after_its_workspace_closed_keeps_the_existing_notice() {
+    let scratch = crate::test_dirs::ScratchDir::new("layout-name-cancel-");
+    super::config_env::with_config_base(scratch.path(), true, || {
+        let mut app = three_workspaces();
+        app.enter_save_layout_prompt_for_test(1);
+        app.close_workspace_at_for_test(1);
+        let before = app.open_notice_overlay_signature();
+        app.commit_rename_for_test("");
+        assert!(!app.rename_overlay_open_for_test());
+        assert_eq!(app.open_notice_overlay_signature(), before);
+        assert_eq!(saved_workspace_name("w1"), None);
+    });
+}

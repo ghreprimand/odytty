@@ -1344,12 +1344,16 @@ A named layout can capture either the whole app or one workspace:
 | One clicked or active workspace | **Save Workspace as Layout…** in a rail-slot or content menu; **Save Workspace as Layout** in the command palette |
 
 Reusing a layout name prompts to replace the existing layout, choose another
-name, or cancel.
+name, or cancel. If the saved workspace closes during either the collision
+dialog or the name prompt, the save is refused with a notice.
 
 Open **Open Layout** from the command palette, or **Open Layout…** from the
 empty rail, empty tab strip, or content menu. The list checks at most 1,024
 entries of the layouts folder without creating directories or changing file
-permissions; when the folder holds more, the picker says so. When the current window already
+permissions; when the folder holds more, the picker says so. Saving also checks
+at most 1,024 entries, including files other than layouts. A folder above that
+limit refuses every save, including a new name, because the collision check
+is incomplete. When the current window already
 contains real state, choose how to apply it:
 
 | Choice | Result |
@@ -1371,7 +1375,9 @@ explains how to create one.
 **Delete Layout: NAME** in the command palette deletes the layout listed under
 that name when the palette opened, never a layout that took its place in the
 list. When that file was removed or rewritten after the palette opened,
-nothing is deleted and a notice says so. Every palette row that names a
+nothing is deleted and a notice says so. If its identity could not be verified
+when the palette opened, deletion is refused with a verification notice rather
+than a claim that the file is absent. Every palette row that names a
 workspace, pane, host, profile, or layout acts on what it named when the
 palette opened and does nothing when that target has gone. Layout lists show
 regular files whose stems are valid sanitized layout names or existing
@@ -1437,6 +1443,11 @@ and saved search-return offset, so scrolling immediately after a TUI exits does
 not jump to the oldest row. These rules apply on all four display platforms.
 
 ### Summon A Quick Terminal
+
+Settings > Sessions lists the fixed edge choices `top`, `bottom`, `left` and
+`right`, and the animation choices `slide` and `instant`. Both rows remain
+startup-only: edit `odytty.conf` and restart to change them on Linux, macOS
+and Windows.
 
 `quick_terminal` is off by default. When on, OdyTTY keeps a dedicated summonable
 window with its own geometry (`quick_terminal_edge`, `quick_terminal_coverage`,
@@ -2454,9 +2465,11 @@ New layouts prefix reserved stems with an underscore, including superscript
 numbered COM/LPT ports and conservative COM0/LPT0 handling. Existing COM0/LPT0
 regular layout files remain listed, openable and deletable under their original
 names. Saving a colliding legacy name asks to replace, then writes the safe
-name and removes the unchanged legacy file. Names equal after removing ZWJ,
-ZWNJ, VS15 and VS16 share the replace check; the new stored name keeps those
-characters. Incomplete collision scans refuse the save. Profiles retain
+name and removes the unchanged legacy file. Names containing non-ASCII
+visible text compare by exact scalar identity, preserving distinct emoji and
+script forms. ASCII labels equal after removing ZWJ, ZWNJ, VS15 and VS16 share
+the replace check; the new stored name keeps those characters. Incomplete
+collision scans refuse the save. Profiles retain
 ASCII-only validation and reject reserved stems.
 Layout names retain ZWJ, ZWNJ, VS15 and VS16 after visible text. Leading
 modifiers, bidi controls, other default-ignorables and Unicode line/paragraph

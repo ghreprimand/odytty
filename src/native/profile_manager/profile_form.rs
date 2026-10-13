@@ -547,11 +547,10 @@ impl ProfileManager {
             let mut env = BTreeMap::new();
             for (key, value) in &self.draft_env {
                 let key_trimmed = key.trim();
-                let value_trimmed = value.trim();
-                if key_trimmed.is_empty() && value_trimmed.is_empty() {
+                if key_trimmed.is_empty() && value.is_empty() {
                     continue;
                 }
-                if key_trimmed.is_empty() || value_trimmed.is_empty() {
+                if key_trimmed.is_empty() || value.is_empty() {
                     self.error = Some(
                         "environment key and value are both required; \
                          clear both to drop the row"
@@ -559,7 +558,7 @@ impl ProfileManager {
                     );
                     return ProfileManagerOutcome::Consumed;
                 }
-                env.insert(key_trimmed.to_owned(), value_trimmed.to_owned());
+                env.insert(key_trimmed.to_owned(), value.clone());
             }
             profile.launch.env = env;
             // Preserve a loaded platform set exactly when the chooser token was
@@ -1131,10 +1130,13 @@ fn cycle(value: &mut String, choices: &[&str]) {
     *value = choices[(index + 1) % choices.len()].to_owned();
 }
 
+/// Maximum user-directory entries examined for the profile Theme row.
+const MAX_THEME_SUGGESTION_ENTRIES: usize = 1_024;
+
 /// The Theme row's cycle roster: sorted built-in theme names first, then any
-/// user `.theme` file stems found in the theme directory (also sorted, and only
-/// those not already shadowing a built-in name). Bounded to a single directory
-/// read performed on demand when the form opens.
+/// user `.theme` file stems from at most 1,024 theme-directory entries, sorted
+/// without built-in duplicates. Every entry counts before filtering, including
+/// read errors. Discovery runs only when the form opens.
 fn discovered_theme_names() -> Vec<String> {
     let mut builtins: Vec<String> = crate::theme::names().map(str::to_owned).collect();
     builtins.sort();
@@ -1142,6 +1144,7 @@ fn discovered_theme_names() -> Vec<String> {
         .and_then(|dir| std::fs::read_dir(dir).ok())
         .into_iter()
         .flatten()
+        .take(MAX_THEME_SUGGESTION_ENTRIES)
         .flatten()
         .filter_map(|entry| {
             let path = entry.path();
