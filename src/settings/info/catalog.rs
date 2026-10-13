@@ -1487,7 +1487,7 @@ impl Settings {
                 env: QUICK_TERMINAL_SHORTCUT_ENV,
                 name: "Quick terminal shortcut",
                 value: self.quick_terminal_shortcut.clone(),
-                description: "The global shortcut accelerator that summons or hides the quick terminal, e.g. F12 or ctrl+shift+grave. Only meaningful when quick_terminal is on. Recognizes ctrl, alt, shift, and super/cmd modifiers plus one key. Whether the operating system can grant the global grab is platform-dependent and reported after the first usable frame.",
+                description: "The global shortcut accelerator that summons or hides the quick terminal, e.g. F12 or ctrl+shift+grave. Only meaningful when quick_terminal is on. Recognizes ctrl, alt, shift, and super/cmd modifiers plus one key, joined by + or -. Write the minus key as minus or a final - (ctrl+-) and the equals key as equal or =. Whether the operating system can grant the global grab is platform-dependent and reported after the first usable frame.",
                 kind: SettingKind::String,
                 range: None,
                 options: &[],

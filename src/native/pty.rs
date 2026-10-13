@@ -5,7 +5,7 @@ use std::thread::JoinHandle;
 
 use crate::core::Terminal;
 
-use winit::event_loop::EventLoopProxy;
+use super::event_waker::EventWaker;
 
 use super::output_recorder::RecorderHandle;
 use super::session::SessionToken;
@@ -203,7 +203,7 @@ pub(super) fn spawn_pty_pump(
     mut reader: Box<dyn Read + Send>,
     writer: PtyWriter,
     terminal: Arc<Mutex<Terminal>>,
-    proxy: EventLoopProxy<UserEvent>,
+    proxy: EventWaker,
     session: SessionToken,
     recorder: RecorderHandle,
     diagnostic: Option<Arc<Mutex<Option<String>>>>,

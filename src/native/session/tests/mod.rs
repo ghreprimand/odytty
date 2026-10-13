@@ -113,13 +113,14 @@ fn build_session_with_parked_reader(id: SessionToken) -> (Session, ReaderGate) {
     (Session::new(id, terminal, writer, pty, Some(parked)), gate)
 }
 
-/// A workspace set backed by the process-wide test event loop, so spawns get a
-/// real `EventLoopProxy`. `None` (with the reason already printed) when this
-/// environment offers no loop. Building a fresh loop per test only ever worked
-/// for the first case in the process: winit refuses to recreate one, so every
-/// later case returned early without asserting anything.
+/// A workspace set whose spawns get a wake handle from
+/// `event_waker_for_test`: the process-wide test event loop's proxy where one can
+/// be built, a discarding waker on macOS. `None` (with the reason already
+/// printed) when this environment offers no loop. Building a fresh loop per test
+/// only ever worked for the first case in the process: winit refuses to recreate
+/// one, so every later case returned early without asserting anything.
 fn tabset_with_proxy_for_test() -> Option<WorkspaceSet> {
-    let proxy = crate::native::tests::event_loop_proxy_for_test().ok()?;
+    let proxy = crate::native::tests::event_waker_for_test().ok()?;
     Some(WorkspaceSet::new(build_session(), Some(proxy)))
 }
 

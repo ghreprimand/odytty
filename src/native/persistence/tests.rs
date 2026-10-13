@@ -915,7 +915,7 @@ fn layout_exists_matches_the_writer_stem() {
 
 #[cfg(unix)]
 #[test]
-fn layout_migration_repairs_direct_json_only_and_leaves_unknown_entries_alone() {
+fn layout_read_repairs_only_its_target_and_leaves_unknown_entries_alone() {
     use std::os::unix::fs::PermissionsExt;
 
     let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-test-");
@@ -934,7 +934,10 @@ fn layout_migration_repairs_direct_json_only_and_leaves_unknown_entries_alone() 
     std::fs::set_permissions(&nested, std::fs::Permissions::from_mode(0o755))
         .expect("chmod nested directory");
 
-    repair_direct_layout_files(&dir).expect("migrate direct layouts");
+    assert!(matches!(
+        load_layout_in(&dir, "legacy"),
+        LoadOutcome::Corrupt(_)
+    ));
 
     assert_eq!(
         std::fs::metadata(&direct_json)
@@ -1509,8 +1512,6 @@ fn layout_names_replace_default_ignorable_scalars() {
         '\u{17b4}',
         '\u{180b}',
         '\u{200b}',
-        '\u{200c}',
-        '\u{200d}',
         '\u{200e}',
         '\u{200f}',
         '\u{202a}',
@@ -1524,7 +1525,6 @@ fn layout_names_replace_default_ignorable_scalars() {
         '\u{2068}',
         '\u{2069}',
         '\u{3164}',
-        '\u{fe0f}',
         '\u{feff}',
         '\u{ffa0}',
         '\u{fff0}',
@@ -1598,4 +1598,124 @@ fn layout_version_accepts_equivalent_whole_literals_and_preserves_lenient_fields
             "whole literal {literal}"
         );
     }
+}
+
+#[test]
+fn legacy_zero_port_layouts_remain_listed_loadable_and_deletable() {
+    for name in ["COM0", "LPT0", "com0", "lpt0"] {
+        // Separate directories also exercise case-insensitive filesystems.
+        let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-legacy-");
+        let dir = fixture.path().join("state");
+        crate::state_dir::prepare_private_dir(&dir).unwrap();
+        let snapshot = sample_snapshot();
+        write_atomic(
+            &dir.join(format!("{name}.json")),
+            &snapshot.to_json_pretty(),
+        )
+        .unwrap();
+        assert_eq!(list_layout_names_in(&dir).names, vec![name]);
+        let LoadOutcome::Loaded(loaded) = load_layout_in(&dir, name) else {
+            panic!("legacy layout did not load")
+        };
+        assert_eq!(loaded, snapshot);
+        assert!(
+            !layout_exists_in(&dir, name),
+            "new saves still address the portable stem"
+        );
+        let stamp = layout_stamp_in(&dir, name).unwrap();
+        assert_eq!(
+            save_layout_in(&dir, name, &snapshot).unwrap(),
+            format!("_{name}")
+        );
+        assert_eq!(
+            delete_layout_if_unchanged_in(&dir, name, stamp).unwrap(),
+            LayoutDeleteOutcome::Deleted
+        );
+        assert!(dir.join(format!("_{name}.json")).is_file());
+        assert!(!dir.join(format!("{name}.json")).exists());
+    }
+}
+
+#[test]
+fn layout_names_keep_joiners_and_variation_selectors_only_after_visible_text() {
+    for modifier in ['\u{200c}', '\u{200d}', '\u{fe0e}', '\u{fe0f}'] {
+        let name = format!("\u{915}{modifier}\u{937}");
+        assert_eq!(sanitize_layout_name(&name), Some(name.clone()));
+        assert_eq!(
+            sanitize_layout_name(&format!("{modifier}name")),
+            Some("_name".to_owned())
+        );
+        assert_eq!(
+            sanitize_layout_name(&format!(" {modifier}name")),
+            Some("_name".to_owned())
+        );
+        assert_eq!(
+            sanitize_layout_name(&format!("\u{301}{modifier}name")),
+            Some("\u{301}_name".to_owned())
+        );
+        let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-modifier-");
+        let dir = fixture.path().join("state");
+        let snapshot = sample_snapshot();
+        assert_eq!(save_layout_in(&dir, &name, &snapshot).unwrap(), name);
+        assert_eq!(list_layout_names_in(&dir).names, vec![name.clone()]);
+        let LoadOutcome::Loaded(loaded) = load_layout_in(&dir, &name) else {
+            panic!("modified layout name did not load")
+        };
+        assert_eq!(loaded, snapshot);
+    }
+}
+
+#[test]
+fn stray_json_directory_does_not_disable_other_layout_operations() {
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-stray-");
+    crate::native::tests::config_env::with_config_base(fixture.path(), true, || {
+        let dir = prepared_layouts_dir().unwrap();
+        std::fs::create_dir(dir.join("stray.json")).unwrap();
+        let snapshot = sample_snapshot();
+        assert_eq!(save_layout("valid", &snapshot).unwrap(), "valid");
+        assert_eq!(list_layout_names(), vec!["valid"]);
+        assert!(layout_exists("valid"));
+        let LoadOutcome::Loaded(loaded) = load_layout("valid") else {
+            panic!("valid layout did not load")
+        };
+        assert_eq!(loaded, snapshot);
+        assert!(matches!(load_layout("stray"), LoadOutcome::Corrupt(_)));
+        delete_layout_in(&dir, "valid").unwrap();
+        assert!(dir.join("stray.json").is_dir());
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn stray_json_symlink_is_refused_without_disabling_other_layouts() {
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-link-");
+    crate::native::tests::config_env::with_config_base(fixture.path(), true, || {
+        let dir = prepared_layouts_dir().unwrap();
+        let external = fixture.path().join("external");
+        std::fs::write(&external, "untouched").unwrap();
+        std::os::unix::fs::symlink(&external, dir.join("stray.json")).unwrap();
+        save_layout("valid", &sample_snapshot()).unwrap();
+        assert_eq!(list_layout_names(), vec!["valid"]);
+        assert!(matches!(load_layout("stray"), LoadOutcome::Corrupt(_)));
+        assert!(delete_layout_in(&dir, "stray").is_err());
+        assert_eq!(std::fs::read_to_string(external).unwrap(), "untouched");
+    });
+}
+
+#[test]
+fn gone_legacy_layout_cannot_retarget_delete_to_its_portable_name() {
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-gone-legacy-");
+    let dir = fixture.path().join("state");
+    crate::state_dir::prepare_private_dir(&dir).unwrap();
+    let snapshot = sample_snapshot();
+    write_atomic(&dir.join("COM0.json"), &snapshot.to_json_pretty()).unwrap();
+    let stamp = layout_stamp_in(&dir, "COM0").unwrap();
+    save_layout_in(&dir, "COM0", &snapshot).unwrap();
+    std::fs::remove_file(dir.join("COM0.json")).unwrap();
+    assert_eq!(
+        delete_layout_if_unchanged_in(&dir, "COM0", stamp).unwrap(),
+        LayoutDeleteOutcome::Gone
+    );
+    assert!(dir.join("_COM0.json").is_file());
+    assert!(matches!(load_layout_in(&dir, "COM0"), LoadOutcome::Absent));
 }

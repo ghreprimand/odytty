@@ -357,10 +357,12 @@ The separate virtual-display check requires the event-loop proof population to
 report executed cases and zero unavailable cases. It preserves failed assertions
 and does not retry them on another backend. Without Xvfb, a local run can use
 an isolated headless Weston instance. These checks establish Linux X11 or Wayland
-proxy-backed execution, not acceptance on a physical display. macOS proxy-backed
-cases remain ignored because AppKit requires the event loop on the main thread;
-Windows uses its existing native event-loop tests. The ordinary full-suite step
-remains unchanged.
+proxy-backed execution, not acceptance on a physical display. On macOS, where
+AppKit requires the event loop on the main thread, the same cases run against a
+discarding wake handle, so their model, key-path and session assertions execute
+there but nothing about a real loop's wakeups is checked; Windows uses its
+existing native event-loop tests. The ordinary full-suite step remains
+unchanged.
 
 Headless GPU fixtures retain one process-lifetime instance per backend set.
 Native fixtures serialize their full GPU lifetime, including setup, draws and

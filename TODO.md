@@ -22,8 +22,9 @@ roadmap.
 
 Saved-layout names preserve non-ASCII text on Linux, macOS and Windows, within
 96 UTF-8 bytes. ASCII letters, digits, spaces, hyphens and underscores remain;
-other ASCII punctuation, controls, Unicode line/paragraph separators and
-default-ignorable Unicode scalars become underscores. Truncation ends before a
+ZWJ, ZWNJ, VS15 and VS16 remain after visible text. Other ASCII punctuation,
+controls, Unicode line/paragraph separators and remaining default-ignorable
+Unicode scalars become underscores. Truncation ends before a
 complete scalar would exceed the byte limit. Existing underscore aliases stay
 usable and are not renamed automatically.
 
@@ -41,14 +42,22 @@ show an inert notice when the 1,024-entry limit is reached. Keyboard selection
 stays visible in short viewports, with entries taking priority over headings.
 
 Saved layout and profile filenames share a portable Windows device-stem rule.
-Layouts prefix reserved stems with an underscore, including superscript numbered
-COM/LPT ports and conservative COM0/LPT0 handling. Profiles retain ASCII-only
-validation and reject reserved stems.
+New layouts prefix reserved stems with an underscore, including superscript
+numbered COM/LPT ports and conservative COM0/LPT0 handling. Existing COM0/LPT0
+regular layout files remain listed, openable and deletable under their original
+names. Profiles retain ASCII-only validation and reject reserved stems.
+Layout names retain ZWJ, ZWNJ, VS15 and VS16 after visible text. Leading
+modifiers, bidi controls, other default-ignorables and Unicode line/paragraph
+separators become underscores.
 
 Saved-layout schema versions must be whole unsigned 32-bit numbers in their
 original decimal spelling. A fractional literal that rounds to a supported
 version is refused as malformed on Linux, macOS and Windows. Equivalent whole
 number spellings remain accepted.
+
+Layout preparation validates the directory without scanning or repairing sibling
+files. Load, save and delete enforce the sensitive-file policy on their own
+target; one stray JSON directory or symlink cannot disable other layouts.
 
 Profile saves refuse incomplete case-collision scans. Malformed-file recovery
 claims non-replacing hard-link backups and preserves the source on inspection

@@ -132,10 +132,10 @@ mod x11_grab {
         Accelerator, SummonSink, x11_grab_failure_notice, x11_keysym,
         x11_registration_failure_notice,
     };
+    use rustix::fd::{AsRawFd, OwnedFd};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread::JoinHandle;
-    use std::time::Duration;
     use x11rb::connection::Connection;
     use x11rb::errors::ReplyError;
     use x11rb::protocol::ErrorKind;
@@ -143,19 +143,96 @@ mod x11_grab {
     use x11rb::protocol::xproto::{ConnectionExt, GrabMode, Keycode, ModMask};
     use x11rb::rust_connection::RustConnection;
 
-    /// A live grab: a stop flag and the poll thread that owns the X connection.
+    /// A live grab: a stop flag, the write end of the thread's wake pipe, and
+    /// the thread that owns the X connection.
     pub(super) struct X11Grab {
         stop: Arc<AtomicBool>,
+        wake: OwnedFd,
+        // The read end stays open until the grab drops, so the wake write
+        // never meets a closed pipe even after the thread has exited.
+        _wake_read: Arc<OwnedFd>,
         handle: Option<JoinHandle<()>>,
     }
 
     impl Drop for X11Grab {
         fn drop(&mut self) {
             self.stop.store(true, Ordering::SeqCst);
+            // Wake the thread out of its blocking wait. A full pipe already
+            // holds a wake, so a failed write needs no retry.
+            let _ = rustix::io::write(&self.wake, &[1]);
             if let Some(handle) = self.handle.take() {
                 let _ = handle.join();
             }
         }
+    }
+
+    /// Turns the grabbed key's events into summons: one per physical press.
+    ///
+    /// A grabbed key on X11 repeats while held. Without detectable auto-repeat
+    /// the server sends a release and a press with the same timestamp for each
+    /// repeat; with it, only presses arrive while the key stays down. Either
+    /// way a held shortcut summons once, as the Windows (`MOD_NOREPEAT`) and
+    /// macOS (Carbon hot key) backends do.
+    #[derive(Debug, Default)]
+    pub(super) struct RepeatFilter {
+        held: bool,
+        last_release: Option<u32>,
+    }
+
+    impl RepeatFilter {
+        /// Whether `event` is a new press that should summon.
+        pub(super) fn summons(&mut self, event: &Event) -> bool {
+            match event {
+                Event::KeyPress(press) => {
+                    let repeat = self.held || self.last_release == Some(press.time);
+                    self.held = true;
+                    self.last_release = None;
+                    !repeat
+                }
+                Event::KeyRelease(release) => {
+                    self.held = false;
+                    self.last_release = Some(release.time);
+                    false
+                }
+                _ => false,
+            }
+        }
+    }
+
+    /// Block until the X connection or the wake pipe is readable. `false`
+    /// when the thread should stop: the pipe woke it, or the connection or
+    /// the wait failed.
+    fn wait_readable(conn: &RustConnection, wake: &OwnedFd) -> bool {
+        let mut fds = [
+            libc::pollfd {
+                fd: conn.stream().as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: wake.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+        ];
+        loop {
+            // SAFETY: `fds` is a live array of two initialized `pollfd`s whose
+            // descriptors stay open for the call.
+            let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
+            if ready >= 0 {
+                break;
+            }
+            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                return false;
+            }
+        }
+        if fds[1].revents != 0 {
+            return false;
+        }
+        // A hung-up or failed connection with nothing left to read stops the
+        // thread instead of spinning on a descriptor that is always ready.
+        let failed = libc::POLLERR | libc::POLLHUP | libc::POLLNVAL;
+        fds[0].revents & failed == 0 || fds[0].revents & libc::POLLIN != 0
     }
 
     /// The X11 modifier mask for an accelerator's modifiers. Super maps to
@@ -283,20 +360,42 @@ mod x11_grab {
             return Err(reason);
         }
 
-        // Confirmed. Hand the connection to a poll thread that delivers the
-        // summon and, on stop, ungrabs and drops the connection (closing it).
+        // Confirmed. Hand the connection to a thread that delivers the summon
+        // and, on stop, ungrabs and drops the connection (closing it). It
+        // blocks until the connection or its wake pipe is readable, so an idle
+        // shortcut costs no wakeups.
+        let ungrab_all = |conn: &RustConnection| {
+            for mods in &granted {
+                let _ = conn.ungrab_key(keycode, root, *mods);
+            }
+            let _ = conn.flush();
+        };
+        let (wake_read, wake) =
+            rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC).map_err(|error| {
+                tracing::warn!(%error, "cannot create X11 quick terminal wake pipe");
+                ungrab_all(&conn);
+                x11_registration_failure_notice(acc)
+            })?;
+        let wake_read = Arc::new(wake_read);
+        let wake_read_thread = Arc::clone(&wake_read);
         let stop = Arc::new(AtomicBool::new(false));
         let stop_thread = Arc::clone(&stop);
         let handle = std::thread::Builder::new()
             .name("odytty-x11-hotkey".to_owned())
             .spawn(move || {
+                let mut repeats = RepeatFilter::default();
                 while !stop_thread.load(Ordering::SeqCst) {
                     match conn.poll_for_event() {
-                        Ok(Some(Event::KeyPress(_))) => sink(),
-                        Ok(Some(_)) => {}
-                        // No event queued: sleep briefly so a stop flips
-                        // promptly without busy-spinning the connection.
-                        Ok(None) => std::thread::sleep(Duration::from_millis(30)),
+                        Ok(Some(event)) => {
+                            if repeats.summons(&event) {
+                                sink();
+                            }
+                        }
+                        Ok(None) => {
+                            if !wait_readable(&conn, &wake_read_thread) {
+                                break;
+                            }
+                        }
                         // The connection dropped (server gone): stop cleanly.
                         Err(_) => break,
                     }
@@ -314,7 +413,71 @@ mod x11_grab {
 
         Ok(X11Grab {
             stop,
+            wake,
+            _wake_read: wake_read,
             handle: Some(handle),
         })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use x11rb::protocol::xproto::KeyPressEvent;
+
+        fn press(time: u32) -> Event {
+            Event::KeyPress(KeyPressEvent {
+                time,
+                ..KeyPressEvent::default()
+            })
+        }
+
+        fn release(time: u32) -> Event {
+            Event::KeyRelease(KeyPressEvent {
+                time,
+                ..KeyPressEvent::default()
+            })
+        }
+
+        fn summons(events: &[Event]) -> usize {
+            let mut filter = RepeatFilter::default();
+            events.iter().filter(|event| filter.summons(event)).count()
+        }
+
+        /// Plain auto-repeat: each repeat is a release and a press sharing
+        /// one timestamp. Holding the key summons once.
+        #[test]
+        fn a_held_key_with_paired_repeats_summons_once() {
+            let events = [
+                press(1000),
+                release(1500),
+                press(1500),
+                release(1530),
+                press(1530),
+                release(1800),
+            ];
+            assert_eq!(summons(&events), 1);
+        }
+
+        /// Detectable auto-repeat: only presses arrive while held.
+        #[test]
+        fn a_held_key_with_detectable_repeats_summons_once() {
+            let events = [press(1000), press(1500), press(1530), release(1800)];
+            assert_eq!(summons(&events), 1);
+        }
+
+        /// Separate presses each summon, including one right after a
+        /// release with a later timestamp.
+        #[test]
+        fn separate_presses_each_summon() {
+            let events = [
+                press(1000),
+                release(1100),
+                press(1101),
+                release(1200),
+                press(2000),
+                release(2100),
+            ];
+            assert_eq!(summons(&events), 3);
+        }
     }
 }

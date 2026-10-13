@@ -9,7 +9,9 @@
 //! cross-process daemon survival where a mismatch would otherwise hide.
 //!
 //! Flow (each step bounded so a stuck host fails the test rather than hanging):
-//! 1. spawn a real `odytty session-host` subprocess owning a real PTY child;
+//! 1. spawn a real session-host subprocess (this test executable re-run at
+//!    [`host_process_entry`], which calls the routine `odytty session-host`
+//!    dispatches to) owning a real PTY child;
 //! 2. attach with the real `AttachClient`, restore the snapshot (full
 //!    pre-attach scrollback), and drive input the child echoes;
 //! 3. drop the client (clean detach - the window-close path) and assert the
@@ -31,23 +33,29 @@ use std::time::{Duration, Instant};
 use crate::core::Terminal;
 use crate::native::attach::{AttachClient, resolve_session_socket};
 
-/// Locate the built `odytty` binary next to the test executable
-/// (`target/<profile>/odytty`). `cargo test` builds the bin automatically, so it
-/// is present under the standard test gate; a clear panic guides a bare
-/// `--lib`-without-build run.
-fn odytty_bin() -> PathBuf {
-    let exe = std::env::current_exe().expect("resolve test executable");
-    let deps = exe.parent().expect("test exe has a parent dir");
-    let profile = deps.parent().expect("deps has a parent dir");
-    for candidate in [profile.join("odytty"), deps.join("odytty")] {
-        if candidate.is_file() {
-            return candidate;
-        }
-    }
-    panic!(
-        "odytty binary not found near {}: run `cargo build` first (cargo test builds it automatically)",
-        profile.display()
-    );
+/// Environment marker that turns [`host_process_entry`] into the session-host
+/// process instead of a no-op test.
+const HOST_ENTRY_ARGS: &str = "ODYTTY_ATTACH_E2E_HOST_ARGS";
+/// Separator between arguments inside [`HOST_ENTRY_ARGS`] (not valid in the
+/// text of any argument the test passes).
+const HOST_ARG_SEPARATOR: char = '\u{1f}';
+const HOST_ENTRY_TEST: &str = "native::tests::attach_e2e::host_process_entry";
+
+/// The host side of the end-to-end test. The test executable is re-run as a
+/// genuine separate process with [`HOST_ENTRY_ARGS`] set, and this entry then
+/// runs the same library routine `odytty session-host` dispatches to
+/// (`run_internal_host_from_args`). This keeps the test independent of whether
+/// the `odytty` binary has been built: library unit tests are not given
+/// `CARGO_BIN_EXE_odytty`, so a bare `cargo test --lib` on a cold target used to
+/// fail here. Without the marker this is an ordinary passing test that does
+/// nothing; the process that runs it for real is only ever spawned below.
+#[test]
+fn host_process_entry() {
+    let Ok(args) = std::env::var(HOST_ENTRY_ARGS) else {
+        return;
+    };
+    let args: Vec<String> = args.split(HOST_ARG_SEPARATOR).map(str::to_owned).collect();
+    crate::session_host::run_internal_host_from_args(&args).expect("session-host exits cleanly");
 }
 
 /// A unique synthetic runtime base under a short socket directory. The host creates and
@@ -71,29 +79,36 @@ impl Drop for HostGuard {
     }
 }
 
-/// Spawn `odytty session-host` as a genuine separate process with a controlled
-/// `/bin/sh` child, a synthetic runtime base, and a long idle timeout (so a
-/// detach never idle-kills it mid-test). `--exec` must be last (it consumes the
-/// remaining args as the child argv).
-fn spawn_real_host(bin: &Path, base: &Path, id: &str, child_command: &str) -> Child {
-    Command::new(bin)
-        .arg("session-host")
-        .arg("--session-id")
-        .arg(id)
-        .arg("--runtime-dir")
-        .arg(base)
-        .arg("--idle-timeout-ms")
-        .arg("60000")
-        .arg("--max-scrollback-rows")
-        .arg("2000")
-        .arg("--cols")
-        .arg("80")
-        .arg("--rows")
-        .arg("24")
-        .arg("--exec")
-        .arg("/bin/sh")
-        .arg("-c")
-        .arg(child_command)
+/// Spawn the session host as a genuine separate process (this test executable
+/// re-run at [`host_process_entry`]) with a controlled `/bin/sh` child, a
+/// synthetic runtime base, and a long idle timeout (so a detach never idle-kills
+/// it mid-test). `--exec` must be last (it consumes the remaining args as the
+/// child argv).
+fn spawn_real_host(base: &Path, id: &str, child_command: &str) -> Child {
+    let base = base.to_str().expect("test runtime base is UTF-8");
+    let args = [
+        "--session-id",
+        id,
+        "--runtime-dir",
+        base,
+        "--idle-timeout-ms",
+        "60000",
+        "--max-scrollback-rows",
+        "2000",
+        "--cols",
+        "80",
+        "--rows",
+        "24",
+        "--exec",
+        "/bin/sh",
+        "-c",
+        child_command,
+    ]
+    .join(&HOST_ARG_SEPARATOR.to_string());
+    let exe = std::env::current_exe().expect("resolve test executable");
+    Command::new(exe)
+        .args(["--exact", "--nocapture", HOST_ENTRY_TEST])
+        .env(HOST_ENTRY_ARGS, args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -178,14 +193,13 @@ fn poll_attach_until(
 
 #[test]
 fn real_host_survives_detach_and_reattach_restores_scrollback() {
-    let bin = odytty_bin();
     let base = unique_base();
     let id = "esurv";
     // 40 numbered lines push early output into scrollback (80x24 grid); `cat`
     // keeps the child alive across detach until we send EOF (Ctrl-D).
     let child_command = "i=1; while [ $i -le 40 ]; do echo \"L$i\"; i=$((i+1)); done; cat";
     let mut guard = HostGuard {
-        child: spawn_real_host(&bin, &base, id, child_command),
+        child: spawn_real_host(&base, id, child_command),
         base: base.clone(),
     };
 

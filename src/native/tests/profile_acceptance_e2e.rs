@@ -3,10 +3,11 @@
 //! fallback, default delete/rename, import future-key/password refusal,
 //! malformed catalog recovery, and restore of launch_profile.
 //!
-//! Drives a real `App`, with an `EventLoop` proxy where a case needs
+//! Drives a real `App`, with a wake handle where a case needs
 //! `handle_new_tab_with_profile` to spawn real PTY children. Fixtures redirect
-//! the config base so no user profile store is touched. macOS ignores the
-//! proxy-backed cases (AppKit forbids an off-main-thread EventLoop).
+//! the config base so no user profile store is touched. macOS serves the
+//! proxy-backed cases with a discarding waker (AppKit forbids an off-main-thread
+//! EventLoop).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -72,7 +73,7 @@ fn write_cwd_profile(name: &str, cwd: &str) {
 }
 
 fn app_with_proxy() -> Result<App, &'static str> {
-    Ok(app_over(Some(event_loop_proxy_for_test()?)))
+    Ok(app_over(Some(event_waker_for_test()?)))
 }
 
 /// An App whose workspace set has no event loop proxy, for cases that never
@@ -82,9 +83,7 @@ fn headless_app() -> App {
     app_over(None)
 }
 
-fn app_over(
-    proxy: Option<winit::event_loop::EventLoopProxy<crate::native::pty::UserEvent>>,
-) -> App {
+fn app_over(proxy: Option<crate::native::event_waker::EventWaker>) -> App {
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
@@ -133,10 +132,13 @@ const ECHO_IN_DEFAULT_SHELL: &[u8] = b"echo $ODY_TEST\n";
 const ECHO_IN_DEFAULT_SHELL: &[u8] = b"echo $env:ODY_TEST\r";
 
 /// How long a spawned shell may take to print its prompt and then the echoed
-/// value. PowerShell on a CI runner starts far slower than a POSIX shell. The
-/// waits return as soon as the text appears.
-#[cfg(unix)]
+/// value. PowerShell on a CI runner starts far slower than a POSIX shell, and a
+/// macOS login shell (which runs the user's startup files) is slower than a
+/// Linux one. The waits return as soon as the text appears.
+#[cfg(all(unix, not(target_os = "macos")))]
 const SHELL_BUDGET: Duration = Duration::from_secs(3);
+#[cfg(target_os = "macos")]
+const SHELL_BUDGET: Duration = Duration::from_secs(15);
 #[cfg(windows)]
 const SHELL_BUDGET: Duration = Duration::from_secs(20);
 
@@ -201,10 +203,6 @@ fn collect_leaf_profiles(shape: &PaneShape, out: &mut Vec<Option<String>>) {
 
 // ---- (a) env without shell: DefaultShell must still apply overrides ---------
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn profile_env_applies_without_shell_or_command() {
     let base = temp_config_base("env-default");
@@ -234,10 +232,6 @@ fn profile_env_applies_without_shell_or_command() {
 
 // ---- (b) env with explicit shell: pin the working path ----------------------
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn profile_env_applies_with_explicit_shell() {
     let base = temp_config_base("env-shell");
@@ -263,10 +257,6 @@ fn profile_env_applies_with_explicit_shell() {
 
 // ---- (c) profile theme survives model-state sweep and tab switches ----------
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn profile_theme_stays_on_session_across_model_state_and_tab_switch() {
     let base = temp_config_base("theme");
@@ -347,10 +337,6 @@ fn profile_theme_stays_on_session_across_model_state_and_tab_switch() {
 
 // ---- (c2) the GLOBAL DEFAULT profile theme applies on plain New Tab ---------
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn global_default_profile_theme_applies_on_plain_new_tab() {
     let base = temp_config_base("default-theme");
@@ -404,10 +390,6 @@ fn global_default_profile_theme_applies_on_plain_new_tab() {
 
 // ---- (d) missing working_directory falls back with a notice -----------------
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn missing_profile_cwd_opens_tab_with_warning_not_hard_failure() {
     let base = temp_config_base("cwd-miss");
@@ -438,10 +420,6 @@ fn missing_profile_cwd_opens_tab_with_warning_not_hard_failure() {
 /// The workspace routes apply the same missing-directory fallback as New Tab:
 /// an explicit profile, the global default profile, and a missing directory
 /// each open a workspace with a bounded notice instead of a spawn failure.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn missing_profile_cwd_opens_workspace_with_warning_not_hard_failure() {
     let base = temp_config_base("ws-cwd-miss");
@@ -476,10 +454,6 @@ fn missing_profile_cwd_opens_workspace_with_warning_not_hard_failure() {
 
 /// A workspace opened with a themed profile carries the authored theme as
 /// session state, exactly as a profile tab does.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn profile_workspace_records_the_authored_theme() {
     let base = temp_config_base("ws-theme");
@@ -507,10 +481,6 @@ fn profile_workspace_records_the_authored_theme() {
 
 // ---- (e) deleting the global default clears the setting ---------------------
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn deleting_global_default_profile_clears_setting_and_new_tab_is_plain() {
     let base = temp_config_base("del-default");
@@ -668,10 +638,6 @@ fn malformed_profile_is_listed_with_reason_and_bytes_unchanged() {
 
 // ---- (i) restore preserves launch_profile on profile tabs -------------------
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn restore_keeps_launch_profile_on_profile_tabs() {
     let base = temp_config_base("restore");

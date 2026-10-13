@@ -13,7 +13,7 @@ use std::process::Stdio;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
-use winit::event_loop::EventLoopProxy;
+use crate::native::event_waker::EventWaker;
 
 use super::super::pty::UserEvent;
 use super::super::session::SessionToken;
@@ -46,7 +46,7 @@ const PROBE_STDERR_GRACE: Duration = Duration::from_millis(500);
 pub(super) fn spawn_connection_probe(
     command: SshCommand,
     session: SessionToken,
-    proxy: Option<EventLoopProxy<UserEvent>>,
+    proxy: Option<EventWaker>,
     tx: Sender<Result<ProbeClass, String>>,
 ) -> std::io::Result<()> {
     crate::spawn_util::spawn_named("odytty-connection-probe", move || {

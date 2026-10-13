@@ -11,9 +11,9 @@
 //!   the focused session still reaches the clipboard.
 //!
 //! These drive a real `App`. Cases that spawn a second tab need a real
-//! `EventLoop` proxy: they return early when the environment has no loop and are
-//! ignored on macOS (off-main-thread winit `EventLoop`). The rest run without a
-//! proxy on every platform.
+//! wake handle: they return early when the environment offers none (a
+//! display-less Linux host). macOS uses a discarding waker, so they run there too.
+//! The rest run without a proxy on every platform.
 
 use super::super::app::osc52::PromptDecision;
 use super::super::session::{Session, SessionToken, WorkspaceSet};
@@ -21,7 +21,7 @@ use super::*;
 use crate::settings::Osc52WritePolicy;
 
 fn app_with_proxy() -> Result<App, &'static str> {
-    Ok(app_over(Some(event_loop_proxy_for_test()?)))
+    Ok(app_over(Some(event_waker_for_test()?)))
 }
 
 /// An App whose workspace set has no event loop proxy, for cases that never
@@ -31,9 +31,7 @@ fn headless_app() -> App {
     app_over(None)
 }
 
-fn app_over(
-    proxy: Option<winit::event_loop::EventLoopProxy<crate::native::pty::UserEvent>>,
-) -> App {
+fn app_over(proxy: Option<crate::native::event_waker::EventWaker>) -> App {
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
@@ -76,10 +74,6 @@ const OSC52_WRITE_BYE: &[u8] = b"\x1b]52;c;Ynll\x1b\\";
 const OSC52_WRITE_PRIMARY: &[u8] = b"\x1b]52;p;aGk=\x1b\\";
 const OSC52_READ: &[u8] = b"\x1b]52;c;?\x1b\\";
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn os_theme_flip_reaches_background_session() {
     let mut app = app_or_skip!();
@@ -123,10 +117,6 @@ fn os_theme_flip_reaches_background_session() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn background_osc52_write_is_discarded() {
     let mut app = app_or_skip!();
@@ -157,10 +147,6 @@ fn background_osc52_write_is_discarded() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn focused_osc52_write_reaches_clipboard() {
     let mut app = app_or_skip!();
@@ -228,10 +214,6 @@ fn osc52_ask_coalesces_and_allow_once_does_not_persist() {
     assert_eq!(app.osc52_prompt_metadata_for_test(), Some(("Clipboard", 2)));
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn osc52_ask_session_decisions_are_ephemeral_and_cancel_on_staleness() {
     let mut app = app_or_skip!();
@@ -298,10 +280,6 @@ fn focused_osc52_primary_write_uses_the_linux_primary_slot() {
     assert_eq!(app.osc52_prompt_metadata_for_test(), None);
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn background_osc52_read_never_reaches_clipboard() {
     let mut app = app_or_skip!();

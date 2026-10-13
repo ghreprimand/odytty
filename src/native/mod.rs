@@ -67,6 +67,7 @@ mod copy_mode;
 mod cursor;
 mod cvd_theme;
 mod display_text;
+mod event_waker;
 mod file_drop;
 mod float_layout;
 mod font_picker;
@@ -316,7 +317,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         reader,
         writer.clone(),
         terminal.clone(),
-        proxy.clone(),
+        proxy.clone().into(),
         launch_token,
         recorder.clone(),
         diagnostic,
@@ -335,7 +336,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
             Some(pump_thread),
             recorder,
         ),
-        Some(proxy),
+        Some(proxy.into()),
     );
     session_set.set_local_hostname(local_hostname);
 
@@ -653,7 +654,7 @@ fn build_sibling_app(
         reader,
         writer.clone(),
         terminal.clone(),
-        proxy.clone(),
+        proxy.clone().into(),
         base_token,
         recorder.clone(),
         diagnostic,
@@ -675,7 +676,7 @@ fn build_sibling_app(
             Some(pump_thread),
             recorder,
         ),
-        Some(proxy),
+        Some(proxy.into()),
     );
     session_set.set_local_hostname(local_hostname);
 

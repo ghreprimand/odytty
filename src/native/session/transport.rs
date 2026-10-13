@@ -24,10 +24,10 @@ use crate::native::app::{CursorBlinkState, SynchronizedOutputHold};
 use crate::native::attach::{
     AttachClient, attach_input_writer, resolve_session_socket, spawn_attach_pump,
 };
+#[cfg(not(test))]
+use crate::native::event_waker::EventWaker;
 use crate::native::layout::{PaneRect, grid_dims_for_rect, layout_rects};
 use crate::native::output_recorder::RecorderHandle;
-#[cfg(not(test))]
-use crate::native::pty::UserEvent;
 use crate::native::pty::{PtyWriter, spawn_pty_pump};
 use crate::native::search_ui::SearchUi;
 use crate::native::viewport::Viewport;
@@ -41,8 +41,6 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-#[cfg(not(test))]
-use winit::event_loop::EventLoopProxy;
 
 /// Apply the local-PTY backend capabilities onto a freshly-created terminal
 /// model. Called from EVERY local-pane creation path so the wiring can't drift:
@@ -288,7 +286,7 @@ pub(in crate::native) struct RemoteUploadJob {
     pub(in crate::native) control_dir: Option<std::path::PathBuf>,
     pub(in crate::native) uploaded: Arc<Mutex<UploadLedger>>,
     pub(in crate::native) terminal: Arc<Mutex<Terminal>>,
-    pub(in crate::native) proxy: Option<EventLoopProxy<UserEvent>>,
+    pub(in crate::native) proxy: Option<EventWaker>,
 }
 
 /// What to do when a session's shell reaches EOF, given its child exit code.

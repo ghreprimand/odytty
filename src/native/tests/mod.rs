@@ -89,8 +89,15 @@ pub(super) const EVENT_LOOP_PROOF_EXECUTED: &str = "odytty-event-loop-proof exec
 /// Proof marker: the caller could not obtain the loop and asserted nothing.
 pub(super) const EVENT_LOOP_PROOF_UNAVAILABLE: &str = "odytty-event-loop-proof unavailable";
 
+/// Setting this makes [`event_waker_for_test`] hand back a discarding waker on
+/// every platform, as macOS always does. It lets a Linux or Windows run check the
+/// macOS path (sessions spawned with no event loop at all).
+#[cfg(not(target_os = "macos"))]
+const DISCARD_WAKER_ENV: &str = "ODYTTY_TEST_DISCARD_WAKER";
+
 /// Why the shared loop is missing when another winit `EventLoop` was already
 /// built in this test process.
+#[cfg(not(target_os = "macos"))]
 const EVENT_LOOP_TAKEN: &str =
     "a winit event loop was already built elsewhere in this test process";
 
@@ -112,13 +119,14 @@ const EVENT_LOOP_TAKEN: &str =
 /// Platform behaviour is identical on Linux and Windows: both permit building the
 /// loop off the main thread (`with_any_thread`), so both share this loop and run
 /// the same assertions. macOS has no equivalent, because AppKit must own the main
-/// thread, so the affected cases carry an explicit per-test macOS `ignore`
-/// instead of a runtime skip that could be mistaken for a pass.
+/// thread, so there the cases are served by a discarding [`EventWaker`] instead
+/// (see [`event_waker_for_test`]); this function does not exist on macOS.
 ///
 /// The proxy is kept behind a `Mutex` because winit's Windows proxy is `Send` but
 /// not `Sync` (it holds a raw window handle), so a shared `static` holding one
 /// directly would not compile there. `Mutex<T>` is `Sync` whenever `T` is `Send`,
 /// which both platforms satisfy, and the lock is held only long enough to clone.
+#[cfg(not(target_os = "macos"))]
 fn shared_event_loop_proxy()
 -> Result<winit::event_loop::EventLoopProxy<super::pty::UserEvent>, &'static str> {
     use winit::event_loop::{EventLoop, EventLoopProxy};
@@ -172,17 +180,33 @@ fn shared_event_loop_proxy()
     }
 }
 
-/// Resolve the shared event loop for one App-level test.
+/// Resolve the wake handle for one App-level test that spawns sessions.
 ///
 /// `Ok` means the caller runs its assertions. `Err` carries the concrete reason
 /// and always prints it, so a case that asserted nothing cannot be read as
 /// evidence that the behaviour was checked.
-pub(super) fn event_loop_proxy_for_test()
--> Result<winit::event_loop::EventLoopProxy<super::pty::UserEvent>, &'static str> {
-    let resolved = shared_event_loop_proxy();
-    if matches!(resolved, Err(reason) if reason == EVENT_LOOP_TAKEN) {
-        panic!("{EVENT_LOOP_TAKEN}; build test loops only through this helper");
-    }
+///
+/// Linux and Windows hand back the shared process-wide loop's proxy, so those
+/// cases keep exercising winit's real `send_event`. macOS cannot build a loop off
+/// the main thread, so it hands back a discarding waker: no test here runs an
+/// event loop, so the events a real proxy would queue are never consumed either.
+/// Every case therefore runs its assertions on macOS and is never skipped there.
+pub(super) fn event_waker_for_test() -> Result<super::event_waker::EventWaker, &'static str> {
+    use super::event_waker::EventWaker;
+
+    #[cfg(target_os = "macos")]
+    let resolved: Result<EventWaker, &'static str> = Ok(EventWaker::discard());
+    #[cfg(not(target_os = "macos"))]
+    let resolved: Result<EventWaker, &'static str> =
+        if std::env::var_os(DISCARD_WAKER_ENV).is_some() {
+            Ok(EventWaker::discard())
+        } else {
+            let proxy = shared_event_loop_proxy();
+            if matches!(proxy, Err(reason) if reason == EVENT_LOOP_TAKEN) {
+                panic!("{EVENT_LOOP_TAKEN}; build test loops only through this helper");
+            }
+            proxy.map(EventWaker::from)
+        };
     let proof = std::env::var_os(EVENT_LOOP_PROOF_ENV).is_some();
     match &resolved {
         Ok(_) => {

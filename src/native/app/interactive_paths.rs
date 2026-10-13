@@ -150,6 +150,15 @@ pub(crate) fn spawn_detached(argv: &[String]) -> std::io::Result<()> {
         ));
     };
     let mut command = super::win_spawn::helper_command(program)?;
+    // Checked on the resolved program, so a bare name that resolves to a batch
+    // file is refused too. Nothing has started yet.
+    if let Some(refusal) = super::win_spawn::batch_program_refusal(
+        command.get_program(),
+        !args.is_empty(),
+        cfg!(windows),
+    ) {
+        return Err(refusal);
+    }
     command
         .args(args)
         .stdin(Stdio::null())

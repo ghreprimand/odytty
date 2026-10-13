@@ -46,6 +46,7 @@ versioned installer before execution.
 Arch users can install `odytty` from the AUR with `paru -S odytty` or
 `yay -S odytty`. Direct `.deb`, `.rpm`, AppImage, binary-tarball, and source
 paths are documented in the [Linux install guide](docs/install.md#linux).
+The tarball installer refuses `/usr`; use a per-user prefix or `/usr/local`.
 OdyTTY prefers Vulkan, also supports accelerated OpenGL/GLES, and treats
 software rendering as a slow last resort. Wayland is the primary display
 target; X11 is supported through the current windowing and GPU stack.

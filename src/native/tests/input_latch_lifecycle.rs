@@ -8,8 +8,8 @@
 //! `Selecting` latch with the button up can never extend on a bare `CursorMoved`.
 //!
 //! These drive a real `App`. Cases that spawn a tab or workspace need a real
-//! `EventLoop` proxy: they return early when the environment has no loop and are
-//! ignored on macOS (the harness builds an off-main-thread winit `EventLoop`).
+//! wake handle: they return early when the environment offers none (a
+//! display-less Linux host). macOS uses a discarding waker, so they run there too.
 //! The rest run without a proxy on every platform.
 
 use super::super::session::{Session, SessionToken, WorkspaceSet};
@@ -18,7 +18,7 @@ use crate::settings::BindableAction;
 use winit::event::Ime;
 
 fn app_with_proxy() -> Result<App, &'static str> {
-    Ok(app_over(Some(event_loop_proxy_for_test()?)))
+    Ok(app_over(Some(event_waker_for_test()?)))
 }
 
 /// An App whose workspace set has no event loop proxy, for cases that never
@@ -28,9 +28,7 @@ fn headless_app() -> App {
     app_over(None)
 }
 
-fn app_over(
-    proxy: Option<winit::event_loop::EventLoopProxy<crate::native::pty::UserEvent>>,
-) -> App {
+fn app_over(proxy: Option<crate::native::event_waker::EventWaker>) -> App {
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
@@ -71,10 +69,6 @@ fn arm_drag(app: &mut App) {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn keyboard_tab_switch_clears_outgoing_drag() {
     let mut app = app_or_skip!();
@@ -115,10 +109,6 @@ fn keyboard_tab_switch_clears_outgoing_drag() {
     assert!(!app.grid_left_held_for_test());
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn workspace_switch_clears_outgoing_drag() {
     let mut app = app_or_skip!();
@@ -248,10 +238,6 @@ fn focus_loss_clears_pressed_mouse_report_button() {
     assert_eq!(app.report_button_for_test(), None);
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn tab_switch_clears_pressed_mouse_report_button() {
     let mut app = app_or_skip!();
@@ -269,10 +255,6 @@ fn tab_switch_clears_pressed_mouse_report_button() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn tab_switch_clears_stale_pointer_cell() {
     let mut app = app_or_skip!();
@@ -288,10 +270,6 @@ fn tab_switch_clears_stale_pointer_cell() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn switch_drops_in_flight_ime_preedit() {
     let mut app = app_or_skip!();
@@ -306,10 +284,6 @@ fn switch_drops_in_flight_ime_preedit() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn delayed_ime_commit_is_not_delivered_to_the_new_session() {
     let mut app = app_or_skip!();
@@ -327,10 +301,6 @@ fn delayed_ime_commit_is_not_delivered_to_the_new_session() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn tab_switch_reports_focus_loss_and_gain_to_the_correct_sessions() {
     let mut app = app_or_skip!();

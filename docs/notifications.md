@@ -75,9 +75,18 @@ after policy and rate-limit checks:
 | Linux Wayland | On-demand freedesktop `notify-send` helper | In-app state remains authoritative |
 | Linux X11 | On-demand freedesktop `notify-send` helper | In-app state remains authoritative |
 | macOS | On-demand `osascript` notification request with fixed script and argv text | Permission or adapter failure leaves in-app state |
-| Windows | On-demand PowerShell Windows toast request with fixed application-owned XML | Permission or policy failure leaves in-app state |
+| Windows | On-demand PowerShell Windows toast request with fixed per-kind application-owned XML and explicit WinRT type loading | Permission or policy failure leaves in-app state |
 
 Automated tests pin each command specification independently without claiming
 that desktop hardware or a notification service accepted delivery. Release
 evidence records on-device acceptance as a separate result and never infers it
 from command construction or hosted CI.
+
+Each notification helper gets ten seconds to finish. On timeout it is killed
+and reaped. Its input and output streams are closed; unsuccessful exits and
+helper failures produce a generic debug diagnostic without terminal text.
+This bound applies on Linux Wayland, Linux X11, macOS and Windows. Windows
+requests use distinct fixed wording for terminal attention, command completion,
+command failure and pane monitors. Delivery still depends on the desktop
+service, application registration and notification policy; in-app state
+remains authoritative.

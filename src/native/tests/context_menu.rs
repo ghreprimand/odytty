@@ -26,7 +26,7 @@ fn app_for_test_with_proxy() -> Result<App, &'static str> {
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let headless = Arc::new(crate::native::session::HeadlessSession::new(dims));
-    let proxy = event_loop_proxy_for_test()?;
+    let proxy = event_waker_for_test()?;
     let sessions = WorkspaceSet::new(
         Session::new_headless(SessionToken(0), terminal, writer, headless),
         Some(proxy),
@@ -1551,17 +1551,11 @@ fn clicking_outside_the_menu_dismisses_it() {
     );
 }
 
-// The proxy harness (`app_for_test_with_proxy`) builds a real winit `EventLoop`
-// off the test thread. Linux and Windows permit that via `with_any_thread`;
-// macOS has no equivalent because AppKit must own the main thread, so
-// constructing/using the loop off-main-thread aborts (SIGSEGV). The new-tab path
-// itself runs on the main thread in production and is exercised here on Linux
-// hosts with a display and on Windows; the test stays compiled on macOS (so the
-// helper and its imports are still used) but is ignored there.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS (AppKit main-thread requirement)"
-)]
+// The proxy harness (`app_for_test_with_proxy`) takes its wake handle from
+// `event_waker_for_test`: the shared winit loop's proxy on Linux hosts with a
+// display and on Windows, and a discarding waker on macOS, where AppKit forbids
+// building a loop off the main thread. The case asserts on every platform with a
+// display-less Linux host being the one environment that reports it unavailable.
 #[test]
 fn clicking_new_tab_spawns_session_and_closes_menu() {
     // The shared loop already reported the reason if it was unavailable, so an

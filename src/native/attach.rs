@@ -40,8 +40,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use super::event_waker::EventWaker;
 use anyhow::{Context, Result, bail};
-use winit::event_loop::EventLoopProxy;
 
 use crate::core::{SnapshotEnvelope, SnapshotEnvelopeCaps, Terminal};
 use crate::session_host::protocol::{
@@ -75,7 +75,7 @@ use super::session::SessionToken;
 const ATTACH_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// A sink the attach pump uses to wake the UI when a frame lands. Implemented for
-/// winit's [`EventLoopProxy`] in production and for an `mpsc` sender in tests, so
+/// the window's [`EventWaker`] in production and for an `mpsc` sender in tests, so
 /// the whole pump is exercisable without a running event loop.
 pub(super) trait AttachEventSink: Send + 'static {
     /// New host output (or an invalidate) landed in the mirror terminal; the
@@ -86,7 +86,7 @@ pub(super) trait AttachEventSink: Send + 'static {
     fn exited(&self, session: SessionToken);
 }
 
-impl AttachEventSink for EventLoopProxy<UserEvent> {
+impl AttachEventSink for EventWaker {
     fn redraw(&self, session: SessionToken) {
         let _ = self.send_event(UserEvent::Redraw { session });
     }

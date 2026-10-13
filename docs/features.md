@@ -1343,9 +1343,9 @@ list. When that file was removed or rewritten after the palette opened,
 nothing is deleted and a notice says so. Every palette row that names a
 workspace, pane, host, profile, or layout acts on what it named when the
 palette opened and does nothing when that target has gone. Layout lists show
-only files whose name is a valid layout name (letters, digits, spaces, `-`, and
-`_`); a file such as `a.b.json` added to the layouts folder by other means is
-not listed.
+regular files whose stems are valid sanitized layout names or existing
+COM0/LPT0 legacy aliases; a file such as `a.b.json` added to the layouts folder
+by other means is not listed.
 
 ### Open Local Tools
 
@@ -1411,7 +1411,10 @@ not jump to the oldest row. These rules apply on all four display platforms.
 window with its own geometry (`quick_terminal_edge`, `quick_terminal_coverage`,
 `quick_terminal_span`, `quick_terminal_monitor`), optional profile, animation,
 and `quick_terminal_hide_on_focus_loss`. The default global accelerator is
-`quick_terminal_shortcut = F12`. Registration is confirmed by the platform after
+`quick_terminal_shortcut = F12`. An accelerator joins modifiers and one key with
+`+` or `-`; write the minus key as `minus` or a final `-` (`ctrl+-`) and the
+equals key as `equal` or `=`. On X11, holding the shortcut summons once, as on
+Windows and macOS. Registration is confirmed by the platform after
 the first ordinary frame: Linux X11 grabs in-process, Wayland uses the
 `org.freedesktop.portal.GlobalShortcuts` portal or shows an actionable
 limitation, and macOS/Windows use their native global-shortcut paths. Hide keeps
@@ -2346,8 +2349,9 @@ exact fits and truncate to the overlay renderer's display-cell width.
 
 Saved-layout names preserve non-ASCII text on Linux, macOS and Windows, within
 96 UTF-8 bytes. ASCII letters, digits, spaces, hyphens and underscores remain;
-other ASCII punctuation, controls, Unicode line/paragraph separators and
-default-ignorable Unicode scalars become underscores. Truncation ends before a
+ZWJ, ZWNJ, VS15 and VS16 remain after visible text. Other ASCII punctuation,
+controls, Unicode line/paragraph separators and remaining default-ignorable
+Unicode scalars become underscores. Truncation ends before a
 complete scalar would exceed the byte limit. Existing underscore aliases stay
 usable and are not renamed automatically.
 
@@ -2392,11 +2396,23 @@ show an inert notice when the 1,024-entry limit is reached. Keyboard selection
 stays visible in short viewports, with entries taking priority over headings.
 
 Saved layout and profile filenames share a portable Windows device-stem rule.
-Layouts prefix reserved stems with an underscore, including superscript numbered
-COM/LPT ports and conservative COM0/LPT0 handling. Profiles retain ASCII-only
-validation and reject reserved stems.
+New layouts prefix reserved stems with an underscore, including superscript
+numbered COM/LPT ports and conservative COM0/LPT0 handling. Existing COM0/LPT0
+regular layout files remain listed, openable and deletable under their original
+names. Profiles retain ASCII-only validation and reject reserved stems.
+Layout names retain ZWJ, ZWNJ, VS15 and VS16 after visible text. Leading
+modifiers, bidi controls, other default-ignorables and Unicode line/paragraph
+separators become underscores.
 
 Saved-layout schema versions must be whole unsigned 32-bit numbers in their
 original decimal spelling. A fractional literal that rounds to a supported
 version is refused as malformed on Linux, macOS and Windows. Equivalent whole
 number spellings remain accepted.
+
+Layout preparation validates the directory without scanning or repairing sibling
+files. Load, save and delete enforce the sensitive-file policy on their own
+target; one stray JSON directory or symlink cannot disable other layouts.
+
+Desktop notification helpers use a ten-second timeout with kill and reap.
+Windows toast requests distinguish the four application-owned notification
+kinds through fixed scripts; terminal-authored text never enters those scripts.

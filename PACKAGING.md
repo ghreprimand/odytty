@@ -274,10 +274,13 @@ the AUR package, the binary tarball, the AppImage and the macOS app, through
 `dist/install-font-licenses.sh`. The tarball's own `install.sh` (also run by
 the one-line installer's tarball branch) copies `LICENSE`, `NOTICE`,
 `THIRD-PARTY-LICENSES` and the font licences to `PREFIX/share/licenses/odytty`
-and, on `--uninstall`, removes exactly those files and the directories left
-empty (a file another package keeps there stays);
-`tests/packaging_font_licenses.rs` keeps the list equal to the licence files in
-`assets/fonts`.
+and, on `--uninstall`, removes those named files and the licence directories
+left empty, preserving other licence files. Both operations refuse a prefix
+that resolves to `/usr`, which is reserved for package-managed installations.
+The tarball prefix check uses GNU `realpath`; there is no override. Use
+`~/.local` or `/usr/local` and keep the tarball separate from package-managed
+installations. `tests/packaging_font_licenses.rs` keeps the list equal to the
+licence files in `assets/fonts`.
 
 `NOTICE` ships in every package and carries the Unicode License v3 text for the
 Unicode Character Database and emoji data tables embedded in the binary

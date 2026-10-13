@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! W3 App-level workspace keyboard + command-palette tests. These drive a real
-//! `App` (with a real `EventLoop` proxy where a case spawns a workspace or tab,
+//! `App` (with a wake handle where a case spawns a workspace or tab,
 //! and none where it does not) through the production dispatch paths:
 //! the six workspace `BindableAction`s and the palette workspace rows
 //! (`workspace-switch-<idx>` / `workspace-new` / `workspace-rename`). The
@@ -14,12 +14,12 @@ use super::super::session::{Session, SessionToken, WorkspaceSet};
 use super::*;
 use crate::settings::BindableAction;
 
-/// Build an `App` backed by the shared test event loop so `handle_new_workspace`
+/// Build an `App` backed by the shared test wake handle so `handle_new_workspace`
 /// (which spawns a fresh shell) succeeds. `Err` when this environment offers no
 /// loop. Cases that use it are ignored on macOS, where AppKit forbids building
 /// the loop off the main thread.
 fn app_with_proxy() -> Result<App, &'static str> {
-    Ok(app_over(Some(event_loop_proxy_for_test()?)))
+    Ok(app_over(Some(event_waker_for_test()?)))
 }
 
 /// An App whose workspace set has no event loop proxy, for cases that never
@@ -29,9 +29,7 @@ fn headless_app() -> App {
     app_over(None)
 }
 
-fn app_over(
-    proxy: Option<winit::event_loop::EventLoopProxy<crate::native::pty::UserEvent>>,
-) -> App {
+fn app_over(proxy: Option<crate::native::event_waker::EventWaker>) -> App {
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
@@ -59,10 +57,6 @@ macro_rules! app_or_skip {
     }};
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn new_workspace_action_appends_and_switches() {
     let mut app = app_or_skip!();
@@ -246,10 +240,6 @@ fn creation_spawn_failure_does_not_clobber_an_existing_notice() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn next_and_prev_workspace_cycle_wrapping() {
     let mut app = app_or_skip!();
@@ -268,10 +258,6 @@ fn next_and_prev_workspace_cycle_wrapping() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn workspace_cycle_chords_dispatch_through_production_key_path() {
     let mut app = app_or_skip!();
@@ -285,10 +271,6 @@ fn workspace_cycle_chords_dispatch_through_production_key_path() {
     assert_eq!(app.active_workspace_index_for_test(), 1);
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn close_workspace_removes_it_without_exiting_when_others_remain() {
     let mut app = app_or_skip!();
@@ -371,10 +353,6 @@ fn empty_rename_leaves_the_workspace_name_unchanged() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn palette_switch_row_deep_switches_workspace() {
     let mut app = app_or_skip!();
@@ -386,10 +364,6 @@ fn palette_switch_row_deep_switches_workspace() {
     assert_eq!(app.active_workspace_index_for_test(), 0);
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn palette_new_workspace_row_creates_a_workspace() {
     let mut app = app_or_skip!();
@@ -408,10 +382,6 @@ fn palette_rename_workspace_row_opens_the_overlay() {
     assert_eq!(app.workspace_names_for_test(), vec!["app".to_owned()]);
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn move_tab_to_workspace_splices_without_switching() {
     let mut app = app_or_skip!();
@@ -445,10 +415,6 @@ fn move_tab_to_workspace_splices_without_switching() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn moving_the_last_tab_out_closes_the_source_workspace_app() {
     let mut app = app_or_skip!();
@@ -626,10 +592,6 @@ fn open_layout_asks_when_the_lone_pane_job_is_busy_or_unknown() {
     }
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn open_layout_onto_real_state_raises_the_mode_prompt() {
     // Once the window holds real state (here, a second
@@ -658,10 +620,6 @@ fn open_layout_onto_real_state_raises_the_mode_prompt() {
 
 // --- the `shell_exit_closes` exit-behavior setting ---
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn app_mode_shell_exit_in_a_non_last_workspace_quits_without_reaping() {
     // In App mode, a shell exit that would close a workspace
@@ -694,10 +652,6 @@ fn app_mode_shell_exit_in_a_non_last_workspace_quits_without_reaping() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn workspace_mode_shell_exit_in_a_non_last_workspace_closes_only_it() {
     // The default (Workspace) mode is byte-identical to the
@@ -725,10 +679,6 @@ fn workspace_mode_shell_exit_in_a_non_last_workspace_closes_only_it() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn app_mode_shell_exit_with_a_sibling_tab_closes_only_the_tab() {
     // SHELL-EXIT-CLOSES granularity: App mode changes ONLY the workspace-close
@@ -756,10 +706,6 @@ fn app_mode_shell_exit_with_a_sibling_tab_closes_only_the_tab() {
     assert_eq!(app.workspace_count_for_test(), 1, "the workspace survives");
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn app_mode_shell_exit_with_a_sibling_pane_closes_only_the_pane() {
     // SHELL-EXIT-CLOSES granularity: a shell exit in a pane that has a sibling
@@ -790,10 +736,6 @@ fn app_mode_shell_exit_with_a_sibling_pane_closes_only_the_pane() {
     assert_eq!(app.workspace_count_for_test(), 1);
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn close_workspace_action_stays_single_workspace_scoped_in_app_mode() {
     // The setting governs ONLY the shell-exit path. The
@@ -816,10 +758,6 @@ fn close_workspace_action_stays_single_workspace_scoped_in_app_mode() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn app_mode_exit_quit_snapshot_captures_every_workspace() {
     // SHELL-EXIT-CLOSES persistence: when App mode escalates a workspace-closing

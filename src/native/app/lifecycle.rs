@@ -1071,7 +1071,7 @@ impl App {
             bloom_options(&self.settings),
             crt_options(&self.settings),
             event_loop.owned_display_handle(),
-            self.sessions.event_proxy(),
+            self.sessions.winit_event_proxy(),
             self.sessions.active_id(),
         )?;
         // Push live cell pixel metrics to the terminal core so graphics

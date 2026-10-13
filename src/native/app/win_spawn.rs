@@ -82,6 +82,45 @@ pub(in crate::native) fn helper_command(program: impl AsRef<OsStr>) -> std::io::
     .map(Command::new)
 }
 
+/// Whether `program` names a batch file, which Windows runs through
+/// `cmd.exe` (Rust selects the command interpreter by itself for `.bat` and
+/// `.cmd`). The extension is compared case-insensitively after trailing dots
+/// and spaces are dropped, because Windows ignores them in a file name.
+pub(in crate::native) fn is_batch_program(program: &OsStr) -> bool {
+    let bytes = program.as_encoded_bytes();
+    let end = bytes
+        .iter()
+        .rposition(|byte| !matches!(byte, b'.' | b' '))
+        .map_or(0, |last| last + 1);
+    let name = &bytes[..end];
+    name.len() > 4
+        && name[name.len() - 4] == b'.'
+        && (name[name.len() - 3..].eq_ignore_ascii_case(b"bat")
+            || name[name.len() - 3..].eq_ignore_ascii_case(b"cmd"))
+}
+
+/// The error for starting a batch file with arguments, or `None`.
+///
+/// An editor or opener is started with a file name taken from terminal
+/// output. A batch file would receive that name through `cmd.exe`, whose
+/// parsing of metacharacters no argument quoting can make safe, so on Windows
+/// such a program is refused when it has any argument. `windows` is a
+/// parameter so the rule is tested on every platform; elsewhere a `.cmd` file
+/// is an ordinary program.
+pub(in crate::native) fn batch_program_refusal(
+    program: &OsStr,
+    has_arguments: bool,
+    windows: bool,
+) -> Option<std::io::Error> {
+    (windows && has_arguments && is_batch_program(program)).then(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "a batch file (.cmd or .bat) cannot be an editor or opener because its file name \
+             argument would pass through cmd.exe; use an .exe or a wrapper program",
+        )
+    })
+}
+
 /// Non-Windows form: unchanged `Command::new`.
 #[cfg(not(windows))]
 pub(in crate::native) fn helper_command(program: impl AsRef<OsStr>) -> std::io::Result<Command> {
@@ -113,6 +152,26 @@ mod tests {
     fn an_unresolved_bare_helper_name_is_not_found_before_any_spawn() {
         let error = helper_command("odytty-no-such-helper-xyz").expect_err("refused");
         assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    /// A batch file given a file name is refused before anything starts: the
+    /// script would append a marker file if it ran.
+    #[test]
+    fn a_batch_editor_with_a_file_name_is_not_started() {
+        let dir = crate::test_dirs::ScratchDir::new("odytty-batch-editor-");
+        let marker = dir.path().join("ran.txt");
+        let script = dir.path().join("editor.cmd");
+        std::fs::write(&script, format!("@echo ran> \"{}\"\r\n", marker.display()))
+            .expect("write script");
+        let argv = vec![
+            script.display().to_string(),
+            dir.path().join("notes.txt").display().to_string(),
+        ];
+        let error = crate::native::app::interactive_paths::spawn_detached(&argv)
+            .expect_err("a batch editor with a file name is refused");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(error.to_string().contains("cmd.exe"), "{error}");
+        assert!(!marker.exists(), "the script must not have run");
     }
 
     #[test]
@@ -163,13 +222,29 @@ mod helper_site_tests {
                 "fn query_wsl_distro_names()",
                 include_str!("../shell_discovery.rs"),
             ),
+            // Test stand-ins: the same relative `PATH` lookup would pick the
+            // wrong helper for a bounded-upload or quoting test.
+            (
+                "fn stalled_child()",
+                include_str!("../session/upload_lifecycle.rs"),
+            ),
+            (
+                "fn a_helper_that_exits_reports_its_status()",
+                include_str!("../session/upload_lifecycle.rs"),
+            ),
+            (
+                "fn windows_powershell_command()",
+                include_str!("../tests/file_drop.rs"),
+            ),
         ];
         for (anchor, source) in sites {
             let start = source
                 .find(anchor)
                 .unwrap_or_else(|| panic!("{anchor} moved"));
+            // The body ends at the closing brace at the anchor's own indentation.
+            let indent = &source[source[..start].rfind('\n').map_or(0, |at| at + 1)..start];
             let body = &source[start..];
-            let body = &body[..body.find("\n}\n").unwrap_or(body.len())];
+            let body = &body[..body.find(&format!("\n{indent}}}\n")).unwrap_or(body.len())];
             assert!(
                 body.contains("helper_command("),
                 "{anchor} no longer uses helper_command"
@@ -179,5 +254,55 @@ mod helper_site_tests {
                 "{anchor} builds a Command directly"
             );
         }
+    }
+}
+
+/// The batch-file rule is pure, so it is tested on every platform.
+#[cfg(test)]
+mod batch_tests {
+    use super::{batch_program_refusal, is_batch_program};
+    use std::ffi::OsStr;
+
+    #[test]
+    fn batch_programs_are_found_by_extension_in_any_case() {
+        for batch in [
+            "editor.cmd",
+            "EDITOR.BAT",
+            r"C:\tools\Code.Cmd",
+            "x.bAt",
+            // Windows ignores trailing dots and spaces in a file name.
+            "editor.cmd.",
+            "editor.cmd  ",
+            "editor.cmd. .",
+        ] {
+            assert!(is_batch_program(OsStr::new(batch)), "{batch:?}");
+        }
+        for other in [
+            "editor.exe",
+            "editor",
+            "cmd",
+            ".cmd",
+            "editor.cmdx",
+            "editor.cmd.exe",
+            "editor.bat.txt",
+            "",
+            "...",
+        ] {
+            assert!(!is_batch_program(OsStr::new(other)), "{other:?}");
+        }
+    }
+
+    #[test]
+    fn a_batch_program_with_arguments_is_refused_only_on_windows() {
+        let program = OsStr::new("editor.cmd");
+        let refusal = batch_program_refusal(program, true, true).expect("refused on Windows");
+        assert_eq!(refusal.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(refusal.to_string().contains("cmd.exe"), "{refusal}");
+        // No argument: nothing untrusted reaches the batch file.
+        assert!(batch_program_refusal(program, false, true).is_none());
+        // Control, not fail-before: elsewhere `.cmd` is an ordinary file name.
+        assert!(batch_program_refusal(program, true, false).is_none());
+        // A direct executable is never affected.
+        assert!(batch_program_refusal(OsStr::new("editor.exe"), true, true).is_none());
     }
 }

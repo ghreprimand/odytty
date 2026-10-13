@@ -289,11 +289,11 @@ impl DesktopNotificationKind {
 }
 
 /// Start one on-demand platform delivery attempt. Failure is intentionally
-/// silent: the in-app state remains authoritative and no success is inferred.
+/// confined to debug diagnostics: in-app state remains authoritative.
+/// Helpers get ten seconds, then are killed and reaped.
 pub(in crate::native) fn deliver_desktop(kind: DesktopNotificationKind) {
-    let body = kind.body();
     let _ = crate::spawn_util::spawn_named("notify-desktop", move || {
-        let Some(spec) = platform_notification_spec(current_platform(), body) else {
+        let Some(spec) = platform_notification_spec(current_platform(), kind) else {
             return;
         };
         // Windows: this is a console-subsystem child (`powershell.exe`) of the
@@ -309,8 +309,72 @@ pub(in crate::native) fn deliver_desktop(kind: DesktopNotificationKind) {
         };
         command.args(spec.args);
         crate::native::app::win_spawn::apply_no_console_window(&mut command);
-        let _ = command.status();
+        command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let result = command
+            .spawn()
+            .and_then(|mut child| wait_notification_child(&mut child, Duration::from_secs(10)));
+        match result {
+            Ok(status) if status.success() => {}
+            Ok(_) => tracing::debug!("desktop notification helper exited unsuccessfully"),
+            Err(_) => tracing::debug!("desktop notification helper failed or timed out"),
+        }
     });
+}
+
+fn wait_notification_child(
+    child: &mut std::process::Child,
+    timeout: Duration,
+) -> std::io::Result<std::process::ExitStatus> {
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) if started.elapsed() < timeout => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            result => {
+                let error = match result {
+                    Err(error) => error,
+                    _ => std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "notification deadline exceeded",
+                    ),
+                };
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        }
+    }
+}
+
+fn windows_notification_script(kind: DesktopNotificationKind) -> &'static str {
+    macro_rules! script {
+        ($body:literal) => {
+            concat!(
+                "$ErrorActionPreference = 'Stop'; ",
+                "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null; ",
+                "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; ",
+                "[Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; ",
+                "$xml = [Windows.Data.Xml.Dom.XmlDocument]::new(); $xml.LoadXml('<toast><visual><binding template=\"ToastGeneric\"><text>OdyTTY</text><text>",
+                $body,
+                "</text></binding></visual></toast>'); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('OdyTTY').Show([Windows.UI.Notifications.ToastNotification]::new($xml))"
+            )
+        };
+    }
+    match kind {
+        DesktopNotificationKind::TerminalRequest => {
+            script!("A background terminal requested attention.")
+        }
+        DesktopNotificationKind::CommandCompleted => script!("The requested command finished."),
+        DesktopNotificationKind::CommandFailed => script!("The requested command failed."),
+        DesktopNotificationKind::PaneMonitor => {
+            script!("A pane monitor detected terminal activity.")
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -347,8 +411,9 @@ fn current_platform() -> NotificationPlatform {
 
 fn platform_notification_spec(
     platform: NotificationPlatform,
-    body: &'static str,
+    kind: DesktopNotificationKind,
 ) -> Option<PlatformNotificationSpec> {
+    let body = kind.body();
     match platform {
         NotificationPlatform::Linux => Some(PlatformNotificationSpec {
             program: "notify-send",
@@ -371,7 +436,7 @@ fn platform_notification_spec(
                 "-WindowStyle",
                 "Hidden",
                 "-Command",
-                "$xml = New-Object Windows.Data.Xml.Dom.XmlDocument; $xml.LoadXml('<toast><visual><binding template=\"ToastGeneric\"><text>OdyTTY</text><text>Terminal activity requires attention.</text></binding></visual></toast>'); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('OdyTTY').Show([Windows.UI.Notifications.ToastNotification]::new($xml))",
+                windows_notification_script(kind),
             ],
         }),
         NotificationPlatform::Unsupported => None,
@@ -464,20 +529,21 @@ mod tests {
 
     #[test]
     fn platform_adapters_are_on_demand_and_never_interpolate_terminal_text() {
-        let body = DesktopNotificationKind::TerminalRequest.body();
-        let linux = platform_notification_spec(NotificationPlatform::Linux, body).unwrap();
+        let kind = DesktopNotificationKind::TerminalRequest;
+        let body = kind.body();
+        let linux = platform_notification_spec(NotificationPlatform::Linux, kind).unwrap();
         assert_eq!(linux.program, "notify-send");
         assert_eq!(linux.args.last(), Some(&body));
 
-        let macos = platform_notification_spec(NotificationPlatform::MacOs, body).unwrap();
+        let macos = platform_notification_spec(NotificationPlatform::MacOs, kind).unwrap();
         assert_eq!(macos.program, "osascript");
         assert_eq!(macos.args.last(), Some(&body));
         assert!(!macos.args[1].contains(body));
 
-        let windows = platform_notification_spec(NotificationPlatform::Windows, body).unwrap();
+        let windows = platform_notification_spec(NotificationPlatform::Windows, kind).unwrap();
         assert_eq!(windows.program, "powershell.exe");
-        assert!(!windows.args.iter().any(|arg| arg.contains(body)));
-        assert!(platform_notification_spec(NotificationPlatform::Unsupported, body).is_none());
+        assert!(windows.args.last().unwrap().contains(body));
+        assert!(platform_notification_spec(NotificationPlatform::Unsupported, kind).is_none());
     }
 
     #[test]
@@ -521,5 +587,85 @@ mod tests {
         assert!(!limiter.accept(&format!("event-{}", RATE_BURST - 1), later));
         assert!(!limiter.accept("fresh", later));
         assert!(limiter.accept("fresh", now + RATE_WINDOW));
+    }
+    #[test]
+    fn windows_notifications_preserve_each_fixed_kind_and_load_winrt_types() {
+        for kind in [
+            DesktopNotificationKind::TerminalRequest,
+            DesktopNotificationKind::CommandCompleted,
+            DesktopNotificationKind::CommandFailed,
+            DesktopNotificationKind::PaneMonitor,
+        ] {
+            let spec = platform_notification_spec(NotificationPlatform::Windows, kind).unwrap();
+            let script = spec.args.last().unwrap();
+            assert!(script.contains(kind.body()));
+            assert!(script.contains("ContentType = WindowsRuntime"));
+            assert!(script.contains("$ErrorActionPreference = 'Stop'"));
+            assert!(!script.contains("Terminal activity requires attention."));
+        }
+    }
+
+    #[test]
+    fn notification_helper_child_fixture() {
+        if std::env::var_os("ODYTTY_NOTIFICATION_CHILD_FIXTURE").is_some() {
+            std::thread::sleep(Duration::from_secs(2));
+        }
+    }
+
+    #[test]
+    fn notification_helper_deadline_kills_and_reaps_a_stalled_child() {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "native::notifications::tests::notification_helper_child_fixture",
+            ])
+            .env("ODYTTY_NOTIFICATION_CHILD_FIXTURE", "1")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        crate::native::app::win_spawn::apply_no_console_window(&mut command);
+        let mut child = command.spawn().unwrap();
+        let result = wait_notification_child(&mut child, Duration::from_millis(30));
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+        assert!(
+            child.try_wait().unwrap().is_some(),
+            "the killed child was reaped"
+        );
+    }
+
+    #[test]
+    fn notification_helper_preserves_unsuccessful_exit_status() {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .arg("--odytty-notification-invalid-option")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        crate::native::app::win_spawn::apply_no_console_window(&mut command);
+        let mut child = command.spawn().unwrap();
+        let status = wait_notification_child(&mut child, Duration::from_secs(10)).unwrap();
+        assert!(!status.success());
+    }
+
+    #[test]
+    fn notification_helper_reports_an_already_exited_status() {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "native::notifications::tests::notification_helper_child_fixture",
+            ])
+            .env_remove("ODYTTY_NOTIFICATION_CHILD_FIXTURE")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        crate::native::app::win_spawn::apply_no_console_window(&mut command);
+        let mut child = command.spawn().unwrap();
+        let status = child.wait().unwrap();
+        assert_eq!(
+            wait_notification_child(&mut child, Duration::ZERO).unwrap(),
+            status
+        );
     }
 }

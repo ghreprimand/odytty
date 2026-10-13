@@ -190,8 +190,9 @@ its absence assertion cannot pass vacuously.
 Linux and Windows share the process-wide loop using their off-main-thread
 event-loop support. The Windows proxy remains behind a mutex because it is
 sendable but not directly shareable, and a compile-time assertion pins the
-required bounds. The affected macOS cases remain explicitly ignored because
-AppKit requires the main thread; they are not counted as macOS passes.
+required bounds. macOS cannot build the loop off the main thread, so its cases
+are served by a discarding wake handle instead (see the follow-up below); they
+are not run against a real loop there.
 
 ### Finding F1 follow-up
 
@@ -203,9 +204,20 @@ binary before the shared one fails the dependent tests instead of reading as a
 host without a display. A loop built elsewhere after the shared one is not
 detected by this guard; no other test builds one. Cases that never spawn a
 session no longer take a proxy, so 28 of the 84 cases that macOS ignored now
-run there and on hosts without a display; the 56 that spawn sessions stay
-ignored on macOS. Hosts without a display, including the Linux CI runner,
-still report the proxy-backed cases unavailable.
+run there and on hosts without a display.
+
+### Wake handle seam
+
+Sessions, PTY pumps, attach pumps and background workers wake the window through
+an `EventWaker` instead of a bare winit proxy. Production wraps the proxy and
+forwards every event unchanged. Test builds can instead hold a discarding waker,
+which accepts events and drops them, as an unrun loop would leave them
+unconsumed. macOS uses it for the 58 cases that spawn sessions, which were
+ignored there and now run; setting `ODYTTY_TEST_DISCARD_WAKER` selects it on
+Linux and Windows too, so the macOS path can be exercised on those hosts. Linux
+and Windows keep the shared loop by default. Hosts without a display, including
+the Linux CI runner, still report the proxy-backed cases unavailable unless the
+virtual display provides one or the discarding waker is selected.
 
 The same change also starts running these on macOS: the automation
 accepted-connection observer test, the automation listener-fault test, and

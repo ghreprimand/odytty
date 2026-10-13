@@ -698,7 +698,9 @@ pub(in crate::native) enum AcceleratorError {
 impl Accelerator {
     /// Parse `"ctrl+shift+F12"`-style accelerators. Case-insensitive; `+` or `-`
     /// separated. Recognizes ctrl/control, alt/opt/option, shift, and
-    /// super/meta/cmd/command/win as modifiers.
+    /// super/meta/cmd/command/win as modifiers. The minus key is `minus`, or a
+    /// `-` written last after a separator (`ctrl+-`) or alone; the equals key
+    /// is `equal` or `=`.
     pub(in crate::native) fn parse(s: &str) -> Result<Self, AcceleratorError> {
         let trimmed = s.trim();
         if trimmed.is_empty() {
@@ -711,8 +713,18 @@ impl Accelerator {
             meta: false,
             key: String::new(),
         };
+        // A final `-` right after a separator, or on its own, is the minus
+        // key itself rather than one more separator.
+        let (body, minus_key) = match trimmed.strip_suffix('-') {
+            Some(rest) if rest.is_empty() || rest.trim_end().ends_with(['+', '-']) => (rest, true),
+            _ => (trimmed, false),
+        };
         let mut key_set = false;
-        for raw in trimmed.split(['+', '-']) {
+        if minus_key {
+            acc.key = normalize_key("-");
+            key_set = true;
+        }
+        for raw in body.split(['+', '-']) {
             let tok = raw.trim();
             if tok.is_empty() {
                 continue;
@@ -804,6 +816,19 @@ fn macos_registration_confirmed(status: i32) -> bool {
     status == 0
 }
 
+/// The Carbon hot-key signature (`odty`) and id OdyTTY registers on macOS.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const MACOS_HOTKEY_SIGNATURE: u32 = u32::from_be_bytes(*b"odty");
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const MACOS_HOTKEY_ID: u32 = 1;
+
+/// Whether a hot-key event whose id was read with `status` is OdyTTY's own.
+/// Any other hot key in the process belongs to someone else's handler.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn macos_hotkey_is_ours(status: i32, signature: u32, id: u32) -> bool {
+    status == 0 && signature == MACOS_HOTKEY_SIGNATURE && id == MACOS_HOTKEY_ID
+}
+
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn windows_conflict_notice(acc: &Accelerator) -> String {
     format!(
@@ -838,6 +863,8 @@ fn normalize_key(tok: &str) -> String {
         "space" | "spacebar" => "SPACE",
         "esc" | "escape" => "ESCAPE",
         "return" | "enter" => "ENTER",
+        "-" | "minus" => "MINUS",
+        "=" | "equal" | "equals" => "EQUAL",
         other => return other.to_ascii_uppercase(),
     };
     canonical.to_owned()
@@ -1538,6 +1565,67 @@ mod tests {
         let c = Accelerator::parse("f12").expect("valid");
         assert_eq!(c.key, "F12");
         assert!(!c.has_modifier());
+    }
+
+    #[test]
+    fn accelerator_spells_the_minus_and_equals_keys() {
+        for (text, ctrl, shift) in [
+            ("ctrl+-", true, false),
+            ("ctrl--", true, false),
+            ("ctrl + -", true, false),
+            ("ctrl+shift+minus", true, true),
+            ("-", false, false),
+        ] {
+            let acc = Accelerator::parse(text).unwrap_or_else(|error| panic!("{text}: {error:?}"));
+            assert_eq!(acc.key, "MINUS", "{text}");
+            assert_eq!((acc.ctrl, acc.shift), (ctrl, shift), "{text}");
+        }
+        for text in ["ctrl+=", "ctrl-=", "ctrl+equal", "Ctrl+Equals"] {
+            let acc = Accelerator::parse(text).unwrap_or_else(|error| panic!("{text}: {error:?}"));
+            assert_eq!(acc.key, "EQUAL", "{text}");
+            assert!(acc.ctrl, "{text}");
+        }
+        // Both separators still mean the same thing.
+        assert_eq!(
+            Accelerator::parse("ctrl-shift-f12"),
+            Accelerator::parse("ctrl+shift+F12")
+        );
+        // A dangling separator is not a key, and `+` is not a key of its own.
+        assert_eq!(Accelerator::parse("ctrl-"), Err(AcceleratorError::NoKey));
+        assert_eq!(Accelerator::parse("ctrl+"), Err(AcceleratorError::NoKey));
+        assert_eq!(Accelerator::parse("ctrl++"), Err(AcceleratorError::NoKey));
+        assert_eq!(
+            Accelerator::parse("a+-"),
+            Err(AcceleratorError::MultipleKeys)
+        );
+    }
+
+    /// Only OdyTTY's own Carbon hot-key id summons; the application event
+    /// handler sees every hot key registered in the process.
+    #[test]
+    fn macos_handler_summons_only_for_its_own_hot_key() {
+        assert_eq!(MACOS_HOTKEY_SIGNATURE.to_be_bytes(), *b"odty");
+        assert!(macos_hotkey_is_ours(
+            0,
+            MACOS_HOTKEY_SIGNATURE,
+            MACOS_HOTKEY_ID
+        ));
+        assert!(!macos_hotkey_is_ours(
+            0,
+            MACOS_HOTKEY_SIGNATURE,
+            MACOS_HOTKEY_ID + 1
+        ));
+        assert!(!macos_hotkey_is_ours(
+            0,
+            u32::from_be_bytes(*b"keyb"),
+            MACOS_HOTKEY_ID
+        ));
+        // A failed id read is not ours either.
+        assert!(!macos_hotkey_is_ours(
+            -50,
+            MACOS_HOTKEY_SIGNATURE,
+            MACOS_HOTKEY_ID
+        ));
     }
 
     #[test]

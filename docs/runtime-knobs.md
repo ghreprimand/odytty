@@ -1027,7 +1027,11 @@ argv and **never** evaluated by a shell; a `$EDITOR` carrying args (`code
 --wait`) is split into argv too. Placeholders are replaced in one pass over the
 template, so a filename containing text such as `{line}` reaches the editor
 unchanged. Both the toggle and the editor knob live in the
-Settings panel's Input section.
+Settings panel's Input section. **Windows:** an editor or opener that is a batch
+file (`.cmd` or `.bat`) is not started when it has a file-name argument, because
+Windows would hand that name to `cmd.exe`; the failure notice says so. Name an
+`.exe` (for example the editor's own `Code.exe`) or a small wrapper program
+instead. A bare name is looked up as `<name>.exe`, as before.
 
 **Troubleshooting interactive paths.** If modifier+click does nothing, confirm
 `interactive_paths = on`, the pointer is over the focused pane, and the span

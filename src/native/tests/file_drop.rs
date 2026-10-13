@@ -864,9 +864,12 @@ fn mixed_shell_non_utf8_fish_escape_and_bash_byte_roundtrip() {
 
 #[cfg(windows)]
 fn windows_powershell_command() -> std::process::Command {
-    use std::process::Command;
-    for bin in ["powershell.exe", "pwsh.exe", "pwsh"] {
-        let mut probe = Command::new(bin);
+    // Resolved to absolute files (no relative `PATH` lookup), so the probe and
+    // the returned command run the same, intended interpreter.
+    for bin in ["powershell.exe", "pwsh.exe"] {
+        let Ok(mut probe) = crate::native::app::win_spawn::helper_command(bin) else {
+            continue;
+        };
         crate::native::app::win_spawn::apply_no_console_window(&mut probe);
         let ok = probe
             .args(["-NoProfile", "-NonInteractive", "-Command", "$null"])
@@ -874,7 +877,8 @@ fn windows_powershell_command() -> std::process::Command {
             .map(|status| status.success())
             .unwrap_or(false);
         if ok {
-            let mut cmd = Command::new(bin);
+            let mut cmd =
+                crate::native::app::win_spawn::helper_command(bin).expect("resolved a moment ago");
             crate::native::app::win_spawn::apply_no_console_window(&mut cmd);
             return cmd;
         }

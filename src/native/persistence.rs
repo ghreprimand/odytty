@@ -645,35 +645,22 @@ pub(crate) fn save_snapshot(snapshot: &ShapeSnapshot) -> io::Result<()> {
 fn prepared_layouts_dir() -> io::Result<PathBuf> {
     let dir = crate::logging::prepare_state_log_dir()?.join(LAYOUTS_DIR);
     crate::state_dir::prepare_private_dir(&dir)?;
-    repair_direct_layout_files(&dir)?;
     Ok(dir)
-}
-
-/// Repair only the known JSON files directly inside `layouts`.  Deliberately do
-/// not recurse: unknown files, socket objects, and nested directories are not
-/// OdyTTY persistence data and remain untouched. Like the listing, it examines
-/// at most [`MAX_LAYOUT_DIR_SCAN_ENTRIES`] entries.
-fn repair_direct_layout_files(dir: &Path) -> io::Result<()> {
-    for entry in std::fs::read_dir(dir)?.take(MAX_LAYOUT_DIR_SCAN_ENTRIES) {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
-            crate::state_dir::repair_existing_sensitive(&path)?;
-        }
-    }
-    Ok(())
 }
 
 /// Sanitize a layout name into a safe single-segment filename stem (WP3 / 8e).
 /// Keeps ASCII letters, digits, spaces, `-`, `_`, and non-ASCII text.
 /// Other ASCII punctuation, controls, Unicode line/paragraph separators and
 /// default-ignorable scalars become `_`, blocking traversal and hidden names.
+/// ZWJ, ZWNJ, VS15 and VS16 survive after visible text in the name.
 /// Truncation respects UTF-8 boundaries within 96 bytes.
 /// Returns `None` for an empty trimmed name. Existing sanitized names remain
 /// usable; saving a Unicode name does not rename an older underscore alias.
 pub(crate) fn sanitize_layout_name(name: &str) -> Option<String> {
     let mut out = String::new();
+    let mut visible = false;
     for ch in name.trim().chars() {
+        let text_modifier = matches!(ch, '\u{200c}' | '\u{200d}' | '\u{fe0e}' | '\u{fe0f}');
         let kept = if ch.is_ascii_alphanumeric()
             || ch == ' '
             || ch == '-'
@@ -681,7 +668,7 @@ pub(crate) fn sanitize_layout_name(name: &str) -> Option<String> {
             || (!ch.is_ascii()
                 && !ch.is_control()
                 && !matches!(ch, '\u{2028}' | '\u{2029}')
-                && !crate::core::is_default_ignorable(ch))
+                && (!crate::core::is_default_ignorable(ch) || (text_modifier && visible)))
         {
             ch
         } else {
@@ -691,6 +678,10 @@ pub(crate) fn sanitize_layout_name(name: &str) -> Option<String> {
             break;
         }
         out.push(kept);
+        visible |= kept == ch
+            && !ch.is_whitespace()
+            && !crate::core::is_default_ignorable(ch)
+            && unicode_width::UnicodeWidthChar::width(ch).is_some_and(|columns| columns > 0);
     }
     let trimmed = out.trim().to_owned();
     if trimmed.is_empty() {
@@ -712,6 +703,26 @@ pub(crate) fn sanitize_layout_name(name: &str) -> Option<String> {
 fn layout_path_in(dir: &Path, name: &str) -> Option<PathBuf> {
     let stem = sanitize_layout_name(name)?;
     Some(dir.join(format!("{stem}.json")))
+}
+
+/// COM0/LPT0 were valid saved stems before conservative port-name mangling.
+/// Only existing regular files get the legacy alias; new saves use sanitization.
+fn is_legacy_layout_stem(name: &str) -> bool {
+    name.eq_ignore_ascii_case("COM0") || name.eq_ignore_ascii_case("LPT0")
+}
+
+fn listed_layout_stem(name: &str) -> bool {
+    sanitize_layout_name(name).as_deref() == Some(name) || is_legacy_layout_stem(name)
+}
+
+fn existing_layout_path_in(dir: &Path, name: &str) -> Option<PathBuf> {
+    if is_legacy_layout_stem(name) {
+        let path = dir.join(format!("{name}.json"));
+        return std::fs::symlink_metadata(&path)
+            .is_ok_and(|metadata| metadata.is_file())
+            .then_some(path);
+    }
+    layout_path_in(dir, name)
 }
 
 /// Serialize and atomically write a named layout into `dir` (WP3 / 8g core).
@@ -792,11 +803,11 @@ fn list_layout_names_in(dir: &Path) -> LayoutListing {
             continue;
         }
         // Only stems that name their own file are listed: open and delete
-        // address a layout by its sanitized stem, so a file such as
-        // `a.b.json` (stem `a.b`, sanitized `a_b`) would otherwise list under
+        // address a layout by its sanitized stem or an existing legacy alias.
+        // A file such as `a.b.json` (stem `a.b`, sanitized `a_b`) would otherwise list under
         // one name while every action reached a different file.
         if let Some(stem) = path.file_stem().and_then(|s| s.to_str())
-            && sanitize_layout_name(stem).as_deref() == Some(stem)
+            && listed_layout_stem(stem)
         {
             listing.names.push(stem.to_owned());
         }
@@ -821,7 +832,7 @@ pub(crate) fn list_layouts() -> LayoutListing {
 
 /// Read and classify a named layout from `dir` (WP3 core).
 fn load_layout_in(dir: &Path, name: &str) -> LoadOutcome {
-    let Some(path) = layout_path_in(dir, name) else {
+    let Some(path) = existing_layout_path_in(dir, name) else {
         return LoadOutcome::Absent;
     };
     match read_sensitive_to_string(&path) {
@@ -847,7 +858,7 @@ pub(crate) fn load_layout(name: &str) -> LoadOutcome {
 
 /// Delete a named layout from `dir` (WP3 core). A missing file is success.
 fn delete_layout_in(dir: &Path, name: &str) -> io::Result<()> {
-    let Some(path) = layout_path_in(dir, name) else {
+    let Some(path) = existing_layout_path_in(dir, name) else {
         return Ok(());
     };
     crate::state_dir::repair_existing_sensitive(&path)?;
@@ -871,12 +882,12 @@ pub(crate) struct LayoutStamp {
 }
 
 /// The [`LayoutStamp`] of layout `name` under `dir`, or `None` when no regular
-/// file names it or the name is not its own sanitized stem.
+/// file names it or the name is neither its own sanitized stem nor a legacy alias.
 fn layout_stamp_in(dir: &Path, name: &str) -> Option<LayoutStamp> {
-    if sanitize_layout_name(name).as_deref() != Some(name) {
+    if !listed_layout_stem(name) {
         return None;
     }
-    let metadata = std::fs::symlink_metadata(layout_path_in(dir, name)?).ok()?;
+    let metadata = std::fs::symlink_metadata(existing_layout_path_in(dir, name)?).ok()?;
     if !metadata.is_file() {
         return None;
     }
@@ -892,7 +903,7 @@ pub(crate) fn layout_stamp(name: &str) -> Option<LayoutStamp> {
     crate::state_dir::validate_private_dir(&state_log_dir()).ok()?;
     let dir = layouts_dir();
     crate::state_dir::validate_private_dir(&dir).ok()?;
-    let path = layout_path_in(&dir, name)?;
+    let path = existing_layout_path_in(&dir, name)?;
     crate::state_dir::inspect_existing_sensitive(&path).ok()?;
     layout_stamp_in(&dir, name)
 }

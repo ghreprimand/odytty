@@ -5,20 +5,11 @@
 use super::*;
 use crate::native::session::transport::RemoteReconnect;
 
-// macOS forbids constructing a winit `EventLoop` off the main thread
-// (winit panics: "Initializing the event loop outside of the main thread is
-// a significant cross-platform compatibility hazard"). `cargo test` runs
-// each test on a worker thread, and Linux/Windows offer
-// `with_any_thread(true)` to opt out of that check while macOS does not.
-// This test only needs a real `EventLoopProxy` so the connect action can
-// spawn a PTY-backed session; there is no headless seam for the concrete
-// winit proxy type without abstracting the whole PTY-pump wake path, so it
-// is ignored on macOS. The proxy-backed cases here run on Windows and on
-// Linux hosts with a display; a headless Linux host reports them unavailable.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
+// The proxy-backed cases here only need a wake handle so a connect action can
+// spawn a PTY-backed session. `tabset_with_proxy_for_test` supplies the shared
+// winit loop's proxy on Linux hosts with a display and on Windows, and a
+// discarding waker on macOS (winit cannot build an event loop off the main
+// thread there). A display-less Linux host reports them unavailable.
 #[test]
 fn spawned_local_pane_wires_shell_owns_cursor_from_backend() {
     // Guards the split/new-tab local-pane path (`insert_local_session_with`,
@@ -59,10 +50,6 @@ fn spawned_local_pane_wires_shell_owns_cursor_from_backend() {
 /// A pane spawned before the window's first surface grid (a restored layout
 /// at startup) is held with the seed session and released with it; a pane
 /// spawned afterwards starts at once.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn panes_spawned_before_the_first_surface_grid_start_with_it() {
     let Some(mut sessions) = tabset_with_proxy_for_test() else {
@@ -100,10 +87,6 @@ fn panes_spawned_before_the_first_surface_grid_start_with_it() {
 /// A held pane whose backend resize failed stays held through the first
 /// surface grid, and a later successful retry releases it: starting it at
 /// the stale size would let the shell draw before the retried resize lands.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn a_held_pane_with_a_failed_resize_starts_only_after_a_successful_retry() {
     let Some(mut sessions) = tabset_with_proxy_for_test() else {
@@ -159,10 +142,6 @@ fn a_held_pane_with_a_failed_resize_starts_only_after_a_successful_retry() {
 
 /// The fallback is armed only when the window exists: panes held before
 /// that are armed then, and a pane held afterwards is armed at spawn.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn held_launch_fallback_is_armed_by_the_window_not_at_spawn() {
     let Some(mut sessions) = tabset_with_proxy_for_test() else {
@@ -215,10 +194,6 @@ fn local_pty_fallback_armed(sessions: &WorkspaceSet, token: SessionToken) -> boo
         .held_start_fallback_is_armed()
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn spawned_local_pane_seeds_working_directory_before_osc7() {
     let Some(mut sessions) = tabset_with_proxy_for_test() else {
@@ -258,10 +233,6 @@ fn spawned_local_pane_seeds_working_directory_before_osc7() {
     assert!(sessions.close(SessionToken(0)));
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn spawn_inherits_an_explicit_working_directory() {
     // F1 cwd inheritance / Duplicate Tab: a new tab spawned with an explicit
@@ -390,10 +361,6 @@ fn resize_all_panes_honors_shell_owns_cursor_through_app_entry_point() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn connect_action_spawns_new_session_with_stub_command() {
     let Some(mut sessions) = tabset_with_proxy_for_test() else {
@@ -447,10 +414,6 @@ fn classify_remote_exit_maps_255_to_reconnect_and_everything_else_to_close() {
     }
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn ssh_session_stores_reconnect_anchor_but_a_local_shell_does_not() {
     let Some(mut sessions) = tabset_with_proxy_for_test() else {
@@ -512,10 +475,6 @@ fn remote_upload_for_engages_only_on_integrated_hosts() {
 /// Fail-before: `insert_ssh_restored_session` never set `session.upload`, so
 /// `active_remote_upload_target()` was `None` on every restored pane and the
 /// paste bailed silently. Pass-after: the descriptor flows through.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn restored_integrated_remote_pane_exposes_its_upload_target() {
     let Some(mut sessions) = tabset_with_proxy_for_test() else {
@@ -556,10 +515,6 @@ fn restored_integrated_remote_pane_exposes_its_upload_target() {
 /// A restored plain-ssh (integration-off) remote pane leaves
 /// paste-through unset - byte-identical to before - so a restored pane never
 /// gains a capability its freshly-connected twin lacks.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn restored_plain_remote_pane_leaves_paste_through_unset() {
     let Some(mut sessions) = tabset_with_proxy_for_test() else {
@@ -630,10 +585,6 @@ fn exit_and_try_arm(sessions: &mut WorkspaceSet, token: SessionToken) -> bool {
     sessions.try_arm_reconnect(token)
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn arm_reconnect_holds_the_tab_open_on_a_255_drop_and_paints_the_banner() {
     let Some(mut sessions) = settled_tabset_with_proxy_for_test() else {
@@ -675,10 +626,6 @@ fn pane_text(sessions: &WorkspaceSet, token: SessionToken) -> String {
 
 /// The child's clean exit reaches the exit decision unreaped, as in the app:
 /// the decision reads the status itself and closes.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn arm_reconnect_declines_a_clean_exit() {
     let Some(mut sessions) = settled_tabset_with_proxy_for_test() else {
@@ -699,10 +646,6 @@ fn arm_reconnect_declines_a_clean_exit() {
 /// A local child without a reconnect anchor that exits 255 still closes:
 /// the code is shaped like a dropped connection, but only an ssh launch
 /// carries the anchor that offers a reconnect.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn a_local_shell_never_arms_reconnect() {
     let Some(mut sessions) = settled_tabset_with_proxy_for_test() else {
@@ -728,10 +671,6 @@ fn a_local_shell_never_arms_reconnect() {
     assert!(sessions.close(SessionToken(0)));
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn reconnect_respawns_into_the_same_token_and_clears_the_prompt() {
     let Some(mut sessions) = settled_tabset_with_proxy_for_test() else {
@@ -760,10 +699,6 @@ fn reconnect_respawns_into_the_same_token_and_clears_the_prompt() {
     assert!(sessions.close(SessionToken(0)));
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn reconnect_resets_stale_input_reporting_modes() {
     let Some(mut sessions) = settled_tabset_with_proxy_for_test() else {
@@ -803,10 +738,6 @@ fn reconnect_resets_stale_input_reporting_modes() {
 /// already holds that size, so no later layout pass sees a change; before,
 /// the fresh shell read the PTY layer's 8x16 default until an unrelated
 /// geometry change. Unix only: ConPTY reports no pixel size.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[cfg(unix)]
 #[test]
 fn reconnect_gives_the_new_pty_the_panes_pixel_size() {
@@ -843,10 +774,6 @@ fn reconnect_gives_the_new_pty_the_panes_pixel_size() {
 
 /// A reconnect whose respawn fails keeps the prompt and says so in the
 /// pane; before, Enter appeared to do nothing.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn a_failed_reconnect_keeps_the_prompt_and_says_so() {
     let Some(mut sessions) = settled_tabset_with_proxy_for_test() else {

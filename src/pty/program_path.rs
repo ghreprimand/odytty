@@ -23,14 +23,16 @@ pub(crate) fn is_bare_program(program: &OsStr) -> bool {
 /// Whether `path` names something a program lookup may accept: a file, or a
 /// directory-entry that is not a directory and is not a plain symbolic link.
 ///
-/// `Path::is_file` follows reparse points and reports a Microsoft Store App
-/// Execution Alias (a reparse point under `WindowsApps` that `CreateProcessW`
-/// launches but that cannot be opened as a file) as absent whenever the
-/// standard library cannot open it, so a program available only as an alias
-/// would be refused. The entry's own type is therefore consulted when following
-/// it finds no file: an alias reports as a file there, a directory or a
-/// dangling or directory link does not. Anything accepted here is still
-/// started by `CreateProcessW`, which fails visibly for a non-executable entry.
+/// `Path::is_file` follows the entry. A Microsoft Store App Execution Alias (a
+/// reparse point under `WindowsApps` that `CreateProcessW` launches but that
+/// cannot be opened as an ordinary file) may or may not be reported as a file
+/// by the standard library, which falls back to the entry's own metadata for a
+/// reparse point it cannot follow; that was not confirmed on a device. The
+/// entry's own type is therefore consulted when following it finds no file, so
+/// a program available only as an alias is never refused: an alias reports as
+/// a file there, a directory or a dangling or directory link does not.
+/// Anything accepted here is still started by `CreateProcessW`, which fails
+/// visibly for a non-executable entry.
 pub(crate) fn is_program_file(path: &Path) -> bool {
     path.is_file()
         || std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
@@ -509,36 +511,73 @@ mod tests {
         assert!(!is_program_file(&dangling));
     }
 
-    /// The real Store aliases, where the account has any: every `.exe` entry in
-    /// `%LOCALAPPDATA%\Microsoft\WindowsApps` is a program file and resolves
-    /// by its bare file name. An account with no aliases reports a skip, which is
-    /// not a pass for this case.
+    /// The reparse tag of a directory entry, read from the directory listing
+    /// itself (`FindFirstFileW`), which does not open or follow the entry.
+    /// `None` when the entry is not a reparse point or cannot be listed.
+    #[cfg(windows)]
+    fn reparse_tag(path: &Path) -> Option<u32> {
+        use std::os::windows::ffi::OsStrExt;
+        use windows::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_REPARSE_POINT, FindClose, FindFirstFileW, WIN32_FIND_DATAW,
+        };
+        use windows::core::PCWSTR;
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut data = WIN32_FIND_DATAW::default();
+        // SAFETY: `wide` is a NUL-terminated UTF-16 string that outlives the
+        // call, and `data` is a valid, writable find-data record.
+        let handle = unsafe { FindFirstFileW(PCWSTR(wide.as_ptr()), &mut data) }.ok()?;
+        // SAFETY: `handle` was just returned by `FindFirstFileW` and is closed
+        // exactly once.
+        let _ = unsafe { FindClose(handle) };
+        (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0).then_some(data.dwReserved0)
+    }
+
+    /// `IO_REPARSE_TAG_APPEXECLINK`, the tag of a Store app execution alias.
+    #[cfg(windows)]
+    const IO_REPARSE_TAG_APPEXECLINK: u32 = 0x8000_001B;
+
+    /// The real Store aliases, where the account has any: every entry of
+    /// `%LOCALAPPDATA%\Microsoft\WindowsApps` whose reparse tag is
+    /// `IO_REPARSE_TAG_APPEXECLINK` (ordinary files and directories are not
+    /// chosen) is a program file and resolves by its bare file name through
+    /// both the helper and the PTY lookup. A missing directory, or one with no
+    /// alias, is reported as unavailable hardware, which is not a pass; any
+    /// other failure to read the directory fails the test. This proves lookup,
+    /// not that `CreateProcessW` launches the alias.
     #[cfg(windows)]
     #[test]
     fn store_app_execution_aliases_are_program_files() {
         let Some(local) = std::env::var_os("LOCALAPPDATA") else {
-            eprintln!("skipped: no LOCALAPPDATA");
+            eprintln!("unavailable-hardware: no LOCALAPPDATA");
             return;
         };
         let apps = PathBuf::from(local).join(r"Microsoft\WindowsApps");
-        let aliases: Vec<PathBuf> = std::fs::read_dir(&apps)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().is_some_and(|ext| ext == "exe"))
+        let entries = match std::fs::read_dir(&apps) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!("unavailable-hardware: no WindowsApps directory on this account");
+                return;
+            }
+            Err(error) => panic!("cannot read the WindowsApps directory: {error}"),
+        };
+        let aliases: Vec<PathBuf> = entries
+            .map(|entry| entry.expect("read a WindowsApps entry").path())
+            .filter(|path| reparse_tag(path) == Some(IO_REPARSE_TAG_APPEXECLINK))
             .take(8)
             .collect();
         if aliases.is_empty() {
-            eprintln!("skipped: no Store app execution aliases on this account");
+            eprintln!("unavailable-hardware: no Store app execution alias on this account");
             return;
         }
         for alias in aliases {
             assert!(is_program_file(&alias), "{alias:?}");
             let name = alias.file_name().expect("file name").to_os_string();
             let found = helper_program(&name, [apps.clone()], is_program_file)
-                .unwrap_or_else(|error| panic!("{alias:?}: {error}"));
+                .unwrap_or_else(|error| panic!("helper lookup of {alias:?}: {error}"));
             assert_eq!(PathBuf::from(found), alias);
+            let pinned = pin_program(&name, [apps.clone()], is_program_file)
+                .unwrap_or_else(|error| panic!("PTY lookup of {alias:?}: {error}"));
+            assert_eq!(pinned, Some(alias));
         }
     }
 }

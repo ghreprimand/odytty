@@ -19,10 +19,22 @@
 # binary lands in PREFIX/bin (ensure that is on your PATH). For a system-wide
 # install under /usr/local, pass PREFIX through env: sudo resets the
 # environment, so a PREFIX assigned before sudo never reaches the script.
+# /usr is reserved for package-managed installs; neither operation accepts it,
+# including paths and symlink aliases that resolve there.
 set -eu
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 PREFIX="${PREFIX:-$HOME/.local}"
+# Resolve before any mutation, including uninstall. GNU realpath -m also
+# handles a fresh prefix whose directories have not been created yet.
+if ! RESOLVED_PREFIX="$(realpath -m -- "$PREFIX")"; then
+    echo "error: cannot resolve PREFIX; no files changed." >&2
+    exit 1
+fi
+if [ "$RESOLVED_PREFIX" = "/usr" ]; then
+    echo "error: /usr is reserved for package-managed installations; use the package manager, or choose ~/.local or /usr/local for the tarball." >&2
+    exit 1
+fi
 BIN_DIR="$PREFIX/bin"
 DATA_DIR="$PREFIX/share"
 
@@ -31,8 +43,8 @@ LICENSE_DIR="$DATA_DIR/licenses/odytty"
 
 # Remove only the licence files this tarball installs: the named notices and the
 # font licence files listed in the tarball's own licenses/fonts tree. Never a
-# recursive delete: with PREFIX=/usr the directory can be shared with a deb, rpm
-# or AUR package, and a file this installer did not put there must survive. A
+# recursive delete: custom prefixes can contain other licence files, and a
+# file this installer did not put there must survive. A
 # directory goes only once it is empty. Run from the extracted tarball, as the
 # install is.
 uninstall_licences() {

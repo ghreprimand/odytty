@@ -225,15 +225,30 @@ impl TarballFixture {
         self.prefix.join("share/licenses/odytty")
     }
 
-    fn run(&self, args: &[&str]) {
-        let output = std::process::Command::new("sh")
+    fn command(&self) -> std::process::Command {
+        let mut command = std::process::Command::new("sh");
+        command
             .arg(self.stage.join("install.sh"))
+            .env("PREFIX", &self.prefix);
+        for key in [
+            "HOME",
+            "XDG_DATA_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_CACHE_HOME",
+            "XDG_STATE_HOME",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "USERPROFILE",
+        ] {
+            command.env(key, &self.home);
+        }
+        command
+    }
+
+    fn run(&self, args: &[&str]) {
+        let output = self
+            .command()
             .args(args)
-            .env("PREFIX", &self.prefix)
-            .env("HOME", &self.home)
-            .env("XDG_DATA_HOME", self.home.join("data"))
-            .env("XDG_CONFIG_HOME", self.home.join("config"))
-            .env("XDG_CACHE_HOME", self.home.join("cache"))
             .output()
             .expect("run the tarball installer");
         assert!(output.status.success(), "{output:?}");
@@ -271,8 +286,8 @@ fn the_tarball_installer_installs_and_removes_the_licence_texts() {
     assert!(!fixture.prefix.join("bin/odytty").exists());
 }
 
-/// With `PREFIX=/usr` the licence directory can be shared with a deb, rpm or
-/// AUR package. Uninstall removes only the files the tarball installed and the
+/// A custom prefix can contain other licence files. Uninstall removes only
+/// the files the tarball installed and the
 /// directories that are then empty, never a file or directory it did not put
 /// there.
 #[cfg(target_os = "linux")]
@@ -312,4 +327,103 @@ fn the_tarball_uninstall_keeps_licence_files_it_did_not_install() {
         );
     }
     assert!(!fixture.prefix.join("bin/odytty").exists());
+}
+
+/// Map a scratch prefix to the system-prefix identity at the canonicalization
+/// boundary. This keeps a failing-before run entirely inside scratch storage,
+/// while the real realpath still resolves dot components and symlinks.
+#[cfg(target_os = "linux")]
+fn assert_system_prefix_is_refused(args: &[&str], alias: bool) {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let fixture = TarballFixture::new();
+    let paths = [
+        "bin/odytty",
+        "share/applications/io.unfinished_works.odytty.desktop",
+        "share/metainfo/io.unfinished_works.odytty.metainfo.xml",
+        "share/icons/hicolor/48x48/apps/io.unfinished_works.odytty.png",
+        "share/licenses/odytty/LICENSE",
+        "share/licenses/odytty/NOTICE",
+        "share/licenses/odytty/THIRD-PARTY-LICENSES",
+    ];
+    let mut planted: Vec<PathBuf> = paths.iter().map(|path| fixture.prefix.join(path)).collect();
+    for path in listed() {
+        planted.push(
+            fixture
+                .licences()
+                .join("fonts")
+                .join(path.strip_prefix("assets/fonts/").expect("font path")),
+        );
+    }
+    for path in &planted {
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("package directory");
+        std::fs::write(path, b"package-owned fixture\n").expect("package file");
+    }
+    let realpath = std::process::Command::new("sh")
+        .args(["-c", "command -v realpath"])
+        .output()
+        .expect("resolve realpath");
+    assert!(realpath.status.success());
+    let tools = fixture.scratch.join("tools");
+    std::fs::create_dir(&tools).expect("tools directory");
+    let shim = tools.join("realpath");
+    std::fs::write(&shim, "#!/bin/sh\nresolved=$(\"$FIXTURE_REALPATH\" \"$@\") || exit 1\nif [ \"$resolved\" = \"$FIXTURE_SYSTEM_PREFIX\" ]; then printf '/usr\\n'; else printf '%s\\n' \"$resolved\"; fi\n")
+        .expect("canonicalization seam");
+    std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))
+        .expect("executable seam");
+    let prefix = if alias {
+        let link = fixture.scratch.join("prefix-alias");
+        symlink(&fixture.prefix, &link).expect("prefix alias");
+        link.join(".")
+    } else {
+        fixture.prefix.join(".")
+    };
+    let mut search = vec![tools];
+    search.extend(std::env::split_paths(
+        &std::env::var_os("PATH").expect("PATH"),
+    ));
+    let output = fixture
+        .command()
+        .args(args)
+        .env("PREFIX", prefix)
+        .env(
+            "PATH",
+            std::env::join_paths(search).expect("tool search path"),
+        )
+        .env(
+            "FIXTURE_REALPATH",
+            String::from_utf8(realpath.stdout)
+                .expect("realpath command")
+                .trim(),
+        )
+        .env("FIXTURE_SYSTEM_PREFIX", &fixture.prefix)
+        .output()
+        .expect("run installer");
+    // Check the planted files before the status, so the negative proof records
+    // the overwritten binary or removed package file as the concrete failure.
+    for path in &planted {
+        assert_eq!(
+            std::fs::read(path).ok().as_deref(),
+            Some(b"package-owned fixture\n".as_slice()),
+            "package-owned file must survive"
+        );
+    }
+    assert!(!output.status.success(), "system prefix must be refused");
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("reserved for package-managed installations")
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_tarball_install_refuses_a_package_managed_prefix() {
+    assert_system_prefix_is_refused(&[], false);
+    assert_system_prefix_is_refused(&[], true);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_tarball_uninstall_refuses_a_package_managed_prefix() {
+    assert_system_prefix_is_refused(&["--uninstall"], false);
+    assert_system_prefix_is_refused(&["--uninstall"], true);
 }

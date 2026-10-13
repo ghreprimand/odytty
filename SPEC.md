@@ -682,8 +682,9 @@ UID and is kept at mode `0700`. Known sensitive files must be owned regular
 files at mode `0600`; unexpected types, symlinks, foreign ownership, and write
 failures leave the corresponding disk sink unavailable rather than being
 followed or repaired. Atomic JSON uses a fresh private sibling, synchronization,
-and rename. Layout migration considers only direct known JSON files, never an
-arbitrary recursive tree. macOS mode repairs preserve inherited ACL entries;
+and rename. Layout permissions are repaired only for the file being loaded,
+saved or deleted, never by scanning sibling files or an arbitrary recursive
+tree. macOS mode repairs preserve inherited ACL entries;
 Windows retains its inherited-ACL behavior.
 
 ### Dynamic Colors
@@ -2205,7 +2206,9 @@ that closed while the picker was open, including when names are duplicated.
   `:line[:col]` suffix routes to an editor by an editor-argument matrix
   (`vim`/`nvim`/`vi`, `code`, `emacs`/`emacsclient`, `hx`/`helix`/`subl`/
   `micro`, `nano`, with an open-and-drop-position fallback) chosen by
-  `interactive_paths_editor` (empty by default → `$EDITOR` → `$VISUAL`). Three
+  `interactive_paths_editor` (empty by default → `$EDITOR` → `$VISUAL`; on
+  Windows a `.cmd` or `.bat` editor or opener is refused when it has a file-name
+  argument, since the name would pass through `cmd.exe`). Three
   sub-keys default on but are inert until the master gate is on:
   `interactive_paths_barewords` (also detect basename-plus-extension tokens),
   `interactive_paths_click_hint` (a transient platform-specific Ctrl/Cmd-click
@@ -2316,8 +2319,9 @@ release-authentication boundary. Version 0.16.0 and earlier lack update info.
 
 Saved-layout names preserve non-ASCII text on Linux, macOS and Windows, within
 96 UTF-8 bytes. ASCII letters, digits, spaces, hyphens and underscores remain;
-other ASCII punctuation, controls, Unicode line/paragraph separators and
-default-ignorable Unicode scalars become underscores. Truncation ends before a
+ZWJ, ZWNJ, VS15 and VS16 remain after visible text. Other ASCII punctuation,
+controls, Unicode line/paragraph separators and remaining default-ignorable
+Unicode scalars become underscores. Truncation ends before a
 complete scalar would exceed the byte limit. Existing underscore aliases stay
 usable and are not renamed automatically.
 
@@ -3252,11 +3256,23 @@ show an inert notice when the 1,024-entry limit is reached. Keyboard selection
 stays visible in short viewports, with entries taking priority over headings.
 
 Saved layout and profile filenames share a portable Windows device-stem rule.
-Layouts prefix reserved stems with an underscore, including superscript numbered
-COM/LPT ports and conservative COM0/LPT0 handling. Profiles retain ASCII-only
-validation and reject reserved stems.
+New layouts prefix reserved stems with an underscore, including superscript
+numbered COM/LPT ports and conservative COM0/LPT0 handling. Existing COM0/LPT0
+regular layout files remain listed, openable and deletable under their original
+names. Profiles retain ASCII-only validation and reject reserved stems.
+Layout names retain ZWJ, ZWNJ, VS15 and VS16 after visible text. Leading
+modifiers, bidi controls, other default-ignorables and Unicode line/paragraph
+separators become underscores.
 
 Saved-layout schema versions must be whole unsigned 32-bit numbers in their
 original decimal spelling. A fractional literal that rounds to a supported
 version is refused as malformed on Linux, macOS and Windows. Equivalent whole
 number spellings remain accepted.
+
+Layout preparation validates the directory without scanning or repairing sibling
+files. Load, save and delete enforce the sensitive-file policy on their own
+target; one stray JSON directory or symlink cannot disable other layouts.
+
+Desktop notification helpers use a ten-second timeout with kill and reap.
+Windows toast requests distinguish the four application-owned notification
+kinds through fixed scripts; terminal-authored text never enters those scripts.

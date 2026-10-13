@@ -335,8 +335,14 @@ no-root per-user install (make sure `~/.local/bin` is on your `PATH`); run
 drops a `PREFIX` assigned before it). Remove a previous install, licence texts
 included, with `./install.sh --uninstall` from the extracted tarball (honoring
 the same `PREFIX`).
-It deletes only the files the installer put in `PREFIX/share/licenses/odytty`
-and the directories left empty; a file another package keeps there stays.
+Both install and uninstall refuse `PREFIX=/usr`, including dot components,
+trailing slashes and symlink aliases that resolve to `/usr`. There is no
+override: use apt, dnf, rpm or the AUR package manager to manage a package
+installation. The tarball uses GNU `realpath` to check the prefix before
+changing any files. In an allowed prefix, uninstall removes the binary,
+desktop files, named licence texts and bundled font licences, and leaves other
+licence files and nonempty licence directories in place. Use a separate prefix
+for the tarball rather than sharing it with another installation.
 
 The tarball binary bundles no libraries, so the host must provide what OdyTTY
 loads at runtime: the Vulkan loader (`libvulkan.so.1`) with a driver, Fontconfig

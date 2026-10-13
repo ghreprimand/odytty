@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! F6-i7 App-level image paste-through tests. These drive a real `App` (with a
-//! real `EventLoop` proxy where a case spawns a session, and none otherwise)
+//! wake handle where a case spawns a session, and none otherwise)
 //! through the production paste path, `handle_paste_shortcut` and
 //! the confirm-prompt commit/cancel - with a synthetic clipboard image and a
 //! synthetic remote-integrated upload target. The pure argv/target builders are
@@ -14,7 +14,7 @@ use super::super::session::{Session, SessionToken, WorkspaceSet};
 use super::*;
 
 fn app_with_proxy() -> Result<App, &'static str> {
-    Ok(app_over(Some(event_loop_proxy_for_test()?)))
+    Ok(app_over(Some(event_waker_for_test()?)))
 }
 
 /// An App whose workspace set has no event loop proxy, for cases that never
@@ -24,9 +24,7 @@ fn headless_app() -> App {
     app_over(None)
 }
 
-fn app_over(
-    proxy: Option<winit::event_loop::EventLoopProxy<crate::native::pty::UserEvent>>,
-) -> App {
+fn app_over(proxy: Option<crate::native::event_waker::EventWaker>) -> App {
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
@@ -183,10 +181,6 @@ fn image_paste_cancel_sends_nothing() {
     );
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
-)]
 #[test]
 fn switching_tabs_cancels_a_pending_image_upload() {
     let mut app = app_or_skip!();

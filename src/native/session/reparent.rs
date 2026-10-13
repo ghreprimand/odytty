@@ -38,9 +38,8 @@
 use std::collections::HashMap;
 
 use super::model::{Session, SessionToken, Tab, Workspace, WorkspaceSet, default_workspace_name};
+use crate::native::event_waker::EventWaker;
 use crate::native::layout::{EVEN_RATIO, PaneNode, SplitAxis};
-use crate::native::pty::UserEvent;
-use winit::event_loop::EventLoopProxy;
 
 /// What a move takes from the source window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -431,7 +430,7 @@ impl WorkspaceSet {
         base: SessionToken,
         mut content: MovedContent,
         source: &WorkspaceSet,
-        proxy: Option<EventLoopProxy<UserEvent>>,
+        proxy: Option<EventWaker>,
     ) -> Self {
         let stride = crate::native::window_owner::WINDOW_TOKEN_STRIDE;
         let token_ceiling = (base.0 / stride).saturating_add(1).saturating_mul(stride);

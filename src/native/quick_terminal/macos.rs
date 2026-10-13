@@ -15,7 +15,8 @@
 #[cfg(target_os = "macos")]
 pub(super) mod macos_grab {
     use super::super::{
-        Accelerator, GlobalShortcutAdapter, ShortcutRegistration, SummonSink, macos_keycode,
+        Accelerator, GlobalShortcutAdapter, MACOS_HOTKEY_ID, MACOS_HOTKEY_SIGNATURE,
+        ShortcutRegistration, SummonSink, macos_hotkey_is_ours, macos_keycode,
         macos_registration_confirmed, macos_registration_failure_notice,
     };
     use std::os::raw::c_void;
@@ -46,6 +47,11 @@ pub(super) mod macos_grab {
     const EVENT_CLASS_KEYBOARD: OSType = 0x6B65_7962;
     const EVENT_HOTKEY_PRESSED: u32 = 5;
     const NO_ERR: OSStatus = 0;
+    // eventNotHandledErr: passes the event on to the next handler.
+    const EVENT_NOT_HANDLED_ERR: OSStatus = -9874;
+    // kEventParamDirectObject ('----') and typeEventHotKeyID ('hkid').
+    const EVENT_PARAM_DIRECT_OBJECT: OSType = 0x2D2D_2D2D;
+    const TYPE_EVENT_HOTKEY_ID: OSType = 0x686B_6964;
 
     // Carbon modifier bits (Events.h): cmd/shift/option/control.
     const CMD_KEY: u32 = 0x0100;
@@ -77,21 +83,51 @@ pub(super) mod macos_grab {
             out_ref: *mut EventHandlerRef,
         ) -> OSStatus;
         fn RemoveEventHandler(in_handler_ref: EventHandlerRef) -> OSStatus;
+        fn GetEventParameter(
+            in_event: EventRef,
+            in_name: OSType,
+            in_desired_type: OSType,
+            out_actual_type: *mut OSType,
+            in_buffer_size: usize,
+            out_actual_size: *mut usize,
+            out_data: *mut c_void,
+        ) -> OSStatus;
     }
 
     /// The Carbon C callback. `user` points to the heap-stable boxed sink the
-    /// adapter keeps alive; it fires on the main run loop.
+    /// adapter keeps alive; it fires on the main run loop. The handler sits on
+    /// the application event target, which sees every hot key registered in
+    /// the process, so it summons only for OdyTTY's own hot-key id and passes
+    /// any other on unhandled.
     unsafe extern "C" fn hotkey_handler(
         _call: EventHandlerCallRef,
-        _event: EventRef,
+        event: EventRef,
         user: *mut c_void,
     ) -> OSStatus {
-        if !user.is_null() {
-            // SAFETY: `user` is the pointer to the adapter's boxed sink, which
-            // outlives the handler (removed before the box is dropped).
-            let sink = unsafe { &*(user as *const SummonSink) };
-            sink();
+        let mut hotkey = EventHotKeyID {
+            signature: 0,
+            id: 0,
+        };
+        // SAFETY: `event` is the live hot-key event Carbon passed in, and the
+        // output buffer is an `EventHotKeyID` of exactly the stated size.
+        let status = unsafe {
+            GetEventParameter(
+                event,
+                EVENT_PARAM_DIRECT_OBJECT,
+                TYPE_EVENT_HOTKEY_ID,
+                std::ptr::null_mut(),
+                std::mem::size_of::<EventHotKeyID>(),
+                std::ptr::null_mut(),
+                std::ptr::addr_of_mut!(hotkey).cast::<c_void>(),
+            )
+        };
+        if user.is_null() || !macos_hotkey_is_ours(status, hotkey.signature, hotkey.id) {
+            return EVENT_NOT_HANDLED_ERR;
         }
+        // SAFETY: `user` is the pointer to the adapter's boxed sink, which
+        // outlives the handler (removed before the box is dropped).
+        let sink = unsafe { &*(user as *const SummonSink) };
+        sink();
         NO_ERR
     }
 
@@ -198,8 +234,8 @@ pub(super) mod macos_grab {
                     };
                 }
                 let hotkey_id = EventHotKeyID {
-                    signature: EVENT_CLASS_KEYBOARD,
-                    id: 1,
+                    signature: MACOS_HOTKEY_SIGNATURE,
+                    id: MACOS_HOTKEY_ID,
                 };
                 let mut hotkey: EventHotKeyRef = std::ptr::null_mut();
                 let status = RegisterEventHotKey(code, mods, hotkey_id, target, 0, &mut hotkey);

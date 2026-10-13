@@ -444,22 +444,26 @@ pub(in crate::native) fn spawn_remote_cleanup(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     use std::sync::Mutex;
 
     /// Limiter for tests whose helper is expected to exit or be reaped.
     static TEST_SLOTS: UploadSlots = UploadSlots::new(1);
 
     fn stalled_child() -> Child {
+        // Windows resolves `ping` to an absolute file (no relative `PATH`
+        // lookup); elsewhere the name is passed through unchanged.
         #[cfg(unix)]
         let mut command = {
-            let mut command = Command::new("sleep");
+            let mut command =
+                crate::native::app::win_spawn::helper_command("sleep").expect("sleep resolves");
             command.arg("30");
             command
         };
         #[cfg(windows)]
         let mut command = {
-            let mut command = Command::new("ping");
+            let mut command = crate::native::app::win_spawn::helper_command("ping")
+                .expect("ping.exe is in System32");
             command.args(["-n", "30", "127.0.0.1"]);
             command
         };
@@ -485,9 +489,11 @@ mod tests {
     #[test]
     fn a_helper_that_exits_reports_its_status() {
         #[cfg(unix)]
-        let mut command = Command::new("true");
+        let mut command =
+            crate::native::app::win_spawn::helper_command("true").expect("true resolves");
         #[cfg(windows)]
-        let mut command = Command::new("hostname");
+        let mut command = crate::native::app::win_spawn::helper_command("hostname")
+            .expect("hostname.exe is in System32");
         #[cfg(windows)]
         crate::native::app::win_spawn::apply_no_console_window(&mut command);
         let child = command
@@ -673,7 +679,7 @@ mod tests {
         // zombie and still answers, so a failure here means it was reaped too.
         #[cfg(unix)]
         {
-            let alive = Command::new("kill")
+            let alive = std::process::Command::new("kill")
                 .args(["-0", &pid.to_string()])
                 .stderr(Stdio::null())
                 .status()

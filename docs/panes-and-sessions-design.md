@@ -675,8 +675,9 @@ Architecture:
   intentionally **discarded** (sending it back would double-respond).
 - **Wake seam.** The pump notifies the UI through an `AttachEventSink` trait
   (`redraw`/`exited` by `SessionToken`), implemented for winit's
-  `EventLoopProxy<UserEvent>` in production and for an `mpsc` channel in tests, so
-  the whole pump is headlessly testable without an event loop.
+  `EventWaker` (a wrapper over winit's `EventLoopProxy<UserEvent>`) in production
+  and for an `mpsc` channel in tests, so the whole pump is headlessly testable
+  without an event loop.
 - **Input/resize/detach** are framed as `ClientFrame::Input` / `Resize` /
   `Detach`. Window close sends a clean `Detach`; `Drop` is a best-effort detach.
   The host keeps the PTY + terminal model alive for later attach by id (host-side

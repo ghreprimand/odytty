@@ -16,6 +16,7 @@ use crate::core::{LinkId, Snapshot, Terminal};
 use crate::native::WindowPadding;
 use crate::native::app::{CursorBlinkState, HintsUi, SynchronizedOutputHold};
 use crate::native::copy_mode::CopyModeState;
+use crate::native::event_waker::EventWaker;
 use crate::native::layout::PaneNode;
 use crate::native::output_recorder::RecorderHandle;
 use crate::native::pty::{PtyWriter, UserEvent};
@@ -32,7 +33,6 @@ use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Instant;
-use winit::event_loop::EventLoopProxy;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(in crate::native) struct SessionToken(pub(in crate::native) u64);
@@ -465,7 +465,7 @@ pub(in crate::native) struct WorkspaceSet {
     /// session token in [`Self::new`]; the primary/test path (token 0) gets
     /// `WINDOW_TOKEN_STRIDE`.
     pub(super) token_ceiling: u64,
-    pub(super) proxy: Option<EventLoopProxy<UserEvent>>,
+    pub(super) proxy: Option<EventWaker>,
     /// Whether output recording is currently enabled (`session_replay`). Newly
     /// spawned sessions inherit this so recording follows the live setting;
     /// [`Self::set_recording_enabled`] fans a toggle out to every session's
@@ -509,10 +509,7 @@ impl DerefMut for WorkspaceSet {
 }
 
 impl WorkspaceSet {
-    pub(in crate::native) fn new(
-        initial: Session,
-        proxy: Option<EventLoopProxy<UserEvent>>,
-    ) -> Self {
+    pub(in crate::native) fn new(initial: Session, proxy: Option<EventWaker>) -> Self {
         let token = initial.id;
         let next_token = token.0.saturating_add(1);
         // This set's disjoint token range is `[base, ceiling)` where `base` is
@@ -711,8 +708,17 @@ impl WorkspaceSet {
     /// A clone of the event-loop proxy, for background workers that need to wake
     /// a redraw when they finish (e.g. the Test Connection probe). `None` in
     /// headless / test builds without a real event loop.
-    pub(in crate::native) fn event_proxy(&self) -> Option<EventLoopProxy<UserEvent>> {
+    pub(in crate::native) fn event_proxy(&self) -> Option<EventWaker> {
         self.proxy.clone()
+    }
+
+    /// A clone of the winit proxy itself, for consumers that hand it to a
+    /// platform object. One clone, like [`Self::event_proxy`]; `None` for a
+    /// set that was built without a real event loop.
+    pub(in crate::native) fn winit_event_proxy(
+        &self,
+    ) -> Option<winit::event_loop::EventLoopProxy<UserEvent>> {
+        self.proxy.as_ref()?.winit_proxy().cloned()
     }
 
     #[cfg(test)]

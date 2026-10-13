@@ -725,10 +725,6 @@ fn next_and_prev_workspace_wrap_in_rail_order() {
     assert_eq!(set.active_workspace_index(), 0);
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn a_new_workspace_appends_switches_and_holds_one_tab() {
     // new_workspace needs a real event-loop proxy for the PTY spawn.
@@ -747,10 +743,6 @@ fn a_new_workspace_appends_switches_and_holds_one_tab() {
     assert_eq!(set.workspace_name(1), Some("Workspace 2"));
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn new_workspace_in_threads_cwd_and_appends_like_new_workspace() {
     // Duplicate Workspace threads the active pane's cwd through the cwd-aware
@@ -777,10 +769,6 @@ fn new_workspace_in_threads_cwd_and_appends_like_new_workspace() {
     assert_eq!(set.workspace_name(1), Some("Workspace 2"));
 }
 
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "winit EventLoop cannot be built off the main thread on macOS"
-)]
 #[test]
 fn new_workspace_with_effective_binds_launch_profile_atomically() {
     let Some(mut set) = tabset_with_proxy_for_test() else {

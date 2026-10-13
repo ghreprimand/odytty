@@ -230,7 +230,7 @@ impl MultiWindowHost {
             let app = &self.windows[dest];
             let follow = super::super::hyprland_tear_out::follow::Follow::start(
                 app.pending_hyprland_follow_title.clone().expect("identity"),
-                app.sessions.event_proxy(),
+                app.sessions.winit_event_proxy(),
                 tab,
             );
             self.live_drag.as_mut().expect("custody").hyprland = Some(follow);
