@@ -1561,6 +1561,11 @@ impl VtDispatch for Screen {
     }
 
     fn execute(&mut self, byte: u8) {
+        // DEL is dropped completely (see `dispatch_execute`), so it does not
+        // end the cluster in progress: a mark after it joins the base before it.
+        if byte == 0x7F {
+            return;
+        }
         self.cluster_owner = None;
         self.dispatch_execute(byte);
     }

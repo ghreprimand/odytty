@@ -25,6 +25,9 @@ impl App {
         cell: Option<CellSize>,
         scrollback_limit: usize,
         button_gates: ButtonGates,
+        // East Asian Ambiguous policy for this session: the global value, or on a
+        // profile launch the value already merged with the profile's own.
+        ambiguous_wide: bool,
     ) {
         {
             let mut terminal = crate::native::lock_recover(&session.terminal);
@@ -45,6 +48,7 @@ impl App {
             terminal.set_scrollback_limit(scrollback_limit);
             terminal.set_cursor_defaults(cursor_style, cursor_blink.enabled());
             button_gates.apply(&mut terminal);
+            terminal.set_ambiguous_wide(ambiguous_wide);
             if let Some(cell) = cell {
                 terminal.set_cell_metrics(cell.width, cell.height);
             }
@@ -174,6 +178,7 @@ impl App {
                         cell,
                         scrollback_limit,
                         button_gates,
+                        effective.settings.ambiguous_width.is_wide(),
                     );
                 }
                 let _ = self.sessions.switch(session_id);
@@ -253,6 +258,7 @@ impl App {
                         cell,
                         scrollback_limit,
                         button_gates,
+                        self.settings.ambiguous_width.is_wide(),
                     );
                 }
                 let _ = self.sessions.switch(session_id);
@@ -322,6 +328,7 @@ impl App {
                 cell,
                 scrollback_limit,
                 button_gates,
+                self.settings.ambiguous_width.is_wide(),
             );
         }
         let _ = self.sessions.switch(token);
@@ -768,6 +775,7 @@ impl App {
                 cell,
                 scrollback_limit,
                 button_gates,
+                self.settings.ambiguous_width.is_wide(),
             );
         }
         self.flash_rail_autohide();
@@ -843,6 +851,7 @@ impl App {
                 cell,
                 scrollback_limit,
                 button_gates,
+                self.settings.ambiguous_width.is_wide(),
             );
         }
         self.flash_rail_autohide();
@@ -1010,6 +1019,7 @@ impl App {
                 cell,
                 scrollback_limit,
                 button_gates,
+                self.settings.ambiguous_width.is_wide(),
             );
         }
         self.reflow_active_panes_and_redraw();

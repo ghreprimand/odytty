@@ -471,6 +471,28 @@ fn del_in_ground_writes_no_cell_and_does_not_move_the_cursor() {
 }
 
 #[test]
+fn a_combining_mark_after_del_joins_the_base_before_it() {
+    // xterm drops DEL entirely, so it does not end the cluster: the mark joins
+    // the "e" instead of starting a cell of its own.
+    let mut terminal = Terminal::new(8, 2);
+    terminal.advance("e\x7f\u{0301}".as_bytes());
+    let cell = terminal.screen().cell(0, 0).unwrap();
+    assert_eq!(cell.ch, 'e');
+    assert_eq!(cell.combining(), &['\u{0301}']);
+    assert_eq!(terminal.screen().cursor().column, 1);
+    assert_eq!(terminal.screen().cell(0, 1).unwrap().ch, ' ');
+}
+
+#[test]
+fn a_real_control_still_ends_the_cluster_before_a_combining_mark() {
+    // Control for the DEL case: BEL is a real control, so it keeps ending the
+    // cluster and the mark gets a cell of its own.
+    let mut terminal = Terminal::new(8, 2);
+    terminal.advance("e\x07\u{0301}".as_bytes());
+    assert!(terminal.screen().cell(0, 0).unwrap().combining().is_empty());
+}
+
+#[test]
 fn del_does_not_become_the_repeat_character() {
     let mut terminal = Terminal::new(8, 2);
     terminal.advance(b"a\x7f\x1b[2b");

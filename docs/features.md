@@ -498,6 +498,13 @@ East Asian Ambiguous characters use one column unless `ambiguous_width` is
 `wide`. The default `narrow` is today's width table. A profile may set
 `appearance.ambiguous_width` to `narrow` or `wide`; a missing profile value
 uses the global setting, and each pane follows the profile that launched it.
+Every new session starts with its effective value: the launch session, new
+tabs, split panes, new workspaces and attached sessions are measured with it
+from the first byte, and a restored layout is re-measured when it is applied.
+Greek and Cyrillic letters stay one column with `wide` on: they are Neutral in
+the width table used, not East Asian Ambiguous. Characters such as the
+plus-minus sign (U+00B1), the inverted exclamation mark (U+00A1) and the black
+star (U+2605) are the ones that widen.
 
 Changing the value reflows the existing scrollback of the panes that use it.
 The cursor moves with the new column count. A selection or a search hit can

@@ -702,7 +702,8 @@ fn rgb(color: (u8, u8, u8)) -> RgbColor {
 /// Seed a freshly constructed launch-session `Terminal` with every
 /// settings-derived per-session default: base colors and palette (from the
 /// effective theme, CVD-adjusted), OSC 52 read policy, kitty named transports,
-/// the scrollback cap, host cursor defaults, and the button-protocol gates.
+/// the scrollback cap, host cursor defaults, the East Asian Ambiguous width
+/// policy, and the button-protocol gates.
 ///
 /// This is the ONE seeding path for the first session in a window. New tabs,
 /// panes, and attaches receive the same defaults through
@@ -748,6 +749,9 @@ pub(in crate::native) fn seed_launch_session_model(model: &mut Terminal, setting
     model.set_buttons_enabled(settings.buttons);
     model.set_buttons_iterm_compat(settings.buttons_iterm_compat);
     model.set_buttons_sticky(settings.buttons_sticky);
+    // East Asian Ambiguous width policy. A profile launch arrives with the
+    // profile already merged into `settings`, so this is the effective value.
+    model.set_ambiguous_wide(settings.ambiguous_width.is_wide());
 }
 
 /// Lock a `Mutex`, recovering the guard if a previous holder panicked while

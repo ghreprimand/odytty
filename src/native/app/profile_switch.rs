@@ -123,6 +123,7 @@ impl App {
                         cell,
                         scrollback_limit,
                         button_gates,
+                        effective.settings.ambiguous_width.is_wide(),
                     );
                 }
                 self.profile_switch_recent = Some(profile_name.clone());

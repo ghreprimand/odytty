@@ -256,6 +256,7 @@ impl App {
                 cell,
                 scrollback_limit,
                 button_gates,
+                self.settings.ambiguous_width.is_wide(),
             );
             session.remote_destination = Some(remote_identity);
         }

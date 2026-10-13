@@ -326,8 +326,8 @@ def render(
         "\nthe year and holder placeholders in those texts stand for them. A crate that names no"
         "\nauthors there is marked with the holder the project's checked-in holder table records"
         "\nfor its repository (read from the upstream licence files at the commit given, which"
-        "\nthe published crate omits and which do not state a year for this version), or else"
-        "\nsays where its copyright statement is kept (its repository)."
+        "\nthe published crate omits; their year post-dates this version, so none is stated),"
+        "\nor else says where its copyright statement is kept (its repository)."
     )
     out.append("")
     out.append(f"linked crates: {len(linked)}")

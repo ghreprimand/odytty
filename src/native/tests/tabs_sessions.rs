@@ -62,7 +62,11 @@ fn recorded_exited_session(
 )> {
     let command = format!("exit {status}");
     let session = PtySession::spawn_shell_command(dims, &command).ok()?;
-    let _ = session.read_to_end().ok()?;
+    let _ = crate::test_stall::read_to_end_within(
+        &session,
+        std::time::Duration::from_secs(60),
+        "read exited session output",
+    );
     let _ = session.take_writer().ok()?;
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();

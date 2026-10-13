@@ -401,9 +401,17 @@ fn redact_label_value(label: &str, following: &[&str], redacted: &mut Vec<String
     if label == "authorization" && following.len() >= 2 && is_auth_scheme(following[0]) {
         redacted.push(following[0].to_owned());
         redacted.push("[redacted]".to_owned());
-        // A parameter list continues while the last word taken ends in a comma.
+        // A parameter list continues while the last word taken ends in a comma
+        // (or the next one starts with it) and while a quoted value is still
+        // open, since a quoted value may hold spaces.
         let mut consumed = 2;
-        while consumed < following.len() && following[consumed - 1].ends_with(',') {
+        let mut in_quote = following[1].matches('"').count() % 2 == 1;
+        while consumed < following.len()
+            && (in_quote
+                || following[consumed - 1].ends_with(',')
+                || following[consumed].starts_with(','))
+        {
+            in_quote ^= following[consumed].matches('"').count() % 2 == 1;
             consumed += 1;
         }
         return consumed;
@@ -645,6 +653,19 @@ mod tests {
                 "Authorization: AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260101/r/s/aws4_request, SignedHeaders=host;x-date, Signature=abc123"
             ),
             "Authorization: AWS4-HMAC-SHA256 [redacted]"
+        );
+        // A quoted value may hold spaces, and a comma may stand apart.
+        assert_eq!(
+            redact_preview(
+                r#"Authorization: Digest username="synthetic user", nonce="n0nce", response="0123456789abcdef""#
+            ),
+            "Authorization: Digest [redacted]"
+        );
+        assert_eq!(
+            redact_preview(
+                r#"Authorization: Digest realm="My Realm" , nonce="n0nce", opaque="a b c""#
+            ),
+            "Authorization: Digest [redacted]"
         );
         // The list ends where the commas end: the next word is not part of it.
         assert_eq!(

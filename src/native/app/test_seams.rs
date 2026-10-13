@@ -690,6 +690,22 @@ impl App {
         self.handle_new_tab_with_profile(profile_name);
     }
 
+    /// Test seam: open a New Workspace through the production path.
+    #[cfg(test)]
+    pub(in crate::native) fn new_workspace_for_test(&mut self) {
+        self.handle_new_workspace();
+    }
+
+    /// Test seam: each session's East Asian Ambiguous width policy, in arena
+    /// order, as the terminal model currently holds it.
+    #[cfg(test)]
+    pub(in crate::native) fn session_ambiguous_wide_for_test(&self) -> Vec<bool> {
+        self.sessions
+            .iter()
+            .map(|session| crate::native::lock_recover(&session.terminal).ambiguous_wide())
+            .collect()
+    }
+
     /// Test seam: open a New Workspace with an explicit named profile through
     /// the real launch path (resolver + real PTY spawn).
     #[cfg(test)]

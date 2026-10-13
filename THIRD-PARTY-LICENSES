@@ -17,8 +17,8 @@ under STANDARD TEXTS, to be read with the authors the manifest names for that cr
 the year and holder placeholders in those texts stand for them. A crate that names no
 authors there is marked with the holder the project's checked-in holder table records
 for its repository (read from the upstream licence files at the commit given, which
-the published crate omits and which do not state a year for this version), or else
-says where its copyright statement is kept (its repository).
+the published crate omits; their year post-dates this version, so none is stated),
+or else says where its copyright statement is kept (its repository).
 
 linked crates: 276
 licence texts: 168

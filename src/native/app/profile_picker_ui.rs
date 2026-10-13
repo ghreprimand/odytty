@@ -118,6 +118,7 @@ impl App {
                 cell,
                 scrollback_limit,
                 button_gates,
+                effective.settings.ambiguous_width.is_wide(),
             );
         }
         self.flash_rail_autohide();

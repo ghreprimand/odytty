@@ -225,6 +225,7 @@ pub(super) fn event_waker_for_test() -> Result<super::event_waker::EventWaker, &
 }
 
 mod alt_scroll;
+mod ambiguous_width_seeding;
 #[cfg(unix)]
 mod attach_e2e;
 mod attach_launch_notice;

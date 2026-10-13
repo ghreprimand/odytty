@@ -662,32 +662,43 @@ mod instance_owner_tests {
     }
 }
 
-/// Repeat tracking for uncaptured GPU errors: the last message and how many
-/// times in a row it has occurred.
+/// Repeat tracking for uncaptured GPU errors: how many times each of the most
+/// recent distinct messages has occurred. Messages are kept as 64-bit hashes so
+/// a long driver message costs eight bytes, and only the last
+/// [`Self::DISTINCT`] are tracked, which bounds the memory.
 pub(super) struct GpuErrorRepeats {
-    last: Option<String>,
-    count: u64,
+    seen: Vec<(u64, u64)>,
 }
 
 impl GpuErrorRepeats {
+    /// Distinct messages tracked at once; the least recently first seen is
+    /// forgotten when another arrives.
+    const DISTINCT: usize = 8;
+
     pub(super) const fn new() -> Self {
-        Self {
-            last: None,
-            count: 0,
-        }
+        Self { seen: Vec::new() }
     }
 
     /// Record one error and return its repeat count when it should be logged.
     /// A new message logs at once; a repeated one logs again only at
-    /// power-of-two counts, so an error raised every frame cannot flood the log.
+    /// power-of-two counts, so an error raised every frame cannot flood the
+    /// log, including when a few different errors alternate every frame.
     pub(super) fn record(&mut self, message: &str) -> Option<u64> {
-        if self.last.as_deref() == Some(message) {
-            self.count = self.count.saturating_add(1);
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        message.hash(&mut hasher);
+        let key = hasher.finish();
+        let count = if let Some((_, count)) = self.seen.iter_mut().find(|(seen, _)| *seen == key) {
+            *count = count.saturating_add(1);
+            *count
         } else {
-            self.last = Some(message.to_owned());
-            self.count = 1;
-        }
-        self.count.is_power_of_two().then_some(self.count)
+            if self.seen.len() == Self::DISTINCT {
+                self.seen.remove(0);
+            }
+            self.seen.push((key, 1));
+            1
+        };
+        count.is_power_of_two().then_some(count)
     }
 }
 
@@ -720,8 +731,36 @@ mod gpu_error_repeat_tests {
         );
         assert_eq!(
             repeats.record("stale format"),
+            None,
+            "an interrupted run keeps its count (10th occurrence)"
+        );
+    }
+
+    #[test]
+    fn alternating_errors_each_log_at_power_of_two_counts() {
+        let mut repeats = GpuErrorRepeats::new();
+        let logged: Vec<Option<u64>> = (0..16)
+            .map(|frame| repeats.record(if frame % 2 == 0 { "first" } else { "second" }))
+            .collect();
+        let first: Vec<_> = logged.iter().step_by(2).collect();
+        let second: Vec<_> = logged.iter().skip(1).step_by(2).collect();
+        let expected = [Some(1), Some(2), None, Some(4), None, None, None, Some(8)];
+        assert_eq!(first, expected.iter().collect::<Vec<_>>());
+        assert_eq!(second, expected.iter().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn only_the_most_recent_distinct_messages_are_tracked() {
+        let mut repeats = GpuErrorRepeats::new();
+        assert_eq!(repeats.record("oldest"), Some(1));
+        for index in 0..GpuErrorRepeats::DISTINCT {
+            repeats.record(&format!("other {index}"));
+        }
+        assert_eq!(repeats.seen.len(), GpuErrorRepeats::DISTINCT);
+        assert_eq!(
+            repeats.record("oldest"),
             Some(1),
-            "an interrupted run restarts"
+            "a forgotten message logs again at once"
         );
     }
 }

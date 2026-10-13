@@ -138,6 +138,7 @@ fn a_held_windows_child_first_sees_the_surface_grid() {
     drop(app);
     if let Ok(mut pty) = pty.lock() {
         let _ = pty.kill();
+        pty.force_reader_eof();
     }
-    let _ = pump.join();
+    crate::test_stall::join_within(pump, Duration::from_secs(10), "join output pump");
 }

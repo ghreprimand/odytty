@@ -47,6 +47,8 @@ pub mod ssh_connect;
 pub(crate) mod state_dir;
 #[cfg(test)]
 pub(crate) mod test_dirs;
+#[cfg(test)]
+pub(crate) mod test_stall;
 pub mod text;
 pub mod theme;
 pub mod theme_author;

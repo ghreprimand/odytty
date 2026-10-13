@@ -281,70 +281,88 @@ mod tests {
     /// run `printf` in the shell, and assert the value reaches the child. The
     /// read is bounded by a byte cap and a deadline, and the child is killed on
     /// every exit, so a slow shell startup or a missing EOF fails the test
-    /// instead of hanging it. Unix backend; the Windows twin routes the same
-    /// overrides through the ConPTY environment block (`build_env_block`,
-    /// covered by its own unit tests).
+    /// instead of hanging it. Every later stage is bounded too: the whole body
+    /// runs under [`run_staged`] and the pump join is bounded, so a stall in
+    /// spawn, the probe write, the kill, the join or the session drop fails the
+    /// test naming that stage instead of holding the CI job to its step
+    /// timeout. Unix backend; the Windows twin routes the same overrides
+    /// through the ConPTY environment block (`build_env_block`, covered by its
+    /// own unit tests).
     #[cfg(unix)]
     #[test]
     fn env_only_default_shell_plan_delivers_env_to_child() {
+        use crate::test_stall::{join_within, run_staged};
         use std::io::{Read, Write};
         use std::sync::mpsc;
         use std::time::{Duration, Instant};
 
         const CAPTURE_CAP: usize = 64 * 1024;
         const DEADLINE: Duration = Duration::from_secs(30);
-        let grid = crate::core::Dimensions {
-            columns: 80,
-            rows: 24,
-        };
-        let mut env = BTreeMap::new();
-        env.insert("ODY_TEST".to_owned(), "alpha".to_owned());
-        let plan = LocalLaunchPlan {
-            settings: Settings::default(),
-            working_directory: None,
-            working_directory_source: DirectorySource::Derived,
-            env,
-            spawn: LocalSpawnKind::DefaultShell,
-        };
-        let mut session = spawn_local_plan(grid, &plan).expect("spawn env-only default shell");
-        let mut writer = session.take_writer().expect("writer");
-        let mut reader = session.try_clone_reader().expect("reader");
-        let (sender, receiver) = mpsc::channel::<Vec<u8>>();
-        let pump = std::thread::spawn(move || {
-            let mut chunk = [0u8; 4096];
-            while let Ok(read) = reader.read(&mut chunk) {
-                if read == 0 || sender.send(chunk[..read].to_vec()).is_err() {
+        const PUMP_JOIN: Duration = Duration::from_secs(10);
+        // Above the read deadline plus every later bounded stage.
+        const WHOLE_TEST: Duration = Duration::from_secs(90);
+        run_staged(WHOLE_TEST, |stage| {
+            let grid = crate::core::Dimensions {
+                columns: 80,
+                rows: 24,
+            };
+            let mut env = BTreeMap::new();
+            env.insert("ODY_TEST".to_owned(), "alpha".to_owned());
+            let plan = LocalLaunchPlan {
+                settings: Settings::default(),
+                working_directory: None,
+                working_directory_source: DirectorySource::Derived,
+                env,
+                spawn: LocalSpawnKind::DefaultShell,
+            };
+            stage.enter("spawn");
+            let mut session = spawn_local_plan(grid, &plan).expect("spawn env-only default shell");
+            let mut writer = session.take_writer().expect("writer");
+            let mut reader = session.try_clone_reader().expect("reader");
+            let (sender, receiver) = mpsc::channel::<Vec<u8>>();
+            let pump = std::thread::spawn(move || {
+                let mut chunk = [0u8; 4096];
+                while let Ok(read) = reader.read(&mut chunk) {
+                    if read == 0 || sender.send(chunk[..read].to_vec()).is_err() {
+                        break;
+                    }
+                }
+            });
+            stage.enter("write probe");
+            writer
+                .write_all(b"printf 'ENVCHECK=%s\\n' \"$ODY_TEST\"; exit\n")
+                .expect("write probe");
+            writer.flush().expect("flush");
+
+            stage.enter("read output");
+            let started = Instant::now();
+            let mut captured = Vec::new();
+            let mut delivered = false;
+            while let Some(left) = DEADLINE.checked_sub(started.elapsed()) {
+                let Ok(chunk) = receiver.recv_timeout(left) else {
+                    break;
+                };
+                captured.extend_from_slice(&chunk);
+                captured.truncate(CAPTURE_CAP);
+                if String::from_utf8_lossy(&captured).contains("ENVCHECK=alpha") {
+                    delivered = true;
                     break;
                 }
             }
+            stage.enter("kill child");
+            let _ = session.kill();
+            stage.enter("force reader eof");
+            session.force_reader_eof();
+            stage.enter("join output pump");
+            join_within(pump, PUMP_JOIN, "join output pump");
+            stage.enter("drop session");
+            drop(session);
+            assert!(
+                delivered,
+                "env-only profile must deliver ODY_TEST to the child within {DEADLINE:?}; got: {:?}",
+                String::from_utf8_lossy(&captured)
+            );
         });
-        writer
-            .write_all(b"printf 'ENVCHECK=%s\\n' \"$ODY_TEST\"; exit\n")
-            .expect("write probe");
-        writer.flush().expect("flush");
-
-        let started = Instant::now();
-        let mut captured = Vec::new();
-        let mut delivered = false;
-        while let Some(left) = DEADLINE.checked_sub(started.elapsed()) {
-            let Ok(chunk) = receiver.recv_timeout(left) else {
-                break;
-            };
-            captured.extend_from_slice(&chunk);
-            captured.truncate(CAPTURE_CAP);
-            if String::from_utf8_lossy(&captured).contains("ENVCHECK=alpha") {
-                delivered = true;
-                break;
-            }
-        }
-        let _ = session.kill();
-        session.force_reader_eof();
-        let _ = pump.join();
-        assert!(
-            delivered,
-            "env-only profile must deliver ODY_TEST to the child within {DEADLINE:?}; got: {:?}",
-            String::from_utf8_lossy(&captured)
-        );
     }
 
     #[test]
