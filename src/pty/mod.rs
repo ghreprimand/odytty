@@ -24,7 +24,7 @@ mod env_block;
 #[cfg(any(windows, test))]
 mod held_gate;
 #[cfg(any(windows, test))]
-mod program_path;
+pub(crate) mod program_path;
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]

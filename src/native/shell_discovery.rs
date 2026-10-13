@@ -124,9 +124,7 @@ fn cached_wsl_distro_names(
 
 #[cfg(windows)]
 fn query_wsl_distro_names() -> Option<Vec<String>> {
-    use std::process::Command;
-
-    let mut command = Command::new("wsl.exe");
+    let mut command = super::app::win_spawn::helper_command("wsl.exe").ok()?;
     command.args(["--list", "--quiet"]);
     super::app::win_spawn::apply_no_console_window(&mut command);
     match crate::bounded_io::run_bounded(&mut command, WSL_LIST_DEADLINE, WSL_LIST_MAX_OUTPUT) {

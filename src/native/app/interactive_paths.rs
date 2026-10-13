@@ -142,14 +142,14 @@ pub(in crate::native) struct ImageOverlayState {
 /// rather than failing the open.
 #[must_use = "a failed open must surface a visible notice, not be silently dropped"]
 pub(crate) fn spawn_detached(argv: &[String]) -> std::io::Result<()> {
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     let Some((program, args)) = argv.split_first() else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "empty argv",
         ));
     };
-    let mut command = Command::new(program);
+    let mut command = super::win_spawn::helper_command(program)?;
     command
         .args(args)
         .stdin(Stdio::null())

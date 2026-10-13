@@ -5,10 +5,65 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+
+# Variables that select or reconfigure a Git repository independently of the
+# working directory. A hook or worktree context exports them, and a fixture that
+# inherits them would write to that outer repository instead of its scratch one.
+GIT_REPOSITORY_ENV = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONFIG", "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_PARAMETERS", "GIT_DIR", "GIT_GRAFT_FILE", "GIT_IMPLICIT_WORK_TREE",
+    "GIT_INDEX_FILE", "GIT_NAMESPACE", "GIT_NO_REPLACE_OBJECTS", "GIT_OBJECT_DIRECTORY",
+    "GIT_PREFIX", "GIT_QUARANTINE_PATH", "GIT_REPLACE_REF_BASE", "GIT_SHALLOW_FILE",
+    "GIT_WORK_TREE",
+)
+
+
+def clean_environment(**extra):
+    """The inherited environment without repository selectors, plus intended settings."""
+    base = {k: v for k, v in os.environ.items() if k not in GIT_REPOSITORY_ENV}
+    return dict(base, **extra)
+
+
+def decoy_repository(root):
+    """An outer repository a leaking fixture would mutate, and the variables that select it.
+
+    Returns the selector environment and a callable listing what the fixture
+    changed there (empty when the outer repository is untouched).
+    """
+    work = root / "decoy-work"
+    work.mkdir()
+    (work / "outer.txt").write_text("outer\n")
+    clean = clean_environment()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(work)], env=clean, check=True,
+                   capture_output=True, timeout=30)
+    index = root / "decoy-index"
+    selectors = {
+        "GIT_DIR": str(work / ".git"),
+        "GIT_WORK_TREE": str(work),
+        "GIT_INDEX_FILE": str(index),
+        "GIT_COMMON_DIR": str(work / ".git"),
+    }
+
+    def changes():
+        found = []
+        if index.exists():
+            found.append("outer index written")
+        head = subprocess.run(["git", "-C", str(work), "rev-parse", "--verify", "-q", "HEAD"],
+                              env=clean, capture_output=True, text=True, timeout=30)
+        if head.returncode == 0:
+            found.append("outer commit created")
+        remotes = subprocess.run(["git", "-C", str(work), "remote"], env=clean,
+                                 capture_output=True, text=True, timeout=30).stdout.split()
+        if remotes:
+            found.append("outer remote added")
+        return found
+
+    return selectors, changes
 
 
 def run_blocks(path):
@@ -155,8 +210,8 @@ class WorkflowContracts(unittest.TestCase):
             work = root / "work"
             (work / "src").mkdir(parents=True)
             (work / "shaders").mkdir()
-            env = dict(os.environ, GIT_CONFIG_GLOBAL=str(config), GIT_CONFIG_SYSTEM=os.devnull,
-                       HOME=str(root))
+            env = clean_environment(GIT_CONFIG_GLOBAL=str(config), GIT_CONFIG_SYSTEM=os.devnull,
+                                    HOME=str(root))
             result = subprocess.run(["bash", "-c", program], cwd=work, env=env,
                                     text=True, capture_output=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -166,6 +221,50 @@ class WorkflowContracts(unittest.TestCase):
             merges = subprocess.run(["git", "rev-list", "--merges", "--count", "HEAD"], cwd=work, env=env,
                                     text=True, capture_output=True, timeout=10).stdout.strip()
             self.assertEqual(merges, "1")
+
+    def test_demo_repository_ignores_inherited_repository_selectors(self):
+        text = (ROOT / "scripts/make-demo.sh").read_text()
+        fixture = text.split("cat > README.md", 1)[1].split("# --- showcase frame", 1)[0]
+        program = "set -u\ncat > README.md" + fixture
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            selectors, outer_changes = decoy_repository(root)
+            work = root / "work"
+            (work / "src").mkdir(parents=True)
+            (work / "shaders").mkdir()
+            env = clean_environment(HOME=str(root), GIT_CONFIG_GLOBAL=os.devnull,
+                                    GIT_CONFIG_SYSTEM=os.devnull, **selectors)
+            result = subprocess.run(["bash", "-c", program], cwd=work, env=env,
+                                    text=True, capture_output=True, timeout=60)
+            self.assertEqual(outer_changes(), [])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            merges = subprocess.run(["git", "rev-list", "--merges", "--count", "HEAD"], cwd=work,
+                                    env=clean_environment(HOME=str(root)), text=True,
+                                    capture_output=True, timeout=10).stdout.strip()
+            self.assertEqual(merges, "1")
+
+    def test_production_file_guard_self_test_ignores_inherited_repository_selectors(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            selectors, outer_changes = decoy_repository(root)
+            result = subprocess.run([sys.executable, str(ROOT / "scripts/production-file-guard.py"),
+                                     "--self-test"], cwd=ROOT,
+                                    env=clean_environment(HOME=str(root), **selectors),
+                                    text=True, capture_output=True, timeout=120)
+            self.assertEqual(outer_changes(), [])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_benchmark_runner_self_test_ignores_inherited_repository_selectors(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            selectors, outer_changes = decoy_repository(root)
+            code = ("import sys\nsys.path.insert(0, sys.argv[1])\nimport w6_runner\n"
+                    "problems = w6_runner.self_test()\nprint(problems)\nsys.exit(1 if problems else 0)\n")
+            result = subprocess.run([sys.executable, "-c", code, str(ROOT / "scripts/bench-protocol")],
+                                    cwd=ROOT, env=clean_environment(HOME=str(root), **selectors),
+                                    text=True, capture_output=True, timeout=300)
+            self.assertEqual(outer_changes(), [])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_demo_repository_step_failure_stops_the_script(self):
         text = (ROOT / "scripts/make-demo.sh").read_text()
@@ -183,8 +282,8 @@ class WorkflowContracts(unittest.TestCase):
             work = root / "work"
             (work / "src").mkdir(parents=True)
             (work / "shaders").mkdir()
-            env = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ["PATH"], HOME=str(root),
-                       GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
+            env = clean_environment(PATH=str(tools) + os.pathsep + os.environ["PATH"], HOME=str(root),
+                                    GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
             result = subprocess.run(["bash", "-c", program], cwd=work, env=env,
                                     text=True, capture_output=True, timeout=60)
             self.assertNotEqual(result.returncode, 0)

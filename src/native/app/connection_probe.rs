@@ -9,7 +9,7 @@
 //! result is sent back over a channel and a redraw is woken so the form renders
 //! it. A hard timeout guarantees the worker (and the form) never hang.
 
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
@@ -70,7 +70,8 @@ const PROBE_STDERR_CAP: usize = 8 * 1024;
 /// Run the probe child to completion (or the hard timeout) and classify it.
 fn run_probe(command: SshCommand) -> Result<ProbeClass, String> {
     let (program, args) = command.into_program_args();
-    let mut command = Command::new(&program);
+    let mut command = super::win_spawn::helper_command(&program)
+        .map_err(|err| format!("could not run ssh: {err}"))?;
     command
         .args(&args)
         .stdin(Stdio::null())

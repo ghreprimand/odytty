@@ -20,7 +20,7 @@
 //! and reaped at [`UPLOAD_DEADLINE`] or as soon as the tab closes, and a
 //! worker that finishes after its tab closed removes its own remote file.
 
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use super::super::pty::UserEvent;
 use super::super::session::RemoteUploadJob;
@@ -150,7 +150,8 @@ fn stream_upload(
     );
     let (program, args) = command.into_program_args();
     let stdin = std::fs::File::open(local).map_err(|err| format!("temp open: {err}"))?;
-    let mut command = Command::new(program);
+    let mut command =
+        super::win_spawn::helper_command(program).map_err(|err| format!("ssh spawn: {err}"))?;
     command
         .args(args)
         .stdin(Stdio::from(stdin))

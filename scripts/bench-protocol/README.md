@@ -450,7 +450,11 @@ because each one exists to prevent a specific, tempting mistake.
 
 4. **Non-pass samples carry no number.** The validator refuses any `value` key
    on a `fail`, `invalid`, `skip`, or `unsupported` sample - a structural
-   rejection, not a check for zero.
+   rejection, not a check for zero. A `pass` value must be finite and within
+   the 64-bit float range, and sample identity and reason fields must be
+   text or integers as specified. A malformed document is reported as
+   validation errors and refused; it never stops the validator with an
+   exception.
 
 5. **Unsupported means unsupported.** A collector that cannot produce a metric
    with the protocol's semantics reports `unsupported` with a specific reason.

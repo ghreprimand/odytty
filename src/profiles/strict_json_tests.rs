@@ -103,7 +103,37 @@ fn short_numbers_are_written_as_before() {
     assert!(written.contains("1.5,"), "{written}");
     assert!(written.contains("100,"), "{written}");
     assert!(written.contains("0.1,"), "{written}");
-    assert!(written.contains("1000000000000000\n"), "{written}");
+    // From 1e15 up an integer takes the shorter exponent form.
+    assert!(written.contains("1e15\n"), "{written}");
+}
+
+#[test]
+fn exponent_literals_are_saved_in_their_short_form() {
+    let text = profile_text(
+        ", \"future\": [1e300, 1e-300, -2.5E-200, 1.5e20, 123456789012345e3, 0.000001, 0.01, 0.25]",
+    );
+    let (written, _) = saved(&text);
+    for short in ["1e300,", "1e-300,", "-2.5e-200,", "1.5e20,", "1e-6,"] {
+        assert!(written.contains(short), "{short} in {written}");
+    }
+    // A plain form no longer than the exponent form stays plain.
+    assert!(written.contains("123456789012345000,"), "{written}");
+    assert!(written.contains("0.01,"), "{written}");
+    assert!(written.contains("0.25\n"), "{written}");
+}
+
+#[test]
+fn many_large_unknown_numbers_still_fit_the_file_cap_on_save() {
+    // 4,000 copies of `1e300` read in about 28 KiB; written as 301-digit
+    // integers they would exceed the 1 MiB cap and the save would be refused.
+    let values = vec!["1e300"; 4000].join(", ");
+    let text = profile_text(&format!(", \"future\": [{values}]"));
+    let (written, _) = saved(&text);
+    assert!(
+        (written.len() as u64) < MAX_PROFILE_FILE_BYTES,
+        "{} bytes",
+        written.len()
+    );
 }
 
 #[test]

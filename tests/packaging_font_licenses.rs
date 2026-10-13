@@ -170,7 +170,7 @@ fn the_install_helper_lays_the_files_out_by_font_set() {
 }
 
 /// The tarball's own installer (which the one-line installer's tarball branch
-/// runs) copies LICENSE, NOTICE and the font licences to
+/// runs) copies LICENSE, NOTICE, THIRD-PARTY-LICENSES and the font licences to
 /// `PREFIX/share/licenses/odytty`, and `--uninstall` removes them. The test
 /// lays out an extracted tarball the way the release job assembles it, with a
 /// stand-in binary, and installs into a scratch prefix. Linux only: the
@@ -198,7 +198,7 @@ fn the_tarball_installer_installs_and_removes_the_licence_texts() {
     std::fs::write(stage.join("odytty"), "#!/bin/sh\n").expect("stand-in binary");
     std::fs::set_permissions(stage.join("odytty"), std::fs::Permissions::from_mode(0o755))
         .expect("executable");
-    for notice in ["LICENSE", "NOTICE"] {
+    for notice in ["LICENSE", "NOTICE", "THIRD-PARTY-LICENSES"] {
         std::fs::copy(root().join(notice), stage.join(notice)).expect("notice");
     }
     let status = std::process::Command::new("bash")
@@ -226,7 +226,7 @@ fn the_tarball_installer_installs_and_removes_the_licence_texts() {
 
     run(&[]);
     let licences = prefix.join("share/licenses/odytty");
-    for notice in ["LICENSE", "NOTICE"] {
+    for notice in ["LICENSE", "NOTICE", "THIRD-PARTY-LICENSES"] {
         assert_eq!(
             std::fs::read(licences.join(notice)).expect("installed notice"),
             std::fs::read(root().join(notice)).expect("source notice"),

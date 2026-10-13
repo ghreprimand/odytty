@@ -413,7 +413,13 @@ pub(in crate::native) fn spawn_remote_cleanup(
         return;
     };
     let (program, args) = command.into_program_args();
-    let mut cleanup = std::process::Command::new(program);
+    let mut cleanup = match crate::native::app::win_spawn::helper_command(program) {
+        Ok(command) => command,
+        Err(error) => {
+            tracing::warn!("remote upload cleanup spawn failed: {error}");
+            return;
+        }
+    };
     cleanup
         .args(args)
         .stdin(std::process::Stdio::null())

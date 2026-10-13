@@ -615,40 +615,49 @@ baseline a later change that claims to recover this cost has to beat. The
 memory regression guard was not re-run for this change; it needs a recorded
 environment class and a window at the recorded geometry.
 
-### Plain-text owner checks: measured CPU cost
+### Indic property and ASCII owner guards
 
-Script and emoji width ownership keeps its bounded source and cell semantics.
-Owners without extensions use the same scalar width oracle directly, and
-ASCII scalars bypass the Indic property search because the pinned tables have
-no ASCII members. Emoji modifier admission tests the next scalar before
-searching the base table. The 92-byte live `Cell` and its retained scalars
-are unchanged.
+The Indic property tables used for owner admission exclude ASCII scalars.
+The generator rejects an ASCII range before writing these tables, and a unit
+test checks every range in BASES, SPACING, CONSONANTS and LINKERS.
 
-The default `cargo bench --bench perf` workload ran on one Linux development
-computer with Rust 1.99.0 and the release profile, without concurrent OdyTTY
-builds or test runs.
-Three process runs per candidate alternated with the baseline and intermediate
-candidates. Each process used the existing best-of-three warmed timings; the
-table reports process medians. The baseline is `9018f6d5`. These timings
-measure CPU terminal-model workloads.
+A nonzero ASCII scalar skips extension admission when the preceding owner
+has no retained scalars. Printable ASCII uses its one-cell scalar footprint
+in both width policies. Owners with extensions and non-ASCII scalars retain
+their existing width and admission rules, including DEC charset translation.
 
-| Row | Before | After | Ratio |
+The default CPU model benchmark used Rust 1.99.0 and the release profile on
+one Linux computer without concurrent OdyTTY builds or test runs. Three
+alternating process runs per source variant retained the existing warmed
+best-of-three harness. These are process medians; all timings apply to this
+Linux corpus only. The earlier correction adds extension-free widths, ASCII
+Indic rejection and the cheap modifier check to 9018f6d5. The historical
+baseline ea6f4eb2 already uses a 92-byte Cell.
+
+| Row | Earlier correction | ASCII guards | Historical baseline |
 | --- | ---: | ---: | ---: |
-| full repaint 2000 frames | 82.02 ms | 42.20 ms | 0.51 |
-| plain ascii 5000 lines | 11.00 ms | 6.90 ms | 0.63 |
-| decfra fill 2000 ops | 20.03 ms | 10.09 ms | 0.50 |
-| deccra copy 2000 ops | 32.00 ms | 17.23 ms | 0.54 |
-| decsera mixed-prot 2000 ops | 48.13 ms | 22.95 ms | 0.48 |
-| resize reflow (deep scrollback) | 44.75 ms | 19.95 ms | 0.45 |
-| resize reflow (shallow scrollback) | 40.11 ms | 28.45 ms | 0.71 |
-| resize reflow (height-only, deep) | 43.52 ms | 19.29 ms | 0.44 |
+| full repaint 2000 frames | 42.90 ms | 34.24 ms | 32.75 ms |
+| plain ascii 5000 lines | 6.82 ms | 5.88 ms | 5.99 ms |
+| heavy sgr 2000 lines | 7.35 ms | 6.97 ms | 6.93 ms |
+| resize reflow (deep scrollback) | 20.21 ms | 17.61 ms | 17.88 ms |
+| resize reflow (height-only, deep) | 19.20 ms | 16.79 ms | 17.05 ms |
 
-Across the listed before/after rows, the maximum-minus-minimum range divided
-by the median reaches 12%; these are coarse workload timings.
+The historical repaint samples span 32.66 to 46.00 ms; the ASCII-guard samples
+span 34.08 to 34.63 ms. A second alternating comparison reports repaint
+medians of 33.91 and 34.61 ms, with overlapping sample ranges. Its inlining
+hint was neutral and was discarded. The remaining repaint difference is
+unattributed. No cell-size change occurs inside these comparisons.
 
-The optimization preserves composite-width checks for every retained extension,
-including ASCII keycaps with VS16. The pure core helpers are shared by Linux,
-macOS and Windows; the timings above describe only this Linux benchmark run.
+A separate parser diagnostic repeats the same 188,900-byte churn corpus
+1,000 times per sample. Historical and current process medians are 235.48
+and 242.83 ms, with overlapping sample ranges and identical checksums.
+The default parser-churn medians with the ASCII guards are both 0.26 ms.
+These measurements do not establish the earlier submillisecond timing gap
+as a required correctness cost.
+
+These figures do not establish the cause of every residual timing difference.
+The cell layout and required command-end boundary projection are unchanged.
+The shared core paths apply to Linux, macOS and Windows.
 
 ### Scrollback: an aggregate cell budget and windowed rows
 

@@ -82,7 +82,8 @@ object that holds only unknown keys. An unknown number is kept as written when
 its literal has more than 15 significant digits, which a 64-bit float cannot
 always hold exactly, so a large integer or a long decimal in a field this build
 does not own survives a save unchanged; shorter numbers are written in their
-shortest form, so `1E+2` is saved as `100`. A field this build owns is always
+shortest form, using exponent notation when that is shorter, so `1E+2` is
+saved as `100` and `1e300` stays `1e300`. A field this build owns is always
 written from its typed value, never from the source literal.
 The version gate is separate from field preservation: `schema_version` must be a
 whole number that does not exceed the version this build understands. A document

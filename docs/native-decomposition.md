@@ -413,7 +413,8 @@ Windows remains a first-class automated and manual target.
 - Windows SSH remains a local ConPTY child. Unix session sockets, attach
   transport, and control-master paths remain Unix-only.
 - Helper processes that must suppress a console window continue through the
-  existing Windows spawn helper.
+  existing Windows spawn helper, and a helper started by a bare name is
+  resolved to an absolute file by the same module first.
 - Job object and pseudoconsole teardown stay in the Windows PTY backend.
 - Restored Windows windows may signal occlusion without resize; common GPU
   recovery preserves this path.

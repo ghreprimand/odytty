@@ -40,6 +40,11 @@ def ranges(values):
             out.append((cp, cp, value))
     return out
 
+def script_ranges(values):
+    result = ranges(values)
+    assert all(start >= 0x80 for start, _, _ in result), "script property ranges must exclude ASCII"
+    return result
+
 def main():
     source = Path(sys.argv[1])
     for name in ('Scripts.txt', 'IndicSyllabicCategory.txt', 'DerivedCoreProperties.txt', 'GraphemeBreakProperty.txt', 'GraphemeBreakTest.txt'):
@@ -67,7 +72,8 @@ def main():
     text = header[:]
     for name, values in groups.items():
         text.append(f'pub(super) const {name}: &[(u32, u32, u8)] = &[')
-        text.extend(f'    (0x{a:x}, 0x{b:x}, {sid}),' for a, b, sid in ranges(values))
+        generated = ranges(values) if name == 'EXTEND' else script_ranges(values)
+        text.extend(f'    (0x{a:x}, 0x{b:x}, {sid}),' for a, b, sid in generated)
         text.append('];')
     (ROOT / 'src/core/indic/data.rs').write_text('\n'.join(text) + '\n')
     fixture = ROOT / 'tests/fixtures/unicode-indic'

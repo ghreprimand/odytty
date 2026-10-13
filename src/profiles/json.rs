@@ -11,7 +11,9 @@
 //! output with a stable key order and two-space indentation. Numbers are held
 //! as `f64`; a profile-document number with more than 15 significant digits,
 //! which may not survive the trip through `f64` back to decimal, also keeps
-//! its validated literal so a save writes it back unchanged.
+//! its validated literal so a save writes it back unchanged. Other numbers are
+//! written in their shortest round-tripping form, using exponent notation
+//! when that is shorter, so the spelling of a hand-written number may change.
 
 use std::collections::HashSet;
 use std::fmt::Write as _;
@@ -179,8 +181,18 @@ fn write_number(out: &mut String, n: f64) {
         // Integer-valued (versions, indices): print without a fractional part.
         let _ = write!(out, "{}", n as i64);
     } else {
-        // Fractional (split ratios): the shortest round-tripping repr.
-        let _ = write!(out, "{n}");
+        // Fractional values and large integers: the shortest round-tripping
+        // form, in exponent notation when that is shorter. Plain `{}` never
+        // uses an exponent, so an unknown-key `1e300` would otherwise be
+        // saved as 301 digits and a profile holding many such values could
+        // grow past the file cap on save.
+        let plain = format!("{n}");
+        let exponent = format!("{n:e}");
+        out.push_str(if exponent.len() < plain.len() {
+            &exponent
+        } else {
+            &plain
+        });
     }
 }
 

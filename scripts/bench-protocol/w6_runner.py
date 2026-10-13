@@ -6354,7 +6354,33 @@ def _fake_prereg(
     }
 
 
+_GIT_REPOSITORY_ENV = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONFIG", "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_PARAMETERS", "GIT_DIR", "GIT_GRAFT_FILE", "GIT_IMPLICIT_WORK_TREE",
+    "GIT_INDEX_FILE", "GIT_NAMESPACE", "GIT_NO_REPLACE_OBJECTS", "GIT_OBJECT_DIRECTORY",
+    "GIT_PREFIX", "GIT_QUARANTINE_PATH", "GIT_REPLACE_REF_BASE", "GIT_SHALLOW_FILE",
+    "GIT_WORK_TREE",
+)
+
+
+def _without_outer_repository(run):
+    """Run a self-test with the repository selectors a hook or worktree exports hidden.
+
+    The fixtures create their own repositories, so an inherited selector would
+    send their git commands to an unrelated repository instead.
+    """
+    saved = {name: os.environ.pop(name) for name in _GIT_REPOSITORY_ENV if name in os.environ}
+    try:
+        return run()
+    finally:
+        os.environ.update(saved)
+
+
 def self_test() -> list[str]:
+    return _without_outer_repository(_self_test)
+
+
+def _self_test() -> list[str]:
     import contextlib
     import io
     import tempfile

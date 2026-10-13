@@ -1230,6 +1230,16 @@ because the process model differs at the foundation.
   `CREATE_NO_WINDOW` (`src/native/app/win_spawn.rs`). The flag is a harmless
   no-op for graphical children, so the helper guards every spawn site uniformly.
   A new spawn site that bypasses it is a defect.
+- **Helper program lookup.** On Windows a helper started by name (`ssh`,
+  `wsl.exe`, the notification `powershell.exe`, the file opener, a bare editor
+  name) goes through `win_spawn::helper_command`, which resolves the name to an
+  absolute file in the executable's directory, `System32`, the Windows directory
+  or an absolute `PATH` entry, and refuses a name found nowhere. `std` alone
+  would also search relative `PATH` entries, so a planted helper there could run
+  before a later genuine one. A program given with a directory part (a
+  configured editor path) is the user's own choice and is used as given. The
+  `%ProgramFiles%` and `%SystemRoot%` bases of the default shell lookup must be
+  drive-absolute. Unix and macOS lookup is unchanged.
 - **Process containment.** Terminating a child tree uses a per-session job
   object with the kill-on-job-close limit, which is the pseudoconsole answer to
   the missing POSIX process-group kill. This is **best-effort**: if job creation

@@ -139,6 +139,28 @@ def load_cfg_helpers(repo_root: Path):
 # --------------------------------------------------------------------------
 
 
+_GIT_REPOSITORY_ENV = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONFIG", "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_PARAMETERS", "GIT_DIR", "GIT_GRAFT_FILE", "GIT_IMPLICIT_WORK_TREE",
+    "GIT_INDEX_FILE", "GIT_NAMESPACE", "GIT_NO_REPLACE_OBJECTS", "GIT_OBJECT_DIRECTORY",
+    "GIT_PREFIX", "GIT_QUARANTINE_PATH", "GIT_REPLACE_REF_BASE", "GIT_SHALLOW_FILE",
+    "GIT_WORK_TREE",
+)
+
+
+def _without_outer_repository(run):
+    """Run a self-test with the repository selectors a hook or worktree exports hidden.
+
+    The fixtures create their own repositories, so an inherited selector would
+    send their git commands to an unrelated repository instead.
+    """
+    saved = {name: os.environ.pop(name) for name in _GIT_REPOSITORY_ENV if name in os.environ}
+    try:
+        return run()
+    finally:
+        os.environ.update(saved)
+
+
 @dataclass
 class ModDecl:
     """One `mod name;` declaration and the gate it sits behind."""
@@ -926,6 +948,10 @@ def _run_fixture(root: Path) -> dict:
 
 
 def self_test(repo_root: Path) -> int:
+    return _without_outer_repository(lambda: _self_test(repo_root))
+
+
+def _self_test(repo_root: Path) -> int:
     failures: list[str] = []
 
     def check(label: str, condition: bool) -> None:

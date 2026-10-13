@@ -649,8 +649,28 @@ def validate(
     """Validate a result document, optionally against its preregistration.
 
     Returns every failure found rather than stopping at the first, so a run
-    set is repaired in one pass instead of one error at a time.
+    set is repaired in one pass instead of one error at a time. Malformed
+    input never raises: sample identity and value fields of the wrong type or
+    range are named errors, and any other value whose type or range the
+    checks below cannot handle refuses the whole document with one error.
     """
+    try:
+        return _validate_document(document, preregistration, preregistration_sha256)
+    except (AttributeError, IndexError, KeyError, OverflowError, TypeError, ValueError) as error:
+        return [
+            ValidationError(
+                "$",
+                "a field has a type or range the validator cannot check "
+                f"({type(error).__name__}); the document is refused",
+            )
+        ]
+
+
+def _validate_document(
+    document: object,
+    preregistration: dict | None,
+    preregistration_sha256: str | None,
+) -> list[ValidationError]:
     errors: list[ValidationError] = []
 
     if not isinstance(document, dict):
@@ -841,6 +861,18 @@ def validate(
                 prereg_skip_reasons,
                 seen_keys,
             )
+        # Statistics and execution reasons below are recomputed only from
+        # samples whose identity and value fields have usable types and
+        # ranges; the others were reported above and must not abort the
+        # recomputation.
+        document = {
+            **document,
+            "samples": [
+                sample
+                for sample in samples
+                if isinstance(sample, dict) and _recomputable(sample)
+            ],
+        }
 
     for key in ("summary", "failures", "skips", "unsupported", "limitations", "deviations"):
         if key in document and not isinstance(document[key], list):
@@ -907,12 +939,15 @@ def validate(
         for sample in (document.get("samples") or [])
         if isinstance(sample, dict) and sample.get("status") == "unsupported"
     }
-    top_unsupported = {
+    top_entries = [
         (entry.get("metric"), entry.get("reason"))
         for entry in (document.get("unsupported") or [])
         if isinstance(entry, dict)
-    }
-    if sample_unsupported != top_unsupported:
+    ]
+    top_unsupported = {entry for entry in top_entries if _hashable(entry)}
+    if sample_unsupported != top_unsupported or not all(
+        _hashable(entry) for entry in top_entries
+    ):
         errors.append(
             ValidationError(
                 "$.unsupported", "top-level unsupported must exactly equal sample-level reasons"
@@ -963,7 +998,7 @@ def validate(
                         overhead_ok = False
                         break
                     implementation = entry.get("implementation")
-                    if implementation not in qualified or implementation in seen_overhead:
+                    if not _member(implementation, qualified) or implementation in seen_overhead:
                         overhead_ok = False
                         break
                     expected_rehearsal_environment = {
@@ -1518,6 +1553,57 @@ def _pairable(sample: dict) -> bool:
     )
 
 
+# Sample fields used as identities or reasons: they are compared, grouped and
+# hashed, so a present value must be text.
+_SAMPLE_TEXT_FIELDS = (
+    "implementation",
+    "configuration",
+    "workload",
+    "metric",
+    "status",
+    "invalid_reason",
+    "skip_reason",
+    "unsupported_reason",
+)
+
+
+def _hashable(value: object) -> bool:
+    try:
+        hash(value)
+    except TypeError:
+        return False
+    return True
+
+
+def _member(value: object, collection) -> bool:
+    """`value in collection` for a set, false for an unhashable value."""
+    return _hashable(value) and value in collection
+
+
+def _finite_number(value: object) -> bool:
+    """A JSON number that converts to a finite 64-bit float; a very large
+    integer such as 10**400 is a valid JSON number but overflows `float()`."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:
+        return False
+
+
+def _recomputable(sample: dict) -> bool:
+    """A sample whose identity, reason, block and attempt fields are hashable
+    and whose numeric value, if any, is a finite float. Only these enter the
+    recomputed statistics and execution reasons."""
+    for field in (*_SAMPLE_TEXT_FIELDS, "block", "attempt"):
+        if not _hashable(sample.get(field)):
+            return False
+    value = sample.get("value")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return _finite_number(value)
+    return True
+
+
 def _validate_object_fields(value: object, path: str, fields: tuple) -> list[ValidationError]:
     if not isinstance(value, dict):
         return [ValidationError(path, "expected a JSON object")]
@@ -1554,8 +1640,12 @@ def _validate_sample(
         if field not in sample:
             errors.append(ValidationError(path, f"missing required field {field!r}"))
 
+    for field in _SAMPLE_TEXT_FIELDS:
+        if sample.get(field) is not None and not isinstance(sample.get(field), str):
+            errors.append(ValidationError(f"{path}.{field}", f"{field} must be a string"))
+
     status = sample.get("status")
-    if status not in SAMPLE_STATUSES:
+    if not _member(status, SAMPLE_STATUSES):
         errors.append(
             ValidationError(
                 f"{path}.status",
@@ -1581,6 +1671,12 @@ def _validate_sample(
             errors.append(
                 ValidationError(f"{path}.value", "value must be a JSON number")
             )
+        elif not _finite_number(sample["value"]):
+            errors.append(
+                ValidationError(
+                    f"{path}.value", "value must be finite and within the 64-bit float range"
+                )
+            )
     elif has_value:
         errors.append(
             ValidationError(
@@ -1600,7 +1696,7 @@ def _validate_sample(
 
     if status == "invalid":
         reason = sample.get("invalid_reason")
-        if reason not in INVALID_REASONS:
+        if not _member(reason, INVALID_REASONS):
             errors.append(
                 ValidationError(
                     f"{path}.invalid_reason",
@@ -1618,7 +1714,7 @@ def _validate_sample(
 
     if status == "skip":
         reason = sample.get("skip_reason")
-        if reason not in RESERVED_SKIP_REASONS:
+        if not _member(reason, RESERVED_SKIP_REASONS):
             errors.append(
                 ValidationError(
                     f"{path}.skip_reason",
@@ -1642,7 +1738,7 @@ def _validate_sample(
         )
 
     implementation = sample.get("implementation")
-    if registered and implementation not in registered:
+    if registered and not _member(implementation, registered):
         errors.append(
             ValidationError(
                 f"{path}.implementation",
@@ -1651,21 +1747,23 @@ def _validate_sample(
         )
 
     workload = sample.get("workload")
-    if prereg_workloads is not None and workload not in prereg_workloads:
+    if prereg_workloads is not None and not _member(workload, prereg_workloads):
         errors.append(
             ValidationError(
                 f"{path}.workload", f"workload {workload!r} was absent from preregistration"
             )
         )
     metric = sample.get("metric")
-    if prereg_metrics is not None and metric not in prereg_metrics:
+    if prereg_metrics is not None and not _member(metric, prereg_metrics):
         errors.append(
             ValidationError(
                 f"{path}.metric", f"metric {metric!r} was absent from preregistration"
             )
         )
     configuration = sample.get("configuration")
-    if prereg_configurations is not None and configuration not in prereg_configurations:
+    if prereg_configurations is not None and not _member(
+        configuration, prereg_configurations
+    ):
         errors.append(
             ValidationError(
                 f"{path}.configuration",
@@ -1688,11 +1786,12 @@ def _validate_sample(
         sample.get("block"),
         sample.get("attempt"),
     )
-    if key in seen_keys:
-        errors.append(
-            ValidationError(path, "duplicate sample identity (same block and attempt)")
-        )
-    seen_keys.add(key)
+    if _hashable(key):
+        if key in seen_keys:
+            errors.append(
+                ValidationError(path, "duplicate sample identity (same block and attempt)")
+            )
+        seen_keys.add(key)
 
     return errors
 
@@ -2117,6 +2216,63 @@ def self_test() -> list[str]:
     else:
         if not malformed_errors:
             failures.append("schema: malformed W6 pass sample was accepted")
+    # Identity fields of the wrong type and values beyond the float range are
+    # named errors; none aborts validation or falls through to the catch-all
+    # refusal, including the W6 recomputation.
+    for field, bad in (
+        ("block", []),
+        ("attempt", {}),
+        ("implementation", ["odytty"]),
+        ("configuration", {"plain": 1}),
+        ("metric", ["cpu"]),
+        ("status", []),
+        ("unsupported_reason", ["reason"]),
+        ("value", 10**400),
+        ("value", -(10**400)),
+        ("value", float("nan")),
+    ):
+        for label, base, prereg_record in (
+            ("W6", w6_document, w6_prereg),
+            ("minimal", None, None),
+        ):
+            if base is None:
+                broken = _minimal_document()
+                broken["samples"] = [_sample()]
+            else:
+                broken = json.loads(json.dumps(base))
+            broken["samples"][0][field] = bad
+            try:
+                broken_errors = validate(broken, prereg_record)
+            except Exception as error:  # noqa: BLE001 - any raise is the failure
+                failures.append(
+                    f"schema: {label} sample {field}={bad!r:.40} aborted validation: {error!r}"
+                )
+                continue
+            if not any(error.path == f"$.samples[0].{field}" for error in broken_errors):
+                failures.append(f"schema: {label} sample {field}={bad!r:.40} was not named")
+            if any(error.path == "$" and "cannot check" in error.message for error in broken_errors):
+                failures.append(
+                    f"schema: {label} sample {field}={bad!r:.40} reached the catch-all refusal"
+                )
+    broken = json.loads(json.dumps(w6_document))
+    broken["unsupported"] = [{"metric": ["cpu"], "reason": "x"}]
+    try:
+        broken_errors = validate(broken, w6_prereg)
+    except Exception as error:  # noqa: BLE001
+        failures.append(f"schema: a list-valued unsupported metric aborted validation: {error!r}")
+    else:
+        if not any(error.path == "$.unsupported" for error in broken_errors):
+            failures.append("schema: a list-valued unsupported metric was accepted")
+    # Any remaining wrong-typed field refuses the document instead of raising.
+    broken_prereg = json.loads(json.dumps(w6_prereg))
+    broken_prereg["run_set"] = []
+    try:
+        broken_errors = validate(w6_document, broken_prereg)
+    except Exception as error:  # noqa: BLE001
+        failures.append(f"schema: a list-valued preregistration run_set raised: {error!r}")
+    else:
+        if not any(error.path == "$" for error in broken_errors):
+            failures.append("schema: a list-valued preregistration run_set was accepted")
     # Protocol 1.4.0: two qualified terminals with DIFFERENT stable device-pixel
     # grids are a valid, publishable comparison as long as each binds its own
     # preregistered stable model. The old schema rejected exactly this.

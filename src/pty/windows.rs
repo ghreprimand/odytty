@@ -1283,31 +1283,40 @@ fn one_shot_args(kind: ShellKind, command: &str) -> Vec<OsString> {
 }
 
 /// Locate `pwsh.exe` (PowerShell 7): `%PATH%` first, then the default install
-/// location under `%ProgramFiles%`. Returns `None` when PowerShell 7 is absent.
+/// location under `%ProgramFiles%` when that is a drive-absolute path. Returns
+/// `None` when PowerShell 7 is absent.
 fn resolve_pwsh() -> Option<OsString> {
     if let Some(found) = find_on_path("pwsh.exe") {
         return Some(found);
     }
-    let program_files = std::env::var_os("ProgramFiles")?;
-    let candidate = Path::new(&program_files)
-        .join("PowerShell")
-        .join("7")
-        .join("pwsh.exe");
-    candidate.is_file().then(|| candidate.into_os_string())
+    pwsh_from_program_files(std::env::var_os("ProgramFiles"), Path::is_file)
+}
+
+/// The default PowerShell 7 install when `program_files` is a drive-absolute
+/// path and `is_file` finds `pwsh.exe` there.
+fn pwsh_from_program_files(
+    program_files: Option<OsString>,
+    is_file: impl Fn(&Path) -> bool,
+) -> Option<OsString> {
+    let candidate = super::program_path::pwsh_install_path(program_files)?;
+    is_file(&candidate).then(|| candidate.into_os_string())
 }
 
 /// Locate Windows PowerShell 5.1 at its fixed System32 path (present on every
 /// Windows install). Resolved by absolute path rather than `%PATH%` lookup so a
 /// stripped `PATH` cannot hide it.
 fn resolve_windows_powershell() -> Option<OsString> {
-    let system_root =
-        std::env::var_os("SystemRoot").unwrap_or_else(|| OsString::from(r"C:\Windows"));
-    let candidate = Path::new(&system_root)
-        .join("System32")
-        .join("WindowsPowerShell")
-        .join("v1.0")
-        .join("powershell.exe");
-    candidate.is_file().then(|| candidate.into_os_string())
+    powershell_from_system_root(std::env::var_os("SystemRoot"), Path::is_file)
+}
+
+/// Windows PowerShell 5.1 under `system_root` (`C:\Windows` when that value
+/// is empty, relative or drive-relative) when `is_file` finds it there.
+fn powershell_from_system_root(
+    system_root: Option<OsString>,
+    is_file: impl Fn(&Path) -> bool,
+) -> Option<OsString> {
+    let candidate = super::program_path::windows_powershell_path(system_root);
+    is_file(&candidate).then(|| candidate.into_os_string())
 }
 
 /// Replace a bare program name with the absolute file `CreateProcessW` would
@@ -1321,20 +1330,17 @@ fn pin_bare_program(command: &mut CommandBuilder) -> Result<()> {
     if !super::program_path::is_bare_program(&command.program) {
         return Ok(());
     }
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(app_dir) = std::env::current_exe()
+    let app_dir = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(Path::to_path_buf))
-    {
-        dirs.push(app_dir);
-    }
-    let system_root =
-        std::env::var_os("SystemRoot").unwrap_or_else(|| OsString::from(r"C:\Windows"));
-    dirs.push(Path::new(&system_root).join("System32"));
-    dirs.push(PathBuf::from(&system_root));
-    if let Some(path) = std::env::var_os("PATH") {
-        dirs.extend(std::env::split_paths(&path));
-    }
+        .and_then(|exe| exe.parent().map(Path::to_path_buf));
+    let path_entries = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let dirs = super::program_path::program_search_dirs(
+        app_dir,
+        std::env::var_os("SystemRoot"),
+        path_entries,
+    );
     if let Some(found) = super::program_path::pin_program(&command.program, dirs, Path::is_file)? {
         command.program = found.into_os_string();
     }

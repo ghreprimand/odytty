@@ -8,6 +8,14 @@ impl Screen {
         let Some(owner) = self.cluster_owner else {
             return false;
         };
+        // An ASCII scalar cannot extend an owner without retained scalars:
+        // spacing signs, Indic links, flags and modifiers are all non-ASCII.
+        if scalar_width != 0
+            && ch.is_ascii()
+            && self.rows[owner.row][owner.column].combining().is_empty()
+        {
+            return false;
+        }
         let cell = self.rows[owner.row][owner.column];
         let spacing = super::super::char_width::thai_lao_spacing_extension(cell.ch, ch);
         let indic = super::super::indic::extends(cell.ch, cell.combining(), ch);

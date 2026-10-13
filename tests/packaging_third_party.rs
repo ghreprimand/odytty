@@ -253,6 +253,10 @@ fn every_package_definition_ships_the_file() {
             "install -Dm644 THIRD-PARTY-LICENSES \"$pkgdir/usr/share/doc/$pkgname/THIRD-PARTY-LICENSES\"",
         ),
         (
+            "dist/linux/tarball-install.sh",
+            "for notice in LICENSE NOTICE THIRD-PARTY-LICENSES; do",
+        ),
+        (
             "dist/macos/make-app.sh",
             "\"$ROOT/THIRD-PARTY-LICENSES\" \"$APP/Contents/Resources/licenses/\"",
         ),

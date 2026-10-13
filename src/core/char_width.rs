@@ -25,6 +25,10 @@ use unicode_width::UnicodeWidthChar;
 /// Columns `ch` occupies. `None` from the crate (controls) becomes 1, matching
 /// the historical `print_char` fallback. Combining marks stay 0.
 pub(crate) fn char_display_width(ch: char, ambiguous_wide: bool) -> usize {
+    // Printable ASCII is one cell in both width policies.
+    if matches!(ch, ' '..='~') {
+        return 1;
+    }
     // Frozen Khmer scalar compatibility widths, independent of mark absorption.
     // Source and reconstructed/history owners share the one-cell policy.
     if matches!(ch, '\u{17a4}' | '\u{17d8}') {

@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 /// Whether `program` has no directory part, so `CreateProcessW` would search
 /// for it.
-pub(super) fn is_bare_program(program: &OsStr) -> bool {
+pub(crate) fn is_bare_program(program: &OsStr) -> bool {
     !program
         .as_encoded_bytes()
         .iter()
@@ -88,22 +88,83 @@ fn is_drive_absolute(value: &OsStr) -> bool {
     )
 }
 
+/// The Windows directory: `SystemRoot` when it is a drive-absolute path, else
+/// `C:\Windows`. An empty, relative or drive-relative value is never used, so
+/// no path derived from it can resolve against the launch directory.
+pub(super) fn system_root(value: Option<OsString>) -> OsString {
+    value
+        .filter(|value| is_drive_absolute(value))
+        .unwrap_or_else(|| OsString::from(r"C:\Windows"))
+}
+
+/// `root` with `tail` appended after a separator.
+fn under(root: OsString, tail: &str) -> OsString {
+    let mut path = root;
+    path.push(tail);
+    path
+}
+
 /// The last-resort command interpreter: `ComSpec` when it is a drive-absolute
 /// path, else `<SystemRoot>\System32\cmd.exe`. Never the bare `cmd.exe`, which
 /// `CreateProcessW` would take from the launch directory first.
 pub(super) fn command_interpreter(
     comspec: Option<OsString>,
-    system_root: Option<OsString>,
+    system_root_value: Option<OsString>,
 ) -> OsString {
     if let Some(comspec) = comspec.filter(|value| is_drive_absolute(value)) {
         return comspec;
     }
-    let root = system_root
-        .filter(|value| is_drive_absolute(value))
-        .unwrap_or_else(|| OsString::from(r"C:\Windows"));
-    let mut path = root;
-    path.push(r"\System32\cmd.exe");
-    path
+    under(system_root(system_root_value), r"\System32\cmd.exe")
+}
+
+/// The default PowerShell 7 install, `<ProgramFiles>\PowerShell\7\pwsh.exe`.
+/// `None` unless `ProgramFiles` is a drive-absolute path, so an empty or
+/// relative value cannot yield a candidate under the launch directory.
+pub(super) fn pwsh_install_path(program_files: Option<OsString>) -> Option<PathBuf> {
+    let root = program_files.filter(|value| is_drive_absolute(value))?;
+    Some(PathBuf::from(under(root, r"\PowerShell\7\pwsh.exe")))
+}
+
+/// Windows PowerShell 5.1 at its fixed path under the Windows directory.
+pub(super) fn windows_powershell_path(system_root_value: Option<OsString>) -> PathBuf {
+    PathBuf::from(under(
+        system_root(system_root_value),
+        r"\System32\WindowsPowerShell\v1.0\powershell.exe",
+    ))
+}
+
+/// The directories a bare program is looked up in, in `CreateProcessW` order
+/// minus the launch directory: the OdyTTY executable's directory, `System32`,
+/// the Windows directory, then the `PATH` entries. Relative entries are kept
+/// here and dropped by [`resolve_bare_program`].
+pub(crate) fn program_search_dirs(
+    app_dir: Option<PathBuf>,
+    system_root_value: Option<OsString>,
+    path_entries: impl IntoIterator<Item = PathBuf>,
+) -> Vec<PathBuf> {
+    let root = system_root(system_root_value);
+    let mut dirs: Vec<PathBuf> = app_dir.into_iter().collect();
+    dirs.push(PathBuf::from(under(root.clone(), r"\System32")));
+    dirs.push(PathBuf::from(root));
+    dirs.extend(path_entries);
+    dirs
+}
+
+/// The program a helper process (ssh, an opener, a probe) should be started
+/// as: a name with a directory part is the caller's own choice and is kept, a
+/// bare name becomes the absolute file found in `dirs`, and a bare name found
+/// nowhere is a `NotFound` error. The helper is never given a bare name, so
+/// neither the launch directory nor a relative `PATH` entry can supply it.
+pub(crate) fn helper_program(
+    program: &OsStr,
+    dirs: impl IntoIterator<Item = PathBuf>,
+    is_file: impl Fn(&Path) -> bool,
+) -> std::io::Result<OsString> {
+    match pin_program(program, dirs, is_file) {
+        Ok(Some(found)) => Ok(found.into_os_string()),
+        Ok(None) => Ok(program.to_os_string()),
+        Err(error) => Err(std::io::Error::new(std::io::ErrorKind::NotFound, error)),
+    }
 }
 
 #[cfg(test)]
@@ -250,5 +311,134 @@ mod tests {
             command_interpreter(None, os("Win")),
             OsString::from(r"C:\Windows\System32\cmd.exe")
         );
+    }
+
+    fn os(text: &str) -> Option<OsString> {
+        Some(OsString::from(text))
+    }
+
+    /// Values that name no usable root: unset, empty, relative, rooted without
+    /// a drive, or drive-relative.
+    const UNUSABLE_ROOTS: [&str; 6] = ["", "Windows", r".\Windows", r"\Windows", "C:Windows", "C:"];
+
+    #[test]
+    fn an_unusable_system_root_falls_back_to_the_default_windows_directory() {
+        assert_eq!(system_root(None), OsString::from(r"C:\Windows"));
+        for value in UNUSABLE_ROOTS {
+            assert_eq!(
+                system_root(os(value)),
+                OsString::from(r"C:\Windows"),
+                "{value:?}"
+            );
+        }
+        assert_eq!(system_root(os(r"D:\Win")), OsString::from(r"D:\Win"));
+        assert_eq!(system_root(os("D:/Win")), OsString::from("D:/Win"));
+    }
+
+    #[test]
+    fn the_pwsh_install_path_needs_a_drive_absolute_program_files() {
+        assert_eq!(pwsh_install_path(None), None);
+        for value in UNUSABLE_ROOTS {
+            assert_eq!(pwsh_install_path(os(value)), None, "{value:?}");
+        }
+        assert_eq!(
+            pwsh_install_path(os(r"D:\Apps")),
+            Some(PathBuf::from(r"D:\Apps\PowerShell\7\pwsh.exe"))
+        );
+    }
+
+    #[test]
+    fn the_windows_powershell_path_is_always_drive_absolute() {
+        let default = PathBuf::from(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe");
+        assert_eq!(windows_powershell_path(None), default);
+        for value in UNUSABLE_ROOTS {
+            assert_eq!(windows_powershell_path(os(value)), default, "{value:?}");
+        }
+        assert_eq!(
+            windows_powershell_path(os(r"D:\Win")),
+            PathBuf::from(r"D:\Win\System32\WindowsPowerShell\v1.0\powershell.exe")
+        );
+    }
+
+    #[test]
+    fn the_search_directories_follow_the_loader_order_with_a_checked_root() {
+        let app = absolute("odytty-prog-app");
+        let path_entry = absolute("odytty-prog-path");
+        assert_eq!(
+            program_search_dirs(Some(app.clone()), os(r"D:\Win"), [path_entry.clone()]),
+            vec![
+                app.clone(),
+                PathBuf::from(r"D:\Win\System32"),
+                PathBuf::from(r"D:\Win"),
+                path_entry.clone(),
+            ]
+        );
+        // An unusable root never contributes a relative directory.
+        for value in UNUSABLE_ROOTS {
+            let dirs = program_search_dirs(None, os(value), Vec::new());
+            assert_eq!(
+                dirs,
+                vec![
+                    PathBuf::from(r"C:\Windows\System32"),
+                    PathBuf::from(r"C:\Windows")
+                ],
+                "{value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_helper_program_is_absolute_or_the_callers_own_path_or_not_found() {
+        let dir = absolute("odytty-prog-helper");
+        let holds = {
+            let dir = dir.clone();
+            move |path: &Path| path == dir.join("ssh.exe")
+        };
+        assert_eq!(
+            helper_program(OsStr::new("ssh"), [dir.clone()], &holds).expect("found"),
+            dir.join("ssh.exe").into_os_string()
+        );
+        for given in [r"C:\tools\ssh.exe", r".\ssh.exe", "bin/ssh"] {
+            assert_eq!(
+                helper_program(OsStr::new(given), [dir.clone()], &holds).expect("kept"),
+                OsString::from(given)
+            );
+        }
+        let error = helper_program(OsStr::new("scp"), [dir.clone()], &holds)
+            .expect_err("absent from every safe directory");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        assert!(error.to_string().contains("scp"), "{error}");
+    }
+
+    /// A relative `PATH` entry or an empty segment never supplies a helper,
+    /// even when a file of that name sits under it; a later absolute entry
+    /// still can.
+    #[test]
+    fn relative_path_entries_never_supply_a_helper_program() {
+        let accept_all = |_: &Path| true;
+        let relative = [PathBuf::new(), PathBuf::from("."), PathBuf::from("bin")];
+        let error = helper_program(OsStr::new("ssh"), relative.clone(), accept_all)
+            .expect_err("only relative entries");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+
+        let dir = absolute("odytty-prog-after-relative");
+        let found = helper_program(
+            OsStr::new("ssh"),
+            relative.into_iter().chain([dir.clone()]),
+            accept_all,
+        )
+        .expect("the absolute entry supplies it");
+        assert_eq!(found, dir.join("ssh.exe").into_os_string());
+
+        // The same rule against the real file system: the crate manifest sits
+        // in the working directory of this test, and `.` must not find it.
+        assert!(Path::new("Cargo.toml").is_file(), "test precondition");
+        let error = helper_program(
+            OsStr::new("Cargo.toml"),
+            [PathBuf::from(".")],
+            Path::is_file,
+        )
+        .expect_err("the working directory is never searched");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
     }
 }

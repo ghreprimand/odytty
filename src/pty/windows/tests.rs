@@ -832,3 +832,44 @@ fn an_unresolved_bare_program_is_refused_before_the_spawn() {
     let error = spawned.err().expect("the spawn is refused");
     assert!(error.to_string().contains(name), "{error}");
 }
+
+/// A relative, empty or drive-relative `ProgramFiles` or `SystemRoot` never
+/// yields a candidate under the launch directory: the file check is not even
+/// asked about it, whatever the file system holds.
+#[test]
+fn derived_shell_roots_must_be_drive_absolute() {
+    let asked = std::cell::RefCell::new(Vec::new());
+    let accept_all = |path: &Path| {
+        asked.borrow_mut().push(path.to_path_buf());
+        true
+    };
+    for unusable in ["", "Program Files", r".\Program Files", r"\PF", "C:PF"] {
+        assert_eq!(
+            pwsh_from_program_files(Some(OsString::from(unusable)), accept_all),
+            None,
+            "{unusable:?}"
+        );
+    }
+    assert!(asked.borrow().is_empty(), "{:?}", asked.borrow());
+    assert_eq!(pwsh_from_program_files(None, accept_all), None);
+
+    for unusable in ["", "Windows", r".\Windows", r"\Windows", "C:Windows"] {
+        let found = powershell_from_system_root(Some(OsString::from(unusable)), accept_all)
+            .expect("the default Windows directory is used instead");
+        assert_eq!(
+            PathBuf::from(found),
+            PathBuf::from(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"),
+            "{unusable:?}"
+        );
+    }
+    for path in asked.borrow().iter() {
+        assert!(path.is_absolute(), "{path:?}");
+    }
+
+    let found = pwsh_from_program_files(Some(OsString::from(r"D:\Apps")), accept_all)
+        .expect("a drive-absolute root is used");
+    assert_eq!(
+        PathBuf::from(found),
+        PathBuf::from(r"D:\Apps\PowerShell\7\pwsh.exe")
+    );
+}

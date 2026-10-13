@@ -98,3 +98,22 @@ pub(super) fn has_two_cell_footprint(base: char, extensions: &[char]) -> bool {
             .iter()
             .any(|&ch| script(data::SPACING, ch) == sid || script(data::CONSONANTS, ch) == sid)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::data;
+
+    #[test]
+    fn script_property_ranges_exclude_ascii() {
+        for (name, ranges) in [
+            ("BASES", data::BASES),
+            ("SPACING", data::SPACING),
+            ("CONSONANTS", data::CONSONANTS),
+            ("LINKERS", data::LINKERS),
+        ] {
+            for &(start, _, _) in ranges {
+                assert!(start >= 0x80, "{name} contains an ASCII property member");
+            }
+        }
+    }
+}

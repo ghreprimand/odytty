@@ -172,7 +172,16 @@ code; `portable-pty` and `crossterm` are gone from the dependency tree.
   directory and `PATH`, never the launch directory; a bare name found in none
   of them is refused with a "was not found" error before any pseudoconsole is
   created, rather than left for `CreateProcessW` to search the launch
-  directory. A program given with a directory part is used as given. Dropping a
+  directory. A program given with a directory part is used as given. The
+  `%ProgramFiles%` and `%SystemRoot%` bases used to find PowerShell must be
+  drive-absolute paths; an empty, relative or drive-relative value is ignored
+  (`C:\Windows` replaces an unusable `%SystemRoot%`), so no candidate can lie
+  under the launch directory. The helper programs OdyTTY itself starts (`ssh`
+  for probes, uploads and cleanup, `wsl.exe`, the notification `powershell.exe`
+  and the file opener or a bare editor name) are resolved the same way, from
+  the executable's directory, `System32`, the Windows directory and absolute
+  `PATH` entries only: a relative or empty `PATH` entry never supplies a helper,
+  and a bare helper found nowhere is not started. Dropping a
   session waits at most one second for a killed child before detaching its
   waiter thread. `spawn_shell_command`
   selects the one-shot flag by shell family - `cmd /C <command>` for cmd,
