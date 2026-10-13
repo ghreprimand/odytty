@@ -143,9 +143,8 @@ impl AboutInfo {
     }
 }
 
-/// Best-effort display-server detection from the environment. Wayland is checked
-/// first because a session can advertise both; OdyTTY prefers the Wayland
-/// backend when `WAYLAND_DISPLAY` is set.
+/// Environment hint for the display server, preferring Wayland when both
+/// variables are present. This does not identify the actual window backend.
 fn detect_display_server() -> &'static str {
     if std::env::var_os("WAYLAND_DISPLAY").is_some() {
         "Wayland"

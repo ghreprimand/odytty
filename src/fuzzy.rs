@@ -70,20 +70,9 @@ pub fn score_with_options(query: &str, candidate: &str, options: MatchOptions) -
         let mut current = vec![None; candidate_chars.len()];
         let query_folded = fold_char(query_ch);
 
-        // Incremental running maximum of the gap-transition term. The original
-        // `best_previous` fold scanned every prior candidate index once per
-        // matching position, making the transition cost O(candidate_index) and
-        // the whole call O(query_len * candidate_len^2) for a query character
-        // that recurs often in the candidate. The gap term
-        //   previous[pi] - (candidate_index - pi - 1) * GAP_PENALTY
-        // rearranges to
-        //   (previous[pi] + (pi + 1) * GAP_PENALTY) - candidate_index * GAP_PENALTY,
-        // so the max over all pi <= candidate_index - 2 of the parenthesized
-        // part is a running maximum that only depends on the current index
-        // through the shared `- candidate_index * GAP_PENALTY` factor. The
-        // immediate predecessor (gap == 0) keeps its CONSECUTIVE_BONUS special
-        // case. This yields the identical `best_previous` value in O(1)
-        // amortized per position instead of O(candidate_index).
+        // Gap recurrence: max(previous[pi] + (pi + 1) * GAP_PENALTY)
+        // minus candidate_index * GAP_PENALTY. Exclude the immediate
+        // predecessor, which keeps its separate CONSECUTIVE_BONUS.
         let mut gap_max: Option<i32> = None; // max over pi in [0, c-2] of previous[pi] + (pi+1)*GAP_PENALTY
 
         for (candidate_index, candidate_ch) in candidate_chars.iter().enumerate() {

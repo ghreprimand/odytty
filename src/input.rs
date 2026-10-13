@@ -831,26 +831,9 @@ fn encode_tilde_key(code: u8, mods: Modifiers) -> Vec<u8> {
     }
 }
 
-/// xterm modifyOtherKeys encoding: `CSI 27 ; modifier ; codepoint ~`.
-///
-/// Applies to "ordinary" keys - printable characters plus Enter/Tab/Backspace
-/// (Escape stays raw `ESC`: xterm leaves it alone and TUIs depend on that).
-/// Cursor, navigation, and function keys keep their xterm modifier encodings
-/// unconditionally, and Shift-Tab keeps `CSI Z` (kcbt). Returns `None` when
-/// the level does not claim the key, falling through to the legacy encoder.
-///
-/// Level semantics follow xterm:
-/// - Level 1 encodes only modified keys that would otherwise lose their
-///   modifiers entirely - combinations with a well-known legacy encoding
-///   (Ctrl+letter control bytes, Alt's ESC prefix, unshifted printables,
-///   modified Enter/Tab/Backspace) stay legacy.
-/// - Level 2 encodes every modified ordinary key, including the well-known
-///   cases, except Shift-as-the-only-modifier on a printable (Shift is
-///   consumed producing the glyph; xterm sends the plain character).
-///
-/// The codepoint is the produced character's (shifted punctuation reports the
-/// shifted codepoint - `Ctrl+Shift+3` is `CSI 27;6;35~`, `#` not `3`), and the
-/// modifier parameter is the same 1+bitmask the CSI-u forms use.
+/// Encode modified ordinary keys at the selected xterm modifyOtherKeys level.
+/// Level 1 preserves keys with legacy encodings; level 2 includes Enter, Tab and
+/// Backspace. Unclaimed keys return `None` for legacy handling.
 fn encode_modify_other_key(key: Key, mods: Modifiers, level: u8) -> Option<Vec<u8>> {
     let has_mods = mods.ctrl || mods.alt || mods.shift;
     if !has_mods {
@@ -1003,17 +986,8 @@ pub fn encode_paste(text: &str, bracketed_paste: bool) -> Vec<u8> {
     }
 }
 
-/// Strip any embedded bracketed-paste end marker from pasted bytes. Without
-/// this, a crafted clipboard payload containing `ESC [ 2 0 1 ~` would close the
-/// paste guard early and inject its tail as live keystrokes/commands.
-///
-/// Deleting a match can bring the surrounding bytes together to form a NEW
-/// match, so a naive forward scan does not converge: `ESC[2` + `ESC[201~` +
-/// `01~` collapses to exactly `ESC[201~`, re-emitting the marker it exists to
-/// remove. This scan checks the growing OUTPUT tail after every byte, so a
-/// marker reassembled by a prior deletion is caught in the same pass. The
-/// result is a fixed point in one linear pass: `sanitize_paste(sanitize_paste(x))
-/// == sanitize_paste(x)` and no `ESC[201~` survives in the output.
+/// Remove bracketed-paste END markers. Check the output suffix after each byte
+/// so deletion-spliced markers are removed too; sanitization is idempotent.
 pub fn sanitize_paste(text: &[u8]) -> Vec<u8> {
     const END: &[u8] = b"\x1b[201~";
     let mut output = Vec::with_capacity(text.len());

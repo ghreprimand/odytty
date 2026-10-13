@@ -23,7 +23,9 @@ use std::collections::HashSet;
 /// * Each bundle path (e.g. `/Applications/Preview.app`) becomes one
 ///   [`DesktopApp`] whose `id` is the bundle path, `name` is the bundle's
 ///   basename with a trailing `.app` stripped (`Preview`), and `argv` is the
-///   inert, argv-only launch command `["open", "-a", <bundle>, <file_abs>]`.
+///   argv-only launch command `["open", "-a", <bundle>, <file_abs>]`.
+///   The native caller must supply an absolute file operand; this mapper does
+///   not validate it or insert an option terminator.
 /// * Duplicate bundle paths are dropped, preserving the first (LaunchServices
 ///   preference) occurrence. Empty path strings are skipped.
 /// * The result is capped at [`MAX_OPEN_WITH`], matching the Linux enumeration.

@@ -1,25 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Bounded reads for font files selected directly or found during discovery.
-//!
-//! Font parsing owns the returned bytes, so every caller needs a complete file.
-//! This boundary rejects non-regular targets and stops one byte past a generous
-//! ceiling, preventing a malformed filesystem entry from turning discovery into
-//! an unbounded allocation. Symlinks that resolve to ordinary font files remain
-//! supported because system font installations commonly use them.
-//!
-//! # Collections are read one face at a time
-//!
-//! A TrueType *collection* (`.ttc`) holds many faces that share most of their
-//! tables, so the file can be enormous while any single face is ordinary:
-//! Iosevka ships 162 faces in 377.1 MiB, of which one face is 9.4 MiB. Reading
-//! the whole file to rasterize one glyph was both the reason a legitimate host
-//! font failed the size ceiling and, on its own terms, 40x more resident bytes
-//! than the job needs.
-//!
-//! [`read_font_face`] therefore reads a collection's *face* rather than its
-//! file: the table directory for the requested face, then only the tables that
-//! face references, reassembled as a standalone single-face font. The ceiling
-//! is unchanged and now applies to what is actually retained.
+//! Read font files and individual collection faces under a retained-byte cap.
+//! Refuse non-regular files; follow symlinks to ordinary files. A collection
+//! load reads only the selected face directory and its referenced tables,
+//! assembled into a standalone face under the same size limit.
 
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -335,25 +318,9 @@ fn over_limit(found: u64, limit: u64) -> io::Error {
     )
 }
 
-/// Whether face 0 of the font at `path` lists every table in `tags`, reading
-/// only its header and table directory rather than the whole file.
-///
-/// Discovery probes host files for color tables (COLR/CPAL) before choosing
-/// one to load; reading each candidate in full cost up to the font-file
-/// ceiling per file. This answers the same question the parsed-font check
-/// answered (`swash::FontRef::from_index(data, 0)` then a table lookup for each
-/// tag) from at most the header plus `u16::MAX` sixteen-byte records:
-///
-/// - the opened target must be regular; ordinary files are capped at
-///   [`MAX_FONT_FILE_BYTES`], while a collection probe reads only its directory;
-/// - the magic must be an sfnt version (`0x00010000`, `OTTO`, `true`) or
-///   `ttcf`, and a collection must declare at least one face whose directory
-///   offset holds an sfnt version;
-/// - each tag is found by the same binary search over the directory, so an
-///   unsorted directory answers exactly as the parser did, and the table's
-///   byte range must lie inside the file.
-///
-/// Any read error or malformed value answers `false`, as before.
+/// Probe the bounded face-0 directory using parser-compatible tag lookup.
+/// Require a regular file, valid sfnt or collection header, and table byte
+/// ranges inside the file. Read errors and malformed values return false.
 pub(crate) fn face0_has_tables(path: &Path, tags: &[[u8; 4]]) -> bool {
     let Ok((mut file, file_len)) = open_for_read(path) else {
         return false;

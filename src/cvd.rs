@@ -47,8 +47,7 @@
 //! bit for bit, but [`adapt_palette`] still re-floors at zero strength.
 
 use crate::color::{
-    LinearRgb, Oklab, Oklch, linear_to_oklab, linear_to_srgb_u8, oklab_to_linear, oklab_to_oklch,
-    oklch_to_oklab, srgb_to_linear,
+    LinearRgb, Oklab, Oklch, linear_to_oklab, linear_to_srgb_u8, oklab_to_oklch, srgb_to_linear,
 };
 use crate::theme::{Srgb, ThemeSpec};
 
@@ -262,33 +261,13 @@ fn from_linear(lin: LinearRgb) -> Srgb {
     )
 }
 
-/// True if a linear colour lies within the sRGB cube (small epsilon for float
-/// slop at the boundary).
-fn in_gamut(lin: LinearRgb) -> bool {
-    lin.iter().all(|&c| (-1e-4..=1.0 + 1e-4).contains(&c))
-}
-
 /// Convert an OKLCH colour to linear RGB, reducing chroma toward the neutral
 /// axis (constant lightness and hue) until the result fits the sRGB gamut. A
 /// saturated OKLab→linear can fall outside the cube; per-channel clamping would
 /// skew the hue, so this bisects chroma down to the gamut boundary, keeping the
 /// hue exact and desaturating only as much as needed.
 fn oklch_to_linear_gamut(lch: Oklch) -> LinearRgb {
-    let direct = oklab_to_linear(oklch_to_oklab(lch));
-    if in_gamut(direct) {
-        return direct;
-    }
-    let (mut lo, mut hi) = (0.0_f32, lch.c);
-    for _ in 0..20 {
-        let mid = 0.5 * (lo + hi);
-        let candidate = oklab_to_linear(oklch_to_oklab(Oklch { c: mid, ..lch }));
-        if in_gamut(candidate) {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-    oklab_to_linear(oklch_to_oklab(Oklch { c: lo, ..lch }))
+    crate::color::gamut_map_oklch(lch)
 }
 
 #[cfg(test)]

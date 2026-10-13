@@ -45,7 +45,7 @@
 
 use crate::color::{
     self, LinearRgb, Oklch, enforce_min_contrast_unclamped, linear_to_oklab, linear_to_srgb_u8,
-    oklab_to_linear, oklab_to_oklch, oklch_to_oklab, srgb_to_linear,
+    oklab_to_oklch, srgb_to_linear,
 };
 use crate::text::DEFAULT_ANSI_SRGB;
 use crate::theme::{Appearance, Srgb, ThemeSpec, VisualEffect};
@@ -454,33 +454,13 @@ fn oklch_to_srgb(lch: Oklch) -> Srgb {
     from_linear(oklch_to_linear_gamut(lch))
 }
 
-/// True if a linear color lies within the sRGB cube (small epsilon for float
-/// slop at the boundary).
-fn in_gamut(lin: LinearRgb) -> bool {
-    lin.iter().all(|&c| (-1e-4..=1.0 + 1e-4).contains(&c))
-}
-
 /// Convert an OKLCH color to linear RGB, reducing chroma toward the neutral axis
 /// (constant lightness and hue) until the result fits the sRGB gamut. A straight
 /// OKLab→linear of a saturated color can fall outside the cube; clamping it per
 /// channel would shift the hue, so instead we bisect chroma down to the gamut
 /// boundary, which keeps the hue exact and only desaturates as much as needed.
 fn oklch_to_linear_gamut(lch: Oklch) -> LinearRgb {
-    let direct = oklab_to_linear(oklch_to_oklab(lch));
-    if in_gamut(direct) {
-        return direct;
-    }
-    let (mut lo, mut hi) = (0.0_f32, lch.c);
-    for _ in 0..20 {
-        let mid = 0.5 * (lo + hi);
-        let candidate = oklab_to_linear(oklch_to_oklab(Oklch { c: mid, ..lch }));
-        if in_gamut(candidate) {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-    oklab_to_linear(oklch_to_oklab(Oklch { c: lo, ..lch }))
+    crate::color::gamut_map_oklch(lch)
 }
 
 #[cfg(test)]
@@ -709,12 +689,17 @@ mod tests {
 
     #[test]
     fn floor_of_one_is_a_no_op_validation_pass() {
-        // With the floor at unity (passthrough), the validation pass must not
-        // move any role - the pre-validation colors survive intact.
-        //
-        // A Light appearance is the clean demonstrator: the chromatic ramp sits
-        // at L≈0.62, which is too light against the L≈0.95 light background, so
-        // the 4.5 floor darkens those slots. With floor=1.0 they must stay put.
+        let mut before = ThemeSpec::from_theme(&crate::theme::Theme::PLAIN);
+        before.foreground = before.background;
+        before.cursor = before.background;
+        let mut after = before.clone();
+        validate(&mut after, 1.0);
+        assert_eq!(
+            after, before,
+            "unity validation preserves all authored colors"
+        );
+
+        // A stronger floor changes the generated light theme.
         let seed = (0x86, 0xc1, 0xff);
         let floored = generate(seed, Appearance::Light, 4.5);
         let unfloored = generate(seed, Appearance::Light, 1.0);
@@ -729,13 +714,11 @@ mod tests {
              {unfloored_l} vs {floored_l}"
         );
 
-        // floor=1.0 is an exact passthrough: every role equals the pre-floor
-        // build. Re-running the same generation is byte-identical (determinism),
-        // and the floored variant genuinely differs - so the pass did real work.
+        // Generation at the same floor remains deterministic.
         assert_eq!(
             unfloored,
             generate(seed, Appearance::Light, 1.0),
-            "floor=1.0 must be deterministic / a stable passthrough"
+            "floor=1.0 generation must be deterministic"
         );
         assert_ne!(
             unfloored, floored,

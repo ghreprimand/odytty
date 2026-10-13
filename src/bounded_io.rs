@@ -11,6 +11,9 @@
 //!   its output. [`run_bounded`] gives it a deadline and an output cap and
 //!   kills it when either is exceeded.
 
+// macOS has no production bounded-helper caller.
+#![cfg_attr(target_os = "macos", allow(dead_code))]
+
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
@@ -46,8 +49,6 @@ fn not_regular() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, "path is not a regular file")
 }
 
-// macOS has no bounded helper caller (no xdg-mime, fontconfig, or WSL query).
-#[cfg_attr(target_os = "macos", allow(dead_code))]
 /// A helper program's result within its bounds.
 #[derive(Debug)]
 pub(crate) struct BoundedOutput {
@@ -55,8 +56,6 @@ pub(crate) struct BoundedOutput {
     pub(crate) stdout: Vec<u8>,
 }
 
-// macOS has no bounded helper caller (no xdg-mime, fontconfig, or WSL query).
-#[cfg_attr(target_os = "macos", allow(dead_code))]
 /// Why a bounded helper run produced no output.
 #[derive(Debug)]
 pub(crate) enum BoundedRunError {
@@ -70,14 +69,10 @@ pub(crate) enum BoundedRunError {
     Io,
 }
 
-// macOS has no bounded helper caller (no xdg-mime, fontconfig, or WSL query).
-#[cfg_attr(target_os = "macos", allow(dead_code))]
 /// Pause between exit checks after the output closes.
 const EXIT_POLL_PAUSE: Duration = Duration::from_millis(2);
 
-// macOS has no bounded helper caller (no xdg-mime, fontconfig, or WSL query).
-#[cfg_attr(target_os = "macos", allow(dead_code))]
-/// Run `command` with stdin and stderr closed, collecting at most
+/// Run `command` with stdin and stderr redirected to the null device, collecting at most
 /// `max_stdout` bytes of stdout, and kill it if it is still running at
 /// `deadline` or writes past the cap. The caller never waits longer than the
 /// deadline (plus the kill and reap).
@@ -158,8 +153,6 @@ pub(crate) fn run_bounded(
     }
 }
 
-// macOS has no bounded helper caller (no xdg-mime, fontconfig, or WSL query).
-#[cfg_attr(target_os = "macos", allow(dead_code))]
 fn kill_and_reap(child: &mut std::process::Child) {
     let _ = child.kill();
     let _ = child.wait();

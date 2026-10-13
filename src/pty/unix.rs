@@ -10,7 +10,7 @@ use std::env;
 use std::ffi::{CStr, OsString};
 use std::fs::File;
 use std::io::{Read, Write};
-use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
@@ -856,8 +856,8 @@ pub(crate) fn open_pty_pair(dimensions: Dimensions) -> Result<(File, File)> {
     tcsetwinsize(&slave, winsize(dimensions, CellMetrics::DEFAULT))
         .context("set pty window size")?;
 
-    let master = unsafe { File::from_raw_fd(master.into_raw_fd()) };
-    let slave = unsafe { File::from_raw_fd(slave.into_raw_fd()) };
+    let master = File::from(master);
+    let slave = File::from(slave);
     Ok((master, slave))
 }
 

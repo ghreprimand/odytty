@@ -51,44 +51,9 @@ pub mod text;
 pub mod theme;
 pub mod theme_author;
 
-/// Test-only serialization and restoration for the process-global render
-/// knobs.
-///
-/// The render path reads `text::MIN_CONTRAST`, the `text` default
-/// foreground/background and ANSI palette, and `atlas::STEM_DARKEN` lock-free
-/// from atomics. A handful of tests set them directly, and the settings-reload
-/// seam republishes them from `Settings`. Because `cargo test` runs tests in
-/// parallel threads inside one process, an unguarded write is visible to an
-/// unrelated test that asserts the default: both a window race (the value is
-/// wrong only while the writer's scope is open) and a residual-state leak (the
-/// value stays wrong for the rest of the binary's life).
-///
-/// This module is the single serialization point. It combines mutual exclusion
-/// with automatic restoration, so correctness no longer depends on every writer
-/// remembering to hand-restore a baseline on every exit path - including the
-/// unwinding one.
-///
-/// Which readers need this guard: any assertion whose value depends on one of
-/// those globals. That is coverage MAGNITUDE (ink sums, byte-identity between
-/// two rasterization passes) and resolved COLOR (a floored foreground, an
-/// indexed palette entry, or two vertex builds compared byte-for-byte). It is
-/// NOT presence: rasterization drops zero-coverage samples before stem
-/// darkening is applied and returns the `0`/`255` endpoints exactly, so
-/// `ink > 0` scans and the ink-box geometry derived from them are invariant
-/// under the gain. A test that supplies its own explicit colors bypasses the
-/// palette, but its foregrounds still pass through the contrast floor.
-///
-/// The snapshot covers every process-global value the settings-reload seam can
-/// republish, audited from that seam outward rather than from the list of
-/// globals tests happen to set today: the contrast floor, the default
-/// foreground/background and ANSI palette, the stem-darkening gain, the
-/// box-drawing thickness multiplier, and the atlas/shaping switches the
-/// reload helper publishes (synthetic styles, geometric box drawing,
-/// ligatures, optional ss01/ss02, alternate zero, symbol fallback, symbol font
-/// path, symbol map). A global that is
-/// only latent today still belongs here: the cost of snapshotting one more
-/// value is trivial next to a leak that surfaces as an unrelated test failing
-/// on someone else's machine. Extend this struct, never add a second lock.
+/// Serialize render-global readers and writers and restore entry state on
+/// scope exit, including nested scopes and unwinding. Color and byte-identity
+/// assertions need this guard; ink-presence checks do not depend on gain.
 #[cfg(test)]
 pub(crate) mod test_lock {
     use std::cell::Cell;
@@ -214,6 +179,7 @@ pub(crate) mod test_lock {
     /// held. Poison is recovered with `into_inner` so a panicking test does not
     /// wedge the rest of the suite, and restoration is automatic so a panicking
     /// test cannot leak a perturbed global either.
+    /// Lock order: environment, catalog, render globals; never the reverse.
     pub(crate) fn render_globals_lock() -> RenderGlobalsGuard {
         let outer = RENDER_GLOBALS_DEPTH.with(|depth| {
             let current = depth.get();
@@ -237,23 +203,10 @@ pub(crate) mod test_lock {
 
     static DEVICE_CREATION_LOCK: Mutex<()> = Mutex::new(());
 
-    /// Serialize headless wgpu instance/adapter/device creation across parallel
-    /// test threads. Concurrent device bring-up on the same adapter can deadlock
-    /// inside the driver; holding this lock for the duration of each creation
-    /// block serializes the creation sites that take it (it does not exclude
-    /// creators outside this lock). Each headless fixture separately holds its
-    /// full-lifetime guard through drawing and handle teardown and retains its root
-    /// instance for the process lifetime: creation serialization alone cannot
-    /// exclude EGL teardown racing with Vulkan allocation in another test.
-    /// The device-creation deadlock was originally assumed to
-    /// be specific to the software Vulkan ICD, but a thread dump taken at a
-    /// reproduced hang showed every open descriptor pointing at the accelerated
-    /// device nodes and the blocked threads inside the vendor driver's own
-    /// worker pool, with no software-ICD descriptor present - so the hazard is
-    /// concurrent `vkCreateDevice` generally, not one ICD. Acquire it strictly
-    /// around the creation block and release before taking any other test lock, so it never nests with
-    /// `render_globals_lock` and cannot form a cycle. Poison is recovered with
-    /// `into_inner` so a panicking test does not wedge later device creation.
+    /// Serialize cooperating device-creation sites, then release before any other
+    /// test lock. Fixtures also hold their full-lifetime GPU guard through teardown;
+    /// creation locking alone does not serialize rendering or destruction. Recover
+    /// poison so a panicking test does not block later creation.
     pub(crate) fn device_creation_lock() -> MutexGuard<'static, ()> {
         DEVICE_CREATION_LOCK
             .lock()
@@ -285,6 +238,7 @@ pub(crate) mod test_lock {
     /// The guard also marks the current thread as holding the lock, so
     /// spawn-time readers ([`crate::settings::spawn_env_var`]) read the live
     /// environment only on a thread that cannot race a redirect.
+    /// Lock order: environment, catalog, render globals; never the reverse.
     pub(crate) fn test_env_lock() -> EnvLockGuard {
         let guard = TEST_ENV_LOCK
             .lock()
@@ -325,6 +279,7 @@ pub(crate) mod test_lock {
     /// Where a fixture also changes environment variables, acquire
     /// [`test_env_lock`] first and this lock second. Poison is recovered so a
     /// panicking fixture does not wedge the suite.
+    /// Lock order: environment, catalog, render globals; never the reverse.
     pub(crate) fn catalog_count_lock() -> MutexGuard<'static, ()> {
         CATALOG_COUNT_LOCK
             .lock()

@@ -1,22 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Button Protocol B2 - chip rendering.
-//!
-//! Program-defined buttons are exposed for render as viewport-projected
-//! [`SnapshotButton`]s (see [`crate::core::Screen::visible_button_spans`]). This
-//! module paints them into the snapshot cells using the same cell-decoration
-//! path the click hint and selection highlights use: a label-run button
-//! re-styles its own label cells as a chip; a Tier 1 point button
-//! (`point == true`) gets a bounded `▐ icon code ▌` pill painted into the
-//! chip rect core resolved at the row's content end (`point_chip_rect`), so
-//! it never overwrites command output and the pointer hit-test covers exactly
-//! the painted cells.
-//!
-//! The default path is byte-identical: with the `buttons` gate off the projector
-//! returns no spans, so [`paint_button_cells`] is handed an empty slice and is a
-//! no-op - no cell is touched. The exact chip look (colors, glyphs, the eventual
-//! promotion of the point chip to real overlay-quad geometry) is FEEL-GATED and
-//! tuned on a release build before the chip is considered done; the constants
-//! here have no portable-correct value.
+//! Paint projected program-defined button spans into a presentation snapshot.
+//! Label buttons restyle their own cells; point buttons paint within the core
+//! chip rectangle. Painting and pointer hit testing share that rectangle. An
+//! empty projected span list changes no cells.
 
 use crate::core::{Attrs, ButtonIcon, ButtonState, Cell, Color, Snapshot, SnapshotButton};
 

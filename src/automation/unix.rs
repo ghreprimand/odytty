@@ -183,7 +183,7 @@ fn bind_guarded(
 pub struct Server {
     stopped: Arc<AtomicBool>,
     fault: Arc<Mutex<Option<String>>>,
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     wake: Arc<dyn Fn() -> bool + Send + Sync>,
     thread: Option<JoinHandle<()>>,
 }
@@ -241,6 +241,7 @@ impl Server {
         let stop = stopped.clone();
         let fault = Arc::new(Mutex::new(None));
         let fault_slot = fault.clone();
+        #[cfg(test)]
         let wake_handle = wake.clone();
         let thread = thread::Builder::new()
             .name("odytty-control".into())
@@ -319,6 +320,7 @@ impl Server {
         Ok(Self {
             stopped,
             fault,
+            #[cfg(test)]
             wake: wake_handle,
             thread: Some(thread),
         })

@@ -1,26 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Byte-domain contrast readouts, unified with the render-time readability floor.
-//!
-//! OdyTTY has **one** contrast metric: the WCAG 2.x relative-luminance contrast
-//! ratio implemented in [`crate::color`], which is exactly what the RV1/U1
-//! readability floor ([`crate::color::enforce_min_contrast`]) enforces at render
-//! time. This module is a thin **byte-domain adapter** over that metric: it
-//! decodes 8-bit sRGB triples ([`Srgb`]) to scene-linear RGB with the canonical
-//! transfer ([`crate::color::srgb_to_linear`]) and then delegates to the same
-//! [`crate::color::relative_luminance`] / [`crate::color::wcag_contrast`] the
-//! renderer uses.
-//!
-//! Keeping a single metric is the load-bearing invariant behind the theme
-//! builder: a contrast number **shown** to the user (theme validation in TH3,
-//! the theme-builder readout) equals the contrast the renderer **enforces**, so
-//! an authored `.theme` and its rendered pixels agree. There is deliberately no
-//! second "display" formula here: the contrast is computed with the canonical
-//! linear primitives only.
-//!
-//! The byte form ([`Srgb`]) and `f64` return type are retained so existing
-//! callers (theme validation, the builder readout, the bloom-threshold seed) are
-//! unchanged; the values they receive now match the render floor to float
-//! precision.
+//! Byte-domain adapters for the canonical scene-linear WCAG contrast metric.
+//! Theme validation, builder readout and renderer share the same transfer and
+//! contrast functions; final render treatments are separate from this readout.
 
 use super::Srgb;
 use crate::color;

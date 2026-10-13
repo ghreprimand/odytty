@@ -128,14 +128,7 @@ fn directory_matches(cwd: Option<&Path>, pattern: &str) -> bool {
     }
     let cwd_path = cwd.to_path_buf();
     let pattern_path = pattern.to_path_buf();
-    if cwd_path.starts_with(&pattern_path) {
-        return true;
-    }
-    let mut prefix = pattern_path;
-    if !prefix.as_os_str().is_empty() && !prefix.ends_with(std::ffi::OsStr::new("/")) {
-        prefix.push("");
-    }
-    cwd_path.starts_with(prefix)
+    cwd_path.starts_with(&pattern_path)
 }
 
 /// Describe each match rule in `rules` that can never match, so a typo in a
@@ -459,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn normalize_rejects_traversal_relative_and_separator_patterns() {
+    fn normalize_rejects_relative_and_separator_patterns() {
         // Directory patterns must be absolute; host patterns must carry no path
         // separators or whitespace. This blocks a hostile pattern from encoding
         // traversal or a path where a hostname is expected.

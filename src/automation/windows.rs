@@ -44,32 +44,20 @@ use windows::core::{PCWSTR, PWSTR};
 use super::dispatch::Submission;
 use super::protocol::{self, ErrorCode, Reply, Request, Response};
 
-const PIPE_PREFIX: &[u16] = &[
-    b'\\' as u16,
-    b'\\' as u16,
-    b'.' as u16,
-    b'\\' as u16,
-    b'p' as u16,
-    b'i' as u16,
-    b'p' as u16,
-    b'e' as u16,
-    b'\\' as u16,
-    b'o' as u16,
-    b'd' as u16,
-    b'y' as u16,
-    b't' as u16,
-    b't' as u16,
-    b'y' as u16,
-    b'-' as u16,
-    b'c' as u16,
-    b'o' as u16,
-    b'n' as u16,
-    b't' as u16,
-    b'r' as u16,
-    b'o' as u16,
-    b'l' as u16,
-    b'-' as u16,
-];
+const PIPE_PREFIX_TEXT: &str = r"\\.\pipe\odytty-control-";
+const PIPE_PREFIX: &[u16] = &wide_pipe_prefix();
+
+const fn wide_pipe_prefix() -> [u16; PIPE_PREFIX_TEXT.len()] {
+    let bytes = PIPE_PREFIX_TEXT.as_bytes();
+    let mut wide = [0; PIPE_PREFIX_TEXT.len()];
+    let mut index = 0;
+    while index < bytes.len() {
+        wide[index] = bytes[index] as u16;
+        index += 1;
+    }
+    wide
+}
+
 const MAX_CLIENTS: usize = 8;
 const MAX_PIPE_INSTANCES: u32 = MAX_CLIENTS as u32 + 1;
 const MAX_CONNECTIONS_PER_SECOND: usize = 32;
@@ -109,6 +97,7 @@ unsafe impl Send for OwnedHandle {}
 
 impl Drop for OwnedHandle {
     fn drop(&mut self) {
+        // SAFETY: this wrapper owns a valid kernel handle and closes it once.
         unsafe {
             let _ = CloseHandle(self.0);
         }
@@ -119,7 +108,6 @@ fn owned_handle(handle: HANDLE) -> io::Result<OwnedHandle> {
     if handle.is_invalid() {
         Err(io::Error::last_os_error())
     } else {
-        // SAFETY: the successful Win32 call returned a new owning handle.
         Ok(OwnedHandle(handle))
     }
 }
@@ -156,7 +144,7 @@ fn wide_endpoint(path: &Path) -> io::Result<Vec<u16>> {
 }
 
 pub fn endpoint(pid: u32) -> PathBuf {
-    PathBuf::from(format!(r"\\.\pipe\odytty-control-{pid}"))
+    PathBuf::from(format!("{PIPE_PREFIX_TEXT}{pid}"))
 }
 
 struct OwnedSid {
@@ -554,7 +542,7 @@ fn wait_for_client(handle: &OwnedHandle, stopped: &AtomicBool) -> io::Result<Acc
 pub struct Server {
     stopped: Arc<AtomicBool>,
     fault: Arc<Mutex<Option<String>>>,
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     wake: Arc<dyn Fn() -> bool + Send + Sync>,
     thread: Option<JoinHandle<()>>,
 }
@@ -591,6 +579,7 @@ impl Server {
         let fault = Arc::new(Mutex::new(None));
         let fault_slot = fault.clone();
         let wake: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(wake);
+        #[cfg(test)]
         let wake_handle = wake.clone();
         let thread = thread::Builder::new()
             .name("odytty-control".into())
@@ -702,6 +691,7 @@ impl Server {
         Ok(Self {
             stopped,
             fault,
+            #[cfg(test)]
             wake: wake_handle,
             thread: Some(thread),
         })

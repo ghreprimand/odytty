@@ -343,8 +343,9 @@ Licensed fixtures (OFL subsets of the Noto faces) carry HarfBuzz 14.5.1
 references for all 49 northern and 33 southern Indic samples; all but one
 match exactly. Bengali
 ka, virama, ra shapes differently in `harfrust` 0.8.4, and the fixtures keep
-that difference as an asserted known difference rather than a conformance
-claim. Every Khmer, Myanmar, Thai, Lao, and Tibetan sample matches exactly. All eight Sinhala samples match exactly. All 27 Chakma, Javanese, Grantha, and Tai Tham samples match exactly.
+that difference as an asserted glyph-position difference rather than a
+conformance claim. Pixel-oracle comparisons cover the matching rows; that
+Bengali row uses its separate shaping assertion. Every Khmer, Myanmar, Thai, Lao, and Tibetan sample matches exactly. All eight Sinhala samples match exactly. All 27 Chakma, Javanese, Grantha, and Tai Tham samples match exactly.
 Scripts outside the enabled blocks keep the per-cell path.
 
 ### SVG-in-OpenType

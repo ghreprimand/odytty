@@ -152,6 +152,7 @@ mod tests {
             "a receiver lost with its window is dropped"
         );
     }
+
     /// An origin window with a pending broadcast paste confirmation and a
     /// sibling window holding one receiver plus a pane not yet in the set.
     /// Returns the host, the receiver's bytes, and the later pane's token and

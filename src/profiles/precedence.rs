@@ -404,6 +404,98 @@ mod tests {
     }
 
     #[test]
+    fn restored_profile_beats_workspace_binding_and_cli_beats_restored_title() {
+        let mut catalog = empty_catalog();
+        for name in ["restored", "workspace"] {
+            catalog
+                .profiles
+                .insert(name.to_owned(), LaunchProfile::new(name).unwrap());
+        }
+        let cli = LaunchCliOverrides {
+            title: Some("cli".to_owned()),
+            ..Default::default()
+        };
+        let restored = RestoredLaunchOverrides {
+            profile_name: Some("restored".to_owned()),
+            title: Some("saved".to_owned()),
+            ..Default::default()
+        };
+        let live = LiveLaunchOverrides {
+            title: Some(String::new()),
+            ..Default::default()
+        };
+        let effective = resolve_effective_launch(
+            None,
+            &HashMap::new(),
+            &catalog,
+            &cli,
+            &restored,
+            &live,
+            Some("workspace"),
+        );
+        assert_eq!(effective.profile_name.as_deref(), Some("restored"));
+        assert_eq!(effective.title.as_deref(), Some("cli"));
+    }
+
+    #[test]
+    fn cli_environment_overrides_profile_without_losing_other_keys() {
+        let profile = BTreeMap::from([
+            ("SHARED".to_owned(), "profile".to_owned()),
+            ("RETAINED".to_owned(), "yes".to_owned()),
+        ]);
+        let cli = LaunchCliOverrides {
+            env: BTreeMap::from([("SHARED".to_owned(), "cli".to_owned())]),
+            ..Default::default()
+        };
+        assert_eq!(
+            merge_env(Some(&profile), &cli),
+            BTreeMap::from([
+                ("SHARED".to_owned(), "cli".to_owned()),
+                ("RETAINED".to_owned(), "yes".to_owned())
+            ])
+        );
+    }
+
+    #[test]
+    fn inapplicable_profile_warns_and_keeps_global_settings() {
+        use crate::profiles::ProfilePlatform;
+        let mut profile = LaunchProfile::new("other-platform").unwrap();
+        let other = if cfg!(windows) {
+            ProfilePlatform::Linux
+        } else {
+            ProfilePlatform::Windows
+        };
+        profile.platforms = Some(std::collections::BTreeSet::from([other]));
+        profile.appearance.theme = Some("plain".to_owned());
+        let mut catalog = empty_catalog();
+        catalog.profiles.insert(profile.name.clone(), profile);
+        let config = ConfigValues::parse("theme = odyssey\n", |_| {});
+        let cli = LaunchCliOverrides {
+            profile_name: Some("other-platform".to_owned()),
+            ..Default::default()
+        };
+        let effective = resolve_effective_launch(
+            Some(&config),
+            &HashMap::new(),
+            &catalog,
+            &cli,
+            &RestoredLaunchOverrides::default(),
+            &LiveLaunchOverrides::default(),
+            None,
+        );
+        assert_eq!(
+            effective.settings.theme,
+            Theme::from_name("odyssey").unwrap()
+        );
+        assert!(
+            effective
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("does not apply on this platform"))
+        );
+    }
+
+    #[test]
     fn missing_profile_warns_and_falls_back_to_global_settings() {
         let config = ConfigValues::parse("", |_| {});
         let cli = LaunchCliOverrides {

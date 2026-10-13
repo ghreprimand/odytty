@@ -1,23 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Odyssey theme system (presentation only).
-//!
-//! A theme is a small, source-agnostic bundle of *presentation* colors: the
-//! default foreground/background used when a cell carries `Color::Default`, the
-//! window clear color, a 16-color palette and five semantic roles. Themes
-//! deliberately do **not** touch terminal
-//! semantics - escape-sequence parsing, the cell grid, and SGR attributes are
-//! all theme-unaware. Swapping themes can only change how `Color::Default` and
-//! the empty surface are painted; it can never change what the terminal core
-//! considers the screen contents to be.
-//!
-//! ## Selection
-//!
-//! The active theme is chosen by name, defaulting to the [`plain`](Theme::PLAIN)
-//! baseline. The settings layer reads `ODYTTY_THEME`; an unset, empty, or
-//! unrecognized value falls back to plain so the terminal is always readable
-//! regardless of configuration. [`Theme::from_name`] is the pure selector used
-//! by callers that already hold a name (and by tests), so theme resolution can
-//! be exercised without mutating process environment.
+//! Presentation themes: default foreground/background, window clear color,
+//! the 16-color ANSI palette, and five semantic role colors. Themes never
+//! change terminal parsing, cell ownership, or SGR state. Settings resolve the
+//! active theme; [`Theme::from_name`] looks up built-ins by name.
 
 mod builtins;
 mod capture;
@@ -349,12 +334,7 @@ impl VisualEffect {
 
     /// Legacy scanline period packed into the same unsampled uniform slot.
     pub fn scanline_period_px(self) -> f32 {
-        match self {
-            // Period is irrelevant when off, but keep it positive so the shader
-            // never risks a divide-by-zero regardless of branch.
-            VisualEffect::Off => Self::AMBIENT_PERIOD_PX,
-            VisualEffect::Ambient => Self::AMBIENT_PERIOD_PX,
-        }
+        Self::AMBIENT_PERIOD_PX
     }
 }
 
@@ -411,7 +391,9 @@ mod tests {
 
     #[test]
     fn theme_names_are_unique_and_match_listing() {
+        let mut names = std::collections::HashSet::new();
         for theme in Theme::ALL {
+            assert!(names.insert(theme.name), "duplicate built-in theme name");
             assert_eq!(
                 Theme::from_name(theme.name),
                 Some(theme),
@@ -437,15 +419,8 @@ mod tests {
     }
 
     #[test]
-    fn every_theme_carries_a_full_palette_and_roles() {
-        // Each built-in authors all 16 ANSI entries plus its semantic roles;
-        // this catches a half-authored theme. Role colors must be present (the
-        // struct guarantees that), so we assert distinctness from a sentinel to
-        // prove they were intentionally set rather than left at a placeholder.
+    fn bright_palette_rows_differ_from_normal_rows() {
         for theme in Theme::ALL {
-            assert_eq!(theme.palette.len(), 16, "{} palette", theme.name);
-            // Bright variants should not all collapse to their normal
-            // counterparts (a sign of an unfinished palette).
             assert_ne!(
                 &theme.palette[0..8],
                 &theme.palette[8..16],

@@ -882,7 +882,7 @@ fn dashes_never_vanish_on_tiny_cells() {
 }
 
 #[test]
-fn oversized_cells_are_refused_instead_of_wrapping() {
+fn overflowing_cell_areas_are_refused_instead_of_wrapping() {
     assert!(coverage('\u{2588}', 65_536, 65_536).is_none());
     assert!(Canvas::new(u32::MAX, 2).is_none());
 }

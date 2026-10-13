@@ -11,6 +11,9 @@
 #[path = "../src/test_dirs/allocation.rs"]
 pub mod scratch_dirs;
 
+pub mod support;
+use support::TempDir;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -423,7 +426,7 @@ fn attach_no_id_resolver_lists_multiple_sessions_and_requires_choice() {
 fn new_detached_prints_session_id_without_spawning_in_tests() {
     // Short prefix: this test binds a real session-host socket, so the runtime
     // base must stay well under the macOS 104-byte AF_UNIX `sun_path` limit.
-    let temp = TempDir::new("cli-nd");
+    let temp = TempDir::new("cli-nd", true);
     let options = cli::DetachedSessionOptions {
         id: Some("s-test".to_owned()),
         title: Some("Test Session".to_owned()),
@@ -445,7 +448,7 @@ fn new_detached_spawn_failure_cleans_up_orphaned_metadata() {
     // The `.meta` file is written BEFORE the host is spawned; when
     // the spawn fails, the metadata for a session that never existed must not
     // be left behind in the runtime dir.
-    let temp = TempDir::new("cli-nf");
+    let temp = TempDir::new("cli-nf", true);
     let options = cli::DetachedSessionOptions {
         id: Some("s-fail".to_owned()),
         title: Some("Doomed".to_owned()),
@@ -473,7 +476,7 @@ fn new_detached_spawn_failure_cleans_up_orphaned_metadata() {
 #[cfg(unix)]
 #[test]
 fn attach_reports_unknown_session_without_creating_daemons() {
-    let temp = TempDir::new("odytty-cli-attach-missing");
+    let temp = TempDir::new("odytty-cli-attach-missing", true);
     let error =
         cli::run_session_command(cli::SessionCliCommand::Attach(cli::SessionAttachOptions {
             id: "missing".to_owned(),
@@ -521,7 +524,7 @@ fn list_and_attach_use_live_session_host_without_scrollback_dump() {
     }
     // Short prefix: this test binds a real session-host socket, so the runtime
     // base must stay well under the macOS 104-byte AF_UNIX `sun_path` limit.
-    let temp = TempDir::new("cli-ls");
+    let temp = TempDir::new("cli-ls", true);
     let mut config = HostConfig::new("s-live");
     config.runtime_base = Some(temp.path().to_owned());
     config.command = HostCommand::ShellCommand("printf private-output; sleep 5".to_owned());
@@ -623,7 +626,7 @@ fn show_config_output_formats_default_settings() {
 
 #[test]
 fn show_config_reads_temp_config_and_applies_env_override() {
-    let temp = TempDir::new("odytty-cli-show-config");
+    let temp = TempDir::new("odytty-cli-show-config", true);
     let config_dir = temp.path().join("odytty");
     fs::create_dir_all(&config_dir).expect("create config dir");
     fs::write(
@@ -698,47 +701,13 @@ fn assert_contains_line(output: &str, expected: &str) {
     );
 }
 
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(prefix: &str) -> Self {
-        // Unix sockets live under a short base; elsewhere the platform temp.
-        #[cfg(unix)]
-        let path = scratch_dirs::fresh_socket_dir(prefix);
-        #[cfg(not(unix))]
-        let path = scratch_dirs::fresh_temp_dir(prefix);
-        Self { path }
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
-
 #[cfg(unix)]
 fn wait_for_socket(socket_path: &Path) {
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
         match UnixStream::connect(socket_path) {
             Ok(_) => return,
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
-                ) && Instant::now() < deadline =>
-            {
-                thread::sleep(Duration::from_millis(10));
-            }
-            Err(error) if Instant::now() < deadline => {
-                let _ = error;
+            Err(_) if Instant::now() < deadline => {
                 thread::sleep(Duration::from_millis(10));
             }
             Err(error) => panic!("socket did not become ready: {error}"),

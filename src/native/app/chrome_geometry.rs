@@ -509,7 +509,7 @@ impl App {
         }
     }
 
-    /// The longest workspace label in cells (F4-P4 auto-width), measured by
+    /// The longest workspace label in cells, measured by
     /// terminal owners as the rail widget truncates and paints it: a wide
     /// owner counts two columns and a combining mark none. Trimmed spaces and
     /// removed control characters never pad the auto width.
@@ -531,14 +531,8 @@ impl App {
         self.rail_longest_title_cols() + tab_rail::RAIL_LABEL_CHROME_COLS
     }
 
-    /// F4-P4 auto-width reconcile: when the resolved rail band width diverges
-    /// from what the content grid was last reserved against - a tab added or
-    /// closed, a title renamed, or a shell-set (OSC 0/2) title changing the
-    /// longest title - reflow the grid once so the content matches the new rail
-    /// width. Gated on the width actually changing, so a stable frame is a
-    /// single `usize` comparison; a no-rail / manual-width frame never diverges.
-    /// Run once per redraw before the frame is built, so the rail and content
-    /// stay pixel-aligned within the frame.
+    /// Scan workspace labels and reconcile the reserved rail width before
+    /// drawing. Reflow only when that width changes so content and rail align.
     pub(super) fn reconcile_rail_auto_width(&mut self) {
         if self.gpu.is_none() || self.window.is_none() {
             return;

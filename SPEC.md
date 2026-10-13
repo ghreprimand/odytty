@@ -855,8 +855,11 @@ array-valued `PROMPT_COMMAND` hooks. Existing DEBUG traps run in the
 DEBUG context with the incoming command status preserved. The shared Bash
 wrapper gives local spawns and SSH bootstrap the same hook chaining.
 
-Unix zsh injection writes forwarding `.zshenv`, `.zprofile`, `.zlogin`, and
-`.zlogout` files alongside `.zshrc` before changing the spawn environment.
+Unix zsh injection writes `.zshenv`, `.zprofile`, `.zlogin`, and `.zlogout`
+wrappers alongside `.zshrc` before changing the spawn environment. The first
+two forward while `ZDOTDIR` names the wrapper directory. After `.zshrc`
+restores the user directory, normal `.zlogin` and `.zlogout` reads use that
+directory directly. The additional login/logout wrapper files remain present.
 Changes to `ZDOTDIR` in user startup files are carried into later files; the
 user's directory is restored before sourcing `.zshrc` and remains restored
 for the interactive session. Unset and explicitly empty directory states
@@ -3001,8 +3004,8 @@ path for that frame. Backgrounds, decorations, selection, search highlights,
 the cursor block (which redraws the per-cell glyphs, as it does under a Latin
 ligature), copy, search, and widths stay cell-owned. Runs never cross owners.
 Bengali ka, virama, ra shapes differently from HarfBuzz 14.5 in `harfrust`
-0.8.4; that difference is recorded in the fixtures and kept out of
-conformance claims. Khmer, Myanmar, Thai, Lao, Tibetan, Sinhala, Chakma, Javanese, Grantha, and Tai Tham fixtures
+0.8.4; that difference is asserted at the glyph-position level and kept out
+of conformance claims. Pixel-oracle comparisons use the matching rows. Khmer, Myanmar, Thai, Lao, Tibetan, Sinhala, Chakma, Javanese, Grantha, and Tai Tham fixtures
 match HarfBuzz 14.5 exactly.
 A stray mark that starts an owner is shaped with a dotted circle when the
 shaping face maps U+25CC and alone otherwise.
@@ -3132,7 +3135,8 @@ clip buffers would exceed 256 MiB at its slot size refused before rendering.
 No file, network, or embedded image is loaded, scripts and animation have no
 effect, and SVG text is not drawn. A refused or empty
 document leaves the monochrome fallback, and a key that fails to rasterize is
-not retried. When no named or COLR/CPAL face exists, directory discovery
+suppressed while present in the bounded failure cache. Cache clearing permits
+a later attempt. When no named or COLR/CPAL face exists, directory discovery
 accepts a face whose only color data is an `SVG ` table. An explicit
 per-session setting is planned as a follow-up. VS15 (`U+FE0E`) forces the text
 path; VS16 (`U+FE0F`) forces the emoji path; characters with Unicode

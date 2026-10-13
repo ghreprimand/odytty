@@ -1,59 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Pattern hints: a pure scanner that finds URLs, filesystem
-//! paths, and git SHAs in a text snapshot and hands back labeled, absolute-cell
-//! matches a front end can light up for keyboard quick-select.
-//!
-//! This is the rendering-free core of hints mode. The native layer supplies
-//! keyboard activation, the label overlay, and the copy/open action;
-//! everything here is a pure function of its input.
-//!
-//! ## Input
-//!
-//! [`scan`] consumes the same borrowed row view the scrollback search uses
-//! ([`crate::core::SearchRow`]): each physical row's cells plus a `wrapped`
-//! marker. Soft-wrapped rows are joined into one logical line, so a URL that
-//! wraps across the right edge is found as a single match whose `start` and
-//! `end` land on different absolute rows. Hard line breaks end a logical line, so
-//! a match never crosses a real newline. Wide-glyph continuation spacers carry no
-//! text of their own; layout padding is skipped, and the wide lead's column
-//! span covers both cells. This mirrors
-//! the search engine's convention exactly, so the same row view feeds both.
-//!
-//! ## Output coordinates
-//!
-//! Matches report inclusive `start`/`end` [`crate::core::AbsolutePoint`]s - the
-//! established match-coordinate type (row `0` = oldest scrollback, `end.column`
-//! the last covered cell, `+1` on a wide glyph). Reusing it keeps hints, search,
-//! and selection on one coordinate convention.
-//!
-//! ## What matches
-//!
-//! * **URLs** - a recognized scheme (`http`/`https`/`ftp`/`ftps`/`ssh`/`git`/
-//!   `file://`, plus `mailto:`) followed by a non-empty body of URL characters.
-//! * **Paths** - Unix-style absolute (`/…`), home (`~/…`), and relative
-//!   (`./…`, `../…`) prefixes, on every platform. Windows drive-letter and
-//!   backslash paths are not matched.
-//! * **SHAs** - a word-bounded run of 7–40 hex digits that is not purely decimal.
-//!
-//! All matching is hand-rolled (no regex dependency) and deterministic.
-//!
-//! ## Overlap rules (pinned by tests)
-//!
-//! * **Longest match wins**, ties broken by **earliest start** (then a stable
-//!   kind order). A URL that contains a path-like substring is therefore emitted
-//!   once, as the whole URL - the inner path is contained and dropped.
-//! * **Trailing punctuation** (`.,;:)]}`) is trimmed from a match unless a
-//!   closing bracket is balanced by an opener inside the match (so
-//!   `…/Foo_(bar)` keeps its `)`, but `(…/foo)` trims it).
-//!
-//! ## Labels
-//!
-//! [`assign_labels`] assigns short, **prefix-free** labels (no label is a prefix
-//! of another, so a multi-key label can never mis-trigger) using a breadth-first
-//! trie over a caller-supplied alphabet (default home row [`DEFAULT_ALPHABET`]):
-//! the shortest labels are handed out first, expanding a prefix only when more
-//! labels are needed. Matches are labeled in reading order (top-to-bottom, then
-//! left-to-right). Deterministic for a fixed `(matches, alphabet)`.
+//! Scan logical wrapped rows for supported URL, path and SHA hints with
+//! absolute cell coordinates. Hard line breaks end matches; wide continuations
+//! and generated layout padding contribute no text. Longest match wins, with
+//! earlier starts breaking ties. Labels are prefix-free and assigned in reading
+//! order. Windows drive-letter and backslash paths are outside this scanner.
 
 use crate::core::{AbsolutePoint, SearchRow};
 

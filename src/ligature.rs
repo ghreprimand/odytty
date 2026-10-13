@@ -1,61 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Presentation-only shaping runs for the cell grid.
+//! Presentation-only swash runs anchored to logical terminal cells. Compatible
+//! ASCII/operator or Arabic joining owners shape into clipped overlay spans;
+//! shaped advances never move columns. Copy, search, selection and cursor stay
+//! cell-owned. Runs split on face, shaping kind, eligibility and bidi level.
 //!
-//! # Model
-//!
-//! Logical owners retain graphemes and their terminal-cell spans. Compatible
-//! cells are grouped into shaping runs, each cell contributing its stored
-//! grapheme cluster ([`Cell::grapheme`], base plus retained marks). Runs
-//! are shaped with `swash`; OpenType `calt` substitutions become presentation
-//! overlays ([`LigatureRun`]) while backgrounds, decorations, selection, search,
-//! copy, and cursor placement stay cell-owned. Shaped advances never move
-//! terminal columns.
-//!
-//! # Cluster → cell anchoring
-//!
-//! 1. Each eligible cell occupies one contiguous UTF-8 byte span in the run
-//!    string (its grapheme). A parallel `cell_bytes` table maps those spans back
-//!    to run-relative column indices.
-//! 2. A swash cluster whose `source` byte range starts inside cell *i* is
-//!    anchored to column *i*. Glyph ids from that cluster inherit that column
-//!    as `source_start`.
-//! 3. When enabled Latin features (`calt`/`liga`/optional `ss01`/`ss02`) or
-//!    Arabic joining change glyph ids over a contiguous column span, the overlay
-//!    covers exactly those source columns. Every shaped glyph in the span is
-//!    clipped to the span's pixel box (`anchor_cell` / `span_cells` on
-//!    [`ShapedGlyphKey`]). If glyph count ≠ cell count inside the span, glyphs
-//!    still share that clip - they are not free to advance into neighboring
-//!    logical cells.
-//! 4. Clusters that do not differ under the enabled features produce no overlay;
-//!    the ordinary per-cell scalar path draws them.
-//!
-//! # Run breaks (compatible-run rule)
-//!
-//! A shaping run ends at any cell that is ineligible, that selects a different
-//! bold/italic face, or that changes shaping kind (Latin/operator vs Arabic
-//! joining). Ineligible cells include: wide continuations, hidden cells,
-//! color-glyph coverage, cells carrying combining marks other than Arabic
-//! harakat on an Arabic joining base (those marks stay on the mono combining
-//! path; see the `arabic` submodule), and bases outside ASCII-graphic,
-//! [`SHAPING_OPERATOR_ALLOWLIST`], and Arabic joining letters. Selection/search
-//! attribute changes do **not** break runs (compositing only).
-//!
-//! Live overlay eligibility covers ASCII-graphic bases, a curated allowlist of
-//! common non-ASCII programming operators/arrows
-//! ([`SHAPING_OPERATOR_ALLOWLIST`]), and Arabic-script joining bases (dual /
-//! right / left joining letters plus tatweel). Default plain-ASCII rendering
-//! stays byte-identical; allowlisted scalars and Arabic letters only join
-//! compatible runs when present. Independent presentation switches gate
-//! Latin/operator forms and Arabic joining. Arabic runs are shaped with `Script::Arabic`
-//! in **logical LTR cell order** - joining forms only. On a row the
-//! `bidi_reorder` display map reorders, runs split at every level change and
-//! shape per level run (see the `bidi` submodule).
-//! Latin/operator runs enable OpenType `calt` and `liga` together; optional
-//! stylistic sets `ss01` and `ss02` are off by default and gated by
-//! [`LatinShapingFeatures`]. Open-ended `ssXX` beyond those two tags is out of
-//! scope. The alternate-zero control (`zero`) rides the same struct but is
-//! applied equally to both shaping passes, so it never creates an overlay; it
-//! only keeps a `0` inside a substituted span consistent with the scalar `0`.
+//! Combining marks remain on the monochrome path except Arabic harakat on an
+//! Arabic joining base. Color-covered, hidden and continuation cells do not
+//! join these runs. Latin features are calt, liga and bounded optional ss01/ss02;
+//! Arabic runs use their display-plan direction when reordered. The alternate
+//! zero feature applies to both passes and does not itself create an overlay.
 
 use std::collections::{HashMap, VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};

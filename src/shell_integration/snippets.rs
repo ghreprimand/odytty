@@ -37,26 +37,26 @@ pub fn snippet(kind: ShellKind) -> &'static str {
 // helper (git-prompt, powerline, ...) is loaded from `.bashrc` BEFORE this
 // snippet, so OdyTTY must not assume it owns PROMPT_COMMAND. Two hazards, both
 // fixed here:
-//   * exit-status masking - the user helper runs first and clobbers
-//     `$?` before the reporter can read it, so `133;D` would report the
-//     helper's status (0), not the real command's. Fixed by PREPENDING
-//     `__odytty_status_capture`, which snapshots `$?` at the very start of the
-//     PROMPT_COMMAND chain into `__ODYTTY_LAST_STATUS`; the appended reporter
-//     reads the snapshot.
-//   * array-valued PROMPT_COMMAND (Fedora/systemd) - assigning index zero would
-//     place both OdyTTY hooks before the remaining array elements. A later
-//     prompt helper then trips DEBUG and stamps `C` after `D`/`A`, erasing the
-//     completed block's exit before PS1 stamps `B`. Array values are therefore
-//     prepended/appended as array elements so the prompt-phase guard spans the
-//     entire chain and the reporter is the final helper.
-//   * phantom OutputStart - the DEBUG trap fires before the user helper
-//     (a top-level PROMPT_COMMAND command) and would emit a spurious `133;C`.
-//     Fixed with a state flag (`__ODYTTY_PROMPT_EXECUTING`, the kitty/ghostty
-//     pattern): the capturer arms it, the reporter clears it, and the trap
-//     suppresses `133;C` while armed. That excludes ALL PROMPT_COMMAND-internal
-//     commands by state - robust against arbitrary user helper names - while
-//     the capturer itself, which runs before the flag is armed, stays covered
-//     by the internal-name `case` filter.
+// * exit-status masking - the user helper runs first and clobbers
+// `$?` before the reporter can read it, so `133;D` would report the
+// helper's status (0), not the real command's. Fixed by PREPENDING
+// `__odytty_status_capture`, which snapshots `$?` at the very start of the
+// PROMPT_COMMAND chain into `__ODYTTY_LAST_STATUS`; the appended reporter
+// reads the snapshot.
+// * array-valued PROMPT_COMMAND (Fedora/systemd) - assigning index zero would
+// place both OdyTTY hooks before the remaining array elements. A later
+// prompt helper then trips DEBUG and stamps `C` after `D`/`A`, erasing the
+// completed block's exit before PS1 stamps `B`. Array values are therefore
+// prepended/appended as array elements so the prompt-phase guard spans the
+// entire chain and the reporter is the final helper.
+// * phantom OutputStart - the DEBUG trap fires before the user helper
+// (a top-level PROMPT_COMMAND command) and would emit a spurious `133;C`.
+// Fixed with a state flag (`__ODYTTY_PROMPT_EXECUTING`, the kitty/ghostty
+// pattern): the capturer arms it, the reporter clears it, and the trap
+// suppresses `133;C` while armed. That excludes ALL PROMPT_COMMAND-internal
+// commands by state - robust against arbitrary user helper names - while
+// the capturer itself, which runs before the flag is armed, stays covered
+// by the internal-name `case` filter.
 pub(super) const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
   export ODYTTY_SHELL_INTEGRATION=1
 
@@ -114,7 +114,7 @@ pub(super) const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" 
     printf '\e]7;file://%s\a' "$__ODYTTY_OSC7_ENC"
     printf '\e]133;A;click_events=1\a'
     unset __ODYTTY_PROMPT_EXECUTING
-    # Prompt-scoped key enhancement (D-b): while the prompt owns the line, add
+    # Prompt-scoped key enhancement : while the prompt owns the line, add
     # Kitty keyboard flag 0x1 (disambiguate). PS0 removes exactly that flag after
     # readline accepts a real command and before the command starts. Unlike the
     # DEBUG trap, PS0 is not confused by commands a Fedora prompt executes while
@@ -225,7 +225,7 @@ pub(super) const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" 
     printf '\e]133;P;odytty-button;invalidate%s\a' "${1:+;code=$1}"
   }
 
-  # Default key-enhancement bindings (D-b): give the prompt-scoped CSI-u keys
+  # Default key-enhancement bindings : give the prompt-scoped CSI-u keys
   # visible out-of-box behavior when OdyTTY advertises ODYTTY_KEY_ENHANCE. These
   # are ordinary readline (process-global) binds, but the sequences only ever
   # arrive while the prompt owns the line and the 0x1 flag is pushed, so binding
@@ -363,7 +363,7 @@ pub(super) const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" 
   fi
   zle -N zle-line-pre-redraw __odytty_line_pre_redraw
 
-  # Prompt-scoped key enhancement (D-b): when OdyTTY advertises
+  # Prompt-scoped key enhancement : when OdyTTY advertises
   # ODYTTY_KEY_ENHANCE, push Kitty keyboard flag 0x1 (disambiguate) while the
   # line editor owns the prompt, popped when the line is accepted or aborted.
   # line-init/line-finish pair once per prompt, so push/pop stay balanced even on
@@ -400,7 +400,7 @@ pub(super) const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" 
     fi
     zle -N zle-line-finish __odytty_line_finish
 
-    # Default key bindings (D-b): give the prompt-scoped CSI-u keys visible
+    # Default key bindings : give the prompt-scoped CSI-u keys visible
     # out-of-box behavior. Each bind is skipped when the user has already bound
     # the sequence (a ~/.zshrc `bindkey`, sourced before this snippet, wins); to
     # override afterwards, rebind with `bindkey '\e[127;5u' <widget>`.
@@ -462,17 +462,17 @@ fi
 // receive each mark twice per prompt -- once from fish, once from this snippet.
 // The decision here is TOLERATE, not suppress, for two reasons the consumer
 // already backs:
-//   * Row-anchored last-writer-wins: both emitters fire during the same prompt
-//     render (no intervening newline), so their marks land on the SAME physical
-//     row; the screen stores one mark per row (`prompt_mark = Some(kind)`), so
-//     a doubled A/A, C/C, or D/D on a row collapses to a single mark of that
-//     kind before it ever reaches `prompt_marks()`. See the row-collapse in
-//     `Screen::handle_osc133`.
-//   * Cross-row backstop: `prompt_marks::command_blocks` takes the FIRST
-//     OutputStart/CommandEnd within a block and ignores the rest, so even if a
-//     duplicate landed on an adjacent row (or a divergent duplicate `D`
-//     arrived) the derived block is deterministic. Regression-pinned in
-//     `prompt_marks::tests::doubled_fish_style_marks_derive_one_coherent_block`.
+// * Row-anchored last-writer-wins: both emitters fire during the same prompt
+// render (no intervening newline), so their marks land on the SAME physical
+// row; the screen stores one mark per row (`prompt_mark = Some(kind)`), so
+// a doubled A/A, C/C, or D/D on a row collapses to a single mark of that
+// kind before it ever reaches `prompt_marks()`. See the row-collapse in
+// `Screen::handle_osc133`.
+// * Cross-row backstop: `prompt_marks::command_blocks` takes the FIRST
+// OutputStart/CommandEnd within a block and ignores the rest, so even if a
+// duplicate landed on an adjacent row (or a divergent duplicate `D`
+// arrived) the derived block is deterministic. Regression-pinned in
+// `prompt_marks::tests::doubled_fish_style_marks_derive_one_coherent_block`.
 // Suppression was rejected: fish's native `133;A` does NOT carry
 // `click_events=1`, so dropping the snippet's marks would forfeit the
 // click-to-position advertisement while keeping the doubling on the

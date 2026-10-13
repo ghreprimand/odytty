@@ -126,9 +126,8 @@ fn group_header(line: &str) -> Option<&str> {
     rest.strip_suffix(']')
 }
 
-/// Split a `key=value` line at the first `=`. The key is trimmed and so is the
-/// whitespace before the value (the spec ignores space around the `=`); the end
-/// of the value is kept, because trailing spaces can be significant.
+/// Split at the first `=` and trim the key and leading value whitespace.
+/// Callers already trim each input line, including trailing value whitespace.
 fn split_key_value(line: &str) -> Option<(&str, &str)> {
     let idx = line.find('=')?;
     let key = line[..idx].trim();

@@ -1,38 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Bounded, non-blocking PTY-master write path for the session host.
+//! Bounded, non-blocking PTY-master writer for the session host. Blocking writes
+//! run on a dedicated thread; producers enqueue under a short-held lock. The
+//! byte-bounded queue drops whole oldest chunks when full, preserves the newest
+//! accepted frame, and counts discarded bytes in rate-limited log warnings.
 //!
-//! The single `run_host` loop previously wrote attach-client input and terminal
-//! query replies straight to the raw blocking master fd, inline. When the hosted
-//! foreground process stopped reading its stdin (a stopped job, a pager at rest,
-//! `sleep`), the slave input queue filled and that inline `write_all` parked the
-//! whole loop forever: broadcast, accept, and - critically - the drain of
-//! `ClientFrame::Shutdown` all stopped, so the manager's "kill session" was
-//! queued but never seen and the host was unkillable through the product.
-//! Meanwhile the reader threads kept pumping unbounded channels, so host memory
-//! grew without bound.
-//!
-//! This mirrors the native side's `pty_writer` shim shape: the blocking fd write
-//! runs on a dedicated writer thread fed by a byte-bounded in-memory queue. The
-//! host loop only ever *enqueues* - an O(1) push under a briefly-held lock that
-//! never spans an fd write - so a wedged slave can never stall the loop.
-//!
-//! Overflow policy: the queue is byte-bounded ([`QUEUE_BYTE_CAP`]). When a
-//! stalled consumer lets it exceed the cap, the OLDEST buffered chunks are
-//! dropped rather than blocking the producer - a wedged slave must not propagate
-//! backpressure into the host loop. Dropping input corrupts an already-wedged
-//! stream, but keeping the host responsive (still able to accept a detach or a
-//! kill) is the higher priority. The newest chunk is never dropped, so one
-//! accepted input frame (at most the protocol's client input limit) is always
-//! delivered whole, matching the native writer's policy. Every discarded byte
-//! is counted and reported in a rate-limited host log warning.
-//!
-//! Framing contract: the queue drops whole chunks and one input frame is one
-//! chunk, so a client keeps a bracketed paste (start marker, body, end marker)
-//! in a single input frame. A paste is then retained or discarded entire and
-//! never delivered as a tail whose start marker was dropped, which a shell
-//! would run as typed input. OdyTTY's own clients send a bracketed paste as one
-//! frame (`encode_paste_chunks` in the native clipboard module); a client that
-//! split a paste across frames would lose that guarantee under overflow.
+//! A bracketed paste must be one input frame so overflow cannot retain a tail
+//! without its opening marker. Shutdown does not join a potentially blocked
+//! writer thread.
 
 use std::collections::VecDeque;
 use std::io::Write;
@@ -285,7 +259,7 @@ mod tests {
             "enqueue blocked behind the wedged fd write"
         );
 
-        // Release the wedge so Drop can join cleanly.
+        // Release the wedge so the writer thread can exit.
         {
             let (lock, cvar) = &*block;
             *lock.lock().unwrap() = true;

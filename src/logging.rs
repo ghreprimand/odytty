@@ -1,25 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Default runtime logging (FREEZE-HARDEN item c).
-//!
-//! The v0.7.0 freeze postmortem found odytty launched with stderr redirected
-//! to `/dev/null`, so every diagnostic the process emitted before the stall
-//! was discarded. This module removes the dependency on launcher stderr
-//! redirection: `init()` installs a `tracing` subscriber that tees every
-//! record to stderr AND to a size-capped, rotated log file at
-//! `$XDG_STATE_HOME/odytty/odytty.log` (falling back per platform exactly
-//! like the panic log). The default level is WARN so the steady-state file
-//! stays tiny; `RUST_LOG=<level>` raises or lowers it.
-//!
-//! PRIVACY (hard release rule): nothing routed through this module may ever
-//! contain terminal content - no PTY bytes, no grid text, no window titles
-//! (titles can embed paths and commands). Callers log *state*, *counters*,
-//! and *OS error strings* only. See the seam tests here and in
-//! `native::watchdog` / `native::panic_log`.
-//!
-//! The file writer is deliberately lazy and infallible: the log directory is
-//! only created on the first actual write (so `odytty --version` never
-//! touches the state dir), and every I/O error is swallowed - logging must
-//! never take the terminal down.
+//! Lazy best-effort WARN logging to stderr and an owner-private rotated state
+//! log. RUST_LOG changes the level. Filesystem errors never end the terminal.
+//! Callers must exclude terminal contents, titles, paths and commands; records
+//! contain bounded state, counters and OS errors.
 
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -71,7 +54,7 @@ pub(crate) fn state_log_dir() -> PathBuf {
 }
 
 /// Prepare the final OdyTTY state leaf before a sensitive runtime writer uses
-/// it.  Resolution stays side-effect free; this is intentionally called only
+/// it. Resolution stays side-effect free; this is intentionally called only
 /// by the lazy writer paths so CLI version/help remain disk-silent.
 pub(crate) fn prepare_state_log_dir() -> io::Result<PathBuf> {
     let dir = state_log_dir();
@@ -81,7 +64,7 @@ pub(crate) fn prepare_state_log_dir() -> io::Result<PathBuf> {
 
 #[cfg(unix)]
 fn temp_state_dir() -> PathBuf {
-    // A system temp root is shared.  The fallback leaf is therefore scoped to
+    // A system temp root is shared. The fallback leaf is therefore scoped to
     // the effective UID and then validated as a real owner-private directory
     // by `prepare_state_log_dir` before any data is written.
     let uid = unsafe { libc::geteuid() };
@@ -95,7 +78,7 @@ fn unix_temp_state_dir(temp_root: &std::path::Path, uid: u32) -> PathBuf {
 
 #[cfg(not(unix))]
 fn temp_state_dir() -> PathBuf {
-    // Windows keeps the existing inherited-ACL behavior.  The Unix UID/mode
+    // Windows keeps the existing inherited-ACL behavior. The Unix UID/mode
     // hardening deliberately does not construct or replace Windows ACLs.
     std::env::temp_dir().join("odytty")
 }
@@ -272,7 +255,7 @@ impl RotatingLog {
             crate::state_dir::prepare_private_dir(parent)?;
         }
         // Validate both known files through no-follow handles before the
-        // replacement.  `rename` replaces a name rather than following a final
+        // replacement. `rename` replaces a name rather than following a final
         // symlink, and a pre-existing broad same-owner rotation is repaired.
         crate::state_dir::repair_existing_sensitive(&self.path)?;
         let rotated = self.rotated_path();
@@ -293,7 +276,7 @@ impl RotatingLog {
     fn disable_disk_sink(&mut self) {
         self.file = None;
         self.disk_disabled = true;
-        // The state sink may be hostile or unavailable.  Keep the notice fixed:
+        // The state sink may be hostile or unavailable. Keep the notice fixed:
         // do not print a filesystem path or an OS error into terminal-visible
         // diagnostics.
         let _ = io::stderr().write_all(b"odytty: secure state log disabled\n");

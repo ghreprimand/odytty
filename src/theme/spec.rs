@@ -1,15 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Theme file format: a dependency-free, owned serialization model.
 //!
-//! [`ThemeSpec`] is the on-disk / authoring representation of a theme. It is a
-//! *superset* of the runtime [`Theme`](super::Theme): it carries the same color
-//! payload (default fg/bg/clear, the full 16-color ANSI palette, and the TH1
-//! semantic roles) plus authoring-only metadata that the runtime `Theme` does
-//! not need yet - a light/dark [`Appearance`] flag, optional font hints, and an
-//! optional bundled visual-effect profile. Those extra fields are parsed,
-//! serialized, and round-tripped now (forward-compat) but only the color
-//! payload is projected into the runtime `Theme` via [`ThemeSpec::to_theme`];
-//! the rest is consumed by later work (settings panel, theme picker).
+//! [`ThemeSpec`] holds runtime colors plus authoring metadata: appearance,
+//! font hints and a visual-effect profile. [`ThemeSpec::to_theme`] projects
+//! colors; native theme surfaces retain the other fields for their own use.
 //!
 //! ## File format
 //!
@@ -27,22 +21,22 @@
 //! Colors are `#RRGGBB` or `#RGB` (a leading `#` is optional). Recognized keys:
 //!
 //! ```text
-//! name        = My Theme          # display name
-//! appearance  = dark              # dark | light
-//! foreground  = #d6def4           # alias: fg
-//! background  = #0c1224           # alias: bg
-//! clear       = #070b18           # window clear; omitted keeps plain
-//! cursor      = #86c1ff           # semantic roles ↓
-//! selection   = #243352
-//! search      = #4a4018
-//! border      = #1b243e
-//! inactive    = #5a6480
-//! color0      = #12182a           # ANSI palette, color0..color15
-//! ...                             #   (alias: palette0..palette15)
-//! color15     = #f0f4ff
-//! font_family = JetBrains Mono     # optional font hint (forward-compat)
-//! font_size   = 14                 # optional font hint, clamped to 6-72
-//! visual      = ambient            # bundled effect: off | ambient | scanlines
+//! name = My Theme # display name
+//! appearance = dark # dark | light
+//! foreground = #d6def4 # alias: fg
+//! background = #0c1224 # alias: bg
+//! clear = #070b18 # window clear; omitted keeps plain
+//! cursor = #86c1ff # semantic roles ↓
+//! selection = #243352
+//! search = #4a4018
+//! border = #1b243e
+//! inactive = #5a6480
+//! color0 = #12182a # ANSI palette, color0..color15
+//! ... # (alias: palette0..palette15)
+//! color15 = #f0f4ff
+//! font_family = JetBrains Mono # optional font hint (forward-compat)
+//! font_size = 14 # optional font hint, clamped to 6-72
+//! visual = ambient # bundled effect: off | ambient | scanlines
 //! ```
 
 use super::{Srgb, Theme, VisualEffect};
@@ -360,7 +354,7 @@ fn file_text(value: &str) -> String {
 
 /// Strip an inline trailing `#` comment from an already-trimmed value. A `#`
 /// is only a comment when preceded by whitespace, so a value-leading hex color
-/// (`#rrggbb`) is preserved while `#rrggbb  # note` drops the note.
+/// (`#rrggbb`) is preserved while `#rrggbb # note` drops the note.
 fn strip_inline_comment(value: &str) -> &str {
     let bytes = value.as_bytes();
     for (i, &b) in bytes.iter().enumerate() {

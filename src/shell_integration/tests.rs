@@ -137,7 +137,7 @@ fn snippets_emit_osc7_working_directory() {
 
 #[test]
 fn bash_snippet_snapshots_exit_status_before_user_prompt_command() {
-    // NF1-B (exit-status masking): a user PROMPT_COMMAND helper is loaded
+    // (exit-status masking): a user PROMPT_COMMAND helper is loaded
     // from .bashrc BEFORE this snippet, so the reporter must read a status
     // SNAPSHOT taken at the very start of the PROMPT_COMMAND chain
     // (prepended), never `$?` after the user helper has clobbered it.
@@ -168,7 +168,7 @@ fn bash_snippet_snapshots_exit_status_before_user_prompt_command() {
 
 #[test]
 fn bash_snippet_guards_debug_trap_with_prompt_executing_flag() {
-    // NF1 (phantom 133;C): the DEBUG trap must suppress OutputStart for
+    // (phantom 133;C): the DEBUG trap must suppress OutputStart for
     // every command run *inside* PROMPT_COMMAND via a state flag - robust
     // against arbitrary user helper names - not the name-only `case` filter
     // (which cannot enumerate user helpers).
@@ -189,7 +189,7 @@ fn bash_snippet_guards_debug_trap_with_prompt_executing_flag() {
 
 #[test]
 fn shell_family_readout_covers_every_family_honestly() {
-    // D-a/D-e: the Shell Integration readout enumerates one row per family,
+    // D-a/the Shell Integration readout enumerates one row per family,
     // and each row's posture matches how the switch actually reaches it.
     assert_eq!(ShellFamily::ALL.len(), 5);
 
@@ -234,7 +234,7 @@ fn shell_family_readout_covers_every_family_honestly() {
 
 #[test]
 fn shell_family_detects_nushell_for_the_readout() {
-    // D-e: nushell is recognized for the readout (detection + docs only).
+    // nushell is recognized for the readout (detection + docs only).
     assert_eq!(ShellFamily::parse("nu"), Some(ShellFamily::Nushell));
     assert_eq!(ShellFamily::parse("nushell"), Some(ShellFamily::Nushell));
     assert_eq!(ShellFamily::parse("-nu"), Some(ShellFamily::Nushell));
@@ -248,7 +248,7 @@ fn shell_family_detects_nushell_for_the_readout() {
 
 #[test]
 fn bash_and_zsh_prompt_scoped_key_enhancement_scopes_flag_one() {
-    // D-b: bash and zsh enable Kitty keyboard flag 0x1 (disambiguate only)
+    // bash and zsh enable Kitty keyboard flag 0x1 (disambiguate only)
     // while the prompt owns the line and remove it before the command runs.
     // Flag 0x8 would stop Ctrl+C generating SIGINT at the prompt, which the
     // design forbids.
@@ -321,7 +321,7 @@ fn bash_and_zsh_prompt_scoped_key_enhancement_scopes_flag_one() {
 
 #[test]
 fn bash_and_zsh_key_enhancement_ship_default_binds() {
-    // D-b follow-up: the knob must have visible out-of-box behavior, so the
+    // follow-up: the knob must have visible out-of-box behavior, so the
     // bash/zsh snippets bind the prompt-scoped CSI-u keys under the
     // ODYTTY_KEY_ENHANCE guard -- Ctrl+Backspace (\e[127;5u) kills the
     // previous word, Shift+Enter (\e[13;2u) inserts a literal newline,
@@ -492,7 +492,7 @@ fn bash_encode_osc7_is_cached_by_pwd() {
 
 #[test]
 fn powershell_snippet_gates_osc7_on_the_filesystem_provider() {
-    // D-1 fails-before/passes-after: OSC 7 must be emitted only when the
+    // OSC 7 must be emitted only when the
     // current location is on the FileSystem provider, and it must carry
     // `$PWD.ProviderPath` (the native filesystem path), not `$PWD.Path`.
     // The old snippet emitted `file:///$($PWD.Path ...)` unconditionally, so
@@ -515,7 +515,7 @@ fn powershell_snippet_gates_osc7_on_the_filesystem_provider() {
 
 #[test]
 fn powershell_snippet_gates_command_end_and_gates_output_start() {
-    // D-3 fails-before/passes-after: `133;D` must be gated on a per-command
+    // `133;D` must be gated on a per-command
     // flag so no phantom `CommandEnd{exit:0}` is stamped before the first
     // command runs (mirrors the unix `__ODYTTY_COMMAND_STARTED` guard). The
     // old snippet emitted `133;D` unconditionally at the top of every
@@ -529,7 +529,7 @@ fn powershell_snippet_gates_command_end_and_gates_output_start() {
         ps.contains("$global:__odytty_command_started = $true"),
         "the Enter handler must set the command-started flag on accept"
     );
-    // D-4 fails-before/passes-after: `133;C` (OutputStart) must be emitted
+    // `133;C` (OutputStart) must be emitted
     // only when the buffer parses as complete; an incomplete multiline
     // continuation must insert a newline instead of a spurious OutputStart.
     assert!(
@@ -544,7 +544,7 @@ fn powershell_snippet_gates_command_end_and_gates_output_start() {
 
 #[test]
 fn powershell_snippet_folds_failed_cmdlet_into_nonzero_status() {
-    // D-d fails-before/passes-after: `$LASTEXITCODE` only tracks native
+    // `$LASTEXITCODE` only tracks native
     // executables and `exit`. A failed cmdlet (e.g. Get-ChildItem on a
     // missing path) leaves `$?` false but never touches `$LASTEXITCODE`, so
     // the old snippet reported `133;D;0` -- a visible failure painted as
@@ -581,7 +581,7 @@ fn powershell_snippet_folds_failed_cmdlet_into_nonzero_status() {
 #[cfg(unix)]
 #[test]
 fn bash_percent_encodes_osc7_cwd_end_to_end() {
-    // D-2 end-to-end on the Linux/macOS legs: run bash with the real
+    // end-to-end on the Linux/macOS legs: run bash with the real
     // snippet, cd into a directory whose name contains `%`, and confirm the
     // emitted OSC 7 payload carries the encoded `%25` form (fails-before:
     // the old snippet emitted the raw `%`, which the parser would drop).
@@ -664,7 +664,7 @@ fn percent_decode_for_test(bytes: &[u8]) -> Vec<u8> {
 #[cfg(unix)]
 #[test]
 fn bash_encodes_hostile_osc7_cwd_end_to_end() {
-    // MED-01 end-to-end: a directory name carrying a full injection payload.
+    // end-to-end: a directory name carrying a full injection payload.
     // The BEL after "a b" would close OSC 7, then the `ESC]2;INJECT` title
     // change would ride the tail; a space and a non-ASCII byte prove general
     // byte encoding. With the encoder every unsafe byte is percent-encoded,
@@ -951,7 +951,7 @@ fn bash_reports_real_exit_status_past_a_user_prompt_command() {
 #[cfg(unix)]
 #[test]
 fn bash_key_enhancement_default_bind_kills_previous_word() {
-    // D-b follow-up acceptance: with the knob advertised
+    // follow-up acceptance: with the knob advertised
     // (ODYTTY_KEY_ENHANCE=1), the default Ctrl+Backspace (\e[127;5u) bind
     // must delete the previous word. Typing `printf 'OUT<%s>\n' one two`,
     // feeding the sequence, then Enter runs `printf ... one` -- so `OUT<one>`
@@ -1133,7 +1133,7 @@ fn bash_legacy_key_enhancement_falls_back_at_first_debug_boundary() {
 #[cfg(unix)]
 #[test]
 fn bash_emits_no_phantom_output_start_before_first_prompt() {
-    // NF1 fails-before/passes-after: a user PROMPT_COMMAND helper must not
+    // a user PROMPT_COMMAND helper must not
     // make the DEBUG trap stamp a phantom 133;C before the first prompt's
     // 133;A. Before the prompt-phase flag, the helper's call tripped the
     // trap and the stream led with a stray OutputStart.

@@ -11,16 +11,12 @@
 //! profile auto-switch enabled) therefore cost one bounded listing, not a full
 //! parse.
 //!
-//! What a stamp detects differs by platform. On Unix any write, rename,
-//! replacement, or permission change alters the inode, change time, or mode,
-//! and a detected stamp change invalidates the cache on the next load; a write
-//! that lands after the listing is seen by the load after that. Windows
-//! metadata through `std` has no change time or file index: a write, a resize,
-//! a new creation time, or an attribute change (read-only, hidden) is
-//! detected, but an ACL-only change, or a same-size replacement that keeps the
-//! modification and creation times (NTFS file-name tunneling can carry the
-//! creation time over), is not seen until a later detected change or a
-//! restart.
+//! Unix stamps include inode, change time and mode; detected stamp changes
+//! invalidate the cache on the next load. Listing is not a current-disk
+//! snapshot: a later write or a coarse timestamp can evade that lookup.
+//! Windows stamps lack change time and file index, so an ACL-only change or
+//! same-size replacement with unchanged timestamps can remain cached until
+//! another detected change or a restart.
 
 use std::fs;
 use std::io;

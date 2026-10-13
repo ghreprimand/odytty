@@ -11,6 +11,7 @@ pub(super) const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(5);
 pub(crate) fn peer_is_owner(stream: &UnixStream) -> io::Result<()> {
     #[cfg(target_os = "linux")]
     let uid = {
+        // SAFETY: zero is valid for every integer field of ucred.
         let mut credentials: libc::ucred = unsafe { std::mem::zeroed() };
         let mut length = std::mem::size_of_val(&credentials) as libc::socklen_t;
         // SAFETY: the connected fd and writable struct/length match SO_PEERCRED.
@@ -219,6 +220,7 @@ pub(super) fn retry_connect(
 pub(crate) fn connect(path: &Path, timeout: Duration) -> io::Result<UnixStream> {
     let deadline = Instant::now() + timeout;
     let bytes = path.as_os_str().as_bytes();
+    // SAFETY: sockaddr_un contains integer fields and a byte array; all-zero is valid.
     let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
     if bytes.len() >= address.sun_path.len() || bytes.contains(&0) {
         return Err(io::Error::new(
@@ -240,15 +242,16 @@ pub(crate) fn connect(path: &Path, timeout: Duration) -> io::Result<UnixStream> 
         address.sun_len = u8::try_from(address_len)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "endpoint path too long"))?;
     }
-    // SAFETY: socket returns an owned descriptor; it is immediately wrapped.
     #[cfg(target_os = "linux")]
     let socket_type = libc::SOCK_STREAM | libc::SOCK_CLOEXEC;
     #[cfg(target_os = "macos")]
     let socket_type = libc::SOCK_STREAM;
+    // SAFETY: the domain and socket type are valid constants; no pointers are passed.
     let fd = unsafe { libc::socket(libc::AF_UNIX, socket_type, 0) };
     if fd < 0 {
         return Err(io::Error::last_os_error());
     }
+    // SAFETY: a successful socket call returns a new owned descriptor, transferred once.
     let stream = unsafe { UnixStream::from_raw_fd(fd) };
     #[cfg(target_os = "macos")]
     {

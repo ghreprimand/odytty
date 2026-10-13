@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Process-wide settings published to renderer-owned runtime caches.
+//! Process-wide copies of reloadable settings, published at startup and reload
+//! for renderer-owned caches. Scalars use atomics; owned paths and maps use
+//! mutexes so their contents can be replaced safely.
 
 use super::*;
 
-/// Runtime flag mirroring [`Settings::synthetic_styles`], published process-wide
-/// so the GPU renderer can read it without threading `Settings` through the
-/// `NativeOptions` seam (whose construction literals live in a separate
-/// module). Starts at [`DEFAULT_SYNTHETIC_STYLES`], the same value as
-/// [`Settings::default`]; the native entry point publishes the resolved setting
-/// at startup and the config-reload path republishes it on change.
+/// Published synthetic-styles setting, initialized to its configured default.
 static SYNTHETIC_STYLES_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(DEFAULT_SYNTHETIC_STYLES);
 
@@ -25,11 +22,7 @@ pub fn synthetic_styles_enabled() -> bool {
     SYNTHETIC_STYLES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Runtime flag mirroring [`Settings::geometric_boxdraw`], published
-/// process-wide so the GPU renderer can apply it to every rebuilt glyph atlas
-/// without threading `Settings` through the native options seam. Starts at
-/// [`DEFAULT_GEOMETRIC_BOXDRAW`], the same value as [`Settings::default`], so an
-/// atlas built before startup publishes the setting draws the shipped look.
+/// Published geometric glyph setting, initialized to its configured default.
 static GEOMETRIC_BOXDRAW_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(DEFAULT_GEOMETRIC_BOXDRAW);
 
@@ -118,8 +111,7 @@ pub fn font_zero_enabled() -> bool {
 static SYMBOL_FALLBACK_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(DEFAULT_SYMBOL_FALLBACK);
 
-/// Optional explicit symbol / Nerd-font path mirroring [`Settings::symbol_font`].
-/// `None` means the renderer falls back to its host font search.
+/// Owned symbol-font override under a mutex; `None` uses host discovery.
 static SYMBOL_FONT_PATH: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
 
 pub fn set_symbol_fallback_enabled(enabled: bool) {
@@ -144,9 +136,7 @@ pub fn symbol_font_path() -> Option<PathBuf> {
         .clone()
 }
 
-/// Live SYMMAP override map (`Settings::symbol_map`), published process-wide so
-/// the GPU renderer can resolve override font families and rebuild the glyph
-/// atlas when the map changes. The default is empty (the identity / off path).
+/// Owned symbol-family override map under a mutex. Empty is the off path.
 static SYMBOL_MAP: std::sync::Mutex<Option<crate::text::SymbolMap>> = std::sync::Mutex::new(None);
 
 pub fn set_symbol_map(map: crate::text::SymbolMap) {

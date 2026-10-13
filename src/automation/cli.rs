@@ -932,7 +932,7 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
-    fn endpoint_replaced_after_probe_is_one_unknown_outcome_without_retry() {
+    fn mutation_response_calls_send_once_and_maps_transport_errors() {
         let endpoint = PathBuf::from("/runtime/control-7.sock");
         let selected = discover_eligible(vec![endpoint.clone()], Instant::now(), |_, _| {
             Ok(capability_response(true))
@@ -1182,9 +1182,8 @@ mod tests {
     }
 
     #[test]
-    fn outcome_unknown_is_nonzero_exit_and_is_not_retried_by_run() {
-        // No live endpoint: a structural mutation maps to OutcomeUnknown and
-        // success=false. run() performs a single attempt (no retry loop).
+    fn missing_endpoint_exits_nonzero_with_unavailable() {
+        // A missing endpoint cannot receive a mutation.
         let Some(command) = parse(&args(&[
             "control",
             "--endpoint",
@@ -1196,18 +1195,8 @@ mod tests {
             panic!("expected Request");
         };
         let (output, success) = run(command);
-        assert!(
-            !success,
-            "OutcomeUnknown / transport failure must be nonzero"
-        );
-        assert!(
-            output.contains("outcome_unknown") || output.contains("unavailable"),
-            "output={output}"
-        );
-        assert_eq!(
-            output.matches("outcome_unknown").count() + output.matches("unavailable").count(),
-            1,
-            "run must not retry: output={output}"
-        );
+        assert!(!success);
+        assert!(output.contains("unavailable"), "output={output}");
+        assert!(!output.contains("outcome_unknown"), "output={output}");
     }
 }

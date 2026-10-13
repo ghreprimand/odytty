@@ -708,6 +708,27 @@ pub fn readability_scrim_for(
     }
 }
 
+/// Reduce OKLCH chroma into sRGB with the shared 20-step bisection and
+/// 1e-4 boundary tolerance. Lightness and hue are unchanged.
+pub(crate) fn gamut_map_oklch(lch: Oklch) -> LinearRgb {
+    let in_gamut = |linear: LinearRgb| linear.iter().all(|&c| (-1e-4..=1.0 + 1e-4).contains(&c));
+    let direct = oklab_to_linear(oklch_to_oklab(lch));
+    if in_gamut(direct) {
+        return direct;
+    }
+    let (mut lo, mut hi) = (0.0_f32, lch.c);
+    for _ in 0..20 {
+        let mid = 0.5 * (lo + hi);
+        let candidate = oklab_to_linear(oklch_to_oklab(Oklch { c: mid, ..lch }));
+        if in_gamut(candidate) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    oklab_to_linear(oklch_to_oklab(Oklch { c: lo, ..lch }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

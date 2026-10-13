@@ -3,36 +3,18 @@
 #[path = "../src/test_dirs/allocation.rs"]
 pub mod scratch_dirs;
 
+pub mod support;
+use support::TempDir;
+
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use odytty::connection_hosts::{
     AppendHostOutcome, ConnectionHost, ConnectionHostSource, HostsEditOutcome, append_adhoc_host,
     edit_host_block, parse_odytty_hosts_bytes, remove_host_block,
 };
 use odytty::ssh_connect::{remote_cleanup_command, remote_upload_command, remote_upload_target};
-
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(prefix: &str) -> Self {
-        let path = scratch_dirs::fresh_temp_dir(prefix);
-        Self { path }
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
 
 fn host(alias: &str) -> ConnectionHost {
     ConnectionHost {
@@ -79,7 +61,7 @@ fn set_field(host: &mut ConnectionHost, field: usize, value: &str) {
 
 #[test]
 fn hosts_append_rejects_controls_in_every_serialized_field_without_mutating() {
-    let dir = TempDir::new("append-controls");
+    let dir = TempDir::new("append-controls", false);
     let path = hosts_path(&dir);
     let original = b"# synthetic preamble\nHost preserved\n    User retained\n";
     fs::write(&path, original).expect("seed hosts file");
@@ -102,7 +84,7 @@ fn hosts_append_rejects_controls_in_every_serialized_field_without_mutating() {
 
 #[test]
 fn hosts_edit_rejects_controls_in_target_or_sibling_field_without_mutating() {
-    let dir = TempDir::new("edit-controls");
+    let dir = TempDir::new("edit-controls", false);
     let path = hosts_path(&dir);
     let original = b"# synthetic preamble\nHost target sibling\n    HostName node.example.invalid\n    User retained\n\nHost untouched\n    User preserved\n";
     fs::write(&path, original).expect("seed hosts file");
@@ -129,7 +111,7 @@ fn hosts_edit_rejects_controls_in_target_or_sibling_field_without_mutating() {
 
 #[test]
 fn hosts_remove_rejects_controls_without_mutating() {
-    let dir = TempDir::new("remove-controls");
+    let dir = TempDir::new("remove-controls", false);
     let path = hosts_path(&dir);
     let original = b"Host target\n    User retained\n\nHost sibling\n    User preserved\n";
     fs::write(&path, original).expect("seed hosts file");
@@ -148,7 +130,7 @@ fn hosts_remove_rejects_controls_without_mutating() {
 
 #[test]
 fn hosts_quote_is_escaped_and_sibling_fields_remain_parseable() {
-    let dir = TempDir::new("quotes");
+    let dir = TempDir::new("quotes", false);
     let path = hosts_path(&dir);
     let mut quoted = host("quoted");
     quoted.user = Some("quoted \"operator\"".to_owned());

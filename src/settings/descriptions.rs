@@ -38,7 +38,7 @@ pub const RENDER_QUALITY_DESC: &str = "Renderer profile: high (default) is the f
      even when their individual settings are enabled, giving raw speed with no \
      post-process cost.";
 
-/// Human-readable help for the ID3/U5 background-treatment knob, shown in the
+/// Human-readable help for the background-treatment knob, shown in the
 /// in-app settings panel.
 pub const BACKGROUND_TREATMENT_DESC: &str = "Background treatment: draws a wallpaper or depth effect behind the terminal \
      grid. image (default) draws a wallpaper behind the grid (see background_image \
@@ -103,15 +103,26 @@ pub const BLOOM_INTENSITY_DESC: &str = "Bloom intensity: additive glow strength.
 pub const BLOOM_RADIUS_DESC: &str = "Bloom radius: blur spread in half-resolution pixels. Accepts 0.5–8.0; \
      8.0 is the ambient default wide phosphor radius.";
 
-pub const RETRO_DESC: &str = "Retro preset: one-switch stronger phosphor look. When on, bloom and CRT use a tuned high-visibility profile without overwriting the individual knobs. The plain renderer profile still bypasses it.";
-pub const CRT_DESC: &str = "CRT profile: post-process scanlines plus vignette. On in the Odyssey ambient default and pixel-identical to the plain renderer when off. Requires the same adapter support as bloom; unsupported adapters silently use the plain path.";
-pub const CRT_SCANLINE_INTENSITY_DESC: &str = "CRT scanline intensity: bounded multiplicative dimming for the dark part of each scanline. Accepts 0.0–0.35; the shader keeps a brightness floor so scanlines stay readable.";
+pub const RETRO_DESC: &str = "Retro preset: one-switch stronger phosphor look. When on, bloom and CRT use a tuned \
+     high-visibility profile without overwriting the individual knobs. The plain renderer \
+     profile still bypasses it.";
+pub const CRT_DESC: &str = "CRT profile: post-process scanlines plus vignette. On in the Odyssey ambient default \
+     and pixel-identical to the plain renderer when off. Requires the same adapter support \
+     as bloom; unsupported adapters silently use the plain path.";
+pub const CRT_SCANLINE_INTENSITY_DESC: &str = "CRT scanline intensity: bounded multiplicative dimming for the dark part of each \
+     scanline. Accepts 0.0–0.35; the shader keeps a brightness floor so scanlines stay \
+     readable.";
 pub const CRT_SCANLINE_PERIOD_DESC: &str = "CRT scanline spacing: vertical distance between the dark scanline bands in the CRT/retro \
      post-process, measured in physical pixels. Smaller values pack bands closer together; \
      larger values spread them out for a coarser look. Accepts 2.0–12.0; 7.0 is the \
      ambient default. Only takes effect when the CRT profile is on.";
 pub const CRT_VIGNETTE_STRENGTH_DESC: &str = "CRT vignette strength: bounded edge dimming. Accepts 0.0–0.45; the shader enforces a brightness floor so corners recede without erasing lit cells.";
-pub const CRT_CURVATURE_DESC: &str = "CRT curvature: subtle barrel-distortion screen curvature. Accepts 0.0–0.12; 0.0 (default) is flat and pixel-identical to the plain renderer, higher values gently bow the screen with UV clamping so borders stay free of black seams. A configuration-file and environment knob only, with no settings-panel control; it takes effect while either CRT profile is active (the CRT toggle or the retro preset), and the retro preset does not force any curvature of its own.";
+pub const CRT_CURVATURE_DESC: &str = "CRT curvature: subtle barrel-distortion screen curvature. Accepts 0.0–0.12; 0.0 \
+     (default) is flat and pixel-identical to the plain renderer, higher values gently bow \
+     the screen with UV clamping so borders stay free of black seams. A configuration-file \
+     and environment knob only, with no settings-panel control; it takes effect while either \
+     CRT profile is active (the CRT toggle or the retro preset), and the retro preset does \
+     not force any curvature of its own.";
 
 /// Human-readable help for the geometric box-drawing knob, shown in the
 /// in-app settings panel. Follows the every-knob-carries-a-description convention.

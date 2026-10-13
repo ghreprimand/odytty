@@ -31,10 +31,7 @@ impl GlyphAtlas {
         self.width * self.subpixel.bytes_per_pixel()
     }
 
-    /// Heap bytes the CPU-side coverage bitmap currently holds, for memory
-    /// attribution. Reports the allocation's **capacity**, not its length: an
-    /// atlas that grew and then shrank still owns the larger buffer. This is
-    /// heap attribution, not a resident-set measurement.
+    /// Allocated CPU-side coverage buffer capacity in bytes, not resident memory.
     pub fn cpu_bitmap_bytes(&self) -> u64 {
         self.data.capacity() as u64
     }

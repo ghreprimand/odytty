@@ -92,7 +92,10 @@ retention behavior:
   threshold is cut to it and ends with `[record truncated]`. Separate OdyTTY
   processes appending to the same log read its size on disk before each write,
   so the threshold counts every process's records, and a process whose file was
-  rotated away by another reopens the current file. Two processes rotating at
+  appears rotated away by a size comparison reopens the current file. A
+  replacement of the same length can evade that comparison. Rotation or reopen
+  failure disables that process's disk sink while stderr continues; Windows
+  uses the same failure policy without retrying a failed replacement. Two processes rotating at
   the same moment can still replace each other's `.1`, so this is a best-effort
   bound, not a strict aggregate cap. An oversized file left by an earlier run
   rotates before the first new append.

@@ -159,9 +159,7 @@ impl ColorGlyphAtlas {
         dirty
     }
 
-    /// Heap bytes the CPU-side RGBA bitmap currently holds, for memory
-    /// attribution. Reports the allocation's capacity for the same reason the
-    /// monochrome atlas does: capacity is what the process is resident for.
+    /// Allocated CPU-side RGBA buffer capacity in bytes, not resident memory.
     pub fn cpu_bitmap_bytes(&self) -> u64 {
         self.data.capacity() as u64
     }

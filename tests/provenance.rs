@@ -9,6 +9,10 @@
 //! it directly. The final test drives a real `git archive` extraction with no
 //! `.git` present, proving the export-subst path source packages rely on.
 
+#[cfg(unix)]
+pub mod support;
+#[cfg(unix)]
+use support::TempDir;
 // These are used only by the Unix-gated `git archive` integration test; the
 // pure-function tests need no imports. Gating them keeps the windows-latest
 // leg free of unused-import/dead-code warnings.
@@ -19,7 +23,7 @@ pub mod scratch_dirs;
 #[cfg(unix)]
 use std::fs;
 #[cfg(unix)]
-use std::path::{Path, PathBuf};
+use std::path::Path;
 #[cfg(unix)]
 use std::process::Command;
 
@@ -176,7 +180,7 @@ fn git_archive_substitutes_the_token_and_drops_dot_git() {
         return;
     }
 
-    let tmp = TempDir::new("odytty-prov");
+    let tmp = TempDir::new("odytty-prov", false);
     let repo = tmp.path();
 
     // A repository shaped like ours: the export-subst placeholder file plus the
@@ -378,7 +382,7 @@ fn the_hostile_parent_listing() {
     if std::env::var_os(HOSTILE_CHILD_MARKER).is_none() {
         return;
     }
-    let tmp = TempDir::new("odytty-prov-config");
+    let tmp = TempDir::new("odytty-prov-config", false);
     let repo = tmp.path();
     git(repo, &["init", "-q", "--template="]);
     let list = |mut command: Command| {
@@ -397,29 +401,4 @@ fn the_hostile_parent_listing() {
         .env_remove("GIT_INDEX_FILE");
     println!("<<plain\n{}>>plain", list(plain));
     println!("<<hermetic\n{}>>hermetic", list(hermetic_git(repo)));
-}
-
-/// Self-cleaning directory using the allocator shared with other test crates.
-#[cfg(unix)]
-struct TempDir {
-    path: PathBuf,
-}
-
-#[cfg(unix)]
-impl TempDir {
-    fn new(prefix: &str) -> Self {
-        let path = scratch_dirs::fresh_temp_dir(prefix);
-        Self { path }
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-#[cfg(unix)]
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
 }

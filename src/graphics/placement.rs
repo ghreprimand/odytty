@@ -423,14 +423,7 @@ impl ImageScene {
             .max_by_key(|id| self.store.get(*id).map(|image| image.generation))
     }
 
-    /// Resolve a stored image by its client-chosen image number (Kitty `I=`),
-    /// taking the newest match.
-    ///
-    /// Newest-match is the protocol's rule, not a tie-break of convenience:
-    /// numbers are explicitly not unique, and transmitting with a number
-    /// creates a new image rather than replacing the previous one, so several
-    /// images can legitimately share a number at once. Resolution by generation - the same ordering [`ImageScene::find_by_protocol_id`] uses - means a
-    /// client's follow-up commands act on the image it most recently sent.
+    /// Resolve an image number to its newest stored match by generation.
     pub fn find_by_image_number(&self, protocol_number: u32) -> Option<StoredImageId> {
         self.store
             .iter_ids()

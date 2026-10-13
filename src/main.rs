@@ -1,14 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//
-// On Windows, OdyTTY is built as a GUI-subsystem binary (`windows_subsystem =
-// "windows"`) - the canonical posture for a windowed terminal (Windows
-// Terminal, Alacritty, WezTerm all do this). No console is allocated or
-// inherited at launch, which removes the console-vs-ConPTY interaction the
-// earlier `FreeConsole` workaround papered over and stops a console window
-// flashing on an Explorer double-click. The tradeoff: the CLI/introspection
-// paths (`--version`/`--help`/…) have no stdout by default, so
-// `attach_parent_console_for_cli` reattaches to the launching console when a
-// CLI argument is present. The Unix build is unaffected.
+// Attach the parent console for CLI output on Windows; GUI launches remain
+// detached. The Unix build does not use the Windows console API.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 use anyhow::Result;
 #[cfg(unix)]

@@ -4,7 +4,7 @@
 use super::super::*;
 use super::order::{numeric_range_label, setting_group_rank};
 
-/// Broad setting type hint for the read-only UX2-a panel and later editors.
+/// Setting type hint for the native panel and editors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingKind {
     Bool,
@@ -15,17 +15,9 @@ pub enum SettingKind {
     List,
 }
 
-/// Structured numeric bounds for a [`SettingKind::Number`] row: the
-/// authoritative `(min, max, step)` shared by the settings stepper, keyboard
-/// step, and any fraction-based test helpers, plus an optional display `unit`
-/// (e.g. `"px"`). `min`/`max` mirror the same constants the parser clamps to,
-/// so the UI controls, keyboard step, derived range label, and live-apply clamp
-/// are one source of truth and cannot drift. `unit` exists only so the derived
-/// range label keeps its suffix losslessly; the `{min, max, step}` core is
-/// exactly the modeled spec.
-///
-/// `f32` fields mean this (and therefore [`SettingInfo`]) cannot derive `Eq`;
-/// `PartialEq` is sufficient for every consumer.
+/// Numeric bounds shared by slider, keyboard step and range display. Parser
+/// and live-apply clamps use the same constants. `unit` is display-only; float
+/// fields permit `PartialEq`, not `Eq`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NumericSpec {
     pub min: f32,
@@ -98,8 +90,8 @@ pub struct SettingInfo {
 impl Settings {
     /// Stable read-only inventory for the in-app settings panel.
     ///
-    /// This intentionally mirrors every field on [`Settings`]. UX2-b can attach
-    /// editors and persistence to the same rows; UX2-a only displays them.
+    /// This intentionally mirrors every field on [`Settings`]. can attach
+    /// editors and persistence to the same rows; only displays them.
     pub fn setting_info(&self) -> Vec<SettingInfo> {
         let mut rows = vec![
             SettingInfo {

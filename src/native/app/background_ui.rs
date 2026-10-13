@@ -1,40 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! ID3/U5: readability-safe background treatments (gradient / vignette).
-//!
-//! This is the native seam for the background-treatment feature. The whole
-//! effect lives in the grid cell-vertex background path - the treatment
-//! modulates each cell's resolved background color BEFORE the RV1
-//! minimum-contrast floor, so the floor sees the treated per-cell background and
-//! re-lifts the foreground. Readability is therefore preserved by construction,
-//! per cell, and the effect needs no separate quad contributor.
-//!
-//! Foundation lanes this rides:
-//!
-//! - **`OverlayCompositeSignature.background` fragment (YES).** When a treatment
-//!   is active the cache key becomes [`OverlayFragment::Background`] (quantized
-//!   so a config change repaints while an at-rest frame does not thrash); when
-//!   off it is [`OverlayFragment::Inert`], so the geometry-update decision is a
-//!   frame-to-frame constant exactly as before this feature existed.
-//! - **overlay-registry SolidQuad lane (NO).** A SolidQuad would draw OVER the
-//!   text - wrong order. [`App::paint_background_quads`] stays a permanent no-op;
-//!   the treatment is entirely in the cell-vertex background path.
-//! - **`ActiveModal` input gate (NO).** The treatment captures no keyboard.
-//!
-//! Off-path contract: when the knob is `off`, and always under
-//! the plain renderer profile, [`App::background_treatment_params`] returns the
-//! identity ([`grid::BackgroundTreatmentParams::default`], `active() == false`),
-//! the grid apply block is skipped, and [`App::background_overlay_signature`] is
-//! `Inert`, so the rendered frame bytes are identical to before ID3/U5 landed.
+//! Gradient and vignette modify cell backgrounds before foreground contrast
+//! adjustment. Image treatment uses its own pass. Final brightness and overlay
+//! tints can change the resulting contrast. No background treatment captures
+//! input; inactive treatment leaves the overlay signature inert.
 
 use crate::grid::{self, BackgroundTreatmentParams};
 use crate::settings::{BackgroundTreatment as SettingTreatment, Settings};
 
 use super::*;
 
-/// Baked treatment strength for v1 (the knob is a kind selector, not a slider).
-/// Scales [`grid::MAX_BG_TREATMENT_DARKEN`]; a deliberately restrained value so
-/// the effect reads as depth, not a heavy vignette. The RV1 floor (applied to
-/// the treated background) is the hard readability guarantee regardless.
+/// Treatment strength applied before foreground contrast adjustment.
 const DEFAULT_BG_TREATMENT_STRENGTH: f32 = 0.7;
 
 /// Pure mapping from the active settings to the grid treatment params. Returns
@@ -59,11 +34,9 @@ fn treatment_params_for(settings: &Settings) -> BackgroundTreatmentParams {
     }
 }
 
-/// Stable cache key for the active background image. `None` when the image
-/// treatment is not selected or no image path is configured (then the image
-/// pass is off and the off-path identity holds). Otherwise folds the path,
-/// blur radius, cell opacity, and explicit scrim override into a `u64` so any
-/// change repaints while an at-rest frame never thrashes the cache.
+/// Hash the selected image settings, with quantized floating-point values.
+/// The overlay fragment uses only the low 16 bits; applying settings also
+/// invalidates presentation independently.
 fn image_signature_for(settings: &Settings) -> Option<u64> {
     if settings.effective_background_treatment() != SettingTreatment::Image {
         return None;
@@ -84,16 +57,13 @@ fn image_signature_for(settings: &Settings) -> Option<u64> {
     Some(hasher.finish())
 }
 
-/// Pure mapping from settings to the ID3/U5 cache fragment. `Inert` when off,
-/// otherwise keyed on a quantized strength and the treatment discriminant.
+/// Background cache fragment: inactive, quantized treatment strength, or
+/// a 16-bit fragment of the image settings hash.
 fn overlay_signature_for(settings: &Settings) -> OverlayFragment {
     let params = treatment_params_for(settings);
     if !params.active() {
-        // The image treatment returns identity params (T1) yet still paints -
-        // key its cache fragment on the image signature so a path/blur/opacity/
-        // scrim change repaints. `treat = 3` is the Image discriminant; when no
-        // image is configured this is `None` and the fragment stays `Inert`,
-        // preserving the off-path identity exactly.
+        // Image paints separately despite inactive cell treatment parameters.
+        // Its hash is narrowed here; settings apply also invalidates the frame.
         if let Some(sig) = image_signature_for(settings) {
             let scrim_q = (sig & 0xFFFF) as u16;
             return OverlayFragment::Background { scrim_q, treat: 3 };
@@ -120,7 +90,7 @@ impl App {
         treatment_params_for(&self.settings)
     }
 
-    /// ID3/U5 background cache fragment. `Inert` when the treatment is off (so
+    /// background cache fragment. `Inert` when the treatment is off (so
     /// the composite signature stays a frame-to-frame constant and the plain
     /// path is byte-identical); otherwise a [`OverlayFragment::Background`].
     pub(super) fn background_overlay_signature(&self) -> OverlayFragment {

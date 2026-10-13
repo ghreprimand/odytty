@@ -300,7 +300,7 @@ impl CommandBuilder {
     ///
     /// Centralized so every spawn path advertises an identical environment and
     /// the four variables can never drift between call sites.
-    #[cfg_attr(not(unix), allow(dead_code))]
+    #[cfg_attr(not(any(unix, windows)), allow(dead_code))]
     fn apply_terminal_env(&mut self) -> &mut Self {
         self.env("TERM", "xterm-256color");
         self.env("COLORTERM", "truecolor");
@@ -349,7 +349,7 @@ impl CommandBuilder {
     /// other variable. Env-based discovery deliberately does not cross
     /// ssh/nested sessions (a documented limitation; a query escape can come
     /// later if remote discovery is ever needed).
-    #[cfg_attr(not(unix), allow(dead_code))]
+    #[cfg_attr(not(any(unix, windows)), allow(dead_code))]
     fn apply_buttons_discovery_env(&mut self, buttons_enabled: bool) -> &mut Self {
         if buttons_enabled {
             self.env("ODYTTY_BUTTONS", "1");
@@ -377,7 +377,7 @@ impl CommandBuilder {
     /// it is inert for every other child. Shared by both platform spawn paths
     /// like the buttons advertisement; harmless on Windows where no snippet
     /// consumes it.
-    #[cfg_attr(not(unix), allow(dead_code))]
+    #[cfg_attr(not(any(unix, windows)), allow(dead_code))]
     fn apply_key_enhancement_discovery_env(&mut self, key_enhancement_enabled: bool) -> &mut Self {
         if key_enhancement_enabled {
             self.env("ODYTTY_KEY_ENHANCE", "1");
@@ -403,7 +403,7 @@ impl CommandBuilder {
     /// processes. Applied on every default-shell spawn, independent of whether
     /// integration is being injected on this spawn. Shared by both platform
     /// backends; on Windows the scrub folds into the ConPTY environment block.
-    #[cfg_attr(not(unix), allow(dead_code))]
+    #[cfg_attr(not(any(unix, windows)), allow(dead_code))]
     fn apply_shell_integration_scrub(&mut self) -> &mut Self {
         self.env_remove("ODYTTY_SHELL_INTEGRATION");
         self

@@ -5,8 +5,8 @@
 #[cfg(unix)]
 const HOSTNAME_BUF_LEN: usize = 256;
 
-/// Return the local hostname reported by the operating system, or `None` when
-/// it cannot be read as a complete non-empty UTF-8 string.
+/// Read the local hostname, or return `None` when absent or unreadable.
+/// Unix requires complete UTF-8; Windows converts UTF-16 lossily.
 pub(crate) fn get() -> Option<String> {
     get_impl()
 }
@@ -27,13 +27,7 @@ fn get_impl() -> Option<String> {
     std::str::from_utf8(&buf[..len]).ok().map(str::to_owned)
 }
 
-/// Windows: read the primary hostname via `GetComputerNameExW`. Returning the
-/// name here lets [`crate::core::screen::osc`] accept an OSC 7 `file://<host>/…`
-/// URL whose authority is this machine's name (the form oh-my-posh / starship
-/// and other third-party prompts emit) instead of dropping it, so cwd tracking
-/// keeps working under those prompts. `osc7_host_is_local` compares leading
-/// labels case-insensitively, so either the DNS hostname or the NetBIOS
-/// `%COMPUTERNAME%` matches.
+/// Read the Windows DNS hostname for local OSC 7 authority matching.
 #[cfg(windows)]
 fn get_impl() -> Option<String> {
     use windows::Win32::System::SystemInformation::{ComputerNameDnsHostname, GetComputerNameExW};

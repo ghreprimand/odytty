@@ -1,20 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Library-side desktop-integration logic for the "Open With…" app picker
-//! (C3b). Std-only and free of any windowing/GPU import (the SPEC layering
-//! rule), so it is unit-testable on synthetic fixtures with **zero** real
-//! filesystem and **zero** real `xdg-mime` invocation.
-//!
-//! The feature has three pure pieces, all here or in the sibling modules:
-//! * [`exec::exec_to_argv`] - the security spine: a `.desktop` `Exec=` string →
-//!   an argv vector, never a shell command.
-//! * [`parse`] - hand parsers for `.desktop` / `mimeapps.list` /
-//!   `mimeinfo.cache`.
-//! * [`enumerate_open_with`] - resolves the apps that can open a file, behind
-//!   two injectable seams ([`MimeProbe`] + [`DesktopEnv`]) so production wires
-//!   the real `xdg-mime` + `std::fs` and tests wire in-memory maps.
-//!
-//! The production seam implementations live in `native/` (they touch the real
-//! process/filesystem); this module stays pure.
+//! Resolve Open With handlers through injected MIME and file-reading seams.
+//! Parse supported Desktop Entry metadata, validate launch arguments, preserve
+//! precedence, and cap results. This module does not spawn.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -32,11 +19,9 @@ pub use macos_apps::map_macos_app_paths;
 /// type has). Mirrors the `MAX_RESULTS` discipline of the other list overlays.
 pub const MAX_OPEN_WITH: usize = 12;
 
-/// One application that can open the target file, ready for the picker. `name`
-/// is the human label (the `.desktop` `Name`, control-char-sanitized by the
-/// overlay at render time like session titles); `argv` is the fully-expanded,
-/// argv-only command (program + arguments, path already substituted as a single
-/// inert element) handed verbatim to the shared `spawn_detached`.
+/// One application offered by the picker. `name` is its display label;
+/// `argv` is the expanded argument vector passed to the shared detached spawn
+/// helper. The inserted path is one argument, never a shell command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesktopApp {
     /// The desktop id (`eog.desktop`), used for dedup and as a `Name` fallback.
@@ -204,15 +189,8 @@ pub fn enumerate_open_with(
 /// Tries the literal `applications/<id>` first, then the subdir form for a
 /// dash-prefixed id (`kde-foo.desktop` → `applications/kde/foo.desktop`).
 fn read_desktop_file(env: &dyn DesktopEnv, data_dirs: &[PathBuf], id: &str) -> Option<String> {
-    // F17: a desktop id is a BARE name (dashes encode subdirectories); it must
-    // never resolve outside `applications/`. `Path::join` does not normalize, so
-    // an id carrying a separator, a `..` component, or an absolute path (e.g. a
-    // hostile `mimeapps.list` entry `image/png=../../../../tmp/evil.desktop`)
-    // would otherwise read, and if launched run, an arbitrary out-of-tree
-    // file. The original id is rejected here, and every candidate derived from
-    // it by dash expansion is admitted only when each of its components is a
-    // normal name (see `desktop_relpaths`), so `..-evil.desktop` cannot read
-    // `applications/../evil.desktop` either.
+    // Reject inadmissible original IDs and check every derived relative
+    // component before reading under applications/.
     if !is_safe_desktop_id(id) {
         return None;
     }
@@ -250,7 +228,7 @@ const MAX_INDEPENDENT_DASHES: usize = 6;
 /// Candidate relative paths (under `applications/`) for a desktop id: the
 /// literal name first, then the subdirectory forms.
 ///
-/// C15: the freedesktop desktop-entry spec derives a file's id by replacing
+/// the freedesktop desktop-entry spec derives a file's id by replacing
 /// every path separator under `applications/` with `-`, so resolution must
 /// walk the ladder in reverse - `org-gnome-eog.desktop` may live at
 /// `org-gnome-eog.desktop`, `org/gnome-eog.desktop`, or `org/gnome/eog.desktop`.
@@ -405,7 +383,7 @@ mod tests {
 
     #[test]
     fn desktop_id_path_traversal_is_rejected() {
-        // F17: guard predicate - bare names (dashes ok) pass; anything that could
+        // guard predicate - bare names (dashes ok) pass; anything that could
         // escape `applications/` is rejected.
         assert!(is_safe_desktop_id("firefox.desktop"));
         assert!(is_safe_desktop_id("org-gnome-eog.desktop"));
@@ -559,7 +537,7 @@ mod tests {
         assert_eq!(apps[0].name, "Okular");
     }
 
-    /// C15: a multi-dash id resolves through the FULL progressive dash→slash
+    /// a multi-dash id resolves through the FULL progressive dash→slash
     /// ladder - `org-gnome-eog.desktop` at `applications/org/gnome/eog.desktop`.
     /// Pre-fix only the first dash split, so the two-level nesting never
     /// resolved.
@@ -659,7 +637,7 @@ mod tests {
         assert!(read_desktop_file(&env, &data_dirs, "..-outside.desktop").is_none());
     }
 
-    /// C15: the candidate ladder is literal first, then by how many dashes become
+    /// the candidate ladder is literal first, then by how many dashes become
     /// separators - so a literally-installed dash-named file wins over a nested
     /// twin, and a directory name that itself holds a dash is reachable.
     #[test]

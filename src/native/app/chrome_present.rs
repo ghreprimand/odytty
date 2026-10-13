@@ -106,17 +106,9 @@ impl App {
         }
     }
 
-    /// Whether ANY tab chrome is shown this frame (top tab bar or workspace
-    /// rail). The master gate the reserve / panel / hit-test / pointer paths key
-    /// on so the rail is reachable even when the active workspace has a single
-    /// unnamed tab (no top bar). `false` is the byte-identical no-chrome frame.
-    /// TRANSPARENCY: the window background alpha to render this frame. Full
-    /// opacity (`1.0`) unless the `window_transparency` setting is on and the
-    /// swapchain can actually composite alpha (`capable`); otherwise the
-    /// configured `window_opacity` percent as a `0..=1` fraction. An open overlay
-    /// panel keeps the window translucent (MENU-OPACITY): only the panel's own
-    /// cell span is held opaque so it stays readable, while the content behind it
-    /// keeps showing the desktop through.
+    /// Window background alpha: opaque unless transparency is enabled and the
+    /// swapchain supports compositing. Overlay panels keep their own cells
+    /// opaque while the window background follows the configured opacity.
     pub(super) fn effective_window_bg_alpha(&self, capable: bool) -> f32 {
         window_bg_alpha_for(
             self.settings.window_transparency,
@@ -172,6 +164,8 @@ impl App {
         }
     }
 
+    /// Whether a top tab bar or workspace rail is shown. Reserve, paint and
+    /// hit-test paths share this gate, including single-tab workspaces.
     pub(super) fn any_chrome_shown(&self) -> bool {
         self.should_show_tab_bar() || self.should_show_workspace_rail()
     }

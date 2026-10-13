@@ -8,9 +8,8 @@ pub(super) fn setting_group_rank(group: &str) -> usize {
         "Theme" => 0,
         "Font" => 1,
         "Rendering" => 2,
-        // The four "Layout" groups sort right after `Rendering`, matching that
-        // section's position (4th in `SECTIONS`): Tabs, then Workspace rail, then
-        // Panel, then Panes, so the rows read top-to-bottom in that order.
+        // Layout groups follow Rendering in native/settings_panel/sections.rs:
+        // Tabs, Workspace rail, Panel, then Panes.
         "Tabs" => 3,
         "Workspace rail" => 4,
         "Panel" => 5,

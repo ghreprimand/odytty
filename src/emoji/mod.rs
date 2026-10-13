@@ -207,15 +207,11 @@ pub(crate) fn discover_noto_color_emoji_with_inventory(
     discover_with_fontconfig().or_else(|| discover_noto_color_emoji_in_inventory(inventory))
 }
 
-/// Most color-emoji candidate faces tried to load before color emoji is
-/// given up, matching the symbol resolver's candidate bound.
+/// Maximum inventory candidates loaded after the separate fontconfig answer.
 const MAX_EMOJI_FONT_CANDIDATES: usize = 8;
 
-/// The first color-emoji face that actually loads: fontconfig's answer on
-/// Linux, then [`load_color_emoji_font_in_inventory`]. Discovery used to stop
-/// at the first match even when that file failed to load (too large, unreadable,
-/// or not a font), leaving the session without color emoji while another
-/// installed face would have worked.
+/// Load fontconfig's answer on Unix except macOS, then try the bounded inventory
+/// candidates if that answer is absent or cannot be loaded.
 pub(crate) fn load_color_emoji_font_with_inventory(
     inventory: &crate::text::FontFileInventory,
 ) -> Option<EmojiFont> {
@@ -346,21 +342,8 @@ pub fn representative_sequences() -> &'static [EmojiSequence] {
     ]
 }
 
-/// Probe whether `text` can become a single color glyph in `font`, mirroring
-/// the color-run pipeline's contract: the whole cluster must shape to exactly
-/// one non-`.notdef` glyph, and that glyph must carry color coverage (a color
-/// strike or a color outline).
-///
-/// This is a font-capability question, not a pipeline question: a font can be
-/// a perfectly good color-emoji font and still lack a given cluster. Stock
-/// Windows Segoe UI Emoji is the canonical example - it has glyphs for the
-/// individual regional-indicator letters (that is what its visible fallback
-/// draws) but no flag ligatures combining them, so a flag cluster shapes to
-/// two glyphs, never one, and the renderer takes the coverage-fallback path.
-/// A weaker probe that accepted "any non-`.notdef` glyph" would call that
-/// font capable and be wrong. Callers (diagnostics, capability-conditional
-/// tests) use this to distinguish "the font cannot" from "the pipeline
-/// failed".
+/// Resolve only a single nonzero glyph with a color source. Fonts may cover
+/// individual sequence members without covering the whole cluster.
 pub fn probe_cluster_resolution(font: &EmojiFont, text: &str) -> FallbackOutcome {
     let font_ref = font.as_ref();
     let mut shape_context = ShapeContext::new();
@@ -554,23 +537,8 @@ fn has_colr_v1_glyph(font: &EmojiFont, glyph_id: GlyphId) -> bool {
         .is_some()
 }
 
-/// Ask fontconfig for the color-emoji face.
-///
-/// Unlike the symbol resolver's charset query, this asks by *family*, where
-/// fontconfig's single best answer is the correct semantics: any face covering
-/// a codepoint will do for a symbol, but only Noto Color Emoji is Noto Color
-/// Emoji. So this path enumerates nothing -- deliberately, not by omission.
-///
-/// It does share the symbol resolver's face-index concern, and honors it for
-/// the same reason: a color-emoji font can ship as a collection (Apple Color
-/// Emoji does), and face 0 of a collection is arbitrary with respect to the
-/// request.
-/// Non-fontconfig platforms fall straight through to the inventory scan. Gated
-/// like the symbol-font resolver's `fc_list_covering`
-/// (`src/text/symbols.rs`): fontconfig is a Unix-non-macOS mechanism, and
-/// spawning `fc-match` on Windows (where fontconfig may sit on `%PATH%` via
-/// MSYS2/Cygwin) would flash a console window from the GUI binary, while on
-/// macOS the font path is inventory-based and the query cannot help.
+/// Query the requested emoji family on Unix except macOS, preserving its face
+/// index. Other platforms use the shared inventory.
 #[cfg(not(all(unix, not(target_os = "macos"))))]
 fn discover_with_fontconfig() -> Option<EmojiFontMatch> {
     None

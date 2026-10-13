@@ -257,13 +257,8 @@ pub fn kill_session(runtime_base: Option<&Path>, id: &str) -> Result<()> {
         Err(error) if session_already_gone(&error) => return Ok(()),
         Err(error) => return Err(error.context(format!("end session {id}"))),
     };
-    // Drain the post-handshake snapshot frame before sending Shutdown. The host
-    // writes the snapshot right after the hello; if we dropped the connection
-    // before reading it, that write would race a `BrokenPipe` and make the host
-    // exit through its error path instead of the clean Shutdown teardown.
-    // Reading one frame synchronizes past the snapshot write so the host always
-    // tears down cleanly and unlinks its socket. A read error is non-fatal; the
-    // kill is still sent.
+    // Best-effort bounded snapshot drain before sending Shutdown. This does
+    // not acknowledge clean host completion; timeout or read errors are ignored.
     let _ = client.read_frame(Duration::from_millis(200));
     client
         .shutdown()

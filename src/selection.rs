@@ -19,10 +19,8 @@ pub struct SelectionRange {
     pub end: CellPoint,
 }
 
-/// Granularity of an in-progress drag-selection. `Char` is the
-/// historical single-click drag (focus follows the pointer cell); `Word`/`Line`
-/// keep a double/triple-click drag live so it grows by whole words / lines via
-/// [`word_range_at`] / [`line_range_at`] instead of finalizing on the click.
+/// Drag selection granularity: single-click cells, double-click words, and
+/// triple-click lines. Word and line drags retain whole-unit boundaries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SelectGranularity {
     #[default]
@@ -31,26 +29,16 @@ pub enum SelectGranularity {
     Line,
 }
 
-/// Typed pointer-drag state on the native grid. Replaces the bare
-/// `selecting: bool` with one mutually-exclusive home for every grid drag
-/// gesture, mirroring the overlay `SliderDrag` win so the gestures can
-/// never overlap. `Select` carries the active [`SelectGranularity`]; the `block`
-/// field is reserved for column/rectangular selection and is wired
-/// into the type but not yet constructed - it is part of this
-/// crate's public API (a `pub` enum in a `pub` module), so the not-yet-
-/// constructed arm does not trip the dead-code lint. `Scrollbar` carries the
-/// grab offset for the draggable scroll thumb.
-///
-/// `Eq` is intentionally not derived: `Scrollbar` carries an `f32` grab offset,
-/// which is only `PartialEq`. No call site needs total equality.
+/// Mutually exclusive native-grid drag state: text selection or scrollbar.
+/// `Select.block` enables rectangular column selection; `Scrollbar` retains the
+/// press offset within the thumb. The float offset permits `PartialEq`, not `Eq`.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum PointerDrag {
     #[default]
     None,
     Select {
         granularity: SelectGranularity,
-        /// Reserved for MOUSE-RECT (Alt+drag column selection). Always `false`
-        /// today; threading it through render/extract is a later packet.
+        /// Select columns as a rectangular block rather than a linear range.
         block: bool,
     },
     /// Dragging the right-edge scroll thumb to scrub scrollback.
@@ -207,7 +195,7 @@ pub fn normalize_absolute_range(
 }
 
 /// Union two absolute selection ranges into the smallest range that covers
-/// both (MOUSE-EXTEND word/line drag): the selection spans from the earliest
+/// both : the selection spans from the earliest
 /// start to the latest end of the anchored unit and the unit under the pointer,
 /// in row-major order. Unlike [`normalize_absolute_range`] this accepts
 /// degenerate single-cell ranges (`start == end`) so a word-drag over
@@ -896,7 +884,7 @@ mod tests {
 
     #[test]
     fn cell_at_physical_zero_area_surface_does_not_underflow() {
-        // P0-3 headline: a pointer-move while the surface is 0-area (minimized,
+        // headline: a pointer-move while the surface is 0-area (minimized,
         // mid-resize-to-zero, or a degenerate pre-layout grid) must NOT underflow
         // `rows - 1` / `columns - 1` - that panics in debug and wraps to
         // usize::MAX in release, letting an out-of-range cell escape downstream.
@@ -1267,7 +1255,7 @@ mod tests {
 
     #[test]
     fn autoscroll_step_legacy_cap_is_byte_identical_to_fixed_rate() {
-        // MOUSE-AUTOSCROLL-VEL OFF-path parity: `max_rows == 1` must reproduce
+        // OFF-path parity: `max_rows == 1` must reproduce
         // the historical ±1/0 fixed-rate delta exactly, at every y the legacy
         // helper is sampled at - including well past the band where the ramp
         // would otherwise accelerate.

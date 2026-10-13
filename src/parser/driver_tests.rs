@@ -631,3 +631,73 @@ mod alloc_probe {
         );
     }
 }
+
+#[test]
+fn osc_cap_keeps_the_prefix_and_parser_reuses_the_buffer() {
+    let mut parser = OdyParser::new();
+    let mut rec = Recorder::default();
+    parser.advance(&mut rec, b"\x1b]");
+    parser.advance(&mut rec, &vec![b'a'; super::driver::MAX_OSC_RAW + 100]);
+    parser.advance(&mut rec, b"\x07\x1b]0;next\x07");
+    assert_eq!(rec.0.len(), 2);
+    assert!(matches!(&rec.0[0], Action::Osc { params, bell: true }
+        if params.len() == 1 && params[0].len() == super::driver::MAX_OSC_RAW
+        && params[0].iter().all(|byte| *byte == b'a')));
+    assert_eq!(
+        rec.0[1],
+        Action::Osc {
+            params: vec![b"0".to_vec(), b"next".to_vec()],
+            bell: true
+        }
+    );
+}
+
+#[test]
+fn string_escape_termination_and_raw_c1_payload_are_explicit() {
+    assert_eq!(
+        drive(b"\x1b]0;x\x1bAz"),
+        vec![
+            Action::Osc {
+                params: vec![b"0".to_vec(), b"x".to_vec()],
+                bell: false
+            },
+            Action::Esc {
+                intermediates: vec![],
+                ignore: false,
+                byte: b'A'
+            },
+            Action::Print('z'),
+        ]
+    );
+    assert_eq!(
+        drive(b"\x1b_test\x1bAz"),
+        vec![
+            Action::Apc(b"test".to_vec()),
+            Action::Esc {
+                intermediates: vec![],
+                ignore: false,
+                byte: b'A'
+            },
+            Action::Print('z'),
+        ]
+    );
+    assert_eq!(
+        drive(b"\x1b]0;\x9c\x07"),
+        vec![Action::Osc {
+            params: vec![b"0".to_vec(), vec![0x9c]],
+            bell: true,
+        }]
+    );
+    let mut parser = OdyParser::new();
+    let mut rec = Recorder::default();
+    parser.advance(&mut rec, b"\x1b]0;cancel");
+    parser.advance(&mut rec, b"\x18ok");
+    assert_eq!(
+        rec.0,
+        vec![
+            Action::Execute(0x18),
+            Action::Print('o'),
+            Action::Print('k')
+        ]
+    );
+}

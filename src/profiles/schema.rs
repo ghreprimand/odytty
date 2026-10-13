@@ -79,7 +79,7 @@ pub struct ProfileAppearance {
     pub font_weight: Option<String>,
     pub font_size_px: Option<f32>,
     pub title: Option<String>,
-    /// Optional External palette following override for this profile.
+    /// Overrides the global external-palette follow setting.
     pub follow_external_palette: Option<bool>,
     pub external_palette_provider: Option<String>,
     pub external_palette_path: Option<String>,
@@ -1024,11 +1024,8 @@ fn read_bool(
     }
 }
 
-/// Shared OS-invalid environment gate. The schema parser enforces this at the
-/// on-disk/import boundary, but a [`LocalLaunchPlan`](crate::profiles::launch)
-/// can also be built programmatically (restored state, connection bindings, CLI
-/// overrides) without passing through the parser, so the local spawn path runs
-/// the same gate as defense-in-depth. Both keys and values are checked.
+/// Shared spawn-boundary environment gate. Plans built without the schema
+/// parser (restored state or CLI overrides) are checked again before launch.
 pub(crate) fn reject_os_invalid_env(key: &str, value: &str) -> Result<(), ProfileError> {
     reject_invalid_env_key(key)?;
     reject_invalid_env_value(value)?;
@@ -1059,15 +1056,8 @@ pub(crate) fn reject_os_invalid_launch_text(
     Ok(())
 }
 
-/// Reject environment keys that cannot be represented in a portable process
-/// environment, so a malformed profile fails at the parse boundary instead of
-/// corrupting the child's environment block or aborting the spawn. An empty
-/// name has nothing to bind, and a `=` inside the name collides with the
-/// `name=value` separator used to build the environment block, leaving the split
-/// point ambiguous; a NUL byte cannot appear in a C environment string and would
-/// truncate or fail the spawn. The character set is otherwise left wide open:
-/// environment names may legally contain spaces and other punctuation, so only
-/// these three shapes are rejected here.
+/// Reject empty environment keys and keys containing `=` or NUL.
+/// Other characters, including spaces, are legal.
 fn reject_invalid_env_key(key: &str) -> Result<(), ProfileError> {
     if key.is_empty() {
         return Err(ProfileError::Malformed(

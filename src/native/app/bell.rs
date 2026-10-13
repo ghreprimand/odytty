@@ -6,10 +6,8 @@
 //! - **Urgent** (default): request window user-attention when unfocused. No
 //!   pixels change while focused, so a foreground shell never flashes on
 //!   tab-completion bells; a finished background job pings the taskbar.
-//! - **Visual**: a brief, readability-safe full-viewport flash that decays to
-//!   transparent over [`FLASH_DURATION`]. The underlying cells render at full
-//!   opacity beneath the fading tint (obscure-then-reveal), so no frame drops
-//!   text below the readability floor.
+//! - **Visual**: a viewport tint that decays over [`FLASH_DURATION`]. Cells
+//!   remain opaque beneath it; the tint can change their final contrast.
 //! - **All**: both. **Off**: drain and ignore.
 //!
 //! Off-path contract: with no flash in flight, `bell_flash_start` is `None`,

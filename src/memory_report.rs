@@ -1,45 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Env-gated memory-attribution diagnostic: byte totals for the subsystems
-//! OdyTTY itself controls, reported alongside the process resident set.
+//! Report selected host allocations alongside process resident memory. GPU
+//! allocations stay separate; the host remainder is signed so allocated pages
+//! that are not resident remain visible. The report contains only counts and
+//! fixed identifiers, never session text or paths.
 //!
-//! Memory claims about this terminal are only worth as much as the measurement
-//! behind them. This module is the measurement: it names every allocation
-//! OdyTTY decides the size of - glyph atlases, the background image, the
-//! post-process targets, per-pane grid and scrollback, the graphics-protocol
-//! image store, and the vertex buffers - and reports the arithmetic difference
-//! between that total and the process resident set as an **explicitly labelled
-//! remainder**. The remainder is never folded into a subsystem, because doing so
-//! would turn an unexplained byte into an explained one without evidence.
-//!
-//! Two rules shape the shape of the record:
-//!
-//! * **GPU bytes sit alongside the resident set, never subtracted from it.**
-//!   Where a texture's bytes physically live - device memory, a write-combined
-//!   host mapping, or a driver-side shadow copy - is the driver's business and
-//!   varies by adapter, backend, and allocator. Reporting them as a separate
-//!   column keeps the resident figure the honest, comparable one.
-//! * **The host-side remainder is signed.** Allocated-but-not-yet-faulted pages
-//!   make it possible for the attributed total to exceed the resident set. A
-//!   saturating subtraction would hide that; a signed remainder preserves the
-//!   identity `accounted + remainder == resident` exactly, in both directions.
-//!
-//! This is a passive diagnostic, OFF by default and zero cost when off: a single
-//! atomic load, no thread, no allocation, no file handle, and no added event-loop
-//! wake unless [`sample_interval`] returns `Some`. When enabled it appends one
-//! line per sample to `odytty-memory-report.log` inside the same hardened,
-//! UID-namespaced state directory the runtime log uses (never a fixed name in
-//! the shared system temp root), opened through the no-follow, ownership-checked
-//! append helper so a pre-planted symlink at a predictable path cannot redirect
-//! the write. A file (not stderr) because the Windows build is a GUI-subsystem
-//! application with no visible stderr; the log is retrieved afterward.
-//!
-//! # Privacy / public-repo safety
-//! Every field is a byte total, a count, or a fixed identifier drawn from a
-//! closed set defined in this file. No field can hold a string originating in a
-//! session: there is no `String` in [`MemoryReport`], so cell contents, titles,
-//! paths, and environment values have no way in even by mistake. The log
-//! destination is the OS temp directory (no developer path is baked into the
-//! source) and the env var name is generic.
+//! Sampling is disabled by default. Its setting is cached at first use; enabled
+//! samples append to an owner-private state log through the hardened append
+//! helper. File output also serves the Windows GUI binary, which has no visible
+//! stderr.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
@@ -59,7 +27,7 @@ const DEFAULT_SAMPLE_SECS: u64 = 10;
 /// park the diagnostic effectively forever while still reporting as enabled.
 const MAX_SAMPLE_SECS: u64 = 3600;
 
-/// Parsed once from [`GATE`]; every later call is a single atomic load.
+/// Sampling setting cached on first use.
 static INTERVAL: OnceLock<Option<Duration>> = OnceLock::new();
 /// Monotonic per-process sample counter, included in every line so captures are
 /// orderable without relying on the clock.
@@ -71,8 +39,7 @@ static SEQ: AtomicU64 = AtomicU64::new(0);
 /// retried with the next sample.
 static HEADER_WRITTEN: Mutex<bool> = Mutex::new(false);
 
-/// The sampling period, or `None` when the diagnostic is off. Reads the env var
-/// exactly once; every subsequent call is a single atomic load.
+/// Cached sampling period, or `None` when disabled. Reads the environment once.
 pub fn sample_interval() -> Option<Duration> {
     *INTERVAL.get_or_init(|| parse_gate(std::env::var(GATE).ok().as_deref()))
 }
@@ -170,7 +137,7 @@ impl ScrollbackBytes {
     }
 }
 
-/// Host (resident-set-backed) bytes OdyTTY controls the size of.
+/// Selected host allocation byte totals, distinct from resident memory.
 ///
 /// Every field is an allocation this project decides the extent of. Anything
 /// allocated by a dependency, the allocator's own overhead, the mapped binary,
@@ -372,9 +339,8 @@ gpu_graphics_textures={g5} gpu_vertex_buffers={g6}",
     )
 }
 
-/// Append one report line to the state-directory log. Callers only reach this when
-/// [`sample_interval`] is `Some`, so the off path costs one atomic load. Any I/O
-/// error is silently ignored - a diagnostic must never perturb the terminal.
+/// Append one enabled sample to the state log. I/O errors are ignored;
+/// callers use the cached sampling gate before building a report.
 pub fn append_report(report: &MemoryReport) {
     let mut header_written = HEADER_WRITTEN
         .lock()
@@ -421,50 +387,7 @@ fn write_report(
     writeln!(out, "{}", format_report_line(seq, epoch_ms, report))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct FailingWriter;
-
-    impl std::io::Write for FailingWriter {
-        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::other("refused"))
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn a_failed_header_is_written_again_before_the_next_data_line() {
-        let report = MemoryReport::default();
-        let mut header_written = false;
-        assert!(write_report(&mut FailingWriter, &mut header_written, 0, 1, &report).is_err());
-        assert!(
-            !header_written,
-            "a failed header is not recorded as written"
-        );
-        let mut out = Vec::new();
-        write_report(&mut out, &mut header_written, 1, 2, &report).expect("written");
-        let text = String::from_utf8(out).expect("utf-8");
-        assert!(
-            text.starts_with("# odytty-memory-report v"),
-            "the retry starts with the header: {text:?}"
-        );
-        assert!(header_written);
-        let mut out = Vec::new();
-        write_report(&mut out, &mut header_written, 2, 3, &report).expect("written");
-        let text = String::from_utf8(out).expect("utf-8");
-        assert!(
-            !text.starts_with('#'),
-            "the header is written once: {text:?}"
-        );
-    }
-}
-
-/// Parse one `Name:   <n> kB` line of a Linux `/proc/<pid>/status` file into
+/// Parse one `Name: <n> kB` line of a Linux `/proc/<pid>/status` file into
 /// bytes. A field that is absent or unparseable yields `None`, which surfaces
 /// as `unmeasured` - never as zero and never as an approximation.
 ///
@@ -586,5 +509,48 @@ mod platform {
             peak_resident_bytes: None,
             source: Some(ResidentSource::Unmeasured),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct FailingWriter;
+
+    impl std::io::Write for FailingWriter {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("refused"))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_failed_header_is_written_again_before_the_next_data_line() {
+        let report = MemoryReport::default();
+        let mut header_written = false;
+        assert!(write_report(&mut FailingWriter, &mut header_written, 0, 1, &report).is_err());
+        assert!(
+            !header_written,
+            "a failed header is not recorded as written"
+        );
+        let mut out = Vec::new();
+        write_report(&mut out, &mut header_written, 1, 2, &report).expect("written");
+        let text = String::from_utf8(out).expect("utf-8");
+        assert!(
+            text.starts_with("# odytty-memory-report v"),
+            "the retry starts with the header: {text:?}"
+        );
+        assert!(header_written);
+        let mut out = Vec::new();
+        write_report(&mut out, &mut header_written, 2, 3, &report).expect("written");
+        let text = String::from_utf8(out).expect("utf-8");
+        assert!(
+            !text.starts_with('#'),
+            "the header is written once: {text:?}"
+        );
     }
 }

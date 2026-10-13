@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Owner-private persistent-state filesystem helpers.
 //!
-//! Unix state contains local paths, saved layouts, and diagnostic records.  The
+//! Unix state contains local paths, saved layouts, and diagnostic records. The
 //! helpers in this module enforce the narrow boundary shared by those writers:
 //! only the final OdyTTY-owned directory is normalized, and only known regular
-//! files opened without following a final symlink are repaired.  Parents and
+//! files opened without following a final symlink are repaired. Parents and
 //! unknown children are deliberately left alone.
 
 use std::fs::{self, File, OpenOptions};
@@ -36,7 +36,7 @@ const PRIVATE_DIR_MODE: u32 = 0o700;
 #[cfg(unix)]
 const PRIVATE_FILE_MODE: u32 = 0o600;
 
-/// Create or repair one application-owned state leaf.  This never changes a
+/// Create or repair one application-owned state leaf. This never changes a
 /// parent directory and never walks children.
 pub(crate) fn prepare_private_dir(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
@@ -98,7 +98,7 @@ pub(crate) fn inspect_existing_sensitive(path: &Path) -> io::Result<File> {
 }
 
 /// Open a known-sensitive regular file for append, creating it owner-private
-/// on Unix.  Existing objects are validated through the open handle first.
+/// on Unix. Existing objects are validated through the open handle first.
 pub(crate) fn open_append_sensitive(path: &Path) -> io::Result<File> {
     #[cfg(unix)]
     {
@@ -111,7 +111,7 @@ pub(crate) fn open_append_sensitive(path: &Path) -> io::Result<File> {
 }
 
 /// Open a known-sensitive regular file for read/write, creating it
-/// owner-private on Unix.  The caller retains the handle for locking.
+/// owner-private on Unix. The caller retains the handle for locking.
 pub(crate) fn open_read_write_sensitive(path: &Path) -> io::Result<File> {
     #[cfg(unix)]
     {
@@ -130,7 +130,7 @@ pub(crate) fn open_read_write_sensitive(path: &Path) -> io::Result<File> {
     }
 }
 
-/// Create one unique sibling file without replacing an existing object.  This
+/// Create one unique sibling file without replacing an existing object. This
 /// is used by atomic persistence writes, so a colliding temporary name can
 /// never be opened or removed as though it belonged to this process.
 pub(crate) fn create_new_sensitive(path: &Path) -> io::Result<File> {
@@ -144,7 +144,7 @@ pub(crate) fn create_new_sensitive(path: &Path) -> io::Result<File> {
     }
 }
 
-/// Validate and repair a known sensitive file if it already exists.  Absence is
+/// Validate and repair a known sensitive file if it already exists. Absence is
 /// not an error; callers that need creation use one of the open helpers above.
 pub(crate) fn repair_existing_sensitive(path: &Path) -> io::Result<()> {
     match open_existing_sensitive(path) {
@@ -225,15 +225,7 @@ pub(crate) enum WriteMode {
     Export,
 }
 
-/// Clamp an existing config-file mode to the 0644 baseline unless it is already
-/// no more permissive than 0644.
-///
-/// A mode whose permission bits are a subset of 0644 (for example 0640 or 0600,
-/// which only tighten access) is preserved verbatim. Any mode that grants a bit
-/// 0644 does not -- a wider group/other read-or-write bit, or ANY execute bit --
-/// is replaced with 0644, so a terminal-driven writeback never keeps or widens a
-/// permissive or executable config. Execute bits always force the clamp because
-/// a config file has no reason to be executable.
+/// Keep a stricter mode (subset of 0644); wider or executable becomes 0644.
 #[cfg(unix)]
 fn clamp_config_mode(mode: u32) -> u32 {
     if mode & !0o644 == 0 { mode } else { 0o644 }
@@ -336,14 +328,8 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8], mode: WriteMode) -> io::Re
         None
     };
 
-    // Preserve an existing config mode only when it is no more permissive than
-    // the 0644 baseline; read it before the write, while the target still
-    // exists. A stricter owner/group-limited mode (0640, 0600) is kept, but any
-    // mode that adds a bit 0644 lacks -- a wider group/other write bit or ANY
-    // execute bit -- is clamped back to 0644 rather than preserved, so a
-    // pre-existing 0666/0755/0777 config cannot keep a terminal writeback
-    // permissive. A new file (no existing target) falls back to 0644, matching
-    // the previous config-writeback behavior.
+    // Read the existing mode before replacing the file; clamp_config_mode
+    // owns the preservation rule. New config files use the 0644 baseline.
     #[cfg(unix)]
     let preserved_config_mode: Option<u32> = if matches!(mode, WriteMode::Config) {
         use std::os::unix::fs::PermissionsExt as _;
@@ -453,7 +439,7 @@ mod unix {
 
     fn current_uid() -> u32 {
         // SAFETY: `geteuid` has no arguments, no memory preconditions, and no
-        // failure mode.  It is queried only to enforce ownership of this
+        // failure mode. It is queried only to enforce ownership of this
         // process's own persistent state leaf and files.
         unsafe { libc::geteuid() }
     }
@@ -525,7 +511,7 @@ mod unix {
             return Err(invalid("persistent state file is not owned by this user"));
         }
         if repair_mode && metadata.mode() & 0o777 != PRIVATE_FILE_MODE {
-            // File::set_permissions is descriptor-based on Unix.  This repairs
+            // File::set_permissions is descriptor-based on Unix. This repairs
             // the opened object rather than a pathname that might have changed;
             // macOS ACL entries are preserved rather than replaced.
             file.set_permissions(fs::Permissions::from_mode(PRIVATE_FILE_MODE))?;

@@ -264,23 +264,15 @@ const SSH_CONTROL_PERSIST_SECS: &str = "600";
 pub struct RemoteSshOptions {
     pub integration: bool,
     pub reuse: bool,
-    /// Wrap the remote shell in a persistent `tmux` session (opt-in, default
-    /// off). When set, the bootstrap `exec`s `tmux new-session -A -s odytty` so a
-    /// dropped-and-reconnected link reattaches the same remote session with its
-    /// state intact, degrading to a plain bash session when the remote has no
-    /// `tmux`. Requires `integration` (the bootstrap is the only injection
-    /// point); ignored when integration is off.
+    /// Opt-in persistent remote tmux wrapper; requires integration and falls
+    /// back to Bash when tmux is absent.
     pub tmux: bool,
     /// Directory OdyTTY owns for `ControlMaster` sockets. `None` disables reuse
     /// (unresolvable state dir, or a Windows client where OpenSSH has no
     /// socket-multiplexing support).
     pub control_dir: Option<PathBuf>,
-    /// The `ControlPersist=` token for the reuse master: `no` to
-    /// tear the master down with its last connection, or a window in whole
-    /// seconds. `None` uses the built-in default window
-    /// ([`SSH_CONTROL_PERSIST_SECS`]), so callers that do not resolve the
-    /// `remote_persist` knob stay byte-identical to the historical fixed window.
-    /// Ignored on a Windows client (the control options are compiled out there).
+    /// ControlPersist token: `no` or whole seconds; absent uses the default.
+    /// Windows omits control options.
     pub control_persist: Option<String>,
 }
 
@@ -306,35 +298,11 @@ pub fn ssh_command_for_host_with_integration(
     )
 }
 
-/// Build the system-ssh argv for a saved connection entry from resolved remote
-/// options.
-///
-/// When `opts.integration` is `false` the argv is byte-identical to
-/// [`ssh_command_for_host`]: no remote command, no PTY-forcing `-t`, no control
-/// options, nothing added. This is the exact guarantee callers rely on when
-/// integration is turned off globally or opted out for a host.
-///
-/// When integration is enabled, the form becomes:
-///
-/// - `ssh -t [CONTROL-OPTS] [-p PORT] -- [USER@]HOST <bootstrap>`
-///
-/// where `<bootstrap>` is a self-contained POSIX-sh command that materializes
-/// the bash integration rcfile from an inline base64 blob into a temporary file
-/// and `exec`s an interactive bash pointed at it. The bootstrap is delivery-only
-/// for the shared [`crate::shell_integration::bash_integration_rc`] payload;
-/// the rcfile self-deletes on first read,
-/// and setup failure falls back to the configured login shell. A POSIX sh is
-/// required; disable integration on servers without it.
-///
-/// `[CONTROL-OPTS]` (`-o ControlMaster=auto -o ControlPersist=… -o
-/// ControlPath=…`) are added only when `opts.reuse` is set and a `control_dir`
-/// resolved. The first tab to a host establishes a shared master and later
-/// tabs multiplex over it with no fresh handshake. OpenSSH for Windows has no
-/// socket multiplexing, so the control options are compiled out on Windows
-/// entirely and reuse is a silent no-op there.
-///
-/// The remote command enters POSIX sh even when the login shell is fish, then
-/// selects Bash integration or the configured login shell.
+/// Build SSH argv with independently resolved integration and reuse options.
+/// Integration adds a POSIX-sh delivery bootstrap for the shared Bash rcfile
+/// and optional tmux wrapper; setup failure falls back to the login shell.
+/// Reuse requires a private control directory and is unavailable on Windows.
+/// With integration and reuse both off, this is the plain SSH argv.
 pub fn ssh_command_for_host_with_options(
     host: &ConnectionHost,
     opts: &RemoteSshOptions,
@@ -878,12 +846,9 @@ fn base64_encode(input: &[u8]) -> String {
     out
 }
 
-/// Build a detached session-host config whose child is the system `ssh` binary.
-///
-/// An SSH connection is a normal hosted
-/// child command, so reattach and bounded scrollback use the same local
-/// session-host protocol as shell sessions. Unix-only (the session-host
-/// transport is `#[cfg(unix)]`).
+/// Build a Unix detached host whose child is plain system SSH, without the
+/// integration bootstrap, connection reuse or tmux wrapper. Reattach and
+/// scrollback use the same session-host protocol as local shell sessions.
 #[cfg(unix)]
 pub fn detached_ssh_host_config(
     session_id: impl Into<String>,

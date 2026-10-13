@@ -33,9 +33,8 @@ pub struct EmojiRasterizer {
     font: Option<EmojiFont>,
     shape_context: ShapeContext,
     scale_context: ScaleContext,
-    /// Keys whose rasterization returned nothing. Rasterization is a pure
-    /// function of the key, so a failed key is not retried each frame; this
-    /// keeps a hostile SVG document from being parsed on every redraw.
+    /// Failed keys are suppressed while present in this bounded cache.
+    /// Cache clearing permits a later rasterization attempt.
     failed: HashSet<ColorGlyphKey>,
     #[cfg(test)]
     render_attempts: usize,

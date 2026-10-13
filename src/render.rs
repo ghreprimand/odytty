@@ -5,12 +5,7 @@ pub trait Renderer {
     fn draw(&mut self, snapshot: &Snapshot);
 }
 
-/// Fixed pixel metrics for one monospace cell.
-///
-/// The future GPU text renderer uses these to place glyph quads. Keeping the
-/// presentation math here - independent of any window or device - lets it be
-/// unit-tested without `winit`/`wgpu`, and keeps terminal semantics out of the
-/// renderer. All values are in logical pixels.
+/// Pixel metrics for one cell, independent of any window or device.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CellMetrics {
     pub width_px: f32,

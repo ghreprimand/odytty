@@ -67,7 +67,7 @@ fn job_active_processes(job: &OwnedHandle) -> u32 {
 
 #[test]
 fn session_close_kills_the_whole_child_tree() {
-    // WIN-JOB regression: closing a session must kill the shell AND every
+    // regression: closing a session must kill the shell AND every
     // descendant it spawned. Pre-fix only the root shell was terminated -
     // the `ping` here would outlive the session by ~30 seconds.
     let session = PtySession::spawn_shell_command(
@@ -118,7 +118,7 @@ fn session_close_kills_the_whole_child_tree() {
 
 #[test]
 fn polling_reports_a_genuine_exit_code_259_not_still_running() {
-    // F22 regression: exit code 259 collides with the `STILL_ACTIVE`
+    // Exit code 259 collides with the STILL_ACTIVE sentinel.
     // sentinel, so `GetExitCodeProcess` alone cannot distinguish a child
     // that really exited 259 from a live one. A child that exits 259 must be
     // observed as exited with code 259. The child is an ordinary process, not
@@ -160,7 +160,7 @@ fn polling_reports_a_genuine_exit_code_259_not_still_running() {
 
 #[test]
 fn resize_after_pcon_close_is_a_clean_noop() {
-    // P2-FIX regression: a resize arriving after the pseudoconsole has
+    // regression: a resize arriving after the pseudoconsole has
     // been closed (the child-waiter does this asynchronously when the
     // shell self-exits) must be a clean Ok(()) no-op that never reaches
     // `ResizePseudoConsole` - pre-fix it called the kernel on a freed
@@ -199,21 +199,9 @@ fn resize_after_pcon_close_is_a_clean_noop() {
     session.pcon.close_once();
 }
 
-// P2-FIX pressure-test postmortem (removed test, kept as a warning): a
-// resize-hammer loop against a self-exiting shell WEDGED the windows CI
-// leg. Mechanism: the test never drained the ConPTY output pipe; every
-// `ResizePseudoConsole` makes conhost re-render and emit VT bytes, so the
-// pipe filled, conhost's write blocked, and `ResizePseudoConsole` blocked
-// in the kernel WHILE HOLDING the `PconShared` mutex - which the waiter's
-// `close_once` (the only thing that could unblock conhost) then waited on
-// forever. The loop's wall-clock deadline sat between iterations that
-// stopped returning. In PRODUCTION the pump thread continuously drains
-// the pipe, so the guarded resize's blocking window is bounded and the
-// mutex design is sound; the hazard is unique to undrained test setups.
-// Do not reintroduce a resize loop here without a concurrent reader
-// draining `try_clone_reader()` - and even then it is pressure, not
-// proof. The deterministic `resize_after_pcon_close_is_a_clean_noop`
-// above is the regression coverage for the race's observable contract.
+// Do not loop ResizePseudoConsole without a reader draining the output pipe:
+// conhost can block and leave close waiting on the resize lock. The test above
+// pins resize-after-close without an undrained pressure loop.
 
 #[test]
 fn shell_repaints_absolutely_on_resize() {
@@ -244,12 +232,12 @@ fn default_shell_resolves_to_a_non_empty_program() {
 fn one_shot_args_select_per_shell_flag_form() {
     // cmd.exe one-shot: `/C <command>`.
     assert_eq!(
-        one_shot_args(ShellKind::Cmd, "echo hi"),
+        one_shot_args(OneShotShellKind::Cmd, "echo hi"),
         vec![OsString::from("/C"), OsString::from("echo hi")],
     );
     // PowerShell one-shot: `-NoProfile -Command <command>` (NOT `/C`).
     assert_eq!(
-        one_shot_args(ShellKind::PowerShell, "Get-ChildItem"),
+        one_shot_args(OneShotShellKind::PowerShell, "Get-ChildItem"),
         vec![
             OsString::from("-NoProfile"),
             OsString::from("-Command"),
@@ -487,7 +475,7 @@ fn build_env_block_keeps_last_override_per_case_insensitive_name() {
 
 #[test]
 fn build_env_block_is_case_insensitively_sorted() {
-    // D-7 fails-before/passes-after: the block `CreateProcessW` receives
+    // the block `CreateProcessW` receives
     // must be sorted case-insensitively by name. Appending the TERM*
     // overrides at the end (the old behavior) left the block unsorted; every
     // adjacent pair must now be in non-decreasing key order.
@@ -596,7 +584,7 @@ fn build_env_block_scrubs_removed_inherited_variable() {
 
 #[test]
 fn find_exe_in_dirs_requires_absolute_existing_file() {
-    // D-6 fails-before/passes-after: an empty PATH segment and any relative
+    // an empty PATH segment and any relative
     // entry must be skipped so a `pwsh.exe` planted in the process working
     // directory cannot be resolved. Only an absolute existing file matches.
     let tmp = std::env::temp_dir().join(format!("odytty-d6-{}", std::process::id()));
@@ -623,7 +611,7 @@ fn find_exe_in_dirs_requires_absolute_existing_file() {
 
 #[test]
 fn startup_failure_reported_only_for_unrequested_abnormal_immediate_exit() {
-    // D-5 fails-before/passes-after: a genuine loader/DLL-init failure
+    // a genuine loader/DLL-init failure
     // (abnormal, immediate, not requested) is reported; a deliberate
     // teardown (kill/Drop force-terminates with KILL_EXIT_CODE) within the
     // window is NOT - closing a fresh tab must not trip the "could not start

@@ -910,6 +910,26 @@ fn enabled_groups_preserve_copy_fallback_off_and_bidi_owner_spans() {
             assert_eq!((runs[0].start, runs[0].end), (2, 2 + span));
             let visual: Vec<_> = (2..2 + span).map(|c| map.visual_column(0, c)).collect();
             assert_eq!(visual, (2..2 + span).collect::<Vec<_>>());
+            let isolated = terminal(
+                &format!("x\u{2067}\u{05d0}\u{05d1}{}\u{05d2}\u{2069}y", row.text),
+                12,
+            );
+            let isolated_snapshot = isolated.snapshot();
+            let wrapped: Vec<_> = isolated
+                .visible_search_rows(0)
+                .iter()
+                .map(|r| r.wrapped)
+                .collect();
+            let map = BidiDisplayMap::plan(&isolated_snapshot, &wrapped);
+            let runs = shaper.build_runs(true, &isolated_snapshot, &fonts, &mut atlas, &[]);
+            assert_eq!(runs.len(), 1, "{row:?}");
+            assert_eq!((runs[0].start, runs[0].end), (3, 3 + span));
+            let visual: Vec<_> = (3..3 + span).map(|c| map.visual_column(0, c)).collect();
+            assert_ne!(
+                visual[0], 3,
+                "owner inside the RTL isolate must move: {row:?}"
+            );
+            assert_eq!(visual, (visual[0]..visual[0] + span).collect::<Vec<_>>());
         }
     }
 }

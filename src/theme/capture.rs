@@ -1,58 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Capture a theme draft from a pane's live colors.
-//!
-//! A running pane's colors are not always the theme's colors. Any program can
-//! repaint the terminal at runtime with the dynamic-color escape sequences -
-//! `OSC 4` overrides one of the 256 palette slots, `OSC 10`/`11`/`12` override
-//! the default foreground, background, and cursor. Shell prompts, `vim`
-//! colorschemes, `tmux` configs, and `dircolors` setups all do this. The result
-//! is a look the user can see but cannot save, because it exists only as live
-//! terminal state.
-//!
-//! This module closes that gap: it turns the **effective** color state of a
-//! pane - the colors actually on screen, live override first and the
-//! theme-seeded value where no override exists - into a [`ThemeSpec`] draft
-//! that the theme editor can name, tweak, and save.
-//!
-//! ## What is captured directly
-//!
-//! Foreground, background, cursor, and the 16 ANSI palette entries come
-//! straight from the pane. Nothing is inferred for them: whatever the pane is
-//! displaying is what lands in the draft.
-//!
-//! ## What is derived, and how
-//!
-//! A theme carries five roles the terminal protocol has no way to express, so
-//! no live value exists to capture: `clear`, `selection`, `search`, `border`,
-//! and `inactive`. They are derived from the captured colors with the
-//! luminance-based heuristics below. Each is a *starting point*: the flow hands
-//! the draft to the theme editor, where every role is editable before saving,
-//! so the heuristics need to be explainable and sane rather than perfect.
-//!
-//! Every heuristic works in the same direction - "away from the background" for
-//! something that must be visible against it, "toward the background" for
-//! something that must recede - using [`relative_luminance`] to decide which
-//! way that is. A light background darkens; a dark background lightens. This is
-//! why they behave correctly for light and dark themes without a separate
-//! branch per case.
-//!
-//! | Role | Derivation |
-//! |------|------------|
-//! | `clear` | The captured background, unchanged. The window surface matches the cell field unless a theme deliberately frames the grid, and a capture has no way to know a frame was wanted. |
-//! | `selection` | The background moved 22% toward the foreground. Enough to read as a highlight band, not enough to fight the text drawn over it. |
-//! | `search` | The captured yellow (palette index 3) blended 45% into the background. Search highlights read as a distinct warm band in every major terminal; blending toward the background keeps it from overpowering the field. |
-//! | `border` | The background moved 12% toward the foreground - a low-contrast structural line, visible as an edge without drawing the eye. |
-//! | `inactive` | The midpoint between foreground and background. Legible but clearly recessive, which is what inactive tab/workspace chrome needs. |
-//!
-//! Appearance (light or dark) is classified from the background's relative
-//! luminance against the shared `LIGHT_BACKGROUND_LUMINANCE` threshold the
-//! theme editor also uses when cloning a theme, so the two drafts agree.
-//!
-//! ## Platform surface
-//!
-//! Platform-neutral. This is pure color arithmetic over values the terminal
-//! core already holds; it touches no filesystem, process, or window-system
-//! state, and behaves identically on Linux, macOS, and Windows.
+//! Build a theme draft from a pane's live colors. Foreground, background,
+//! cursor and the 16 palette entries include OSC 4/10/11/12 overrides. Clear
+//! copies the background; selection, search, border and inactive colors are
+//! derived by mixing toward or away from it (see the theme guide). Pure color
+//! arithmetic, identical on every platform.
 
 use super::{Appearance, Srgb, ThemeSpec, VisualEffect, relative_luminance};
 

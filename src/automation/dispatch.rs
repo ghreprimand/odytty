@@ -326,18 +326,28 @@ mod tests {
     }
 
     #[test]
-    fn queue_and_global_rate_are_bounded_across_clients() {
+    fn queue_capacity_is_bounded_independently_of_rate_limit() {
         let (submit, queue) = channel(false);
         let mut receipts = Vec::new();
         for id in 0..MAX_QUEUED {
             receipts.push(submit.clone().submit(request(id as u64)).unwrap());
         }
+        // Leave rate admission open so Busy must come from the full queue.
+        submit.rate.lock().unwrap().used = 0;
         assert!(matches!(submit.submit(request(40)), Err(ErrorCode::Busy)));
         assert_eq!(queue.dispatch(|_| Reply::Objects(vec![])), MAX_PER_DISPATCH);
-        assert!(
-            matches!(submit.submit(request(41)), Err(ErrorCode::Busy)),
-            "draining does not reset the rate window"
-        );
+        receipts.push(submit.submit(request(41)).unwrap());
+    }
+
+    #[test]
+    fn global_rate_limit_applies_when_queue_has_space() {
+        let (submit, queue) = channel(false);
+        let mut receipts = Vec::new();
+        for id in 0..REQUESTS_PER_SECOND {
+            receipts.push(submit.clone().submit(request(id as u64)).unwrap());
+            queue.dispatch(|_| Reply::Objects(vec![]));
+        }
+        assert!(matches!(submit.submit(request(40)), Err(ErrorCode::Busy)));
     }
 
     #[test]

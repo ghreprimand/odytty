@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! PTY-owning session-host loop for the first resumable-session slice.
+//! PTY-owning session-host loop, one session per host.
 
 use std::env;
 use std::ffi::OsString;
@@ -1257,12 +1257,8 @@ mod hardening_tests {
     fn socket_unlink_guard_removes_the_socket_on_drop() {
         // The guard must unlink the socket on ANY exit, so a stale <id>.sock never
         // lingers after an error/panic exit to confuse the next connect.
-        let dir = std::env::temp_dir().join(format!(
-            "odytty-c5-{}-{}",
-            std::process::id(),
-            Instant::now().elapsed().as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let scratch = crate::test_dirs::ScratchDir::new("odytty-session-unlink");
+        let dir = scratch.path();
         let socket = dir.join("session-guard.sock");
         std::fs::write(&socket, b"").expect("create fake socket file");
         assert!(socket.exists(), "precondition: socket file exists");
@@ -1281,7 +1277,6 @@ mod hardening_tests {
                 socket: socket.clone(),
             };
         }
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ---- bounded child wait on PTY EOF ----

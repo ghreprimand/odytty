@@ -8,6 +8,9 @@
 //! goal is to catch enter/exit restore failures and gather evidence from common
 //! full-screen programs without making default `cargo test` flaky or slow.
 
+pub mod support;
+use support::TempDir;
+
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -25,46 +28,13 @@ use odytty::pty::{CommandBuilder, PtySession};
 
 #[path = "../src/test_dirs/allocation.rs"]
 pub mod child_dirs;
+pub use child_dirs as scratch_dirs;
 
 const COLUMNS: usize = 80;
 const ROWS: usize = 12;
 const SHORT_WAIT: Duration = Duration::from_secs(3);
 const EXIT_WAIT: Duration = Duration::from_secs(2);
 const POLL_STEP: Duration = Duration::from_millis(20);
-
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(prefix: &str) -> Result<Self> {
-        let mut path = std::env::temp_dir();
-        path.push(format!(
-            "odytty-{prefix}-{}-{}",
-            std::process::id(),
-            unique_suffix()
-        ));
-        fs::create_dir(&path).with_context(|| format!("create temp dir {}", path.display()))?;
-        Ok(Self { path })
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
-
-fn unique_suffix() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default()
-}
 
 struct PtyHarness {
     session: PtySession,
@@ -411,7 +381,7 @@ fn less_enters_scrolls_and_restores_primary_screen() -> Result<()> {
         return Ok(());
     };
 
-    let temp = TempDir::new("less-smoke")?;
+    let temp = TempDir::new("less-smoke", false);
     let file = temp.path().join("less-input.txt");
     let body = (1..=80)
         .map(|line| format!("odytty-less-line-{line:03}\n"))
@@ -471,7 +441,7 @@ fn less_mouse_wheel_scrolls_when_mouse_mode_is_enabled() -> Result<()> {
         return Ok(());
     }
 
-    let temp = TempDir::new("less-mouse-smoke")?;
+    let temp = TempDir::new("less-mouse-smoke", false);
     let file = temp.path().join("less-mouse-input.txt");
     let body = (1..=100)
         .map(|line| format!("odytty-less-mouse-line-{line:03}\n"))
@@ -530,7 +500,7 @@ fn vim_enters_insert_mode_and_restores_primary_screen() -> Result<()> {
         return Ok(());
     };
 
-    let temp = TempDir::new("vim-smoke")?;
+    let temp = TempDir::new("vim-smoke", false);
     let file = temp.path().join("vim-input.txt");
     fs::write(&file, "odytty-vim-original\n")
         .with_context(|| format!("write {}", file.display()))?;
@@ -597,7 +567,7 @@ fn vim_sgr_mouse_click_positions_cursor_and_wheel_scrolls() -> Result<()> {
         return Ok(());
     };
 
-    let temp = TempDir::new("vim-mouse-smoke")?;
+    let temp = TempDir::new("vim-mouse-smoke", false);
     let file = temp.path().join("vim-mouse-input.txt");
     let body = (1..=100)
         .map(|line| format!("odytty-vim-mouse-line-{line:03} column-padding-for-click-target\n"))
@@ -672,7 +642,7 @@ fn bash_readline_accepts_basic_navigation_and_delete_keys() -> Result<()> {
         return Ok(());
     };
 
-    let temp = TempDir::new("bash-readline-smoke")?;
+    let temp = TempDir::new("bash-readline-smoke", false);
     let mut command = CommandBuilder::new(bash.to_string_lossy().into_owned());
     fixed_env(&mut command);
     command.env("HOME", temp.path().to_string_lossy().into_owned());
@@ -756,7 +726,7 @@ fn nano_enter_edit_quit_restores_primary_screen() -> Result<()> {
         return Ok(());
     }
 
-    let temp = TempDir::new("nano-smoke")?;
+    let temp = TempDir::new("nano-smoke", false);
     let file = temp.path().join("nano-input.txt");
     fs::write(&file, "odytty-nano-original\n")
         .with_context(|| format!("write {}", file.display()))?;
@@ -820,7 +790,7 @@ fn htop_enters_and_exits_alt_screen() -> Result<()> {
     let mut command = CommandBuilder::new(htop.to_string_lossy().into_owned());
     fixed_env(&mut command);
     // The harness redirects HOME and every platform state base to its fixture.
-    let temp = TempDir::new("htop-smoke")?;
+    let temp = TempDir::new("htop-smoke", false);
     command.env("HOME", temp.path().to_string_lossy().into_owned());
 
     let mut harness = PtyHarness::spawn(command, primary_marker)?;
@@ -863,7 +833,7 @@ fn git_log_pager_restores_primary_screen() -> Result<()> {
         return Ok(());
     };
 
-    let temp = TempDir::new("git-pager-smoke")?;
+    let temp = TempDir::new("git-pager-smoke", false);
 
     // Initialize a repo and create some commits. Every fixture command is
     // hermetic: nothing inherited from the machine or from a git hook that runs

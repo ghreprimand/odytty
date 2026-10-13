@@ -1,56 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Perceptual-safe theme authoring math: the pure, deterministic
-//! primitives the interactive theme builder wires its OKLCH sliders, live
-//! contrast readout, and snap-to-floor onto.
-//!
-//! The native builder (`native/theme_builder.rs`) owns the sliders, the readout
-//! widget and the hex-entry fallback; this module is only the math, with no I/O,
-//! no RNG, and no UI. Every function is pure and deterministic - identical inputs yield
-//! byte-identical output - so the whole authoring surface is golden-testable.
-//!
-//! ## The guarantee: "you cannot author an unreadable theme"
-//!
-//! The builder edits a role in OKLCH (perceptually uniform lightness / chroma /
-//! hue) via [`nudge`], shows the live WCAG contrast of the role against the
-//! surface it is read on via [`authoring_contrast`], and - when the user
-//! asks, or as a hard backstop on write - pulls the role up to the authoring
-//! floor via [`snap_to_floor`]. Because the snap is validated on the **final
-//! quantized 8-bit bytes**, the value the builder writes to the `.theme` is
-//! exactly what the renderer draws: *authored == rendered*. No render-time
-//! re-nudge is needed for an authored theme.
-//!
-//! ## Two distinct floors
-//!
-//! - **Authoring floor** ([`AUTHORING_CONTRAST_FLOOR`], WCAG 4.5): what the
-//!   builder authors against - the WCAG AA body-text threshold, so a theme built
-//!   here is comfortably legible, not merely above the bare render minimum.
-//! - **Render-time floor** (`min_contrast`, default 1.0): the universal safety
-//!   net the renderer applies to *all* text. It stays at unity by default so
-//!   it never silently rewrites a deliberately-authored low-contrast accent.
-//!
-//! The builder authors against 4.5; the renderer floor stays 1.0. They are
-//! deliberately separate constants so neither moves the other.
-//!
-//! ## Relationship to the palette generator
-//!
-//! [`crate::palette_gen`] solves the one-shot "seed → whole legible theme"
-//! problem; this module solves the interactive "user is dragging a slider on
-//! one role" problem. They share the same hue-preserving chroma-reduction gamut
-//! map and the same byte-rechecked floor technique, reimplemented locally here on
-//! purpose: consolidating both into one shared authoring core is a deliberately
-//! deferred task, not part of this packet.
+//! Pure authoring math for the native theme builder: OKLCH nudging,
+//! contrast readout and snap-to-floor, with no I/O or RNG. The authoring floor
+//! is 4.5; the configured render-time floor is independent. Floor adjustment
+//! delegates to [`crate::palette_gen::floor_role`] and rechecks quantized bytes.
+//! Final brightness and overlays can change displayed contrast.
 
 use crate::color::{
-    self, LinearRgb, Oklch, linear_to_oklab, linear_to_srgb_u8, oklab_to_linear, oklab_to_oklch,
-    oklch_to_oklab, srgb_to_linear,
+    self, LinearRgb, Oklch, linear_to_oklab, linear_to_srgb_u8, oklab_to_oklch, srgb_to_linear,
 };
 use crate::theme::{Appearance, Srgb, ThemeSpec};
 
-/// The WCAG contrast ratio the interactive builder authors against - the AA
-/// body-text threshold. Distinct from the render-time `min_contrast` floor
-/// (default 1.0): the builder snaps roles up to 4.5 so an authored theme is
-/// comfortably legible, while the renderer's universal floor stays at unity and
-/// never rewrites a deliberately low-contrast accent.
+/// WCAG AA body-text authoring floor, independent of the configured render floor.
 pub const AUTHORING_CONTRAST_FLOOR: f32 = 4.5;
 
 /// Nudge a color in OKLCH by additive lightness / chroma / hue deltas, then map
@@ -74,39 +34,12 @@ pub fn nudge(color: Srgb, dl: f32, dc: f32, dh: f32) -> Srgb {
     })
 }
 
-/// Return the nearest sRGB color to `candidate` that provably clears `floor`
-/// WCAG contrast against `partner`, preserving `candidate`'s hue and moving its
-/// lightness away from the partner.
-///
-/// This is the "cannot author unreadable" backstop. The guarantee is checked on
-/// the **final quantized 8-bit bytes**, not on the intermediate float color, so
-/// the value returned here is exactly what the renderer will draw against the
-/// same partner - *authored == rendered*. The underlying
-/// `palette_gen::floor_role` moves OKLab lightness (hue
-/// preserved, gamut-mapped along the hue, bytes re-checked) and picks the
-/// lightness direction that increases contrast, so the
-/// snap lifts a too-dark role lighter on a dark surface and pushes a too-light
-/// role darker on a light surface.
-///
-/// `floor <= 1.0` is an exact passthrough no-op: there is no floor to enforce, so
-/// `candidate` is returned bit-for-bit (matching the render floor's passthrough).
-///
-/// Best-effort cap: against a near-mid-grey partner, even pure black or white may
-/// not reach a high `floor`; in that pathological case the most-contrasting
-/// in-gamut result is returned. For real backgrounds / foregrounds (the authoring
-/// case) the floor is always reachable and provably met.
-///
-/// Pure and deterministic; never panics or yields a non-finite channel.
+/// Adjust candidate lightness and preserve hue to meet `floor` against partner,
+/// using the shared byte-rechecked palette floor. `floor <= 1` is passthrough.
+/// If the requested contrast is unreachable, return the most contrasting
+/// in-gamut result available rather than claiming the floor was met.
 pub fn snap_to_floor(candidate: Srgb, partner: Srgb, floor: f32) -> Srgb {
-    // Delegates to the single shared floor/re-check implementation
-    // (`palette_gen::floor_role`), which enforces the floor in linear space,
-    // then gamut-maps (hue-preserving), quantizes, and re-checks the byte
-    // result, bumping the internal target if rounding/gamut shaved it under.
-    // `floor <= 1.0` is the passthrough no-op. `snap_to_floor` differs only in
-    // taking its partner as `Srgb`; converting to the linear surface here is
-    // exactly what the old inline body did (`partner_lin = to_linear(partner)`),
-    // so this is behavior-preserving and keeps the three floor passes on one
-    // implementation (see the cross-check test below).
+    // Share the floor check; only convert the byte-domain partner here.
     crate::palette_gen::floor_role(candidate, to_linear(partner), floor)
 }
 
@@ -155,19 +88,7 @@ pub enum FloorAgainst {
     Foreground,
 }
 
-/// The two achromatic ANSI neutrals sitting on the **same side as the
-/// background**, exempt from the vs-background floor so they stay as near-bg
-/// structural ramp neutrals. Dark themes keep `color0`/`color8` (the dark
-/// neutrals near a dark bg); light themes keep `color7`/`color15` (the light
-/// neutrals near a light bg). The opposite pair sits near the foreground and
-/// stays floored.
-///
-/// The exemption table is the shared `palette_gen::bg_side_neutral_slots`
-/// (imported below), so the interactive author-time snap and the one-shot
-/// generator exempt exactly the same slots by construction -- pre-flooring these
-/// would collapse the very ramp the generator protects, and the render-time
-/// floor still lifts any text that actually lands on the background at draw
-/// time.
+// Background-side ANSI neutrals share the generator's authoring exemption.
 use crate::palette_gen::bg_side_neutral_slots;
 
 /// Map a role to the surface its contrast must clear the floor against, or `None`
@@ -175,7 +96,7 @@ use crate::palette_gen::bg_side_neutral_slots;
 /// the background-side neutral ramp pair).
 ///
 /// This is the single source of the author-time surface mapping; it matches the
-/// generator's RV1 validation pass ([`palette_gen::validate`](crate::palette_gen))
+/// generator's validation pass ([`palette_gen::validate`](crate::palette_gen))
 /// verbatim - including the [`bg_side_neutral_slots`] exemption - so the
 /// interactive snap and the one-shot generator agree on what is floored against
 /// what. The palette mapping is therefore **appearance-dependent**: which two
@@ -247,33 +168,13 @@ fn oklch_to_srgb(lch: Oklch) -> Srgb {
     from_linear(oklch_to_linear_gamut(lch))
 }
 
-/// True if a linear color lies within the sRGB cube (small epsilon for float
-/// slop at the boundary).
-fn in_gamut(lin: LinearRgb) -> bool {
-    lin.iter().all(|&c| (-1e-4..=1.0 + 1e-4).contains(&c))
-}
-
 /// Convert an OKLCH color to linear RGB, reducing chroma toward the neutral axis
 /// (constant lightness and hue) until the result fits the sRGB gamut. A straight
 /// OKLab→linear of a saturated color can fall outside the cube; clamping it per
 /// channel would shift the hue, so instead we bisect chroma down to the gamut
 /// boundary, keeping the hue exact and desaturating only as much as needed.
 fn oklch_to_linear_gamut(lch: Oklch) -> LinearRgb {
-    let direct = oklab_to_linear(oklch_to_oklab(lch));
-    if in_gamut(direct) {
-        return direct;
-    }
-    let (mut lo, mut hi) = (0.0_f32, lch.c);
-    for _ in 0..20 {
-        let mid = 0.5 * (lo + hi);
-        let candidate = oklab_to_linear(oklch_to_oklab(Oklch { c: mid, ..lch }));
-        if in_gamut(candidate) {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-    oklab_to_linear(oklch_to_oklab(Oklch { c: lo, ..lch }))
+    crate::color::gamut_map_oklch(lch)
 }
 
 #[cfg(test)]
@@ -403,10 +304,10 @@ mod tests {
         // The three floor passes (author snap, generator validate, CVD adapt)
         // now share one implementation. This pins the two remaining wrappers to
         // it so a future edit that reintroduces a private copy is caught:
-        //   - `snap_to_floor(c, p, f)` must equal `palette_gen::floor_role(c,
-        //     to_linear(p), f)` byte-for-byte across a hue/lightness sweep, both
-        //     surface polarities, and several floors.
-        //   - the vs-background exemption table must be one shared function.
+        // - `snap_to_floor(c, p, f)` must equal `palette_gen::floor_role(c,
+        // to_linear(p), f)` byte-for-byte across a hue/lightness sweep, both
+        // surface polarities, and several floors.
+        // - the vs-background exemption table must be one shared function.
         let dark_partner = (0x0a, 0x0c, 0x10);
         let light_partner = (0xf2, 0xf3, 0xf5);
         for partner in [dark_partner, light_partner] {

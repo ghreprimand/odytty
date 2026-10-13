@@ -39,12 +39,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 
 use crate::cwd::DirectorySource;
-// `AtomicBool`/`Ordering` back the D-5 `teardown_requested` latch on
-// `PconShared`, which is live in every Windows build. `AtomicUsize` backs only
-// the test-only `resize_calls` / `kernel_resizes` counters, so it stays gated
-// to `cfg(test)` to avoid an unused-import warning under the `-D warnings` gate
-// on a non-test Windows build (Standing rule C: a Windows-only file's lints are
-// invisible to the Linux gate).
+// Teardown state is production-visible; resize counters exist only in tests.
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -308,9 +303,9 @@ impl PtySession {
             let (output_read, output_write) = create_pipe().context("CreatePipe (output)")?;
 
             // 2. Create the pseudoconsole. It consumes `input_read` (its stdin)
-            //    and `output_write` (its stdout); it duplicates them internally,
-            //    so the parent copies are dropped immediately after - REQUIRED,
-            //    or the output reader never sees EOF.
+            // and `output_write` (its stdout); it duplicates them internally,
+            // so the parent copies are dropped immediately after - REQUIRED,
+            // or the output reader never sees EOF.
             let size = coord(dimensions);
             let hpcon =
                 CreatePseudoConsole(size, handle_of(&input_read), handle_of(&output_write), 0)
@@ -323,8 +318,8 @@ impl PtySession {
             drop(output_write);
 
             // 3. Size and build the proc-thread attribute list (single attribute:
-            //    the pseudoconsole). The first sizing call is expected to fail in
-            //    Win32 terms while still writing the required byte count.
+            // the pseudoconsole). The first sizing call is expected to fail in
+            // Win32 terms while still writing the required byte count.
             let mut attr_size: usize = 0;
             let _ = InitializeProcThreadAttributeList(None, 1, None, &mut attr_size);
             let mut attr_buf = vec![0u8; attr_size];
@@ -333,18 +328,8 @@ impl PtySession {
                 .context("InitializeProcThreadAttributeList")?;
             let _attr_guard = AttrListGuard(attr_list);
 
-            // CRITICAL: `lpValue` for PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE must be
-            // the HPCON handle VALUE itself, NOT a pointer to the local `hpcon`
-            // variable. Every canonical sample (Microsoft's EchoCon, the Console
-            // docs, node-pty, wezterm) passes `hPC` directly with
-            // `cbSize = sizeof(HPCON)`. Passing `&hpcon` instead hands the kernel
-            // a stack address in place of the pseudoconsole handle; the child
-            // then attaches to a garbage pseudoconsole and dies during console
-            // wireup in DLL init with exit code 0xC0000142 (STATUS_DLL_INIT_FAILED) -
-            // while our direct conhost child (created correctly by
-            // CreatePseudoConsole) stays alive. `HPCON` is `HPCON(pub isize)` in
-            // the `windows` crate, so `hpcon.0` is the handle value; reinterpret
-            // it as the `lpValue` pointer exactly as the C samples pass `hPC`.
+            // lpValue is the HPCON value itself, not a pointer to it; a pointer
+            // attaches the child to a garbage console (0xC0000142).
             UpdateProcThreadAttribute(
                 attr_list,
                 0,
@@ -356,31 +341,8 @@ impl PtySession {
             )
             .context("UpdateProcThreadAttribute")?;
 
-            // 4. STARTUPINFOEXW carrying the attribute list. Built as a struct
-            //    literal (not default-then-reassign) to satisfy the
-            //    `field_reassign_with_default` lint.
-            //
-            //    STD-HANDLE GUARD: `STARTF_USESTDHANDLES` with all three handle
-            //    fields left null is REQUIRED, not optional. Without it,
-            //    `CreateProcess` silently DUPLICATES the parent's standard
-            //    handles into a console-subsystem child whenever inheritance is
-            //    disabled, no `STARTF_USESTDHANDLES` is set, and none of
-            //    `CREATE_NEW_CONSOLE`/`CREATE_NO_WINDOW`/`DETACHED_PROCESS` is
-            //    given - a legacy compatibility path that predates ConPTY. The
-            //    OS closes those copied handles at pseudoconsole attach ONLY
-            //    when they are console handles; when the parent's std handles
-            //    are pipes or files (any redirected parent: CI runners, `odytty
-            //    | tee`, spawn-from-IDE), the duplicated pipe handles survive,
-            //    and the child writes its output to the PARENT'S stdout while
-            //    its console state correctly tracks the pseudoconsole. The
-            //    observed signature is subtle: the child attaches (conhost sets
-            //    the window title from the client), runs, and exits cleanly,
-            //    but the pseudoconsole stream carries only the conhost
-            //    lifecycle and every byte of child output lands on the real
-            //    stdout. Null std handles with the flag set force the child's
-            //    console init to bind fresh handles to the attached
-            //    pseudoconsole instead (the mitigation the conhost maintainers
-            //    recommend; see microsoft/terminal discussion 15814).
+            // Null std handles plus STARTF_USESTDHANDLES keep a redirected
+            // parent's pipes out of the child, whose output must reach ConPTY.
             let startup = STARTUPINFOEXW {
                 StartupInfo: STARTUPINFOW {
                     cb: size_of::<STARTUPINFOEXW>() as u32,
@@ -391,24 +353,24 @@ impl PtySession {
             };
 
             // 5. Command line (CreateProcessW may mutate it, so it must be a
-            //    mutable, NUL-terminated UTF-16 buffer) and cwd.
+            // mutable, NUL-terminated UTF-16 buffer) and cwd.
             //
-            //    Environment: we hand the child a PER-CHILD merged environment
-            //    block (see [`build_env_block`]) and pass `lpEnvironment` pointing
-            //    at it with `CREATE_UNICODE_ENVIRONMENT`. The block is THIS
-            //    process's full environment as reported by `GetEnvironmentStringsW` -
+            // Environment: we hand the child a PER-CHILD merged environment
+            // block (see [`build_env_block`]) and pass `lpEnvironment` pointing
+            // at it with `CREATE_UNICODE_ENVIRONMENT`. The block is THIS
+            // process's full environment as reported by `GetEnvironmentStringsW` -
             // which (unlike Rust's `std::env::vars_os`) preserves the loader-
-            //    critical hidden `=`-prefixed per-drive working-directory variables
-            //    (`=C:=…`) and the leading `=::=::\` marker, whose absence makes a
-            //    child fail DLL initialization with `0xC0000142`
-            //    (STATUS_DLL_INIT_FAILED) - with OdyTTY's constant terminal-
-            //    identification overrides (TERM/COLORTERM/TERM_PROGRAM[_VERSION])
-            //    applied on top. Building a per-child block (rather than mutating
-            //    our OWN process env via `SetEnvironmentVariableW` and inheriting)
-            //    keeps every override scoped to the child it targets, with no
-            //    global process-env mutation - the latent cross-session leak/race
-            //    the moment any per-session env (per-profile TERM, SSH-in-a-tab)
-            //    exists. `env_block` must outlive the `CreateProcessW` call below.
+            // critical hidden `=`-prefixed per-drive working-directory variables
+            // (`=C:=…`) and the leading `=::=::\` marker, whose absence makes a
+            // child fail DLL initialization with `0xC0000142`
+            // (STATUS_DLL_INIT_FAILED) - with OdyTTY's constant terminal-
+            // identification overrides (TERM/COLORTERM/TERM_PROGRAM[_VERSION])
+            // applied on top. Building a per-child block (rather than mutating
+            // our OWN process env via `SetEnvironmentVariableW` and inheriting)
+            // keeps every override scoped to the child it targets, with no
+            // global process-env mutation - the latent cross-session leak/race
+            // the moment any per-session env (per-profile TERM, SSH-in-a-tab)
+            // exists. `env_block` must outlive the `CreateProcessW` call below.
             let env_block = build_env_block(&command.env, &command.env_remove);
             let mut command_line = build_command_line(&command);
             let cwd_wide = command
@@ -421,11 +383,11 @@ impl PtySession {
             };
 
             // 6. create the kill-on-close Job Object BEFORE the child
-            //    so the child can be created suspended and assigned to it
-            //    before its first instruction runs - otherwise a fast shell
-            //    could spawn a descendant in the gap and that descendant would
-            //    escape the job. Best-effort: on failure the session degrades
-            //    to the old root-only `TerminateProcess` teardown.
+            // so the child can be created suspended and assigned to it
+            // before its first instruction runs - otherwise a fast shell
+            // could spawn a descendant in the gap and that descendant would
+            // escape the job. Best-effort: on failure the session degrades
+            // to the old root-only `TerminateProcess` teardown.
             let job = create_kill_on_close_job();
             // A held spawn stays suspended past job assignment until its first
             // real resize (see `crate::pty::spawn_held`), with or without a job.
@@ -450,9 +412,9 @@ impl PtySession {
 
             let mut process_info = PROCESS_INFORMATION::default();
             // 7. Spawn. The pseudoconsole is injected via the attribute list, not
-            //    handle inheritance, so `bInheritHandles` is false.
-            //    `CREATE_UNICODE_ENVIRONMENT` marks `lpEnvironment` (our merged
-            //    UTF-16 block) as wide; see the note above.
+            // handle inheritance, so `bInheritHandles` is false.
+            // `CREATE_UNICODE_ENVIRONMENT` marks `lpEnvironment` (our merged
+            // UTF-16 block) as wide; see the note above.
             CreateProcessW(
                 PCWSTR::null(),
                 Some(PWSTR(command_line.as_mut_ptr())),
@@ -468,12 +430,12 @@ impl PtySession {
             .context("CreateProcessW")?;
 
             // 8. assign the (suspended) child to the job, then resume
-            //    it. Assignment failure is non-fatal - drop the job and degrade
-            //    to root-only kill - but the child MUST still be resumed, and a
-            //    resume failure is fatal (a permanently-frozen shell is a hung
-            //    blank pane; terminate it and surface the spawn error instead).
-            //    A held spawn is the exception: it stays suspended here and is
-            //    resumed later by `start_held` or the armed fallback.
+            // it. Assignment failure is non-fatal - drop the job and degrade
+            // to root-only kill - but the child MUST still be resumed, and a
+            // resume failure is fatal (a permanently-frozen shell is a hung
+            // blank pane; terminate it and surface the spawn error instead).
+            // A held spawn is the exception: it stays suspended here and is
+            // resumed later by `start_held` or the armed fallback.
             let suspended = job.is_some();
             let job = job.filter(|job| {
                 AssignProcessToJobObject(HANDLE(job.as_raw_handle()), process_info.hProcess).is_ok()
@@ -489,8 +451,8 @@ impl PtySession {
             }
 
             // 9. Keep the process handle. The thread handle is kept only by a
-            //    held spawn, to resume it later; the attribute list is no
-            //    longer needed. (`_attr_guard` deletes the list on drop.)
+            // held spawn, to resume it later; the attribute list is no
+            // longer needed. (`_attr_guard` deletes the list on drop.)
             let held = if let Some(event) = held_event {
                 Some(Arc::new(HeldStart::new(
                     OwnedHandle::from_raw_handle(process_info.hThread.0 as RawHandle),
@@ -809,7 +771,7 @@ impl Drop for PtySession {
 /// The pseudoconsole handle and its close state, shared between the session
 /// and the child-waiter thread.
 ///
-/// P2-FIX (confirmed by P6-REPRO trace): the child-waiter closes the HPCON
+/// (confirmed by trace): the child-waiter closes the HPCON
 /// asynchronously the instant the child self-exits, while a UI-thread resize
 /// (window resize / divider drag) can be in flight on the still-alive
 /// `PtySession` - `ResizePseudoConsole` racing `ClosePseudoConsole` on the
@@ -1227,7 +1189,7 @@ impl Drop for AttrListGuard {
 /// Which shell family the default resolved to. Selects the one-shot flag form
 /// in [`one_shot_args`] (`cmd /C` vs PowerShell `-NoProfile -Command`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum ShellKind {
+enum OneShotShellKind {
     PowerShell,
     Cmd,
 }
@@ -1235,7 +1197,7 @@ enum ShellKind {
 /// The resolved default interactive shell: its executable and family.
 struct ResolvedShell {
     program: OsString,
-    kind: ShellKind,
+    kind: OneShotShellKind,
 }
 
 /// One-shot: run `command` in the default shell and exit, with the standard
@@ -1270,13 +1232,13 @@ fn default_shell() -> ResolvedShell {
     if let Some(program) = resolve_pwsh() {
         return ResolvedShell {
             program,
-            kind: ShellKind::PowerShell,
+            kind: OneShotShellKind::PowerShell,
         };
     }
     if let Some(program) = resolve_windows_powershell() {
         return ResolvedShell {
             program,
-            kind: ShellKind::PowerShell,
+            kind: OneShotShellKind::PowerShell,
         };
     }
     ResolvedShell {
@@ -1284,7 +1246,7 @@ fn default_shell() -> ResolvedShell {
             std::env::var_os("ComSpec"),
             std::env::var_os("SystemRoot"),
         ),
-        kind: ShellKind::Cmd,
+        kind: OneShotShellKind::Cmd,
     }
 }
 
@@ -1295,10 +1257,10 @@ fn default_shell() -> ResolvedShell {
 /// caller explicitly asked to run, such as the `--dump-command` argument. It
 /// is passed as one argument for the selected shell to parse, so it runs with
 /// that shell's full syntax; it is not encoded (`-EncodedCommand` is not used).
-fn one_shot_args(kind: ShellKind, command: &str) -> Vec<OsString> {
+fn one_shot_args(kind: OneShotShellKind, command: &str) -> Vec<OsString> {
     match kind {
-        ShellKind::Cmd => vec![OsString::from("/C"), OsString::from(command)],
-        ShellKind::PowerShell => vec![
+        OneShotShellKind::Cmd => vec![OsString::from("/C"), OsString::from(command)],
+        OneShotShellKind::PowerShell => vec![
             OsString::from("-NoProfile"),
             OsString::from("-Command"),
             OsString::from(command),
@@ -1461,25 +1423,9 @@ unsafe fn create_pipe() -> Result<(OwnedHandle, OwnedHandle)> {
 /// the Unix `master.try_clone()`), so reader/writer handoff produces handles
 /// that the pump owns and closes independently of the session.
 fn duplicate(handle: &OwnedHandle) -> Result<File> {
-    // SAFETY: `GetCurrentProcess` is a pseudo-handle; `handle` is live for the
-    // duration of the call; the duplicated handle is wrapped for ownership.
-    unsafe {
-        let current = GetCurrentProcess();
-        let mut target = HANDLE::default();
-        DuplicateHandle(
-            current,
-            handle_of(handle),
-            current,
-            &mut target,
-            0,
-            false,
-            DUPLICATE_SAME_ACCESS,
-        )
-        .context("DuplicateHandle")?;
-        Ok(File::from(OwnedHandle::from_raw_handle(
-            target.0 as RawHandle,
-        )))
-    }
+    Ok(File::from(
+        duplicate_handle(handle).context("DuplicateHandle")?,
+    ))
 }
 
 /// Duplicate a handle into an independent [`OwnedHandle`] (used for the process
@@ -1488,6 +1434,10 @@ fn duplicate(handle: &OwnedHandle) -> Result<File> {
 /// close). Unlike [`duplicate`], this keeps it as a handle rather than wrapping
 /// it in a `File`, which is the correct shape for a process handle.
 fn duplicate_owned_handle(handle: &OwnedHandle) -> Result<OwnedHandle> {
+    duplicate_handle(handle).context("DuplicateHandle (process)")
+}
+
+fn duplicate_handle(handle: &OwnedHandle) -> Result<OwnedHandle> {
     // SAFETY: `GetCurrentProcess` is a pseudo-handle; `handle` is live for the
     // duration of the call; the duplicated handle is wrapped for ownership.
     unsafe {
@@ -1501,8 +1451,7 @@ fn duplicate_owned_handle(handle: &OwnedHandle) -> Result<OwnedHandle> {
             0,
             false,
             DUPLICATE_SAME_ACCESS,
-        )
-        .context("DuplicateHandle (process)")?;
+        )?;
         Ok(OwnedHandle::from_raw_handle(target.0 as RawHandle))
     }
 }
