@@ -29,7 +29,7 @@ fn temp_profiles_dir(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn precedence_chain_matches_v0_14_contract() {
+fn precedence_chain_orders_layers_from_defaults_to_live_edits() {
     assert_eq!(
         precedence_chain(),
         &[
@@ -185,11 +185,11 @@ fn restored_named_profile_binding_selects_profile() {
     );
 }
 
-// --- Adversarial profile-foundation coverage (v0.14 Phase A1) ---
+// --- Adversarial profile-foundation coverage ---
 
 #[test]
 fn unknown_keys_survive_the_full_on_disk_write_reload_cycle() {
-    // RISK #1 through the ATOMIC-WRITE path (not just an in-memory serialize).
+    // Through the atomic write path, not only an in-memory serialize.
     // A profile parsed with future keys at every owned object must retain them
     // byte-for-byte after a write to disk and a reload.
     let dir = temp_profiles_dir("unknown-keys-disk");
@@ -516,8 +516,8 @@ fn populated_dev_profile() -> LaunchProfile {
 }
 
 #[test]
-fn a3_same_profile_resolves_identically_across_cli_and_workspace_binding() {
-    // Section 1.a: every launch surface must route through the one resolver and
+fn same_profile_resolves_identically_across_cli_and_workspace_binding() {
+    // Every launch surface must route through the one resolver and
     // yield a byte-identical EffectiveLaunch for the same named profile. The CLI
     // route and the workspace-binding route are the two public entry shapes.
     let mut catalog = ProfileCatalog::default();
@@ -561,8 +561,8 @@ fn a3_same_profile_resolves_identically_across_cli_and_workspace_binding() {
 }
 
 #[test]
-fn a3_explicit_cli_profile_overrides_a_workspace_binding() {
-    // Section 6.a: an explicit CLI profile selection sits above the workspace
+fn explicit_cli_profile_overrides_a_workspace_binding() {
+    // An explicit CLI profile selection sits above the workspace
     // binding layer. When both name a profile, the CLI one wins.
     let mut catalog = ProfileCatalog::default();
     let mut cli_profile = LaunchProfile::new("cliwin").expect("profile");
@@ -592,8 +592,8 @@ fn a3_explicit_cli_profile_overrides_a_workspace_binding() {
 }
 
 #[test]
-fn a3_restored_profile_name_resolves_when_no_cli_profile_present() {
-    // Section 1: the restoration surface carries a profile_name that resolves
+fn restored_profile_name_resolves_when_no_cli_profile_present() {
+    // The restoration surface carries a profile_name that resolves
     // when no CLI override is present (CLI still outranks it when both exist).
     let mut catalog = ProfileCatalog::default();
     catalog
@@ -620,8 +620,8 @@ fn a3_restored_profile_name_resolves_when_no_cli_profile_present() {
 }
 
 #[test]
-fn a3_missing_profile_fails_closed_to_global_settings_with_a_warning() {
-    // Section 1.b / 3.a: a launch surface naming a profile that is absent from
+fn missing_profile_fails_closed_to_global_settings_with_a_warning() {
+    // A launch surface naming a profile that is absent from
     // the catalog must NOT silently invent a partial launch. It falls back to
     // global settings and surfaces a warning; no profile-only field leaks in.
     let catalog = ProfileCatalog::default(); // empty
@@ -662,8 +662,8 @@ fn a3_missing_profile_fails_closed_to_global_settings_with_a_warning() {
 }
 
 #[test]
-fn a3_platform_inapplicable_profile_is_skipped_with_a_warning() {
-    // Section 5/8: a profile scoped to a different OS must not apply on this one.
+fn platform_inapplicable_profile_is_skipped_with_a_warning() {
+    // A profile scoped to a different OS must not apply on this one.
     // It fails closed to global settings and discloses why.
     let other_platform = if cfg!(target_os = "windows") {
         ProfilePlatform::Linux
@@ -730,7 +730,7 @@ fn a_malformed_import_file_is_rejected_and_never_reaches_the_catalog() {
 }
 
 #[test]
-fn a3_profile_auto_switch_defaults_off_and_parses() {
+fn profile_auto_switch_defaults_off_and_parses() {
     let settings = Settings::from_source(|_| None, |_| {}, |_| None, |_| None);
     assert!(!settings.profile_auto_switch);
 
@@ -744,7 +744,7 @@ fn a3_profile_auto_switch_defaults_off_and_parses() {
 }
 
 #[test]
-fn a3_default_launch_profile_parses_and_round_trips() {
+fn default_launch_profile_parses_and_round_trips() {
     let settings = Settings::from_source(|_| None, |_| {}, |_| None, |_| None);
     assert!(settings.default_launch_profile.is_none());
 

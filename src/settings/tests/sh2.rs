@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Focused tests for the SH2 `command_status_gutter` setting, kept out of the
+//! Focused tests for the `command_status_gutter` setting, kept out of the
 //! large `legacy` module so that file stays under the source-size cap.
 
 use super::*;

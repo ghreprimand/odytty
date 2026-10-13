@@ -17,6 +17,8 @@
 //! plain-text rows. Preview lines arrive already bounded and stripped of
 //! control characters by the session host's preview redaction.
 
+use super::overlay::fit_chars as truncate_for_width;
+
 use std::cell::Cell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -597,13 +599,6 @@ fn row_label(entry: &NavigatorEntry) -> String {
 /// never inject escape sequences or hide characters in the overlay's rows.
 fn sanitize(text: &str) -> String {
     crate::native::display_text::sanitize_row_text(text)
-}
-
-/// Cut `text` to at most `max_columns` display cells, by the same per-glyph
-/// width the overlay painter lays rows out with, so wide characters never
-/// overflow the body.
-fn truncate_for_width(text: &str, max_columns: usize) -> String {
-    super::overlay::fit_chars(text, max_columns)
 }
 
 #[cfg(test)]

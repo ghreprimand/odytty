@@ -24,8 +24,8 @@ use super::rename_field::FieldOwners;
 use super::*;
 use crate::core::{Attrs, Cell};
 
-/// Read-only inputs every paint contributor needs (today threaded
-/// individually). Built once per frame by [`App::overlay_ctx`].
+/// Read-only inputs every paint contributor needs. Built once per frame by
+/// [`App::overlay_ctx`].
 #[derive(Debug, Clone, Copy)]
 pub(in crate::native) struct OverlayCtx {
     pub(in crate::native) viewport_offset: usize,
@@ -58,7 +58,7 @@ pub(in crate::native) struct OverlayCtx {
 }
 
 /// The currently-active keyboard modal, if any. Extended as new modals land;
-/// overlay/search are deliberately NOT modals here (D-INFRA-3) - they keep
+/// overlay/search are deliberately NOT modals here - they keep
 /// their own `open()` semantics and the gate sits beneath them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::native) enum ActiveModal {
@@ -108,7 +108,7 @@ impl App {
     // --- cell-paints (order = paint precedence; a later slot overwrites an
     //     earlier one on a shared cell) ---------------------------------------
 
-    /// Selection highlight (relocated `apply_selection_highlight`). Keeps the
+    /// Selection highlight. Keeps the
     /// `if let Some(range)` guard internally so block-ness and the viewport
     /// arguments are unchanged from the inline form.
     pub(in crate::native) fn paint_selection_cells(
@@ -129,7 +129,7 @@ impl App {
         }
     }
 
-    /// Search-match highlight (relocated `apply_search_ui`).
+    /// Search-match highlight.
     pub(in crate::native) fn paint_search_cells(&self, snapshot: &mut Snapshot, ctx: &OverlayCtx) {
         apply_search_ui(
             snapshot,
@@ -321,7 +321,7 @@ impl App {
         );
     }
 
-    /// Settings/theme overlay paint (relocated `apply_overlay`).
+    /// Settings/theme overlay paint.
     pub(in crate::native) fn paint_overlay_cells(
         &mut self,
         snapshot: &mut Snapshot,
@@ -347,9 +347,9 @@ impl App {
     // --- quads (scroll-indicator first, then status gutter, then the new
     //     no-op slots) --------------------------------------------------------
 
-    /// Scroll-position indicator thumb (relocated
-    /// `scroll_indicator_quad_with_padding`). Hidden at the live tail
-    /// (`viewport_offset == 0`) exactly as before.
+    /// Scroll-position indicator thumb
+    /// (`scroll_indicator_quad_with_padding`). Hidden at the live tail
+    /// (`viewport_offset == 0`).
     pub(in crate::native) fn paint_scroll_indicator_quads(
         &self,
         ctx: &OverlayCtx,
@@ -368,9 +368,8 @@ impl App {
         }
     }
 
-    /// SH2 per-command success/fail gutter (relocated inline
-    /// `command_status_gutter_overlays` call). `gutter` is `None` while the
-    /// setting is off, which adds no quads.
+    /// Per-command success/fail gutter (`command_status_gutter_overlays`).
+    /// `gutter` is `None` while the setting is off, which adds no quads.
     pub(in crate::native) fn paint_gutter_quads(
         &self,
         ctx: &OverlayCtx,
@@ -455,7 +454,7 @@ impl App {
     // --- modal-input gate ----------------------------------------------------
 
     /// The active keyboard modal. Reads per-feature predicates that live in the
-    /// feature submodules. Precedence is fixed (D-INFRA-4): copy-mode before
+    /// feature submodules. Precedence is fixed: copy-mode before
     /// hints before the rename/name prompt (mutually exclusive in practice).
     pub(in crate::native) fn active_modal(&self) -> ActiveModal {
         if self.copy_mode_active() {
@@ -528,9 +527,9 @@ impl App {
     }
 
     /// Open the "Save as Layout" name prompt for the workspace at rail index
-    /// `idx` (LAYOUT-SURFACE), seeded with that workspace's current name as a
+    /// `idx`, seeded with that workspace's current name as a
     /// sensible default. Reuses the rename modal; Enter commits via
-    /// [`Self::commit_rename`] to the WP3 `save_workspace_as_layout` path. A
+    /// [`Self::commit_rename`] to the `save_workspace_as_layout` path. A
     /// stale index is a no-op.
     pub(super) fn enter_save_layout_prompt(&mut self, idx: usize) {
         let Some(name) = self.sessions.workspace_name(idx) else {
@@ -543,8 +542,8 @@ impl App {
         self.begin_rename(RenameTarget::SaveLayout(anchor), seed);
     }
 
-    /// Open the "Save as Layout" name prompt for the WHOLE application
-    /// (SAVE-ALL-LAYOUT), seeded with the active workspace's name as a default.
+    /// Open the "Save as Layout" name prompt for the WHOLE application,
+    /// seeded with the active workspace's name as a default.
     /// Reuses the rename modal; Enter commits via [`Self::commit_rename`] to the
     /// [`Self::save_all_workspaces_as_layout`] path, capturing every workspace.
     pub(super) fn enter_save_all_layout_prompt(&mut self) {
@@ -558,7 +557,7 @@ impl App {
     }
 
     /// Reopen the "Layout name:" prompt for a different name after an overwrite
-    /// collision (OVERWRITE-WARN "Rename" arm), seeded with the colliding `seed`
+    /// collision (the collision prompt's Rename choice), seeded with the colliding `seed`
     /// so the user can edit it. `kind` restores the save target that hit the
     /// collision: the whole app, or the same workspace by identity.
     pub(super) fn reopen_layout_name_prompt(&mut self, kind: LayoutSaveKind, seed: String) {
@@ -590,7 +589,7 @@ impl App {
 
     /// Shared setup for the rename overlay: seed the field with `text`, park the
     /// caret at the end, and clear any stale pointer streak from a previous
-    /// field so a leftover drag/double-click can't leak in (F4-RENAME-MOUSE).
+    /// field so a leftover drag/double-click can't leak in.
     fn begin_rename(&mut self, target: RenameTarget, text: String) {
         let cursor = text.chars().count();
         self.rename_state = Some(RenameState {
@@ -623,7 +622,7 @@ impl App {
                 self.rename_dragging = false;
             }
             WinitKey::Named(NamedKey::Backspace) => {
-                // F4-RENAME-MOUSE: a live selection is replaced (deleted) by
+                // A live selection is replaced (deleted) by
                 // Backspace; only with no selection does it delete the whole
                 // owner before the caret, so the caret never splits a cluster.
                 if !rename_delete_selection(state) && state.cursor > 0 {
@@ -635,7 +634,7 @@ impl App {
                 }
             }
             WinitKey::Named(NamedKey::Delete) => {
-                // F4-RENAME-MOUSE: Delete replaces a live selection, else it
+                // Delete replaces a live selection, else it
                 // deletes the owner at (forward of) the caret.
                 let start = rename_selection_range(state).map_or(state.cursor, |(lo, _)| lo);
                 if !rename_delete_selection(state) {
@@ -716,9 +715,9 @@ impl App {
                 }
             }
             RenameTarget::SaveLayout(anchor) => {
-                // LAYOUT-SURFACE: an empty name cancels the save (never writes an
+                // An empty name cancels the save (never writes an
                 // unnamed layout file); otherwise capture the workspace at `idx`
-                // under the typed name via the shared WP3 save path.
+                // under the typed name via the shared save path.
                 if !text.is_empty()
                     && let Some(idx) = self.workspace_index_for_prompt_anchor(anchor)
                 {
@@ -726,7 +725,7 @@ impl App {
                 }
             }
             RenameTarget::SaveAllLayout => {
-                // SAVE-ALL-LAYOUT: an empty name cancels; otherwise capture every
+                // An empty name cancels; otherwise capture every
                 // workspace as one named layout under the typed name.
                 if !text.is_empty() {
                     self.save_all_workspaces_as_layout(Some(&text));
@@ -737,7 +736,7 @@ impl App {
         self.request_selection_redraw();
     }
 
-    /// F4-RENAME-MOUSE: handle a left mouse button on the rename/name field.
+    /// Handle a left mouse button on the rename/name field.
     ///
     /// The rename modal is window-level: single-pane coordinates are already
     /// window-relative, while multi-pane coordinates are resolved through the
@@ -808,7 +807,7 @@ impl App {
         self.request_selection_redraw();
     }
 
-    /// F4-RENAME-MOUSE: extend the field selection to the current pointer cell
+    /// Extend the field selection to the current pointer cell
     /// while a rename drag is live. The drag anchor (set on press) is kept; the
     /// caret follows the pointer, clamped onto the input line so dragging off
     /// the row still tracks horizontally.
@@ -871,7 +870,7 @@ impl App {
             panel,
         );
         // Derive the input trio from the shared layout so render and the mouse
-        // hit-test can never drift (F4-RENAME-MOUSE). `rename_layout` replicates
+        // hit-test can never drift. `rename_layout` replicates
         // the box math above exactly; a unit test pins that agreement.
         if let Some(layout) = rename_layout(columns, rows, prompt) {
             rename_write_input(
@@ -885,7 +884,7 @@ impl App {
         }
     }
 
-    /// TRANSPARENCY (PROMPT-OPACITY): the rename/prompt band's outer cell box in
+    /// The rename/prompt band's outer cell box in
     /// content-grid coordinates (`left, top, width, height`), or `None` when no
     /// rename is active or the grid is too small for the modal. Shares
     /// [`rename_band_box`] with the painter so the cells the opaque-region span
@@ -936,15 +935,11 @@ impl App {
     ///
     /// Consumed on BOTH sides of the event loop: `next_wake_deadline` sources it
     /// (single-pane gated - that render path is the only consumer that advances
-    /// these timers; NF21-1/7 owns the multipane path) so a wake is scheduled,
+    /// these timers) so a wake is scheduled,
     /// and the about-to-wait maintenance pass requests a frame only once the
     /// soonest stored deadline is due. Frame-paced contributors advance their
     /// stored deadline during the rebuild; future deadlines remain wake sources
     /// without generating an immediate redraw event.
-    ///
-    /// (History: this entry was in the collector until the multi-session refactor
-    /// replaced it with a cursor-only fan-out; the five non-cursor contributors
-    /// were stranded with a consumer but no wake source until NF21-2 restored it.)
     pub(in crate::native) fn animation_deadline(&self) -> Option<Instant> {
         [
             self.cursor_blink_fade_deadline(),
@@ -957,7 +952,7 @@ impl App {
             self.new_row_fade_deadline(),
             // BELL visual flash - `None` on the off / urgent-only path.
             self.bell_flash_deadline(),
-            // OPEN-NOTICE (P0-2) auto-expiry - `None` when no notice is in flight.
+            // Open-notice auto-expiry - `None` when no notice is in flight.
             self.open_notice_deadline(),
             // UX-A (Phase 11) click-hint auto-expiry - `None` when no hint shown.
             self.click_hint_deadline(),
@@ -989,7 +984,7 @@ fn rename_prompt(target: RenameTarget) -> &'static str {
 /// The single source of the box math the painter ([`App::paint_rename_tab_cells`])
 /// and the input-geometry helper ([`rename_layout`]) both build on, so the
 /// rendered band, the mouse hit-test, and the opaque-region span
-/// (PROMPT-OPACITY) can never drift.
+/// can never drift.
 fn rename_band_box(columns: usize, rows: usize) -> Option<(usize, usize, usize, usize)> {
     if columns < 8 || rows < 3 {
         return None;
@@ -1147,7 +1142,7 @@ fn rename_cursor_attrs() -> Attrs {
     attrs
 }
 
-/// F4-RENAME-MOUSE: styling for selected characters in the rename field. The
+/// Styling for selected characters in the rename field. The
 /// modal paints into the indexed-palette cell snapshot (like the cursor and
 /// border above), where the theme's `selection` role isn't addressable, so this
 /// uses the conventional blue-highlight palette pair - bright text on a blue
@@ -1210,7 +1205,7 @@ fn rename_write_input(
     state: &RenameState,
     attrs: Attrs,
 ) {
-    // F4-RENAME-MOUSE: the selected span [lo, hi) paints in selection colors;
+    // The selected span [lo, hi) paints in selection colors;
     // the caret owner wins so the focus edge stays visible.
     FieldOwners::of(&state.text).paint(
         snapshot,
@@ -1398,7 +1393,7 @@ mod workspace_prompt_identity_tests {
 
 #[cfg(test)]
 mod rename_mouse_tests {
-    //! F4-RENAME-MOUSE: pure hit-test / caret-mapping / selection-edit seam
+    //! Pure hit-test / caret-mapping / selection-edit seam
     //! tests. These need no `App` or PTY - they exercise the free functions the
     //! render and pointer paths both go through, so a click maps to exactly the
     //! character the painter drew.
@@ -1421,7 +1416,7 @@ mod rename_mouse_tests {
 
     #[test]
     fn prompt_label_matches_the_rename_target() {
-        // RENAME-LABEL: a tab rename says "Tab name: "; a workspace rename says
+        // A tab rename says "Tab name: "; a workspace rename says
         // "Workspace name: " - the shared modal must not mislabel a workspace as
         // a tab.
         assert_eq!(
@@ -1432,13 +1427,13 @@ mod rename_mouse_tests {
             rename_prompt(RenameTarget::Workspace(SessionToken(0))),
             "Workspace name: "
         );
-        // LAYOUT-SURFACE: the Save-as-Layout prompt reuses the modal with its own
+        // The Save-as-Layout prompt reuses the modal with its own
         // label so a layout save is never mislabeled as a rename.
         assert_eq!(
             rename_prompt(RenameTarget::SaveLayout(SessionToken(0))),
             "Layout name: "
         );
-        // SAVE-ALL-LAYOUT: the whole-app save prompt shares the "Layout name: "
+        // The whole-app save prompt shares the "Layout name: "
         // label.
         assert_eq!(rename_prompt(RenameTarget::SaveAllLayout), "Layout name: ");
     }
@@ -1482,7 +1477,7 @@ mod rename_mouse_tests {
 
     #[test]
     fn band_box_is_the_single_source_for_the_painter_and_hit_test() {
-        // PROMPT-OPACITY: `rename_band_box` is the one place the centered
+        // `rename_band_box` is the one place the centered
         // 8..=48-wide, 3-tall box math lives; the painter, the input hit-test
         // (`rename_layout`), and the opaque-region span all build on it, so the
         // opaque cells can never drift from the painted band.

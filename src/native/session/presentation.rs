@@ -123,7 +123,7 @@ impl TabBarSource for WorkspaceSet {
     }
 
     fn tab_progress(&self, idx: usize) -> Option<crate::core::TerminalProgress> {
-        self.tab_progress(self.active_ws, idx)
+        self.tab_progress_at(self.active_ws, idx)
     }
 }
 
@@ -868,7 +868,7 @@ impl WorkspaceSet {
             .tabs
             .iter()
             .enumerate()
-            .find_map(|(tab_idx, _)| self.tab_progress(ws_idx, tab_idx))
+            .find_map(|(tab_idx, _)| self.tab_progress_at(ws_idx, tab_idx))
     }
 
     pub(in crate::native) fn next_monitor_deadline(&self) -> Option<std::time::Instant> {
@@ -892,7 +892,11 @@ impl WorkspaceSet {
             })
     }
 
-    fn tab_progress(&self, ws_idx: usize, tab_idx: usize) -> Option<crate::core::TerminalProgress> {
+    fn tab_progress_at(
+        &self,
+        ws_idx: usize,
+        tab_idx: usize,
+    ) -> Option<crate::core::TerminalProgress> {
         let tab = self.workspaces.get(ws_idx)?.tabs.get(tab_idx)?;
         tab.layout
             .leaves()
@@ -942,11 +946,7 @@ impl WorkspaceSet {
                 sweep.pane_monitor = true;
                 sweep.changed = true;
                 if token == focused {
-                    sweep.focused_notice = session
-                        .attention
-                        .notice
-                        .as_ref()
-                        .map(|notice| notice.text.clone());
+                    sweep.focused_notice = notice_text(session);
                 }
             }
             for notification in notifications {
@@ -954,11 +954,7 @@ impl WorkspaceSet {
                     sweep.changed = true;
                     sweep.background_request |= !window_focused || !visible;
                     if token == focused {
-                        sweep.focused_notice = session
-                            .attention
-                            .notice
-                            .as_ref()
-                            .map(|notice| notice.text.clone());
+                        sweep.focused_notice = notice_text(session);
                     }
                 }
             }
@@ -975,11 +971,7 @@ impl WorkspaceSet {
                 sweep.command_completion = Some(failed);
                 sweep.changed = true;
                 if token == focused {
-                    sweep.focused_notice = session
-                        .attention
-                        .notice
-                        .as_ref()
-                        .map(|notice| notice.text.clone());
+                    sweep.focused_notice = notice_text(session);
                 }
             }
             if session.monitors.command_failure
@@ -995,11 +987,7 @@ impl WorkspaceSet {
                 sweep.pane_monitor = true;
                 sweep.changed = true;
                 if token == focused {
-                    sweep.focused_notice = session
-                        .attention
-                        .notice
-                        .as_ref()
-                        .map(|notice| notice.text.clone());
+                    sweep.focused_notice = notice_text(session);
                 }
             }
             sweep.changed |= session.attention.expire(now);
@@ -1018,6 +1006,14 @@ impl WorkspaceSet {
             .and_then(|workspace| workspace.tabs.get(tab_idx))
             .is_some_and(|tab| tab.activity)
     }
+}
+
+fn notice_text(session: &Session) -> Option<String> {
+    session
+        .attention
+        .notice
+        .as_ref()
+        .map(|notice| notice.text.clone())
 }
 
 #[cfg(test)]

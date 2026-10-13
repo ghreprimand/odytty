@@ -28,7 +28,10 @@ fn ch(ctrl: bool, c: char) -> KeyChord {
 }
 
 fn select(ui: &mut KeyRemapUi, action: BindableAction) {
-    let index = ACTIONS.iter().position(|a| *a == action).expect("listed");
+    let index = BindableAction::ALL
+        .iter()
+        .position(|a| *a == action)
+        .expect("listed");
     ui.set_selection(index);
 }
 
@@ -60,7 +63,7 @@ fn keyboard_navigation_keeps_the_selected_row_on_screen() {
     assert!(focused_is_rendered(&ui, height), "End");
     assert_eq!(
         rendered_actions(&ui, height).last(),
-        Some(&(ACTIONS.len() - 1))
+        Some(&(BindableAction::ALL.len() - 1))
     );
     ui.handle_input(OverlayInput::Home);
     assert!(focused_is_rendered(&ui, height), "Home");
@@ -100,7 +103,9 @@ fn scroll_arrows_match_the_rendered_window() {
         );
         assert_eq!(
             below,
-            shown.last().is_some_and(|last| *last + 1 < ACTIONS.len()),
+            shown
+                .last()
+                .is_some_and(|last| *last + 1 < BindableAction::ALL.len()),
             "after scrolling {delta}: rows {shown:?}"
         );
         assert!(

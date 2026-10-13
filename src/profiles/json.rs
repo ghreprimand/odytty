@@ -38,7 +38,8 @@ pub(crate) enum Json {
     Obj(Vec<(String, Json)>),
 }
 
-#[allow(dead_code)]
+// The accessors read Hyprland IPC replies, which exist only on Linux.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 impl Json {
     /// The value for `key` if this is an object holding it.
     pub(crate) fn get(&self, key: &str) -> Option<&Json> {
@@ -58,26 +59,9 @@ impl Json {
         }
     }
 
-    /// A non-negative, finite number as a `usize`, else `None`.
-    pub(crate) fn as_usize(&self) -> Option<usize> {
-        match self {
-            Json::Num(n) | Json::Exact(n, _) if n.is_finite() && *n >= 0.0 => Some(*n as usize),
-            _ => None,
-        }
-    }
-
     pub(crate) fn as_str(&self) -> Option<&str> {
         match self {
             Json::Str(s) => Some(s),
-            _ => None,
-        }
-    }
-
-    /// An owned copy of a string value; `null` and non-strings yield `None`
-    /// (so an explicit `null` optional field round-trips to `None`).
-    pub(crate) fn as_owned_str(&self) -> Option<String> {
-        match self {
-            Json::Str(s) => Some(s.clone()),
             _ => None,
         }
     }
@@ -88,11 +72,6 @@ impl Json {
             _ => None,
         }
     }
-}
-
-/// Build an object from a dynamic list of `(key, value)` pairs.
-pub(crate) fn obj_pairs(entries: Vec<(String, Json)>) -> Json {
-    Json::Obj(entries)
 }
 
 /// Pretty-print `value` with two-space indentation and a trailing newline.

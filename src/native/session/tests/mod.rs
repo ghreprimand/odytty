@@ -155,7 +155,6 @@ fn pane_dims(set: &WorkspaceSet, token: SessionToken) -> (usize, usize) {
 /// A fake leaf spawner for restore tests: records the resolved cwd it is
 /// handed and inserts a headless session under a freshly minted token, so
 /// the rebuild runs without an event-loop proxy.
-#[cfg(test)]
 fn fake_spawner(
     handed: &mut Vec<Option<std::path::PathBuf>>,
 ) -> impl FnMut(&mut WorkspaceSet, crate::native::session::RestoredLocalLeaf) -> Option<SessionToken> + '_

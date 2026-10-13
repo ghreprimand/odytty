@@ -1,49 +1,46 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Tab bar widget - presentation-only, decoupled from the session model.
 //!
-//! Renders a one-row tab strip across the top of the window. The widget is
-//! purely geometrical: it reads layout from a [`TabBarSource`] trait object
-//! (implemented on `WorkspaceSet`) and produces solid quads + glyph outputs that the
-//! integration layer composites into the frame. It never touches terminal
-//! state, PTY, or settings.
+//! Renders the tab strip across the top of the window. The widget is purely
+//! geometrical: it reads layout from a [`TabBarSource`] trait object
+//! (implemented on `WorkspaceSet`) and produces solid quads and glyph outputs
+//! that the integration layer composites into the frame. It never touches
+//! terminal state, PTY, or settings.
 //!
-//! ## Integration (live)
+//! ## Integration
 //! Both render paths in `app/` drive this widget:
 //! `App::decorate_snapshot_with_tab_bar` (single-pane) and
-//! `WorkspaceSet`-backed `tab_bar_strip` (multi-pane) call [`TabBar::render`] each
-//! frame, push the returned quads into the overlay quad list, and paint each
-//! glyph into the reserved tab-bar snapshot row
+//! `WorkspaceSet`-backed `tab_bar_strip` (multi-pane) call [`TabBar::render`]
+//! each frame, push the returned quads into the overlay quad list, and paint
+//! each glyph into the reserved tab-bar snapshot row
 //! (`snapshot.cells[glyph.col] = Cell::new(glyph.ch, glyph.attrs)`);
 //! `App` pointer handling consumes the shared window-pixel geometry in
 //! [`super::chrome_geometry`] on move and press, storing the result through
 //! [`TabBar::set_hover`].
 //!
-//! ## Visual treatment: "Phosphor Flat"
+//! ## Visual treatment
 //! All color comes from the shared [`super::tab_chrome`] module (theme roles
-//! only - no hardcoded colors, so every theme and the CVD modes stay correct);
-//! this widget owns layout, `tab_chrome` owns the treatment. The old
-//! outlined-box language (per-slot rings, the band↔body separator, the accent
-//! underline) was **deleted, not bypassed** because it read as hacked-together
-//! and cheap. The container is now invisible; only the active
-//! tab is a drawn object, and hierarchy comes from luminance:
+//! only, so every theme and the CVD modes stay correct); this widget owns
+//! layout, `tab_chrome` owns the treatment. The container is invisible; only
+//! the active tab is a drawn object, and hierarchy comes from luminance:
 //!
-//! - **ACTIVE** - a warm `selection` fill (the bloom-off fallback) plus a bright,
-//!   bold `foreground` label brightened above the bloom threshold so it
-//!   auto-halos through `bloom.wgsl` with no new geometry.
-//! - **INACTIVE** - bare `inactive`-role labels on the wallpaper-through
-//!   background (no fill), dimmed along a phosphor-persistence luminance ramp
-//!   keyed on the tab's distance from the active one.
-//! - **HOVER** - the label warms one tier toward the active label and gains a
-//!   whisper of the selection fill.
-//! - `×` shows on the active/hovered tab only; `+` is a dim glyph that brightens
-//!   on hover.
+//! - **Active** - a `selection` fill (the bloom-off fallback) plus a bold
+//!   `foreground` label brightened above the bloom threshold so it halos
+//!   through `bloom.wgsl` with no new geometry.
+//! - **Inactive** - bare `inactive`-role labels on the wallpaper-through
+//!   background (no fill), dimmed along a luminance ramp keyed on the tab's
+//!   distance from the active one.
+//! - **Hover** - the label warms one tier toward the active label and gains a
+//!   faint selection fill.
+//! - `×` shows on the active or hovered tab only; `+` is a dim glyph that
+//!   brightens on hover.
 //!
-//! Resting label/fill treatment is entirely cell backgrounds + label
+//! Resting label and fill treatment is entirely cell backgrounds and label
 //! attributes. The App integration adds full-alpha active and insertion marker
-//! quads to [`TabBarOutput::quads`]. The F4-P1 unified panel + seam are separate background-segment
-//! quads built by [`super::tab_panel`] and spliced in by the integration layer;
-//! the widget only paints the resting-cell **panel tint** (Layer 1) so the
-//! surface reads even at `cell_bg_opacity = 1`. Cells use an explicit
+//! quads to [`TabBarOutput::quads`]. The unified panel and seam are separate
+//! background-segment quads built by [`super::tab_panel`] and spliced in by the
+//! integration layer; the widget only paints the resting-cell **panel tint**
+//! so the surface reads even at `cell_bg_opacity = 1`. Cells use an explicit
 //! `Color::Rgb` so they composite through `cell_bg_opacity` exactly like the
 //! terminal body and both render paths agree.
 

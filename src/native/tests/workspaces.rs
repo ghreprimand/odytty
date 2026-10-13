@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! W3 App-level workspace keyboard + command-palette tests. These drive a real
+//! App-level workspace keyboard and command-palette tests. These drive a real
 //! `App` (with a wake handle where a case spawns a workspace or tab,
 //! and none where it does not) through the production dispatch paths:
 //! the six workspace `BindableAction`s and the palette workspace rows

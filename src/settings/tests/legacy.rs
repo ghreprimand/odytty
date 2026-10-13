@@ -2185,7 +2185,7 @@ fn symbol_map_round_trips_through_config_and_edit_values() {
 
 #[test]
 fn os_theme_round_trips_through_config_key_mapping() {
-    // OS-THEME: the follow knob and the dark/light theme names map both ways.
+    // The follow knob and the dark/light theme names map both ways.
     assert_eq!(
         config_key_to_env("follow_os_theme"),
         Some(FOLLOW_OS_THEME_ENV)

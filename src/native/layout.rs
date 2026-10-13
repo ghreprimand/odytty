@@ -15,12 +15,6 @@
 //! `layout_rects`/`divider_rects`/`focus_move`/`PaneNode` directly on every
 //! frame and every pane operation.
 
-// A few pure helpers/variants in this module are exercised only by its own unit
-// tests (the model is deliberately broader than any single production call
-// path), so `dead_code` is suppressed to keep the warning baseline clean rather
-// than sprinkling per-item allows.
-#![allow(dead_code)]
-
 use super::session::SessionToken;
 
 /// Minimum fraction of a split's primary extent that may be given to either
@@ -113,6 +107,7 @@ impl PaneNode {
     }
 
     /// The sole pane's token iff this is a single-pane tab.
+    #[cfg(test)]
     pub(super) fn sole_pane(&self) -> Option<SessionToken> {
         match self {
             PaneNode::Leaf(token) => Some(*token),
@@ -437,8 +432,8 @@ const EDGE_EPS: f32 = 0.5;
 /// [`grid_dims_for_rect`] floors a pane to whole cells, leaving a sub-cell
 /// remainder (`rect.w - cols·cell_w`, `rect.h - rows·cell_h`). Drawn naïvely at
 /// `rect`'s top-left, that remainder strands as background **between the grid
-/// edge and the adjacent divider** - the visible inter-pane gap the user
-/// reported (and, since cells are ~2:1 tall, a *row* split strands ~2× a
+/// edge and the adjacent divider** - a visible non-uniform inter-pane gap
+/// (since cells are ~2:1 tall, a *row* split strands ~2× a
 /// *column* split's pixels, so gaps look non-uniform across axes).
 ///
 /// This absorbs the remainder onto each pane's **outer** (window-margin) side so
@@ -498,7 +493,7 @@ pub(super) fn pane_grid_origin(
 /// edge - its padding was already applied when `content` was inset from the
 /// window, so it is left untouched. An edge that abuts a divider gets `pad`
 /// physical pixels of breathing room, so a pane's glyphs no longer sit flush
-/// against the divider after a split (the reported regression). Horizontal and
+/// against the divider after a split. Horizontal and
 /// nested splits are handled uniformly because the classification is purely
 /// geometric per edge.
 ///
@@ -564,7 +559,7 @@ pub(super) fn pane_glide_origin_and_clip(
     )
 }
 
-/// Cut 1 (inline graphics in splits): the scissor rect (physical px
+/// Inline graphics in splits: the scissor rect (physical px
 /// `[x, y, w, h]`) an inline image is clipped to inside a split pane - the
 /// pane's at-rest grid rect (`base_origin` from [`pane_grid_origin`] plus the
 /// pane's grid extent), clamped to the pane rect and the surface. Bounds BOTH
@@ -912,7 +907,7 @@ mod tests {
         PaneRect::new(0.0, 0.0, 800.0, 600.0)
     }
 
-    // ----- Cut 1: inline-graphics per-pane scissor (no bleed across divider) -----
+    // ----- Inline-graphics per-pane scissor (no bleed across divider) -----
 
     #[test]
     fn pane_image_scissor_bounds_the_pane_grid_rect() {

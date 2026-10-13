@@ -534,19 +534,16 @@ impl SettingsPanel {
             let text_capacity = footer_reserve.saturating_sub(1);
             let mut help: Vec<String> = Vec::new();
             let override_note = self.environment_override_note(entry);
-            if let Some(note) = override_note.as_deref() {
-                let name = note.split_once(". ").map_or(note, |(name, _)| name);
-                help.extend(wrap_words(name, wrap_width));
+            if let Some(note) = &override_note {
+                help.extend(wrap_words(&note.name, wrap_width));
             }
             if let Some(message) = self.message.as_deref() {
                 for wrapped in wrap_words(message, wrap_width) {
                     help.push(format!("! {wrapped}"));
                 }
             }
-            if let Some(note) = override_note.as_deref()
-                && let Some((_, explanation)) = note.split_once(". ")
-            {
-                help.extend(wrap_words(explanation, wrap_width));
+            if let Some(note) = &override_note {
+                help.extend(wrap_words(note.explanation, wrap_width));
             }
             for wrapped in wrap_words(&setting_detail(entry), wrap_width) {
                 help.push(wrapped);

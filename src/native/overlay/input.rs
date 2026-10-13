@@ -104,7 +104,7 @@ impl OverlayUi {
     /// its original theme). Inside the Settings panel a press is hit-tested to a
     /// row+zone and dispatched through the existing value seam. Inside the theme
     /// builder a press routes to role/channel focus and starts a slider drag on
-    /// the focused-channel track (U2 Step 2/3); inside the theme/font pickers,
+    /// the focused-channel track; inside the theme/font pickers,
     /// title-area presses route to Close (the `←` back affordance) and body
     /// presses are inert.
     pub(in crate::native) fn handle_pointer(
@@ -296,7 +296,7 @@ impl OverlayUi {
                         }
                     }
                     OverlayMode::SessionAttach => match button {
-                        // Left-click on a row attaches (unchanged from Phase 5).
+                        // Left-click on a row attaches.
                         PointerButton::Left => {
                             if self.session_attach.click_row(row_in_body, rect.body_height) {
                                 self.handle_session_attach_input(OverlayInput::Activate)
@@ -906,7 +906,7 @@ impl OverlayUi {
         }
     }
 
-    /// Handle a key in the first-run onboarding card (ONBOARD). The card is a
+    /// Handle a key in the first-run onboarding card. The card is a
     /// static info panel: Enter / Esc / Space dismiss it (close the overlay);
     /// every other key is swallowed so nothing leaks to the PTY behind it. The
     /// terminal stays live throughout - dismissal is the only state change.
@@ -971,7 +971,7 @@ impl OverlayUi {
                 self.close();
                 OverlayOutcome::LaunchProfile(name)
             }
-            // ODP-1B shared picker: a tagged pick routes per its purpose. Close
+            // Shared picker: a tagged pick routes per its purpose. Close
             // first (same reason as Connect), then hand the App the chosen host.
             ConnectionOverlayOutcome::Pick(host, purpose) => {
                 self.close();

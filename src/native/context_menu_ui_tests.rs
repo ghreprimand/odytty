@@ -599,7 +599,7 @@ fn non_image_path_hides_open_in_odytty() {
     assert_eq!(
         m.item_count(),
         7,
-        "5 file/text items (incl. Open With…), no C4 item"
+        "5 file/text items (incl. Open With…), no Open in OdyTTY item"
     );
     let rows = m.rows();
     assert_eq!(rows.len(), 8);
@@ -623,7 +623,7 @@ fn image_path_shows_open_in_odytty_after_open() {
     assert_eq!(
         m.item_count(),
         8,
-        "6 file items (incl. C4 + C3b) + 2 pinned text items"
+        "6 file items (incl. Open in OdyTTY and Open With…) + 2 pinned text items"
     );
     let rows = m.rows();
     assert_eq!(rows.len(), 9, "6 file rows + separator + 2 text rows");
@@ -662,7 +662,7 @@ fn open_with_shows_for_a_file_activates_and_carries_no_accelerator() {
 
 #[test]
 fn open_with_hidden_for_a_directory_target() {
-    // A resolved *directory* keeps the C3 copy/reveal items but NOT
+    // A resolved *directory* keeps the copy/reveal items but NOT
     // "Open With…" (a file-only affordance).
     let mut m = ContextMenuUi::new();
     m.open(
@@ -710,8 +710,8 @@ fn open_with_hidden_for_a_directory_target() {
 
 #[test]
 fn image_target_changes_the_signature() {
-    // The C4 item changes the rendered rows, so its presence must alter the
-    // render-cache signature (repaint when the item appears).
+    // The Open in OdyTTY item changes the rendered rows, so its presence must
+    // alter the render-cache signature (repaint when the item appears).
     let image_sig = menu_with_image().render_signature();
     let file_sig = menu_with_path().render_signature();
     assert_ne!(image_sig, file_sig);
@@ -722,7 +722,7 @@ fn image_target_changes_the_signature() {
 
 #[test]
 fn open_in_odytty_carries_no_accelerator() {
-    // The C4 item is pointer-only.
+    // The Open in OdyTTY item is pointer-only.
     assert_eq!(ContextMenuItem::OpenInOdytty.bindable_action(), None);
 }
 
@@ -1753,7 +1753,7 @@ fn body_row_mapping_is_consistent() {
     assert_eq!(body_row_to_item(30), Some(25));
 }
 
-// ── ODP-2C connection-row surface composition ──────────────────────────
+// ── Connection-row surface composition ──────────────────────────
 
 fn conn_host(alias: &str, source: ConnectionHostSource) -> ConnectionHost {
     ConnectionHost {
@@ -1833,7 +1833,7 @@ fn connection_row_ssh_config_hides_edit_and_remove() {
 
 #[test]
 fn content_surface_never_shows_connection_row_actions() {
-    // The five ODP-2C items are ConnectionRow-only; the content menu (with a
+    // The five connection-row items are ConnectionRow-only; the content menu (with a
     // selection) must never surface them.
     let m = menu(true, true);
     for item in m.visible_items() {

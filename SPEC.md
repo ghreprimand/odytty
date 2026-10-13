@@ -535,11 +535,12 @@ section. Saves use a same-directory temporary file followed by rename; OdyTTY
 does not truncate the config file in place. Config writeback follows up to 40
 symlinks, including a missing final target; unresolved or cyclic chains and
 link-read errors fail before replacing a link. This resolver is shared on
-Linux, macOS, and Windows; symlink fixtures exercise Unix. The keybinding editor preserves
-accepted overrides, active chord capture, conflict confirmation, and the
-unsaved-close prompt during configuration reload. Discard restores the newly
-loaded bindings and other settings. Conflict and close questions stay visible
-with their controls; reload feedback appears separately. Theme text-entry
+Linux, macOS, and Windows; symlink fixtures exercise Unix. The keybinding
+editor preserves accepted overrides, active chord capture, conflict
+confirmation, and the unsaved-close prompt during configuration reload.
+Discard restores the newly loaded bindings and other settings. Conflict and
+close questions stay visible with their controls; reload feedback appears
+separately. Theme text-entry
 instructions also remain visible during reload. When a role row fits, the edited
 color and input buffer remain visible as feedback changes the role-list height.
 Numeric keyboard steps and pointer
@@ -1465,6 +1466,9 @@ that closed while the picker was open, including when names are duplicated.
   window-scoped state that names a leaving pane (focus-out report, pending
   paste and image-paste confirmations, IME composition, context-menu command
   target, open overlay, drags) and the `--hold` state moves with the pane.
+  A whole-window merge sends the same focus-out report for the source
+  window's focused pane once it commits. The merge picker's answering digit
+  or Escape, with its repeats and release, never reaches a terminal.
   The destination drops the moved panes' presentation caches, parks their
   timers, applies its presentation policy, and activates the tab. A new
   window is built around the content with no shell spawn and its surface is

@@ -7,6 +7,8 @@
 //! which recorded frame is rendered. The live session keeps running underneath;
 //! closing the overlay discards the frozen frames.
 
+use super::overlay::fit_chars as truncate_for_width;
+
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -313,12 +315,6 @@ fn frame_fingerprint(frame: &Snapshot) -> u64 {
         cell.layout_padding.hash(&mut hasher);
     }
     hasher.finish()
-}
-
-/// Cut `text` to at most `max_columns` display cells by the overlay painter's
-/// per-glyph width.
-fn truncate_for_width(text: &str, max_columns: usize) -> String {
-    super::overlay::fit_chars(text, max_columns)
 }
 
 #[cfg(test)]

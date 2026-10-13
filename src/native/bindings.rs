@@ -544,12 +544,9 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             named_chord(KeyBindingNamedKey::PageDown, false, true, false, false),
             BindableAction::ScrollPageDown,
         ),
-        // Prompt navigation (OSC 133): the `Ctrl+Shift+Up/Down` arrow chords are
-        // the primary (and now sole) default bindings. The `Ctrl+Shift+P` /
-        // `Ctrl+Shift+N` letter fallbacks were dropped in v0.3.1 so the
-        // industry-standard `Ctrl+Shift+P` can open the command palette; prompt
-        // jump still fully works via the arrows (and users can re-add letter
-        // chords with `keybinds` if a terminal intercepts the arrow chords).
+        // Prompt navigation (OSC 133): `Ctrl+Shift+Up/Down` are the only default
+        // chords, leaving `Ctrl+Shift+P` for the command palette. Letter chords
+        // can be added with `keybinds` where a system intercepts the arrows.
         (
             named_chord(KeyBindingNamedKey::ArrowUp, true, true, false, false),
             BindableAction::JumpPromptPrev,
@@ -558,8 +555,7 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             named_chord(KeyBindingNamedKey::ArrowDown, true, true, false, false),
             BindableAction::JumpPromptNext,
         ),
-        // Discoverability defaults (v0.3.1): each of these overlays previously
-        // had no default chord. They are all `Ctrl+Shift+<letter>` GUI
+        // Overlay defaults. They are all `Ctrl+Shift+<letter>` GUI
         // shortcuts, which consume their chords before PTY encoding (a TUI
         // using an enhanced keyboard protocol would otherwise see them).
         (
@@ -606,8 +602,7 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             BindableAction::NewTab,
         ),
         // New Window: request a same-process sibling window. `Ctrl+Shift+N` is the
-        // gnome-terminal / kitty convention; it was freed in v0.3.1 (the old
-        // prompt-jump letter fallback was dropped) and is reclaimed here.
+        // gnome-terminal / kitty convention.
         (
             char_chord('n', true, true, false, false),
             BindableAction::NewWindow,
@@ -1591,9 +1586,8 @@ mod tests {
 
     #[test]
     fn discoverability_chords_resolve_to_their_overlays() {
-        // v0.3.1: the four previously-unbound overlays gained default
-        // `Ctrl+Shift+<letter>` chords, which these GUI shortcuts consume
-        // before PTY encoding.
+        // The overlays' default `Ctrl+Shift+<letter>` chords are GUI shortcuts
+        // consumed before PTY encoding.
         let bindings = KeyBindings::default();
         assert_eq!(
             bindings.action_for_chord(char_chord('p', true, true, false, false)),
@@ -1676,10 +1670,9 @@ mod tests {
 
     #[test]
     fn prompt_jump_keeps_arrow_chords_and_drops_letter_fallbacks() {
-        // The arrow chords remain the primary (and now sole default) prompt-jump
-        // bindings; the `Ctrl+Shift+P` / `Ctrl+Shift+N` letter fallbacks were
-        // reclaimed in v0.3.1 (P → command palette; N was freed then, and is now
-        // bound to New Window in F1).
+        // The arrow chords are the only default prompt-jump bindings;
+        // `Ctrl+Shift+P` opens the command palette and `Ctrl+Shift+N` opens a
+        // new window.
         let bindings = KeyBindings::default();
         assert_eq!(
             bindings.action_for_chord(named_chord(
@@ -1763,7 +1756,7 @@ mod tests {
 
     #[test]
     fn prefix_then_shifted_punctuation_resolves_through_the_real_wiring() {
-        // REGRESSION (v0.3.0): the live winit path feeds the prefix engine a
+        // Regression: the live winit path feeds the prefix engine a
         // chord built from BOTH `logical` (the shifted character) and
         // `binding_key` (`key_without_modifiers()`), via `prefix_chord_from_winit`
         // - exactly as `handle_key_event_with_text` does. On a US layout Shift+5 yields

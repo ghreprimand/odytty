@@ -367,7 +367,10 @@ the text is not copied whole before it reaches the outbound queue, and a
 broadcast paste shares one copy of the text among receivers in other windows. Input that is lost after it was written (the outbound
 queue overflowing behind a stalled program, or an attached session dropping a
 frame while its host is not reading) raises an "Input lost" notice with the
-byte count, and the log records `pty_write_overflow` or `pty_input_dropped`. With child bracketed-paste mode off, original multiline or
+byte count, and the log records `pty_write_overflow` or `pty_input_dropped`. A
+typed key, IME commit, mouse report, or pointer, palette, prefix or
+selection-edit write whose write to the session fails raises an "Input not
+delivered" notice. With child bracketed-paste mode off, original multiline or
 control-bearing text is held behind a bounded escaped preview before PTY
 writing. The dialog reports original line and byte counts and offers Paste,
 reversible Paste as One Line when available, or Cancel. Safe single-line and
@@ -1515,8 +1518,12 @@ attach handles move with the transfer; the source window closes only after
 success. When the source window owns the saved workspace layout, the surviving
 window takes over that role and saves the merged layout. A `--hold` launch
 session moves with its hold: its later exit is still held, and an already
-held, exited pane still closes on its first key. Escape cancels. See the
-[window-merge contract](v0.15.0-foundation.md).
+held, exited pane still closes on its first key. When the source window had
+focus, its focused pane receives a focus-out report once the merge commits,
+as a tab or pane move sends. Escape cancels. The digit or Escape that answers
+the picker never reaches a terminal, nor do its repeats and release; text of
+more than one character, and keys from a window that has already closed, do
+not answer it. See the [window-merge contract](v0.15.0-foundation.md).
 
 ### Move Tabs And Panes Between Windows
 
@@ -1860,7 +1867,10 @@ hooks.
 The command palette fuzzy-filters local actions, bounded read-only shell
 history, and recent OSC 7 directories. A history or directory choice types its
 text into the active pane without pressing Enter; an action runs after the
-overlay closes. History and directory entries
+overlay closes. History discovery requires `SHELL` and `HOME`; the palette
+omits history when either is absent. Windows has no native PowerShell history
+discovery or `USERPROFILE` fallback. Actions and recent directories remain
+available on all platforms. History and directory entries
 containing a control character are refused: the palette stays open with a
 notice, and no bytes are sent. There is no confirm-and-send exception.
 Labels show control characters as visible escapes (`\n`, `\r`, `\t`, or
@@ -2445,4 +2455,5 @@ kinds through fixed scripts; terminal-authored text never enters those scripts.
 
 Config writeback follows up to 40 symlinks and creates a missing final target.
 Unresolved or cyclic chains and link-read errors fail before replacing a link.
-The resolver is shared on Linux, macOS, and Windows; symlink fixtures exercise Unix.
+The resolver is shared on Linux, macOS, and Windows; symlink fixtures
+exercise Unix.

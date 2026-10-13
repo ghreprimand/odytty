@@ -9,8 +9,8 @@ use super::App;
 
 impl App {
     /// Evaluate local profile switch rules when the focused pane's working
-    /// directory changes. Match rules come only from the local catalog; terminal
-    /// output cannot select or rewrite profiles.
+    /// directory changes through OSC 7. Rules come from the local catalog;
+    /// terminal output cannot author rules or directly name a profile.
     pub(super) fn poll_profile_auto_switch(&mut self) {
         if !self.settings.profile_auto_switch {
             return;
@@ -54,11 +54,11 @@ impl App {
         // The context names the pane: a profile applied in one pane must not
         // count as recently applied in another pane at the same host and
         // directory.
-        let context = (focused, profile_switch_context_key(host, cwd_path));
-        if self.profile_switch_context.as_ref() != Some(&context) {
-            self.profile_switch_context = Some(context);
-            self.profile_switch_recent = None;
-        }
+        track_profile_switch_context(
+            &mut self.profile_switch_context,
+            &mut self.profile_switch_recent,
+            (focused, profile_switch_context_key(host, cwd_path)),
+        );
 
         let suggestion = suggest_profile_switch(
             &catalog,
@@ -144,6 +144,20 @@ impl App {
 /// made for.
 pub(super) type ProfileSwitchContext = (Option<String>, Option<String>);
 
+/// Record the pane, host and directory an auto-switch decision is made for. A
+/// different context forgets the profile applied under the previous one, so a
+/// profile applied in one pane never counts as recently applied in another.
+fn track_profile_switch_context(
+    stored: &mut Option<(crate::native::session::SessionToken, ProfileSwitchContext)>,
+    recent: &mut Option<String>,
+    context: (crate::native::session::SessionToken, ProfileSwitchContext),
+) {
+    if stored.as_ref() != Some(&context) {
+        *stored = Some(context);
+        *recent = None;
+    }
+}
+
 fn profile_switch_context_key(host: Option<&str>, cwd: Option<&Path>) -> ProfileSwitchContext {
     (
         host.map(str::to_ascii_lowercase),
@@ -177,31 +191,55 @@ mod tests {
         ProfileSwitchSuggestion, suggest_profile_switch,
     };
 
+    use crate::native::session::SessionToken;
+
     use super::{profile_switch_context_key, profile_switch_hud_message, trusted_remote_host};
 
-    #[test]
-    fn native_caller_context_clears_recency_only_on_context_change() {
-        let host_ctx = profile_switch_context_key(Some("devbox"), Some(Path::new("/work")));
-        let mut recent = Some("a".to_owned());
-
-        let same = profile_switch_context_key(Some("devbox"), Some(Path::new("/work")));
-        assert_eq!(Some(&host_ctx), Some(&same));
-        // Same context: recent must survive a None suggestion (native caller rule).
-        let _ = suggest_profile_switch(
-            &ProfileCatalog::default(),
-            std::iter::empty::<(&str, &ProfileSwitchRules)>(),
-            Some("a"),
-            Some("devbox"),
-            Some(Path::new("/work")),
-            recent.as_deref(),
+    fn track_in_app(
+        app: &mut crate::native::app::App,
+        context: (SessionToken, super::ProfileSwitchContext),
+    ) {
+        super::track_profile_switch_context(
+            &mut app.profile_switch_context,
+            &mut app.profile_switch_recent,
+            context,
         );
-        assert_eq!(recent, Some("a".to_owned()));
+    }
 
+    #[test]
+    fn app_forgets_the_recent_profile_only_when_the_pane_host_or_directory_changes() {
+        let (mut app, _terminal) = crate::native::test_support::headless_app_for_test();
+        let pane = SessionToken(1);
+        let work = profile_switch_context_key(Some("devbox"), Some(Path::new("/work")));
+
+        track_in_app(&mut app, (pane, work.clone()));
+        app.profile_switch_recent = Some("a".to_owned());
+        track_in_app(&mut app, (pane, work.clone()));
+        assert_eq!(
+            app.profile_switch_recent.as_deref(),
+            Some("a"),
+            "the same pane, host and directory keeps the recent profile"
+        );
+
+        track_in_app(&mut app, (SessionToken(2), work.clone()));
+        assert_eq!(
+            app.profile_switch_recent, None,
+            "another pane at the same host and directory starts fresh"
+        );
+
+        track_in_app(&mut app, (SessionToken(2), work));
+        app.profile_switch_recent = Some("a".to_owned());
         let other = profile_switch_context_key(Some("devbox"), Some(Path::new("/other")));
-        if host_ctx != other {
-            recent = None;
-        }
-        assert!(recent.is_none());
+        track_in_app(&mut app, (SessionToken(2), other.clone()));
+        assert_eq!(
+            app.profile_switch_recent, None,
+            "a new directory starts fresh"
+        );
+
+        app.profile_switch_recent = Some("a".to_owned());
+        let other_host = profile_switch_context_key(Some("laptop"), Some(Path::new("/other")));
+        track_in_app(&mut app, (SessionToken(2), other_host));
+        assert_eq!(app.profile_switch_recent, None, "a new host starts fresh");
     }
 
     #[test]
@@ -270,7 +308,7 @@ mod tests {
         );
     }
 
-    // v0.14 Phase A3 final-surface: caller-side pure helpers for
+    // Catalog wiring: caller-side pure helpers for
     // `poll_profile_auto_switch`. The convergence/flap decision is covered above
     // and in `crate::profiles::switch`; these pin remote-host trust extraction
     // (what host a remote pane presents to the local match rules) and the

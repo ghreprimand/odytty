@@ -75,8 +75,8 @@ impl App {
     /// Whether rail auto-hide is active this frame: the knob is on, the tab
     /// chrome is shown, AND the placement is a side rail (the top bar keeps
     /// `always_show_tab_bar` semantics - a hidden top bar is already expressible
-    /// by turning that off). When active, `tab_reserve` returns `NONE` and the
-    /// rail is a floating overlay.
+    /// by turning that off). Autohide removes reserved side columns; top rows
+    /// may remain. The rail is a floating overlay.
     pub(super) fn rail_autohide_active(&self) -> bool {
         // The workspace rail is always on a side, so auto-hide applies whenever
         // the rail is shown and the knob is on. The top tab bar is never
@@ -84,8 +84,8 @@ impl App {
         self.should_show_workspace_rail() && self.settings.tab_rail_autohide
     }
 
-    /// The side an auto-hidden rail occupies (independent of `tab_reserve`, which
-    /// is `NONE` under autohide). `None` when autohide is inactive.
+    /// The side an auto-hidden rail occupies, independent of top-row reserves.
+    /// `None` when autohide is inactive.
     pub(super) fn rail_autohide_side(&self) -> Option<RailSide> {
         self.rail_autohide_active()
             .then(|| self.workspace_rail_side())
@@ -183,7 +183,7 @@ impl App {
     }
 
     /// Reveal the auto-hidden rail for a flash after a keyboard tab action
-    /// (ODP-4 SHOULD). Inert (and cheap) unless autohide is active; requests a
+    /// . Inert (and cheap) unless autohide is active; requests a
     /// redraw and schedules the flash-expiry wake when it takes effect.
     pub(super) fn flash_rail_autohide(&mut self) {
         if !self.rail_autohide_active() {
@@ -271,20 +271,9 @@ impl App {
         (in_edge, in_band)
     }
 
-    /// Whether the auto-hidden rail overlay is drawn (and hit-tested) this
-    /// frame: autohide active AND the state machine currently visible AND no
-    /// window overlay is open.
-    ///
-    /// The last clause is the fix for the "can't right-click Settings" report:
-    /// the revealed rail strip is composited *topmost* - over the panes AND over
-    /// the `overlay_top` window overlay (context menu / Settings / palette). If
-    /// the rail were drawn while a menu is open it would paint over the menu,
-    /// hiding items the pointer is trying to click. An open window overlay owns
-    /// the screen, so the floating rail steps aside until it closes (the
-    /// reveal-machine phase is held via `set_suspend`, so the rail reappears
-    /// afterward if the pointer is still near the edge). Hit-testing already
-    /// short-circuits to the overlay while it is open, so suppressing the draw
-    /// keeps render and hit-test consistent.
+    /// Draw and hit-test the auto-hidden rail when its machine is visible.
+    /// Unrelated overlays suppress it; rail menus, prompts and active drags
+    /// retain their pinned rail beneath them.
     pub(super) fn rail_overlay_visible(&self) -> bool {
         if !self.rail_autohide_active() {
             return false;
@@ -329,14 +318,7 @@ impl App {
     /// band geometry (window-edge origin, overlay width) rather than the pinned
     /// reservation (which is `NONE` under autohide). Clears any stale top-bar
     /// hover and keeps the default cursor over the band.
-    pub(super) fn update_rail_overlay_hover(
-        &mut self,
-        x_px: f64,
-        y_px: f64,
-        cell: CellSize,
-        side: RailSide,
-    ) {
-        let _ = side;
+    pub(super) fn update_rail_overlay_hover(&mut self, x_px: f64, y_px: f64, cell: CellSize) {
         let hit = self.rail_geom_px(cell).map_or(TabHit::None, |geometry| {
             geometry.hit(PxPoint::new(x_px, y_px))
         });

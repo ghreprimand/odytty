@@ -22,6 +22,8 @@
 //! rows - a malformed name can never inject escape sequences into the plain-text
 //! rows.
 
+use super::display_text::truncate_scalars as truncate_for_width;
+
 use std::cell::Cell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -418,13 +420,6 @@ impl WorkspacePicker {
 /// can never inject escape sequences or hide characters in the overlay's rows.
 fn sanitize(text: &str) -> String {
     crate::native::display_text::sanitize_row_text(text)
-}
-
-fn truncate_for_width(text: &str, max_chars: usize) -> String {
-    if max_chars == 0 {
-        return String::new();
-    }
-    text.chars().take(max_chars).collect()
 }
 
 #[cfg(test)]

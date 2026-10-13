@@ -165,14 +165,18 @@ impl Osc52WriteState {
     }
 
     fn prompt_text(&self) -> Option<String> {
-        self.pending.as_ref().map(|pending| {
-            format!(
-                "Clipboard write request | {} | {} bytes",
-                selection_label(pending.selection),
-                pending.text.len()
-            )
-        })
+        self.pending.as_ref().map(request_line)
     }
+}
+
+/// The request line the consent prompt shows. The overlay signature and the
+/// painted cells both use it, so a changed wording moves both together.
+fn request_line(pending: &PendingWrite) -> String {
+    format!(
+        "Clipboard write request | {} | {} bytes",
+        selection_label(pending.selection),
+        pending.text.len()
+    )
 }
 
 impl App {
@@ -317,16 +321,7 @@ impl App {
                 snapshot.cells[start + column] = Cell::new(' ', attrs);
             }
         }
-        paint_prompt_row(
-            snapshot,
-            0,
-            &format!(
-                "Clipboard write request | {} | {} bytes",
-                selection_label(pending.selection),
-                pending.text.len()
-            ),
-            attrs,
-        );
+        paint_prompt_row(snapshot, 0, &request_line(pending), attrs);
         paint_prompt_row(
             snapshot,
             1,
@@ -449,6 +444,24 @@ mod tests {
         assert!(prompt.contains("Primary"));
         assert!(prompt.contains("17 bytes"));
         assert!(!prompt.contains("private"));
+    }
+
+    #[test]
+    fn the_painted_request_line_is_the_signature_text() {
+        let (mut app, _terminal) = crate::native::test_support::headless_app_for_test();
+        app.queue_osc52_prompt_for_test();
+        let Some(OverlayFragment::OpenNotice { text, .. }) = app.osc52_prompt_overlay_signature()
+        else {
+            panic!("a pending write names its request in the signature");
+        };
+        let mut snapshot = crate::core::Terminal::new(80, 24).snapshot();
+        assert!(app.paint_osc52_prompt_cells(&mut snapshot));
+        let painted: String = snapshot.cells[..snapshot.dimensions.columns]
+            .iter()
+            .map(|cell| cell.ch)
+            .collect();
+        assert_eq!(painted.trim(), text);
+        assert_eq!(text, "Clipboard write request | Clipboard | 1 bytes");
     }
 
     #[test]

@@ -3,13 +3,18 @@
 
 use super::*;
 
-pub fn config_file_path() -> Option<PathBuf> {
+/// The OdyTTY config directory from the live environment
+/// ([`config_base_dir_from_env`]).
+pub(crate) fn config_dir() -> Option<PathBuf> {
     config_base_dir_from_env(
         std::env::var_os("APPDATA"),
         std::env::var_os("XDG_CONFIG_HOME"),
         std::env::var_os("HOME"),
     )
-    .map(|dir| dir.join(CONFIG_FILE_NAME))
+}
+
+pub fn config_file_path() -> Option<PathBuf> {
+    config_dir().map(|dir| dir.join(CONFIG_FILE_NAME))
 }
 
 /// The OdyTTY config directory a session-spawn writer (the Unix
@@ -164,12 +169,7 @@ pub(crate) fn config_base_dir_from_env(
 /// [`config_file_path`]'s base-directory rules. `ODYTTY_THEME` values that are
 /// not built-in names are looked up here (by `<name>.theme` or `<name>`).
 pub fn theme_dir_path() -> Option<PathBuf> {
-    config_base_dir_from_env(
-        std::env::var_os("APPDATA"),
-        std::env::var_os("XDG_CONFIG_HOME"),
-        std::env::var_os("HOME"),
-    )
-    .map(|dir| dir.join(THEME_DIR_NAME))
+    config_dir().map(|dir| dir.join(THEME_DIR_NAME))
 }
 
 /// Read a user theme file for an `ODYTTY_THEME` value that is not a built-in

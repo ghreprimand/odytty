@@ -7,6 +7,8 @@
 //! after the overlay closes. Control-bearing literal rows remain open and
 //! return a refusal outcome instead of input.
 
+use super::display_text::truncate_scalars as truncate_for_width;
+
 use std::cell::Cell;
 use std::collections::hash_map::DefaultHasher;
 use std::env;
@@ -187,7 +189,7 @@ impl PaletteOverlay {
     }
 
     /// Map a clicked body row to the result index it represents - the inverse of
-    /// the [`Self::visible_lines`] windowing (UX4-P1 click→Activate). Row 0 is
+    /// the [`Self::visible_lines`] windowing (click→Activate). Row 0 is
     /// the `> query` prompt; results follow from the live `scroll_offset`.
     /// Returns `None` for the prompt row, the "No matches" hint, or a click past
     /// the last result.
@@ -353,7 +355,7 @@ pub(super) const WORKSPACE_NEW_ID: &str = "workspace-new";
 /// Stable id for the "Rename Workspace" palette row (targets the active
 /// workspace).
 pub(super) const WORKSPACE_RENAME_ID: &str = "workspace-rename";
-/// Stable id prefix for the F6-W5 "bind workspace to host …" rows. The host's
+/// Stable id prefix for the "bind workspace to host …" rows. The host's
 /// index in the known-host list is appended; [`parse_workspace_bind_id`]
 /// recovers it and the App routes it through the binding mutator.
 pub(super) const WORKSPACE_BIND_ID_PREFIX: &str = "workspace-bind-";
@@ -364,7 +366,7 @@ pub(super) const WORKSPACE_UNBIND_ID: &str = "workspace-unbind";
 /// shell even when the active workspace is bound to a host. Only shown when the
 /// active workspace is bound (an unbound workspace's New Tab is already local).
 pub(super) const WORKSPACE_NEW_LOCAL_TAB_ID: &str = "workspace-new-local-tab";
-/// Stable id for the "Save Workspace as Layout" row (WP3 / 8g): captures only
+/// Stable id for the "Save Workspace as Layout" row: captures only
 /// the active workspace.
 pub(super) const LAYOUT_SAVE_ID: &str = "layout-save";
 /// Stable id for the "Save All Workspaces as Layout" row:
@@ -373,7 +375,7 @@ pub(super) const LAYOUT_SAVE_ALL_ID: &str = "layout-save-all";
 /// Stable id prefix for the "Open Layout …" rows; the layout's index in the
 /// saved-layout list is appended. [`parse_layout_open_id`] recovers it.
 pub(super) const LAYOUT_OPEN_ID_PREFIX: &str = "layout-open-";
-/// Stable id prefix for the "Delete Layout …" rows (WP3 / 8e).
+/// Stable id prefix for the "Delete Layout …" rows.
 pub(super) const LAYOUT_DELETE_ID_PREFIX: &str = "layout-delete-";
 
 /// Stable id prefix for the "New Tab with profile ..." rows.
@@ -427,7 +429,7 @@ pub(super) const MOVE_PANE_NEW_WINDOW_ID: &str = "move-pane-new-window";
 pub(super) const MOVE_PANE_TO_WINDOW_ID: &str = "move-pane-to-window";
 
 /// The workspace-facing context the command palette needs to build its rows:
-/// the workspace names (switch rows, ODP-5), the known-host aliases (F6-W5 bind
+/// the workspace names (switch rows), the known-host aliases (bind
 /// rows), and which host - if any - the active workspace is currently bound to
 /// (drives the unbind + new-local-tab escape rows and the "(bound)" marker).
 pub(super) struct WorkspacePaletteContext<'a> {
@@ -477,7 +479,7 @@ pub(in crate::native) struct MovePaletteRows {
 
 impl<'a> WorkspacePaletteContext<'a> {
     /// A context with only workspace names - no host binding or layout surface.
-    /// Used by the test seams that predate F6-W5 / WP3.
+    /// Used by tests that only need workspace names.
     #[cfg(test)]
     pub(super) fn names_only(names: &'a [String]) -> Self {
         Self {
@@ -497,7 +499,7 @@ impl<'a> WorkspacePaletteContext<'a> {
 
 /// The workspace rows appended to the command palette: one "switch to …" row
 /// per workspace in rail order, then create and rename rows, then the
-/// F6-W5 host-binding surface - one "bind to …" row per known host, plus unbind
+/// host-binding surface - one "bind to …" row per known host, plus unbind
 /// and "New Local Tab" escape rows when the active workspace is already bound.
 /// Pure - returns action entries with stable ids the App dispatches after the
 /// overlay closes.
@@ -535,7 +537,7 @@ fn workspace_palette_entries(ctx: &WorkspacePaletteContext<'_>) -> Vec<PaletteEn
             "New Local Tab",
         ));
     }
-    // WP3 named layouts: a whole-app save row and a single-workspace save row,
+    // named layouts: a whole-app save row and a single-workspace save row,
     // then open/delete rows per saved layout.
     entries.push(PaletteEntry::action(
         LAYOUT_SAVE_ALL_ID,
@@ -747,17 +749,6 @@ fn sanitize_label(label: &str) -> String {
         }
     }
     escaped
-}
-
-fn truncate_for_width(text: &str, max_chars: usize) -> String {
-    if max_chars == 0 {
-        return String::new();
-    }
-    let mut out = String::new();
-    for ch in text.chars().take(max_chars) {
-        out.push(ch);
-    }
-    out
 }
 
 #[cfg(test)]
@@ -1180,7 +1171,7 @@ mod tests {
         );
     }
 
-    // ── UX4-P1 click→Activate parity ───────────────────────────────────────
+    // ── click→Activate parity ───────────────────────────────────────
 
     #[test]
     fn click_row_selects_same_result_as_down_then_activate() {

@@ -223,7 +223,7 @@ impl LaunchProfile {
         for (key, value) in &self.preserved {
             entries.push((key.clone(), value.clone()));
         }
-        json::obj_pairs(entries)
+        Json::Obj(entries)
     }
 
     pub fn serialize_pretty(&self) -> String {
@@ -392,7 +392,7 @@ fn launch_to_json(launch: &ProfileLaunch) -> Json {
             ),
         ];
         append_preserved(&mut command_entries, &command.preserved);
-        entries.push(("command".to_owned(), json::obj_pairs(command_entries)));
+        entries.push(("command".to_owned(), Json::Obj(command_entries)));
     }
     push_opt_str(
         &mut entries,
@@ -412,7 +412,7 @@ fn launch_to_json(launch: &ProfileLaunch) -> Json {
         ));
     }
     append_preserved(&mut entries, &launch.preserved);
-    json::obj_pairs(entries)
+    Json::Obj(entries)
 }
 
 fn appearance_to_json(appearance: &ProfileAppearance) -> Json {
@@ -458,7 +458,7 @@ fn appearance_to_json(appearance: &ProfileAppearance) -> Json {
         appearance.ambiguous_width.as_deref(),
     );
     append_preserved(&mut entries, &appearance.preserved);
-    json::obj_pairs(entries)
+    Json::Obj(entries)
 }
 
 fn cursor_to_json(cursor: &ProfileCursor) -> Json {
@@ -466,7 +466,7 @@ fn cursor_to_json(cursor: &ProfileCursor) -> Json {
     push_opt_str(&mut entries, "style", cursor.style.as_deref());
     push_opt_str(&mut entries, "blink", cursor.blink.as_deref());
     append_preserved(&mut entries, &cursor.preserved);
-    json::obj_pairs(entries)
+    Json::Obj(entries)
 }
 
 fn effects_to_json(effects: &ProfileEffects) -> Json {
@@ -480,14 +480,14 @@ fn effects_to_json(effects: &ProfileEffects) -> Json {
     push_bool(&mut entries, "crt", effects.crt);
     push_bool(&mut entries, "retro", effects.retro);
     append_preserved(&mut entries, &effects.preserved);
-    json::obj_pairs(entries)
+    Json::Obj(entries)
 }
 
 fn layout_to_json(layout: &ProfileLayout) -> Json {
     let mut entries = Vec::new();
     push_opt_str(&mut entries, "saved_layout", layout.saved_layout.as_deref());
     append_preserved(&mut entries, &layout.preserved);
-    json::obj_pairs(entries)
+    Json::Obj(entries)
 }
 
 fn switch_to_json(switch: &ProfileSwitchRules) -> Json {
@@ -512,7 +512,7 @@ fn switch_to_json(switch: &ProfileSwitchRules) -> Json {
         ));
     }
     append_preserved(&mut entries, &switch.preserved);
-    json::obj_pairs(entries)
+    Json::Obj(entries)
 }
 
 fn append_preserved(entries: &mut Vec<(String, Json)>, preserved: &BTreeMap<String, Json>) {

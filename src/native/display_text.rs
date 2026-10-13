@@ -52,6 +52,12 @@ pub(in crate::native) fn sanitize_row_text(text: &str) -> String {
         .collect()
 }
 
+/// Cut text at a Unicode scalar boundary under a scalar-count budget.
+/// This preserves the scalar-based chrome contract; it does not measure cells.
+pub(in crate::native) fn truncate_scalars(text: &str, max_scalars: usize) -> String {
+    text.chars().take(max_scalars).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

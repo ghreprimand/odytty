@@ -50,32 +50,7 @@ const KEY_HINT_SEP: &str = " \u{b7} ";
 /// emitted on its own row (and clipped by the caller's `truncate`) rather than
 /// dropped. Returns an empty vector when `width` is zero.
 fn wrap_key_hint(width: usize) -> Vec<String> {
-    if width == 0 {
-        return Vec::new();
-    }
-    let sep_len = KEY_HINT_SEP.chars().count();
-    let mut lines: Vec<String> = Vec::new();
-    let mut current = String::new();
-    let mut current_len = 0usize;
-    for seg in KEY_HINT_SEGMENTS {
-        let seg_len = seg.chars().count();
-        if current.is_empty() {
-            current.push_str(seg);
-            current_len = seg_len;
-        } else if current_len + sep_len + seg_len <= width {
-            current.push_str(KEY_HINT_SEP);
-            current.push_str(seg);
-            current_len += sep_len + seg_len;
-        } else {
-            lines.push(std::mem::take(&mut current));
-            current.push_str(seg);
-            current_len = seg_len;
-        }
-    }
-    if !current.is_empty() {
-        lines.push(current);
-    }
-    lines
+    super::overlay::wrap_segments(&KEY_HINT_SEGMENTS, KEY_HINT_SEP, width)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -499,12 +474,12 @@ impl ProfileManager {
 
     pub(super) fn handle_pointer_press(
         &mut self,
-        columns: usize,
+        body_width: usize,
         body_height: usize,
         row: usize,
         col: usize,
     ) -> ProfileManagerOutcome {
-        let lines = self.visible_lines(columns, body_height);
+        let lines = self.visible_lines(body_width, body_height);
         let clicked = lines.get(row);
         let target = clicked
             .map(|line| line.target)

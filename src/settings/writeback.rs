@@ -789,7 +789,7 @@ mod tests {
 
     #[test]
     fn canonical_side_shadow_is_cleared_when_legacy_side_is_written() {
-        // Repro 1: a standing canonical `workspace_rail_side = right` would win on
+        // A standing canonical `workspace_rail_side = right` would win on
         // hot-reload and revert a panel Rail-side edit that writes the legacy
         // `tab_bar_placement` key. Reconciliation must clear the shadow.
         let changes = canonical_changes(&side_edit("left"));
@@ -812,7 +812,7 @@ mod tests {
 
     #[test]
     fn canonical_width_shadow_is_cleared_when_legacy_width_is_written() {
-        // Repro 2: a seam-drag persists the legacy `tab_rail_width`; a standing
+        // A seam-drag persists the legacy `tab_rail_width`; a standing
         // canonical `workspace_rail_width` must not snap the width back on reload.
         let changes = canonical_changes(&[SettingEdit {
             key: "tab_rail_width",
@@ -830,7 +830,7 @@ mod tests {
 
     #[test]
     fn visibility_only_edit_preserves_folded_side() {
-        // Repro 3: pre-0.8.5 `workspace_rail = right` encodes the side; setting the
+        // Pre-0.8.5 `workspace_rail = right` encodes the side; setting the
         // visibility to auto must not silently drop that side to the default left.
         let changes = canonical_changes(&[SettingEdit {
             key: "workspace_rail",

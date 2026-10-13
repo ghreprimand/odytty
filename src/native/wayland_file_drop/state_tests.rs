@@ -54,6 +54,17 @@ fn non_utf8_bytes_survive() {
 }
 
 #[test]
+fn encoded_separators_and_parent_components_pass_through_unchanged() {
+    // The parser decodes escapes and keeps absolute paths; it does not
+    // normalise or confine them. Every dropped path reaches
+    // `queue_file_drop_batch`, which treats it as data to be shell-escaped
+    // exactly like a path from a winit drop, so confinement is not decided here.
+    assert_eq!(strs(b"file:///tmp/a%2Fb\r\n"), ["/tmp/a/b"]);
+    assert_eq!(strs(b"file:///tmp/%2e%2e/etc\r\n"), ["/tmp/../etc"]);
+    assert_eq!(strs(b"file:///tmp/../etc\r\n"), ["/tmp/../etc"]);
+}
+
+#[test]
 fn localhost_authority_accepted_remote_rejected() {
     assert_eq!(strs(b"file://localhost/tmp/a\r\n"), ["/tmp/a"]);
     assert_eq!(strs(b"file://LOCALHOST/tmp/a\r\n"), ["/tmp/a"]);
@@ -225,6 +236,7 @@ fn pre_preference_move_with_move_only_source_is_refused() {
     let mut core = DropCore::default();
     core.register_offer(4);
     core.set_supports_uri(4);
+    core.set_source_has_copy(4, false);
     core.enter(1, 4, 0, None);
     core.note_action(4, Some(DropAction::Move));
     core.mark_preference_sent(4);
@@ -239,11 +251,12 @@ fn pre_preference_move_with_move_only_source_is_refused() {
 
 #[test]
 fn pre_preference_move_without_source_actions_is_refused() {
+    // A pre-v3 source never sends `source_actions` and the compositor reports
+    // no action at all: nothing advertises Copy, so the drop is refused.
     let mut core = DropCore::default();
     core.register_offer(4);
     core.set_supports_uri(4);
     core.enter(1, 4, 0, None);
-    core.note_action(4, Some(DropAction::Move));
     core.mark_preference_sent(4);
     assert!(matches!(
         core.drop(1),

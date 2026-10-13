@@ -912,15 +912,7 @@ fn load_layout_in(dir: &Path, name: &str) -> LoadOutcome {
     let Some(path) = existing_layout_path_in(dir, name) else {
         return LoadOutcome::Absent;
     };
-    match read_sensitive_to_string(&path) {
-        Err(err) if err.kind() == io::ErrorKind::NotFound => LoadOutcome::Absent,
-        Err(err) => LoadOutcome::Corrupt(err.to_string()),
-        Ok(text) => match ShapeSnapshot::from_json_str(&text) {
-            Ok(snapshot) => LoadOutcome::Loaded(snapshot),
-            Err(LoadError::VersionSkew { found }) => LoadOutcome::Skew { found },
-            Err(LoadError::Malformed(message)) => LoadOutcome::Corrupt(message),
-        },
-    }
+    classify_snapshot_read(read_sensitive_to_string(&path))
 }
 
 /// Read and classify a named layout. Mirrors [`load_snapshot`]'s
@@ -1025,7 +1017,12 @@ pub(crate) fn load_snapshot() -> LoadOutcome {
         Ok(dir) => dir.join(SNAPSHOT_FILE),
         Err(_) => return LoadOutcome::Corrupt("secure workspace state unavailable".to_owned()),
     };
-    match read_sensitive_to_string(&path) {
+    classify_snapshot_read(read_sensitive_to_string(&path))
+}
+
+/// Classify the same secure read and schema outcomes for named and saved state.
+fn classify_snapshot_read(read: io::Result<String>) -> LoadOutcome {
+    match read {
         Err(err) if err.kind() == io::ErrorKind::NotFound => LoadOutcome::Absent,
         Err(err) => LoadOutcome::Corrupt(err.to_string()),
         Ok(text) => match ShapeSnapshot::from_json_str(&text) {

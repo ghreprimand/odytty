@@ -274,22 +274,10 @@ pub(crate) fn profile_picker_entries(
         .collect()
 }
 
-/// Guard a resolved launch context against a non-existent working directory.
-///
-/// A named profile can persist a starting directory that has since been removed
-/// (or was mistyped past the editor's checks on an older config). Spawning a PTY
-/// child there fails outright ("spawn pty command"), which would dead-end the
-/// tab. Instead: if the resolved cwd names a path that is not an existing
-/// directory, fall back to the user's home (or the process default when no home
-/// is known) exactly as a plain tab does, and record a bounded warning so the
-/// existing notice path can surface it. That warning names the profile only.
-/// The missing directory and the fallback directory are not included, because
-/// every `profile launch notice` site logs this string. An unset or
-/// already-valid cwd is untouched. Windows network/device prefixes from a
-/// derived source are refused before any probe; an explicit profile or
-/// command-line one is kept unprobed. At most one `metadata` probe; never aborts.
-/// Cross-platform: the same
-/// home fallback (`$HOME` / `%USERPROFILE%`) a restored pane uses.
+/// Validate the resolved cwd; an unusable directory falls back to home/default
+/// with a path-free warning. A derived Windows network/device path is refused
+/// before probing; an explicit profile/CLI path is retained without a probe.
+/// At most one metadata probe runs; an unset or valid cwd is unchanged.
 pub(crate) fn apply_missing_cwd_fallback(effective: &mut EffectiveLaunch) {
     apply_missing_cwd_fallback_with(
         effective,
@@ -337,10 +325,8 @@ pub(crate) fn spawn_restored_local_leaf(
 ) -> Option<crate::native::session::SessionToken> {
     if let Some(name) = leaf.launch_profile.as_deref() {
         let mut effective = resolve_for_restored_local_leaf(settings, name, leaf.cwd.clone());
-        // Restore twin of the new-tab guard: a persisted profile cwd that no
-        // longer exists must not fail the restored pane. The captured leaf cwd
-        // already outranks the profile cwd via RestoredLaunchOverrides, so this
-        // only bites when both are gone; fall back to home rather than aborting.
+        // Validate the chosen restored cwd after precedence resolution;
+        // an unusable directory falls back to home or the process default.
         apply_missing_cwd_fallback(&mut effective);
         for warning in &effective.warnings {
             tracing::warn!(warning = %warning, "restored profile launch notice");
@@ -378,7 +364,7 @@ fn process_env_for_settings() -> HashMap<&'static str, OsString> {
 
 #[cfg(test)]
 mod tests {
-    //! v0.14 Phase A3 final-surface: the connection-manager picker/launch route
+    //! Catalog wiring: the connection-manager picker/launch route
     //! data builders. `connection_profile_rows_for_manager` feeds the Connect
     //! picker's profile rows; `profile_display_names` feeds the palette/menu
     //! surfaces. Both must filter by the current platform, sort deterministically

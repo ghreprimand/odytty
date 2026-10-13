@@ -17,10 +17,8 @@ mod rendering;
 mod sections;
 
 use path_picker::{PathPickerOutcome, PathPickerSignature, PathPickerState, resolve_start_dir};
-pub(in crate::native) use rendering::wrap_words;
-use rendering::{
-    edit_options, ellipsize, matches_query, setting_detail, settings_detail_footer_reserve,
-};
+use rendering::{edit_options, matches_query, setting_detail, settings_detail_footer_reserve};
+pub(in crate::native) use rendering::{ellipsize, wrap_words};
 use sections::SECTIONS;
 
 /// Count of actionable rows in the About view: one per project link plus the

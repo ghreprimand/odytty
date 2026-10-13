@@ -73,8 +73,8 @@ fn connection_host(alias: &str) -> ConnectionHost {
     }
 }
 
-/// A synthetic connection host with an explicit source, for the ODP-2C
-/// connection-row menu gating tests.
+/// A synthetic connection host with an explicit source, for the connection-row
+/// menu gating tests.
 fn connection_host_sourced(
     alias: &str,
     source: crate::connection_hosts::ConnectionHostSource,
@@ -85,7 +85,7 @@ fn connection_host_sourced(
     }
 }
 
-// ── ODP-2C connection-row right-click menu (menu-over-overlay) ──────────
+// ── Connection-row right-click menu (menu-over-overlay) ──────────
 
 /// Right-click the first saved-host row of an open connection manager,
 /// returning the resulting outcome. The manager must have >=1 host; row 0 is

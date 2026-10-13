@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Wayland global-shortcut protocol seam (Linux) for the quick terminal
-//! (v0.15.0 A).
+//!.
 //!
 //! Wayland deliberately denies applications a direct global key grab: the
 //! compositor owns the keyboard, so `XGrabKey` has no equivalent. The supported

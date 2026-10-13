@@ -1230,7 +1230,7 @@ impl OverlayUi {
                     ContextMenuItem::CommandPalette => OverlayOutcome::ContextMenuCommandPalette,
                     ContextMenuItem::SessionReplay => OverlayOutcome::ContextMenuSessionReplay,
                     ContextMenuItem::SessionAttach => OverlayOutcome::ContextMenuSessionAttach,
-                    // C3 file section: build each outcome from the resolved path
+                    // File section: build each outcome from the resolved path
                     // snapshotted at open time (survives the `close()` above, as
                     // the rename-target read does). A missing target (defensive -
                     // these items are only visible with a target) is inert.

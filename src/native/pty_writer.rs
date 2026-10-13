@@ -1,46 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Non-blocking PTY write path.
 //!
-//! Field diagnosis of an unresponsive remote tab found every PTY write sharing
-//! one `Arc<Mutex<Box<dyn Write>>>` over a *blocking* master fd: when an `ssh`
-//! child stopped draining its stdin PTY (a full session-channel flow-control
-//! window), the thread holding the writer lock parked in `write_all` forever and
-//! the main-thread input path deadlocked acquiring that same lock - a frozen UI
-//! on a fully healthy connection.
+//! A per-session worker owns blocking fd writes. Producers enqueue through
+//! [`OutboundShim`]; their queue lock never spans fd I/O.
 //!
-//! The write path now runs the blocking fd write on a dedicated per-session
-//! writer thread fed by a bounded in-memory queue. Producers - the main input
-//! path, the paste path, the output pump's host replies - only ever *enqueue*:
-//! an O(1) push under a briefly-held queue lock that never spans an fd write, so
-//! a flow-controlled or wedged remote can never stall a producer again. The
-//! existing `PtyWriter` (`Arc<Mutex<Box<dyn Write>>>`) is retained unchanged; the
-//! boxed writer is now an [`OutboundShim`] whose `write` enqueues, so every
-//! existing `writer.lock().write_all(..)` call site keeps working while the
-//! retained mutex only ever guards an enqueue - never fd I/O.
-//!
-//! Overflow policy: the queue is byte-bounded ([`QUEUE_BYTE_CAP`]). When a
-//! stalled consumer lets it exceed the cap the OLDEST buffered chunks are
-//! dropped - never a blocking enqueue, because a wedged remote must not
-//! propagate backpressure into the UI thread - and the discarded byte count is
-//! surfaced by the monitor. Dropping terminal input corrupts a stalled stream,
-//! but that only happens once a remote is already wedged; a live UI is the
-//! higher priority.
-//!
-//! The chunk is the atomicity unit of that policy: overflow drops whole
-//! chunks, never partial ones, and the newest chunk is never dropped. Anything
-//! whose framing must not tear therefore travels as ONE chunk - a bracketed
-//! paste (start marker + body + end marker) is enqueued as a single write, so
-//! an overflow either delivers the paste intact or discards it entirely. It
-//! can never drop the start marker while keeping the tail, which would let the
-//! surviving newlines execute outside bracketed-paste mode in the shell.
-//!
-//! Telemetry (default-on, privacy-safe - counters and a numeric session id only,
-//! never PTY bytes): the writer thread stamps [`OutboundShared::write_started_ms`]
-//! before each fd write and clears it after. One detached monitor thread polls
-//! every registered session and emits a single `pty_write_stall` line for a
-//! write in flight past [`WRITE_STALL_AFTER`], plus a `pty_write_overflow` line
-//! when drop-oldest has discarded data. This is independent of the presented-
-//! frame freeze watchdog, which did not classify the field freeze.
+//! The byte-bounded queue drops oldest whole chunks on overflow and preserves
+//! the newest chunk. Framed input, including bracketed paste, must be one chunk
+//! so overflow cannot retain a payload after dropping its opening marker.
+//! A monitor reports dropped-byte counts and slow writes, never PTY contents.
 
 use std::collections::VecDeque;
 use std::io::{self, Write};

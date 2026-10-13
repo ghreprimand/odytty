@@ -29,6 +29,12 @@ impl ScratchDir {
         Self(fresh_temp_dir(prefix))
     }
 
+    /// A short-path directory that can hold Unix sockets (see [`fresh_socket_dir`]).
+    #[cfg(unix)]
+    pub(crate) fn for_sockets(prefix: &str) -> Self {
+        Self(fresh_socket_dir(prefix))
+    }
+
     pub(crate) fn path(&self) -> &std::path::Path {
         &self.0
     }

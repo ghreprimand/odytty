@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Focused tests for the `theme = system` alias (OS-THEME alias): parse,
+//! Focused tests for the `theme = system` alias: parse,
 //! writeback round-trip, interaction with explicit OS-theme overrides, and
 //! default dark/light resolution behavior.
 

@@ -393,11 +393,10 @@ pub(in crate::native) enum OverlayOutcome {
     /// direct menu route; creates the workspace and its first profile-backed tab
     /// atomically).
     ProfilePickerNewWorkspace(String),
-    /// Attach to a live session accepted from the session-attach overlay (Phase
-    /// 5 / B2). The overlay has already closed itself by the time this is
-    /// emitted; the App attaches the session id into a new tab. A stale id (the
-    /// session ended between list and accept) is swallowed gracefully, never
-    /// panics.
+    /// Attach to a live session accepted from the session-attach overlay. The
+    /// overlay has already closed itself; the App attaches the session id into
+    /// a new tab. A stale id (the session ended between list and accept) is
+    /// swallowed and never panics.
     AttachSession(String),
     /// Focus an existing live pane selected by the unified session navigator.
     FocusSession(SessionToken),
@@ -648,7 +647,7 @@ pub(in crate::native) enum OverlayPointer {
     /// A button went down at `cell` (grid coordinates over the visible grid,
     /// the same space the overlay is drawn in). `x_in_body` is the fractional
     /// body-relative x from physical pixel data; `None` in tests / headless
-    /// mode.
+    /// mode. No overlay mode reads it today: the Settings steppers ignore it.
     Press {
         cell: CellPoint,
         button: PointerButton,
@@ -656,7 +655,7 @@ pub(in crate::native) enum OverlayPointer {
     },
     /// The pointer moved to `cell` while an overlay drag is in progress.
     /// `x_in_body` is the fractional body-relative x from physical pixel data;
-    /// `None` in tests / headless mode.
+    /// `None` in tests / headless mode. No overlay mode reads it today.
     Move {
         cell: CellPoint,
         x_in_body: Option<f32>,

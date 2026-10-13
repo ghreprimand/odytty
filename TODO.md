@@ -120,10 +120,20 @@ right-click menu) draws right-to-left runs in display order from a
 presentation-only map: cells, cursor position, selection, copy, search, and
 export stay logical. The `font_zero` setting (off by default) selects a body
 face's OpenType `zero` glyph for `0` without changing cell metrics; other
-stylistic sets and raw feature tags are not exposed. Homebrew cask quarantine
+open-ended stylistic sets and raw feature tags remain unsupported. Homebrew cask quarantine
 removal uses `postflight_steps` for Homebrew 7.0 or newer. Dependency
 maintenance includes the standalone fuzz workspace lockfile and its locked API
 compile check before landing.
+
+- [x] Expose bounded primary-screen bidi display order through `bidi_reorder`,
+      keeping cells, cursor, selection, copy, search and export logical.
+- [x] Expose the named `font_zero` alternate without changing terminal metrics;
+      open-ended stylistic sets and arbitrary raw feature tags stay unsupported.
+- [x] Add cell-aligned polygon-filled Symbols for Legacy Computing diagonals
+      (`U+1FB3C..U+1FB67`, `U+1FBBD..U+1FBBF`), with independent area fixtures
+      and frozen pixel hashes for previously covered glyphs.
+- [x] Bound fallback discovery for body, symbol and emoji faces, retaining
+      portable provider ordering and path-free diagnostics and fixtures.
 
 ## v0.16.1: AppImage Update Information (published)
 
@@ -794,10 +804,6 @@ not a stretch goal.
         triangles, eighth strips/ladders, L-combo eighth blocks
         (`U+1FB7C..1FB81`), and segmented digits (`U+1FBF0..1FBF9`) render from
         cell geometry.
-- [x] Add a general antialiased polygon filler and render diagonal-edged
-      Symbols for Legacy Computing (`U+1FB3C..U+1FB67`) and negative diagonals
-      (`U+1FBBD..U+1FBBF`) from cell geometry, with independent area fixtures
-      and frozen pixel hashes for every previously covered glyph.
 - [x] Ship grid-preserving contextual ligatures behind a live setting
       (ASCII graphics plus a curated non-ASCII operator allowlist, with
       `calt`+`liga` on Latin/operator runs). Explicit optional `ss01`/`ss02`

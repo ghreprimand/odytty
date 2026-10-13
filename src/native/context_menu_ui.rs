@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Right-click context menu. A small, cell-rendered popup offering Copy /
 //! Cut / Paste / Delete / Select All / New Tab / Close Tab / Settings and the
-//! v0.3.1 launcher section (Connection Manager / Command Palette / Session
-//! Replay), spawned at the pointer cell and edge-clamped to the grid.
+//! launcher section (Connection Manager / Command Palette / Session Replay),
+//! spawned at the pointer cell and edge-clamped to the grid.
 //!
 //! The menu is *always available* - there is no `context_menu` enable bool. The
 //! TUI mouse-reporting passthrough guard in [`super::app`] is the effective off
@@ -13,9 +13,7 @@
 //! TUI when the user explicitly asks for it.
 //!
 //! Like every other [`super::overlay::OverlayMode`], the menu never blocks the
-//! PTY: the terminal stays live behind it. It is off-path-identical when no
-//! right-click has occurred - the `ContextMenu` mode is simply never entered, so
-//! the default render path is byte-for-byte unchanged.
+//! PTY: the terminal stays live behind it.
 //!
 //! Item gating: Copy is enabled only when a selection exists, Cut and
 //! Delete only when that selection intersects editable prompt input, Paste only
@@ -26,20 +24,14 @@
 //!
 //! Visual separator lines partition the menu into sections. The section
 //! assignment is owned by [`ContextMenuItem::section`] (see
-//! `context_menu_ui/actions.rs`) -- refer to it as the source of truth rather
-//! than duplicating the list here. As of this writing it is seven sections
-//! (so up to six separators, five on the common non-path menu): editing (0),
-//! tab actions (1), split/pane actions (2), workspace actions (3), Settings (4),
-//! overlay launchers (5), and the file/path composition (6, shown only on a
-//! path right-click). A separator is drawn wherever consecutive *visible* items
-//! cross a section boundary; separators occupy body rows but are neither
-//! selectable nor focusable.
+//! `context_menu_ui/actions.rs`). A separator is drawn wherever consecutive
+//! *visible* items cross a section boundary; separators occupy body rows but
+//! are neither selectable nor focusable.
 //!
 //! Pane-count gating: the **Close Pane** item is shown only when the active tab
 //! is multi-pane (the App passes `multi_pane` at open time). In a single-pane
-//! tab it is hidden entirely - not rendered, not navigable - so the single-pane
-//! menu layout (and its render cache signature) is byte-identical to before the
-//! item existed. The item set, separator placement, focus cycling, and body-row
+//! tab it is hidden entirely: not rendered, not navigable. The item set,
+//! separator placement, focus cycling, and body-row
 //! mapping are all derived from the visible item list, so the layout reflows
 //! cleanly when the item appears or disappears.
 //!
@@ -106,7 +98,7 @@ pub(in crate::native) enum MenuLayout {
     Floating,
 }
 
-/// The window, layout, and move facts the v0.16 menu rows depend on, snapshotted
+/// The window, layout, and move facts the menu rows depend on, snapshotted
 /// by the App at open time from the same helpers the command palette uses, so a
 /// menu row is offered exactly when its palette row is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -152,8 +144,7 @@ pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 17;
 /// Body row index of the fourth visual separator (with-selection reference),
 /// between the workspace section and Settings. The unbound reference shows the
 /// Bind-to-Host row plus the whole-app Save as Layout, the single-workspace Save
-/// Workspace as Layout, and Open Layout, so the section is eight items long
-/// (v0.14 profile rows plus LAYOUT-SURFACE + SAVE-ALL-LAYOUT).
+/// Workspace as Layout, and Open Layout, so the section is eight items long.
 #[cfg(test)]
 pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 26;
 
@@ -400,7 +391,7 @@ pub(super) struct ContextMenuSignature {
     pub(super) is_image_target: bool,
     /// Whether the resolved path is a regular file (drives the "Open With…"
     /// item's visibility - file-only - so a file-vs-directory target repaints
-    /// the menu). C3b.
+    /// the menu).
     pub(super) is_file_target: bool,
     /// Whether the connection-row target is OdyTTY-owned: drives the
     /// Edit/Remove rows' visibility, so an OdyTTY-vs-ssh-config row repaints the
@@ -415,7 +406,7 @@ pub(super) struct ContextMenuSignature {
     /// Attach item's enabled state, so an available-vs-unavailable detached row
     /// repaints.
     pub(super) navigator_detached_available: bool,
-    /// The v0.16 window, layout, and move facts that select the Move, layout, and
+    /// The window, layout, and move facts that select the Move, layout, and
     /// merge rows, so a change in any of them repaints the menu.
     pub(super) window_actions: WindowMenuActions,
     /// The accelerator text painted beside each item, as `(ALL index, text)`
@@ -450,8 +441,7 @@ pub(super) struct ContextMenuUi {
     prompt_editing_hint: bool,
     rename_target: Option<SessionToken>,
     /// Whether the active tab is multi-pane, snapshotted at open time. Gates the
-    /// visibility of the Close Pane item: `false` hides it entirely (single-pane
-    /// layout is byte-identical to before the item existed).
+    /// visibility of the Close Pane item: `false` hides it entirely.
     multi_pane: bool,
     /// Whether more than one tab is open, snapshotted at open time. Gates the
     /// enablement of the `Close Other Tabs` item (disabled when a lone tab).
@@ -485,24 +475,22 @@ pub(super) struct ContextMenuUi {
     /// every other surface leaves it at `0` (no Move rows there anyway).
     workspace_count: usize,
     /// Which surface the right-click landed on. Selects the menu
-    /// composition; defaults to [`ContextMenuSurface::Content`] (the historical
-    /// single menu) so a bare `open` keeps today's behavior.
+    /// composition; a bare `open` uses [`ContextMenuSurface::Content`].
     surface: ContextMenuSurface,
     /// The resolved interactive path under the click cell, snapshotted at open
     /// time (re-detected by the App, not reused from the hover state). `Some`
     /// shows the file section (Open / Copy Path / Copy File / Reveal); `None`
-    /// hides it entirely so the menu is byte-identical to before C3.
+    /// hides it entirely.
     path_target: Option<Resolved>,
     /// The saved host under the right-clicked connection-manager row,
     /// snapshotted at open time on the `ConnectionRow` surface. `Some` gates
     /// Edit/Remove on its source (OdyTTY-owned only) and supplies the host to
-    /// each connection-row outcome; `None` on every other surface, so the menu
-    /// is byte-identical to a menu without connection rows off that surface.
+    /// each connection-row outcome; `None` on every other surface.
     connection_target: Option<Box<ConnectionHost>>,
     /// The right-clicked navigator row's stable target, snapshotted at open time
     /// on the `NavigatorRow` surface. `Some` selects the per-class action set and
     /// supplies the target to each navigator-row outcome; `None` on every other
-    /// surface, so the menu is byte-identical off that surface. The target is
+    /// surface. The target is
     /// resolved through the arena at execution time, so a stale snapshot is a
     /// harmless no-op.
     navigator_target: Option<NavigatorTarget>,
@@ -532,8 +520,7 @@ pub(super) struct ContextMenuUi {
     /// rail band (the rail composites topmost, so it would occlude the menu's
     /// edge). Reserving the rail band's columns positions the box beside the
     /// rail instead of under it - the rail stays visible and the menu
-    /// is fully clickable. `0`/`0` (every non-rail open) is byte-identical to
-    /// the pre-clearance layout.
+    /// is fully clickable. Every non-rail open reserves `0`/`0`.
     reserved_cols_left: usize,
     reserved_cols_right: usize,
     /// Signed pixel remainder toward the next wheel row (macOS `PixelDelta`

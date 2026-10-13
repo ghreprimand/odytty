@@ -63,3 +63,12 @@ pub(super) fn choose_save_path_blocking_for(
     })
     .unwrap_or(SaveDialogSelection::Unavailable)
 }
+
+/// Blocking open dialog with the same backend-panic classification as save.
+pub(super) fn choose_open_path_blocking(
+    filter_label: &str,
+    extensions: &[&str],
+) -> SaveDialogSelection {
+    std::panic::catch_unwind(|| pollster::block_on(choose_open_path(filter_label, extensions)))
+        .unwrap_or(SaveDialogSelection::Unavailable)
+}

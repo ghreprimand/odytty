@@ -449,9 +449,7 @@ impl App {
                     return;
                 }
                 Some(BindableAction::CloseTab) => {
-                    if self.close_active_tab() {
-                        return;
-                    }
+                    self.close_active_tab();
                     return;
                 }
                 Some(BindableAction::DuplicateTab) => {
@@ -866,6 +864,21 @@ impl App {
     }
 
     pub(super) fn toggle_settings_overlay(&mut self) {
+        self.prepare_settings_overlay();
+        self.overlay.toggle_settings();
+        self.request_selection_redraw();
+    }
+
+    pub(super) fn open_settings_overlay_target(
+        &mut self,
+        target: crate::native::overlay::SettingsTarget,
+    ) {
+        self.prepare_settings_overlay();
+        self.overlay.open_settings_target(target);
+        self.request_selection_redraw();
+    }
+
+    fn prepare_settings_overlay(&mut self) {
         self.cancel_pending_text_paste();
         if self.search.is_open() {
             self.close_search(true);
@@ -883,30 +896,6 @@ impl App {
         self.sync_settings_external_palette_status();
         self.overlay
             .set_settings_environment_overrides(self.settings_reloader.environment_override_keys());
-        self.overlay.toggle_settings();
-        self.request_selection_redraw();
-    }
-
-    pub(super) fn open_settings_overlay_target(
-        &mut self,
-        target: crate::native::overlay::SettingsTarget,
-    ) {
-        self.cancel_pending_text_paste();
-        if self.search.is_open() {
-            self.close_search(true);
-        }
-        self.reset_pointer_state_for_overlay();
-        let adapter = self
-            .gpu
-            .as_ref()
-            .map(|gpu| gpu.adapter_diagnostics().clone());
-        self.overlay
-            .set_about_info(crate::native::about::AboutInfo::collect(adapter));
-        self.sync_settings_external_palette_status();
-        self.overlay
-            .set_settings_environment_overrides(self.settings_reloader.environment_override_keys());
-        self.overlay.open_settings_target(target);
-        self.request_selection_redraw();
     }
 
     pub(super) fn open_theme_picker_overlay(&mut self) {

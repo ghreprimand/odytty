@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use super::settings_panel::{ellipsize, wrap_words};
+
 use std::cell::Cell;
 
 use crate::settings::{SYSTEM_THEME_NAME, SettingEdit, Settings, THEME_ENV};
@@ -437,48 +439,6 @@ fn appearance_for(theme: Theme) -> ThemeAppearance {
     } else {
         ThemeAppearance::Dark
     }
-}
-
-fn wrap_words(text: &str, width: usize) -> Vec<String> {
-    let width = width.max(12);
-    let mut lines = Vec::new();
-    let mut current = String::new();
-    for word in text.split_whitespace() {
-        let separator = usize::from(!current.is_empty());
-        if current.chars().count() + separator + word.chars().count() > width {
-            if !current.is_empty() {
-                lines.push(current);
-                current = String::new();
-            }
-            if word.chars().count() > width {
-                lines.push(ellipsize(word, width));
-                continue;
-            }
-        }
-        if !current.is_empty() {
-            current.push(' ');
-        }
-        current.push_str(word);
-    }
-    if !current.is_empty() {
-        lines.push(current);
-    }
-    lines
-}
-
-fn ellipsize(text: &str, width: usize) -> String {
-    if width == 0 {
-        return String::new();
-    }
-    if text.chars().count() <= width {
-        return text.to_owned();
-    }
-    if width <= 1 {
-        return "~".to_owned();
-    }
-    let mut out = text.chars().take(width - 1).collect::<String>();
-    out.push('~');
-    out
 }
 
 #[cfg(test)]

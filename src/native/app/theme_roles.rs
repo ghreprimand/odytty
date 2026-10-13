@@ -37,8 +37,8 @@ impl App {
     /// surrounding content: the vertex builder draws this fill at the ordinary
     /// content opacity, so the selection reads the same against its surround at
     /// any window opacity instead of coupling inversely to it. The floor
-    /// reference and the painted color are now the identical effective fill, so
-    /// legibility is judged against the exact pixels drawn. At
+    /// reference and modeled fill agree. Desktop compositing can reduce the
+    /// displayed contrast. At
     /// `selection_opacity == 1.0` the effective fill equals the opaque role
     /// color (the `composite_over` endpoint is exact), so the whole style - fill
     /// and floored fg alike - is byte-identical to a fully-opaque selection.
@@ -129,9 +129,8 @@ fn linear_to_srgb_tuple(linear: crate::color::LinearRgb) -> [u8; 3] {
 /// to the eye - the opaque `fill` composited over the theme `backdrop` at
 /// `selection_opacity`, in linear light (design §3). The minimum-contrast floor references
 /// this so foreground legibility holds as the fill goes translucent. The theme
-/// background is the deterministic, worst-case-for-legibility backdrop; under
-/// window transparency the true backdrop is the desktop and is unknowable, so
-/// flooring over the theme background is the conservative choice. At
+/// background supplies the modeled backdrop; window transparency introduces
+/// an unknown desktop composite that can reduce displayed contrast. At
 /// `selection_opacity == 1.0` this returns `fill` bit-exactly (the
 /// `composite_over` endpoint), keeping the floored fg byte-identical.
 fn effective_selection_fill(
@@ -155,7 +154,7 @@ fn effective_selection_fill(
 }
 
 /// Floor a foreground over a fill so it meets `ratio` WCAG contrast.
-/// Identity at `ratio <= 1.0` (the default `min_contrast`).
+/// Identity at `ratio <= 1.0`; native defaults to 17.0 and plain uses 1.0.
 fn floor_fg_over(fg: (u8, u8, u8), bg: [u8; 3], ratio: f32) -> [u8; 3] {
     let fg_lin = srgb_tuple_to_linear(fg);
     let bg_lin = [

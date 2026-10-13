@@ -286,7 +286,7 @@ mod tests {
     // ---- Adversarial inputs: loop bound, trust, remote-inertness ----
 
     #[test]
-    fn a3_current_profile_holds_when_context_still_matches() {
+    fn current_profile_holds_when_context_still_matches() {
         // When two profiles share a host rule, the active profile must hold
         // steady across repeated evaluations instead of alternating A<->B.
         let a_rules = ProfileSwitchRules {
@@ -361,7 +361,7 @@ mod tests {
     }
 
     #[test]
-    fn a3_recently_applied_profile_is_suppressed_to_bound_switching() {
+    fn recently_applied_profile_is_suppressed_to_bound_switching() {
         // Termination bound: a profile just applied by a switch
         // must not immediately re-trigger. `recently_applied` suppresses it even
         // when its own rule still matches the context, breaking A->B->A ping-pong.
@@ -387,7 +387,7 @@ mod tests {
     }
 
     #[test]
-    fn a3_rule_referencing_a_missing_profile_is_inert() {
+    fn rule_referencing_a_missing_profile_is_inert() {
         // Hostile/stale remote context cannot manufacture a profile.
         // A switch rule whose target profile is absent from the catalog yields no
         // suggestion; switching never creates a profile.
@@ -413,7 +413,7 @@ mod tests {
     }
 
     #[test]
-    fn a3_untrusted_or_unmatched_context_is_inert() {
+    fn untrusted_or_unmatched_context_is_inert() {
         // A host/dir that matches no rule produces no switch. Remote
         // output that does not match a locally-configured pattern is inert.
         let rules = ProfileSwitchRules {
@@ -434,7 +434,7 @@ mod tests {
     }
 
     #[test]
-    fn a3_directory_boundary_holds_against_sibling_prefix() {
+    fn directory_boundary_holds_against_sibling_prefix() {
         // A directory pattern must only match true descendants, never a sibling
         // sharing a name prefix.
         let rules = ProfileSwitchRules {
@@ -459,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn a3_normalize_rejects_traversal_relative_and_separator_patterns() {
+    fn normalize_rejects_traversal_relative_and_separator_patterns() {
         // Directory patterns must be absolute; host patterns must carry no path
         // separators or whitespace. This blocks a hostile pattern from encoding
         // traversal or a path where a hostname is expected.

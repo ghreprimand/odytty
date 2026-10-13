@@ -20,6 +20,7 @@ mod store;
 mod strict_json_tests;
 mod switch;
 
+#[cfg(test)]
 pub use catalog_cache::catalog_parse_count_for_test;
 pub use switch::{
     ProfileSwitchReason, ProfileSwitchSuggestion, normalize_directory_pattern,

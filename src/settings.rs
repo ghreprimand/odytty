@@ -45,7 +45,7 @@ pub use model::*;
 pub(crate) use paths::SpawnConfigDirMark;
 #[cfg(unix)]
 pub(crate) use paths::spawn_writer_config_dir;
-pub(crate) use paths::{config_base_dir_from_env, resolve_theme_file};
+pub(crate) use paths::{config_base_dir_from_env, config_dir, resolve_theme_file};
 pub use paths::{config_file_path, normalize_name, theme_dir_path};
 pub(crate) use paths::{spawn_config_file_path, spawn_env_var};
 #[cfg(all(unix, test))]

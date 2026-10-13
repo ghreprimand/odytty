@@ -2,8 +2,8 @@
 //! App-side named-layout actions.
 //!
 //! A layout is a saved workspace shape - its tabs, pane split tree, per-pane
-//! cwd, and host binding - reusing the same on-disk schema as the launch
-//! autosave. Saving captures the CURRENT workspace as a one-workspace layout.
+//! cwd, and host binding, using the launch-autosave schema. Saving captures
+//! either the selected workspace or the whole application.
 //! Opening a layout either adds its workspaces beside the current set
 //! ([`LayoutPlacement::Add`]) or replaces the whole set
 //! ([`LayoutPlacement::Replace`]); a window holding real state asks which
@@ -16,8 +16,8 @@ use crate::native::persistence::{self, LoadOutcome};
 use crate::native::session::RestoreReport;
 
 /// How a saved layout lands on the current window. Chosen by
-/// the open-layout mode dialog when the window already holds real state; a bare
-/// launch always uses `Add` (which consumes its lone pristine workspace).
+/// the open-layout mode dialog unless `is_single_pristine_workspace` confirms
+/// an idle, writable, local single-pane shell that `Add` can consume.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum LayoutPlacement {
     /// Append the saved workspace(s) beside the current set (the pre-existing
@@ -168,13 +168,9 @@ impl App {
     }
 
     /// Open a saved layout, deciding how it lands on the current window.
-    /// Onto a bare launch - exactly one untouched default
-    /// workspace - the layout opens directly, consuming that pristine workspace
-    /// so the window shows precisely the saved set (no prompt). Onto a window
-    /// that already holds real state, a small dialog asks whether to REPLACE the
-    /// current workspaces with the saved set or ADD them beside it, since a
-    /// silent append doubled everything before. The layout is not loaded here on
-    /// the prompt path; the accept arm re-loads and instantiates it.
+    /// `is_single_pristine_workspace` allows an idle, writable, local single-pane
+    /// shell to be consumed directly. Other windows ask whether to replace or
+    /// append. The confirmation path loads and instantiates at acceptance.
     pub(super) fn open_layout(&mut self, name: &str) {
         if self.sessions.is_single_pristine_workspace() {
             // Pristine launch: the append path consumes the lone default

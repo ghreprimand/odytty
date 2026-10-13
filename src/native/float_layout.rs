@@ -196,23 +196,6 @@ impl FloatLayout {
         self.entries = self.reconciled(leaves);
     }
 
-    /// Paint order, back to front: the reconciled z-order with the focused pane
-    /// last, so the pane that receives keys is never covered. Test-only: the
-    /// renderer derives its own order from the resolved rectangles.
-    #[cfg(test)]
-    pub(super) fn paint_order(
-        &self,
-        leaves: &[SessionToken],
-        focused: SessionToken,
-    ) -> Vec<FloatEntry> {
-        let mut entries = self.reconciled(leaves);
-        if let Some(at) = entries.iter().position(|entry| entry.token == focused) {
-            let entry = entries.remove(at);
-            entries.push(entry);
-        }
-        entries
-    }
-
     /// Every pane's resolved rectangle in paint order (back to front), clamped
     /// to the grid.
     pub(super) fn resolved(
@@ -551,9 +534,9 @@ mod tests {
         let mut layout = FloatLayout::default();
         layout.normalize(&l);
         let order: Vec<_> = layout
-            .paint_order(&l, tok(0))
+            .resolved(&l, tok(0), 100, 30)
             .iter()
-            .map(|e| e.token)
+            .map(|(token, _)| *token)
             .collect();
         assert_eq!(order, vec![tok(1), tok(2), tok(0)]);
         assert!(layout.raise(tok(0)));

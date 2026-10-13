@@ -3,11 +3,9 @@
 //! drivers used only by the `crate::native::tests` harness to exercise the
 //! production code paths without a window or GPU.
 //!
-//! Mechanically split out of `app/mod.rs` to keep that file under the
-//! source-size cap; no behaviour or API change. These are `App` methods in a
-//! child module so they reach `App`'s private fields directly. Reachable from
-//! `crate::native::tests`, so they are `pub(in crate::native)` (the move's only
-//! required visibility widening, from the in-`app` `pub(super)`).
+//! These are `App` methods in a child module so they reach `App`'s private
+//! fields directly. They are `pub(in crate::native)` so `crate::native::tests`
+//! can call them.
 
 use super::*;
 use winit::keyboard::KeyCode;
@@ -49,10 +47,8 @@ impl App {
     /// and `false` is returned. The GPU surface itself is reconfigured by the
     /// caller regardless, since it tracks pixel size, not the cell grid.
     ///
-    /// Lock scopes are kept tight and never nested: the terminal mutex is taken
-    /// and dropped for the model resize, then the PTY mutex is taken and dropped
-    /// for the (non-blocking) `TIOCSWINSZ`. Neither is held across the other or
-    /// across any GPU call.
+    /// Runs production model/backend resize with zero padding, including ConPTY
+    /// on Windows. Model and PTY locks are separate; neither spans GPU calls.
     #[cfg(test)]
     pub(in crate::native) fn resize_grid(
         &mut self,
@@ -564,7 +560,7 @@ impl App {
     }
 
     /// Test seam (SH-CLICK): toggle the `sh_click` setting so the click-to-
-    /// position default-off path and the enabled path can both be pinned.
+    /// position disabled and enabled paths can both be pinned; it defaults on.
     #[cfg(test)]
     pub(in crate::native) fn set_sh_click_for_test(&mut self, on: bool) {
         self.settings.sh_click = on;
@@ -1932,7 +1928,7 @@ impl App {
 
     /// Test seam (F4-V2): the decorated single-pane snapshot's `(columns, rows)`
     /// after tab-chrome decoration. A left rail grows columns by `rail_cols`; the
-    /// top bar grows rows by `TAB_BAR_ROWS`.
+    /// top bar grows by the live tab-bar row count and any reserved top gap.
     #[cfg(test)]
     pub(in crate::native) fn decorated_snapshot_dims_for_test(&self) -> Option<(usize, usize)> {
         let cell = self.resolved_cell()?;
@@ -2232,10 +2228,8 @@ impl App {
     }
 
     /// Test seam (F4-P2): the pixel offset subtracted from a raw pointer / added
-    /// to content-space overlays for the current tab chrome. `(0, 0)` for the top
-    /// bar and a RIGHT rail (content origin unmoved); positive `x` for a LEFT
-    /// rail. Proves right-edge overlays (IME candidate, click hint) are not
-    /// shifted under a right rail.
+    /// to content-space overlays. Top rows and their gap shift Y; left rail
+    /// columns and their gap shift X. A right rail leaves X unchanged.
     #[cfg(test)]
     pub(in crate::native) fn tab_chrome_offset_px_for_test(&self) -> Option<(f64, f64)> {
         let cell = self.resolved_cell()?;
@@ -3790,6 +3784,36 @@ impl App {
         token: crate::native::session::SessionToken,
     ) {
         let _ = self.sessions.switch(token);
+    }
+
+    /// Test seam: the release deadline of the synchronized-output hold owned by
+    /// session `token`, per pane.
+    #[cfg(test)]
+    pub(in crate::native) fn session_hold_deadline_for_test(
+        &self,
+        token: crate::native::session::SessionToken,
+    ) -> Option<Instant> {
+        self.sessions
+            .get(token)
+            .and_then(|session| session.synchronized_output_hold.deadline())
+    }
+
+    /// Test seam: the earliest hold deadline among the panes on screen.
+    #[cfg(test)]
+    pub(in crate::native) fn on_screen_hold_deadline_for_test(&self) -> Option<Instant> {
+        self.synchronized_output_hold_deadline()
+    }
+
+    /// Test seam: whether any on-screen hold is due at `now`.
+    #[cfg(test)]
+    pub(in crate::native) fn on_screen_hold_due_for_test(&self, now: Instant) -> bool {
+        self.synchronized_output_hold_due(now)
+    }
+
+    /// Test seam: the event-loop wake deadline for a presenting window.
+    #[cfg(test)]
+    pub(in crate::native) fn wake_deadline_for_test(&self) -> Option<Instant> {
+        self.next_wake_deadline_for_surface(true)
     }
 
     /// Test seam (navigator pane-close): the stable tokens of every leaf in the

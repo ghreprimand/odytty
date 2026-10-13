@@ -84,13 +84,11 @@ pub fn runtime_dir_path(runtime_base: &Path) -> PathBuf {
     runtime_base.join(SOCKET_DIR_NAME)
 }
 
-fn resolved_runtime_base(runtime_base: Option<&Path>) -> Result<Option<PathBuf>> {
+/// The explicit base, else the environment's; `None` when neither exists.
+fn resolved_runtime_base(runtime_base: Option<&Path>) -> Option<PathBuf> {
     match runtime_base {
-        Some(path) => Ok(Some(path.to_owned())),
-        None => match runtime_base_from_env() {
-            Ok(base) => Ok(Some(base)),
-            Err(_) => Ok(None),
-        },
+        Some(path) => Some(path.to_owned()),
+        None => runtime_base_from_env().ok(),
     }
 }
 
@@ -99,7 +97,7 @@ fn resolved_runtime_base(runtime_base: Option<&Path>) -> Result<Option<PathBuf>>
 /// discovery pointed at the Darwin temp fallback where `runtime_paths(None, ..)`
 /// creates sockets instead of only looking at `XDG_RUNTIME_DIR`.
 pub fn existing_runtime_dir(runtime_base: Option<&Path>) -> Result<Option<PathBuf>> {
-    let Some(base) = resolved_runtime_base(runtime_base)? else {
+    let Some(base) = resolved_runtime_base(runtime_base) else {
         return Ok(None);
     };
     let dir = runtime_dir_path(&base);
@@ -111,8 +109,8 @@ pub fn existing_runtime_dir(runtime_base: Option<&Path>) -> Result<Option<PathBu
 }
 
 pub fn runtime_paths(runtime_base: Option<&Path>, session_id: &str) -> Result<RuntimePaths> {
-    let base = match resolved_runtime_base(runtime_base)? {
-        Some(base) => base,
+    let base = match runtime_base {
+        Some(path) => path.to_owned(),
         None => runtime_base_from_env()?,
     };
     let dir = prepare_runtime_dir(&base)?;
@@ -237,7 +235,6 @@ pub fn cleanup_stale_socket(socket_path: &Path) -> Result<()> {
             socket_path.display()
         ),
         Err(error) if is_stale_socket_error(&error) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => {
             return Err(error)
                 .with_context(|| format!("probe session-host socket {}", socket_path.display()));
@@ -424,41 +421,21 @@ pub(crate) fn checked_socket_timeout(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct TempDir {
-        path: PathBuf,
-    }
-
-    impl TempDir {
-        fn new(prefix: &str) -> Self {
-            let path = crate::test_dirs::fresh_socket_dir(prefix);
-            Self { path }
-        }
-
-        fn path(&self) -> &Path {
-            &self.path
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
+    use crate::test_dirs::ScratchDir;
 
     #[test]
     fn resolved_runtime_base_uses_explicit_base_without_env() {
-        let temp = TempDir::new("shrb");
+        let temp = ScratchDir::for_sockets("shrb");
 
         assert_eq!(
-            resolved_runtime_base(Some(temp.path())).expect("resolve base"),
+            resolved_runtime_base(Some(temp.path())),
             Some(temp.path().to_owned())
         );
     }
 
     #[test]
     fn existing_runtime_dir_agrees_with_runtime_paths_for_explicit_base() {
-        let temp = TempDir::new("shrw");
+        let temp = ScratchDir::for_sockets("shrw");
         let paths = runtime_paths(Some(temp.path()), "rw").expect("runtime paths");
 
         assert_eq!(

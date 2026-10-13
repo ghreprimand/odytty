@@ -677,8 +677,6 @@ fn os_theme_report_is_recorded_always_and_followed_only_when_enabled() {
     );
 }
 
-/// Build a fresh, un-driven `App` for wake-scheduling tests over a headless
-/// (no-PTY) session, so the fixture creates no OS child.
 /// The `ModifiersChanged` arm forwards to `on_modifiers_changed`. The cached
 /// modifier state is what the next `KeyboardInput` encodes with, and the arm
 /// additionally repaints the armed path underline when the platform open
@@ -747,6 +745,8 @@ fn modifiers_forwarding_caches_state_and_gates_the_open_modifier_repaint() {
     );
 }
 
+/// Build a fresh, un-driven `App` for wake-scheduling tests over a headless
+/// (no-PTY) session, so the fixture creates no OS child.
 fn build_idle_app() -> Option<App> {
     let dims = Dimensions::new(80, 24);
     let (app, _terminal) = crate::native::test_support::headless_app_with(

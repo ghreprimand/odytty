@@ -85,11 +85,7 @@ pub fn profiles_dir_from_env(
 }
 
 pub fn profiles_dir_path() -> Option<PathBuf> {
-    profiles_dir_from_env(
-        std::env::var_os("APPDATA"),
-        std::env::var_os("XDG_CONFIG_HOME"),
-        std::env::var_os("HOME"),
-    )
+    crate::settings::config_dir().map(|dir| dir.join(PROFILES_DIR_NAME))
 }
 
 /// Load every regular `*.profile.json` file in `dir` without leaving the local

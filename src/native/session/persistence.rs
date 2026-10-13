@@ -287,31 +287,6 @@ impl WorkspaceSet {
             .and_then(|session| session.launch_profile.clone())
     }
 
-    /// Rebuild the ENTIRE workspace list from a saved shape (design §10.6, WP2).
-    /// Every local pane spawns a fresh interactive shell at its captured cwd;
-    /// every remote pane reconnects through `spawn_remote`,
-    /// supplied by the App, which owns settings and the saved-host list - or
-    /// falls back to a local shell when the host is unresolvable. The
-    /// pre-existing launch session(s) are reaped once the restored tree is in
-    /// place, so the window shows exactly the saved shape. A local pane that
-    /// cannot spawn even at home aborts the whole restore
-    /// ([`RestoreReport::Skipped`], sub-ODP 8f: never a broken/empty window).
-    #[allow(dead_code)]
-    pub(in crate::native) fn restore_from_snapshot_remote(
-        &mut self,
-        snapshot: &crate::native::persistence::ShapeSnapshot,
-        grid: crate::core::Dimensions,
-        home: Option<&Path>,
-        spawn_remote: impl FnMut(&mut Self, &str) -> Option<SessionToken>,
-    ) -> RestoreReport {
-        self.restore_from_snapshot_with(
-            snapshot,
-            home,
-            |set, leaf| set.insert_restored_session(grid, leaf.cwd).ok(),
-            spawn_remote,
-        )
-    }
-
     /// Shape-rebuild core, generic over how a leaf is spawned so tests can drive
     /// the full capture -> serialize -> load -> restore round trip headlessly
     /// (the production spawner needs a live event-loop proxy). `spawn_leaf`
@@ -359,29 +334,6 @@ impl WorkspaceSet {
         }
     }
 
-    /// WP3 / 8e: instantiate a saved layout by APPENDING its workspace(s) after
-    /// the current list and switching to the first one - never clobbering the
-    /// live layout (PRISTINE-CONSUME placement). Remote panes reconnect through
-    /// `spawn_remote`; the append-mode counterpart to
-    /// [`Self::restore_from_snapshot_remote`]. On a spawn failure mid-build
-    /// everything spawned so far is reaped and the current workspaces are
-    /// untouched ([`RestoreReport::Skipped`]).
-    #[allow(dead_code)]
-    pub(in crate::native) fn append_from_snapshot_remote(
-        &mut self,
-        snapshot: &crate::native::persistence::ShapeSnapshot,
-        grid: crate::core::Dimensions,
-        home: Option<&Path>,
-        spawn_remote: impl FnMut(&mut Self, &str) -> Option<SessionToken>,
-    ) -> RestoreReport {
-        self.append_from_snapshot_with(
-            snapshot,
-            home,
-            |set, leaf| set.insert_restored_session(grid, leaf.cwd).ok(),
-            spawn_remote,
-        )
-    }
-
     /// Append-mode rebuild core, generic over the leaf spawner (headless tests).
     pub(in crate::native) fn append_from_snapshot_with(
         &mut self,
@@ -399,11 +351,8 @@ impl WorkspaceSet {
         }
         let panes = build.spawned.len();
         let workspaces = build.workspaces.len();
-        // Opening a layout onto a bare launch (exactly one
-        // untouched default workspace) should yield precisely the saved set, so
-        // the built workspaces REPLACE the pristine one instead of appending
-        // beside it. Its lone session is reaped first so the arena never leaks.
-        // Any real state appends as before, never clobbering (8e).
+        // Only `is_single_pristine_workspace` permits consuming the idle,
+        // writable, local single-pane shell. Otherwise append the built set.
         if self.is_single_pristine_workspace() {
             let stale = std::mem::replace(&mut self.workspaces, build.workspaces);
             self.discard_session(stale[0].tabs[0].focused);

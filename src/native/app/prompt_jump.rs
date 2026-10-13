@@ -1,17 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Prompt-navigation handlers (OSC 133): jump the viewport to the previous or
-//! next shell-prompt boundary.
-//!
-//! These are the thin entry points the `JumpPromptPrev` / `JumpPromptNext`
-//! bindable actions dispatch into. They live in their own `app` submodule so
-//! the prompt-navigation feature can be filled in without colliding with the
-//! other per-feature handlers that share the binding-dispatch surface.
-//!
-//! Each returns whether it consumed the key. When no prompt exists in the
-//! requested direction (the first prompt for a backward jump, the last for a
-//! forward jump) the handler returns `false`, so the bound chord falls through
-//! to the PTY encode path exactly as an unbound key would - at the ends of the
-//! transcript the plain path stays byte-identical.
+//! Strict previous/next shell-prompt navigation from the viewport top.
+//! A missing target falls through to PTY input; successful jumps do not wrap.
 
 use super::*;
 

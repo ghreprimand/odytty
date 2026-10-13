@@ -121,11 +121,9 @@ pub(crate) fn resolve_effective_launch(
                 None
             }
             None => {
-                if profile_name.is_some() {
-                    warnings.push(format!(
-                        "profile {name:?} is missing; using global settings"
-                    ));
-                }
+                warnings.push(format!(
+                    "profile {name:?} is missing; using global settings"
+                ));
                 None
             }
         });

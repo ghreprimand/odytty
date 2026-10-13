@@ -397,13 +397,10 @@ impl App {
     }
 
     pub(super) fn import_overlay_profile(&mut self) {
-        let selection = std::panic::catch_unwind(|| {
-            pollster::block_on(crate::native::save_dialog::choose_open_path(
-                "Named profiles",
-                &["profile.json", "json"],
-            ))
-        })
-        .unwrap_or(crate::native::save_dialog::SaveDialogSelection::Unavailable);
+        let selection = crate::native::save_dialog::choose_open_path_blocking(
+            "Named profiles",
+            &["profile.json", "json"],
+        );
         match selection {
             crate::native::save_dialog::SaveDialogSelection::Selected(path) => {
                 match crate::profiles::read_profile_file(&path, None) {
@@ -456,14 +453,11 @@ impl App {
             }
         };
         let suggested = crate::profiles::profile_file_name(name);
-        let selection = std::panic::catch_unwind(|| {
-            pollster::block_on(crate::native::save_dialog::choose_save_path(
-                &suggested,
-                "Named profiles",
-                &["profile.json", "json"],
-            ))
-        })
-        .unwrap_or(crate::native::save_dialog::SaveDialogSelection::Unavailable);
+        let selection = crate::native::save_dialog::choose_save_path_blocking_for(
+            &suggested,
+            "Named profiles",
+            &["profile.json", "json"],
+        );
         match selection {
             crate::native::save_dialog::SaveDialogSelection::Selected(dest) => {
                 match crate::profiles::export_profile_file(&dest, &profile) {

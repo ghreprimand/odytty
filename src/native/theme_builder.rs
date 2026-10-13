@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use super::settings_panel::{ellipsize, wrap_words};
+
 use std::cell::Cell;
 use std::fs;
 use std::io;
@@ -34,7 +36,7 @@ pub(super) struct ThemeBuilder {
     /// so the saved-confirmation message can report the backstop.
     save_snap_count: usize,
     /// Whether a pointer slider drag on the focused-channel track is in progress
-    /// (U2 Step 2/3). Internal view state only; the App gates per-move routing on
+    /// Internal view state only; the App gates per-move routing on
     /// [`ThemeBuilder::is_dragging`] so ordinary hover stays cheap, exactly like
     /// the settings-panel slider.
     dragging_channel: bool,
@@ -52,8 +54,8 @@ pub(super) struct ThemeBuilder {
 
 /// The OKLCH channel the keyboard editor is focused on. Lightness and
 /// chroma are delta-driven (±step per keypress, gamut-stable); hue is rotated by
-/// a fixed step per keypress (the keyboard analog of the absolute hue dial,
-/// D-U2-1). Cycled with `[` / `]` (the in-app channel-focus control).
+/// a fixed step per keypress, while the dial sets an absolute hue.
+/// `[` / `]` changes the focused channel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum OklchChannel {
     #[default]
@@ -75,7 +77,7 @@ const H_STEP_DEG: f32 = 5.0;
 /// [`theme_author::nudge`].
 const C_MAX: f32 = 0.37;
 
-/// Slider track geometry (U2 Step 2/3), mirroring the settings panel: the track
+/// Slider track geometry, mirroring the settings panel: the track
 /// grows to fill the value area between these widths; below the minimum the
 /// channel row falls back to a plain (keyboard-only) readout line.
 const MIN_SLIDER_TRACK: usize = 8;
@@ -160,19 +162,19 @@ pub(super) struct ThemeBuilderSignature {
     pub(super) scroll: usize,
     pub(super) editing: Option<ThemeBuilderEditSignature>,
     pub(super) message: Option<String>,
-    /// The focused OKLCH channel's label (U2 Step 2/3). In the signature so the
+    /// The focused OKLCH channel's label. In the signature so the
     /// channel picker and slider repaint when the focus changes even if the
     /// message did not - the keyboard path's repaint no longer rides on always
     /// mutating `message`.
     pub(super) channel: &'static str,
-    /// The currently-selected role's color (U2 Step 2/3). In the signature so the
+    /// The currently-selected role's color. In the signature so the
     /// slider thumb, the channel value readout, and the selected field's
     /// swatch/hex repaint as a slider drag (or hex entry) moves the color.
     pub(super) selected_color: Srgb,
 }
 
-/// The role of one rendered builder body line, used to dispatch a pointer press
-/// (U2 Step 2/3). Produced in lockstep with the rendered text by
+/// The role of one rendered builder body line, used to dispatch a pointer press.
+/// Produced in lockstep with the rendered text by
 /// [`ThemeBuilder::build_rows`] so the drawn geometry and the hit-test geometry
 /// can never drift - the same pattern the settings panel uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -244,32 +246,30 @@ enum ThemeField {
     Palette(usize),
 }
 
-const FIELDS: [ThemeField; 24] = [
-    ThemeField::Foreground,
-    ThemeField::Background,
-    ThemeField::Clear,
-    ThemeField::Cursor,
-    ThemeField::Selection,
-    ThemeField::Search,
-    ThemeField::Border,
-    ThemeField::Inactive,
-    ThemeField::Palette(0),
-    ThemeField::Palette(1),
-    ThemeField::Palette(2),
-    ThemeField::Palette(3),
-    ThemeField::Palette(4),
-    ThemeField::Palette(5),
-    ThemeField::Palette(6),
-    ThemeField::Palette(7),
-    ThemeField::Palette(8),
-    ThemeField::Palette(9),
-    ThemeField::Palette(10),
-    ThemeField::Palette(11),
-    ThemeField::Palette(12),
-    ThemeField::Palette(13),
-    ThemeField::Palette(14),
-    ThemeField::Palette(15),
-];
+const FIELDS: [ThemeField; 24] = {
+    let fixed = [
+        ThemeField::Foreground,
+        ThemeField::Background,
+        ThemeField::Clear,
+        ThemeField::Cursor,
+        ThemeField::Selection,
+        ThemeField::Search,
+        ThemeField::Border,
+        ThemeField::Inactive,
+    ];
+    let mut fields = [ThemeField::Foreground; 24];
+    let mut index = 0;
+    while index < fixed.len() {
+        fields[index] = fixed[index];
+        index += 1;
+    }
+    let mut palette_index = 0;
+    while palette_index < 16 {
+        fields[fixed.len() + palette_index] = ThemeField::Palette(palette_index);
+        palette_index += 1;
+    }
+    fields
+};
 
 impl ThemeBuilder {
     pub(super) fn new(settings: &Settings) -> Self {
@@ -426,7 +426,7 @@ impl ThemeBuilder {
             .collect()
     }
 
-    /// The cell→row hit-map for the current body geometry (U2 Step 2/3), aligned
+    /// The cell→row hit-map for the current body geometry, aligned
     /// 1:1 with [`ThemeBuilder::visible_lines`] (index = body row offset from the
     /// first body cell), so a pointer press resolves to exactly the zone drawn at
     /// that row.
@@ -442,7 +442,7 @@ impl ThemeBuilder {
         self.editing.as_ref().map(|editing| match editing {
             EditMode::Color { field, .. } => format!(
                 "Editing {}: type #rrggbb, Enter applies, Esc cancels.",
-                field.label(),
+                field.key(),
             ),
             EditMode::Name { .. } => "Save as: type a theme name, Enter writes .theme, Esc cancels.".to_owned(),
             EditMode::Seed { .. } => "Generate from seed: type an accent #rrggbb, Enter authors a readable theme, Esc cancels.".to_owned(),
@@ -614,7 +614,7 @@ impl ThemeBuilder {
             {
                 value = format!("[{buffer}]");
             }
-            let prefix = format!("{marker} {:<12} ", field.label());
+            let prefix = format!("{marker} {:<12} ", field.key());
             let value_x0 = prefix.chars().count();
             let text = format!("{prefix}{value}");
             rows.push((
@@ -664,7 +664,7 @@ impl ThemeBuilder {
                 }) = self.editing.take()
                 {
                     self.set_color(field, previous);
-                    self.message = Some(format!("Cancelled edit for {}.", field.label()));
+                    self.message = Some(format!("Cancelled edit for {}.", field.key()));
                     return ThemeBuilderOutcome::Preview(self.preview_theme());
                 }
                 if matches!(self.editing, Some(EditMode::Name { .. })) {
@@ -685,7 +685,7 @@ impl ThemeBuilder {
                 }) => match parse_hex(&buffer) {
                     Some(color) => {
                         self.set_color(field, color);
-                        self.message = Some(format!("Applied {} = {}.", field.label(), hex(color)));
+                        self.message = Some(format!("Applied {} = {}.", field.key(), hex(color)));
                         ThemeBuilderOutcome::Preview(self.preview_theme())
                     }
                     None => {
@@ -854,7 +854,7 @@ impl ThemeBuilder {
             Appearance::Dark
         };
         // Mandatory save-time backstop - snap every floored role to AA so
-        // the written .theme clears the authoring floor by construction, even if
+        // the written `.theme` clears the authoring floor by construction, even if
         // F was never pressed. The count is reported in save_succeeded.
         self.save_snap_count = self.auto_snap_floored();
         let spec = self.spec.clone();
@@ -870,7 +870,7 @@ impl ThemeBuilder {
         let arrow = if direction < 0 { "-" } else { "+" };
         self.message = Some(format!(
             "{} {} {arrow} -> {}",
-            field.label(),
+            field.key(),
             self.channel.label(),
             hex(nudged)
         ));
@@ -900,20 +900,20 @@ impl ThemeBuilder {
         ));
     }
 
-    /// Whether a pointer slider drag is in progress (U2 Step 2/3). The App gates
+    /// Whether a pointer slider drag is in progress. The App gates
     /// per-move routing on this so ordinary hover over the open builder stays a
     /// cheap no-op.
     pub(super) fn is_dragging(&self) -> bool {
         self.dragging_channel
     }
 
-    /// End a pointer slider drag (U2 Step 2/3), called on pointer release and on
+    /// End a pointer slider drag, called on pointer release and on
     /// the focus-loss / close cleanups.
     pub(super) fn end_channel_drag(&mut self) {
         self.dragging_channel = false;
     }
 
-    /// Free pointer-driven scroll of the role list (U2 Step 2/3): move the
+    /// Free pointer-driven scroll of the role list: move the
     /// viewport by `delta` rows without moving `selected`, mirroring the settings
     /// panel's wheel scroll. The next keyboard navigation re-clamps scroll to the
     /// selection.
@@ -941,7 +941,7 @@ impl ThemeBuilder {
         (start > 0, start + capacity < FIELDS.len())
     }
 
-    /// Handle a left/right press inside the builder body (U2 Step 2/3).
+    /// Handle a left/right press inside the builder body.
     /// `row_in_body` / `col_in_body` are 0-based offsets from the first body cell.
     /// A click on a role row focuses it; a left click on its displayed hex value
     /// also opens direct entry. A click on an L/C/H picker token focuses that
@@ -996,7 +996,7 @@ impl ThemeBuilder {
         }
     }
 
-    /// Continue an in-progress slider drag (U2 Step 2/3): map the cursor column
+    /// Continue an in-progress slider drag: map the cursor column
     /// to a channel value. Track geometry is recomputed from the shared row
     /// walker each move, so a resize mid-drag can never desync it.
     pub(super) fn handle_pointer_drag(
@@ -1035,7 +1035,7 @@ impl ThemeBuilder {
         self.set_color(field, nudged);
         self.message = Some(format!(
             "{} {} -> {}",
-            field.label(),
+            field.key(),
             self.channel.label(),
             hex(nudged)
         ));
@@ -1061,19 +1061,19 @@ impl ThemeBuilder {
                 let surface = floor_surface_label(role, self.spec.appearance).unwrap_or("?");
                 self.message = Some(format!(
                     "Snapped {} to AA {AUTHORING_CONTRAST_FLOOR:.1} ({ratio:.2} vs {surface}).",
-                    field.label()
+                    field.key()
                 ));
                 ThemeBuilderOutcome::Preview(self.preview_theme())
             }
             None => {
-                self.message = Some(format!("{} is not floored (no AA target).", field.label()));
+                self.message = Some(format!("{} is not floored (no AA target).", field.key()));
                 ThemeBuilderOutcome::Consumed
             }
         }
     }
 
     /// Auto-snap every floored role in the spec up to the authoring floor (the
-    /// D-U2-2 save-time backstop), returning how many roles actually moved.
+    /// save-time backstop), returning how many roles actually moved.
     /// Partners are resolved fresh from the in-progress spec each iteration, so a
     /// foreground-floored fill (selection/search) snaps against the already
     /// floored foreground - `FIELDS` lists foreground before the fills, so the
@@ -1178,10 +1178,10 @@ impl ThemeBuilder {
                 };
                 format!(
                     "  {} vs {surface}: {ratio:.2} {verdict} AA {AUTHORING_CONTRAST_FLOOR:.1}",
-                    field.label()
+                    field.key()
                 )
             }
-            None => format!("  {} not floored (no AA target)", field.label()),
+            None => format!("  {} not floored (no AA target)", field.key()),
         }
     }
 
@@ -1196,7 +1196,7 @@ impl ThemeBuilder {
         )
     }
 
-    /// The two U2 readout strings for the currently-selected role (the contrast
+    /// The two readout strings for the currently-selected role (the contrast
     /// verdict and the channel/LCH values). Retained as the test-facing view of
     /// the readout; the rendered overlay projects the same data through
     /// [`ThemeBuilder::build_rows`].
@@ -1307,6 +1307,11 @@ fn fraction_at(track_x0: usize, track_w: usize, col: usize) -> f32 {
     }
 }
 
+const PALETTE_KEYS: [&str; 16] = [
+    "color0", "color1", "color2", "color3", "color4", "color5", "color6", "color7", "color8",
+    "color9", "color10", "color11", "color12", "color13", "color14", "color15",
+];
+
 impl ThemeField {
     fn key(self) -> &'static str {
         match self {
@@ -1318,28 +1323,8 @@ impl ThemeField {
             ThemeField::Search => "search",
             ThemeField::Border => "border",
             ThemeField::Inactive => "inactive",
-            ThemeField::Palette(0) => "color0",
-            ThemeField::Palette(1) => "color1",
-            ThemeField::Palette(2) => "color2",
-            ThemeField::Palette(3) => "color3",
-            ThemeField::Palette(4) => "color4",
-            ThemeField::Palette(5) => "color5",
-            ThemeField::Palette(6) => "color6",
-            ThemeField::Palette(7) => "color7",
-            ThemeField::Palette(8) => "color8",
-            ThemeField::Palette(9) => "color9",
-            ThemeField::Palette(10) => "color10",
-            ThemeField::Palette(11) => "color11",
-            ThemeField::Palette(12) => "color12",
-            ThemeField::Palette(13) => "color13",
-            ThemeField::Palette(14) => "color14",
-            ThemeField::Palette(15) => "color15",
-            ThemeField::Palette(_) => "color",
+            ThemeField::Palette(index) => PALETTE_KEYS.get(index).copied().unwrap_or("color"),
         }
-    }
-
-    fn label(self) -> &'static str {
-        self.key()
     }
 }
 
@@ -1455,7 +1440,7 @@ fn hex((r, g, b): Srgb) -> String {
     format!("#{r:02x}{g:02x}{b:02x}")
 }
 
-/// Map a builder [`ThemeField`] to the U2 [`AuthorRole`] used to resolve its
+/// Map a builder [`ThemeField`] to the [`AuthorRole`] used to resolve its
 /// floor partner. The palette index carries through unchanged so the
 /// appearance-dependent neutral-pair exemption in
 /// [`theme_author::floor_partner`] applies to the right slots.
@@ -1501,48 +1486,6 @@ fn oklch_of((r, g, b): Srgb) -> (f32, f32, f32) {
         srgb_to_linear(b),
     ]));
     (lch.l, lch.c, lch.h.to_degrees().rem_euclid(360.0))
-}
-
-fn wrap_words(text: &str, width: usize) -> Vec<String> {
-    let width = width.max(12);
-    let mut lines = Vec::new();
-    let mut current = String::new();
-    for word in text.split_whitespace() {
-        let separator = usize::from(!current.is_empty());
-        if current.chars().count() + separator + word.chars().count() > width {
-            if !current.is_empty() {
-                lines.push(current);
-                current = String::new();
-            }
-            if word.chars().count() > width {
-                lines.push(ellipsize(word, width));
-                continue;
-            }
-        }
-        if !current.is_empty() {
-            current.push(' ');
-        }
-        current.push_str(word);
-    }
-    if !current.is_empty() {
-        lines.push(current);
-    }
-    lines
-}
-
-fn ellipsize(text: &str, width: usize) -> String {
-    if width == 0 {
-        return String::new();
-    }
-    if text.chars().count() <= width {
-        return text.to_owned();
-    }
-    if width <= 1 {
-        return "~".to_owned();
-    }
-    let mut out = text.chars().take(width - 1).collect::<String>();
-    out.push('~');
-    out
 }
 
 #[cfg(test)]

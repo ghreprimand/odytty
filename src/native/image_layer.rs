@@ -1300,14 +1300,13 @@ pub(super) fn overlay_fit_quad(img_w: u32, img_h: u32, vp_w: f32, vp_h: f32) -> 
 
 /// Alpha of the full-viewport lightbox scrim that the viewer draws behind the
 /// image to dim the whole post-processed terminal. Higher = darker surround.
-/// Dev-build tunable (dial dimness on re-test); has no
-/// portable-correct value. Drawn alpha-blended, so the terminal shows through at
-/// `1.0 - SCRIM_ALPHA`.
+/// A chosen look, not a derived value. Drawn alpha-blended, so the terminal
+/// shows through at `1.0 - SCRIM_ALPHA`.
 pub(in crate::native) const SCRIM_ALPHA: f32 = 0.72;
 
 /// The image-layer WGSL, built with [`SCRIM_ALPHA`] baked into `fs_backing`.
-/// A function (not a `const`) so the tunable scrim alpha is the single source of
-/// truth rather than a hand-synced literal in the shader text.
+/// A function (not a `const`) so the scrim alpha has one source of truth
+/// rather than a hand-synced literal in the shader text.
 fn image_shader_source() -> String {
     format!(
         r#"

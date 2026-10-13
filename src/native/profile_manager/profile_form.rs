@@ -9,19 +9,11 @@
 //! headers, the shell-suggestion hint, list rows, and validation errors cannot
 //! shift a pointer target away from what is drawn.
 //!
-//! Field kinds:
-//!   * plain text (name, shell, working directory, theme, paths, ...);
-//!   * `Option<bool>` tri-states (follow-external-palette, bloom, crt, retro)
-//!     that cycle inherit -> on -> off with Enter/Space/click;
-//!   * enumerated cycles (platforms, visual, font weight, cursor style/blink,
-//!     render quality) that step through valid values only, never free text;
-//!   * bounded lists (command args, env pairs, host/directory match rules) with
-//!     one rendered row per entry, an add row, and a visible limit message from
-//!     `src/profiles/limits.rs`.
+//! Text, tri-state and enum fields share the rendered target map. Bounded list
+//! fields show one row per entry and an explicit schema-limit message.
 //!
-//! No secret ever persists: env keys/values are re-validated by the schema
-//! round-trip in [`ProfileManager::try_save`], and a rejected entry surfaces
-//! inline without being silently dropped from the draft.
+//! Environment entries pass schema validation in [`ProfileManager::try_save`].
+//! A rejected entry surfaces inline without being dropped from the draft.
 
 use std::collections::BTreeMap;
 

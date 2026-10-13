@@ -77,7 +77,7 @@ impl App {
 
     /// Settle every window-scoped piece of state that names a pane about to
     /// leave, then detach it. Returns the content and its `--hold` state, or
-    /// the refusal with this window unchanged.
+    /// the refusal after transient input is cancelled and focus compensated.
     pub(in crate::native) fn detach_for_move(
         &mut self,
         scope: MoveScope,

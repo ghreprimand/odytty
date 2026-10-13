@@ -4,9 +4,11 @@ use std::fs;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant};
+
+use crate::test_dirs::ScratchDir;
 
 use crate::core::{
     Dimensions, SnapshotCaptureLimits, SnapshotEnvelope, SnapshotEnvelopeCaps, Terminal,
@@ -112,7 +114,7 @@ fn connect_to_a_wedged_host_that_never_accepts_fails_within_the_deadline() {
     // hello lands in the socket buffer. Before the fix, `read_host_hello` had no
     // timeout and blocked the caller forever. The bounded hello read must now
     // surface an error within the deadline.
-    let temp = TempDir::new("sh-wedged");
+    let temp = ScratchDir::for_sockets("sh-wedged");
     let runtime_dir = prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
     let socket_path = session_socket_path(&runtime_dir, "wedged").expect("socket path");
     // Bind but NEVER accept: the listener sits idle for the whole test.
@@ -138,7 +140,7 @@ fn connect_to_a_wedged_host_that_never_accepts_fails_within_the_deadline() {
 
 #[test]
 fn runtime_dir_validation_requires_owner_private_mode() {
-    let temp = TempDir::new("sh-perm");
+    let temp = ScratchDir::for_sockets("sh-perm");
     let runtime_dir = prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
     validate_runtime_dir(&runtime_dir).expect("runtime dir valid");
 
@@ -153,7 +155,7 @@ fn runtime_dir_validation_requires_owner_private_mode() {
 
 #[test]
 fn stale_socket_cleanup_keeps_live_peer_and_removes_dead_socket() {
-    let temp = TempDir::new("sh-stale");
+    let temp = ScratchDir::for_sockets("sh-stale");
     let runtime_dir = prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
     let socket_path = session_socket_path(&runtime_dir, "demo").expect("socket path");
 
@@ -175,7 +177,7 @@ fn stale_socket_cleanup_keeps_live_peer_and_removes_dead_socket() {
 
 #[test]
 fn host_detach_keeps_session_alive_then_idle_timeout_exits() {
-    let temp = TempDir::new("sh-life");
+    let temp = ScratchDir::for_sockets("sh-life");
     // The child blocks on `read` until this client (once attached) sends a byte,
     // then prints its marker. This makes the ordering attach-THEN-output
     // deterministic on every platform: without it, a fast scheduler (notably
@@ -221,7 +223,7 @@ fn host_detach_keeps_session_alive_then_idle_timeout_exits() {
 
 #[test]
 fn host_reattach_replays_output_produced_while_detached() {
-    let temp = TempDir::new("sh-reat");
+    let temp = ScratchDir::for_sockets("sh-reat");
     // `read x` gates the first marker on this client's post-attach input so
     // "before" deterministically arrives as a live Output frame (not folded into
     // the attach snapshot by a fast macOS scheduler). "after" is still produced
@@ -261,7 +263,7 @@ fn host_reattach_replays_output_produced_while_detached() {
 
 #[test]
 fn host_exits_when_child_exits_even_with_client_attached() {
-    let temp = TempDir::new("sh-exit");
+    let temp = ScratchDir::for_sockets("sh-exit");
     // `read x` keeps the child alive until this client is attached and sends a
     // byte; only then does it print "done" and exit 7. Without this gate the
     // child can `printf done; exit 7` and the host can reap it + tear down BEFORE
@@ -296,7 +298,7 @@ fn host_exits_when_child_exits_even_with_client_attached() {
 
 #[test]
 fn host_shutdown_frame_terminates_session_and_cleans_up_socket() {
-    let temp = TempDir::new("sh-kill");
+    let temp = ScratchDir::for_sockets("sh-kill");
     // A long-lived child + long idle timeout: nothing but the Shutdown frame can
     // end this host within the test window, so the assertion is unambiguous.
     let config = host_config(temp.path(), "killme", "sleep 30", Duration::from_secs(3600));
@@ -319,7 +321,7 @@ fn host_shutdown_frame_terminates_session_and_cleans_up_socket() {
 
 #[test]
 fn host_survives_hostile_resize_dimensions() {
-    let temp = TempDir::new("sh-rsz");
+    let temp = ScratchDir::for_sockets("sh-rsz");
     // The child blocks on `read` until this client sends a byte, then prints
     // its marker - proving the host is still serving traffic AFTER the hostile
     // resize frame has been drained.
@@ -359,7 +361,7 @@ fn metadata_with_unknown_version_is_ignored() {
     // so a future-format (or corrupted-version) file would be parsed with v1
     // semantics instead of being treated as unreadable. An unknown version must
     // read as `None` (same graceful fallback as a missing file).
-    let temp = TempDir::new("sh-c27");
+    let temp = ScratchDir::for_sockets("sh-c27");
     let runtime_dir = prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
     super::write_session_metadata(
         &runtime_dir,
@@ -393,7 +395,7 @@ fn metadata_with_unknown_version_is_ignored() {
 
 #[test]
 fn metadata_read_accepts_the_cap_and_rejects_cap_plus_one() {
-    let temp = TempDir::new("sh-metadata-cap");
+    let temp = ScratchDir::for_sockets("sh-metadata-cap");
     let runtime_dir = prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
     let path = super::session_metadata_path(&runtime_dir, "cap").expect("metadata path");
     let cap = super::registry::MAX_SESSION_METADATA_BYTES as usize;
@@ -425,7 +427,7 @@ fn metadata_read_accepts_the_cap_and_rejects_cap_plus_one() {
 fn metadata_read_rejects_a_final_symlink_without_touching_its_sibling_target() {
     use std::os::unix::fs::symlink;
 
-    let temp = TempDir::new("sh-metadata-symlink");
+    let temp = ScratchDir::for_sockets("sh-metadata-symlink");
     let runtime_dir = prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
     let target = runtime_dir.join("sibling-metadata");
     let target_contents =
@@ -447,7 +449,7 @@ fn metadata_read_rejects_a_final_symlink_without_touching_its_sibling_target() {
 
 #[test]
 fn metadata_read_rejects_a_non_regular_leaf() {
-    let temp = TempDir::new("sh-metadata-type");
+    let temp = ScratchDir::for_sockets("sh-metadata-type");
     let runtime_dir = prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
     let path = super::session_metadata_path(&runtime_dir, "directory").expect("metadata path");
     fs::create_dir(&path).expect("plant directory at metadata path");
@@ -466,7 +468,7 @@ fn spawn_socket_timeout_reaps_the_spawned_child() {
     // DROPPED the `Child` - leaking a live orphan host process (or a zombie if
     // it exited) with no owner ever calling kill/wait. The timeout path must
     // kill and reap the child before surfacing the error.
-    let temp = TempDir::new("sh-c26");
+    let temp = ScratchDir::for_sockets("sh-c26");
     let mut child = std::process::Command::new("sleep")
         .arg("30")
         .spawn()
@@ -496,7 +498,7 @@ fn host_survives_client_that_vanishes_mid_handshake() {
     // reading the reply - the host's hello/snapshot writes then fail with
     // BrokenPipe, which previously propagated out of accept_pending_clients and
     // killed the session for everyone.
-    let temp = TempDir::new("sh-c6");
+    let temp = ScratchDir::for_sockets("sh-c6");
     let config = host_config(
         temp.path(),
         "c6",
@@ -531,7 +533,7 @@ fn host_survives_client_that_vanishes_mid_handshake() {
 
 #[test]
 fn kill_session_terminates_a_live_host() {
-    let temp = TempDir::new("sh-rk");
+    let temp = ScratchDir::for_sockets("sh-rk");
     let config = host_config(temp.path(), "rk", "sleep 30", Duration::from_secs(3600));
     let socket_path = config.runtime_paths().expect("runtime paths").socket;
     let host = thread::spawn(move || run_host(config));
@@ -549,7 +551,7 @@ fn kill_session_terminates_a_live_host() {
 
 #[test]
 fn kill_session_on_missing_socket_is_ok() {
-    let temp = TempDir::new("sh-reg-gone");
+    let temp = ScratchDir::for_sockets("sh-reg-gone");
     // The runtime dir exists (owner-private) but no host is bound for this id, so
     // the connect fails and kill_session treats it as already-gone → Ok.
     prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
@@ -558,7 +560,7 @@ fn kill_session_on_missing_socket_is_ok() {
 
 #[test]
 fn host_enforces_configured_scrollback_bound_on_reattach() {
-    let temp = TempDir::new("sh-scrl");
+    let temp = ScratchDir::for_sockets("sh-scrl");
     let mut config = host_config_with_sh(
         temp.path(),
         "bounded",
@@ -726,28 +728,6 @@ fn wait_for_socket(socket_path: &Path) {
     }
 }
 
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(prefix: &str) -> Self {
-        // Nested session socket paths need a short base on macOS.
-        let path = crate::test_dirs::fresh_socket_dir(prefix);
-        Self { path }
-    }
-
-    fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
-
 #[test]
 fn reattach_restores_shaped_emoji_and_bidi_rows_cell_for_cell() {
     // A shaped Devanagari owner, Hebrew, the family ZWJ cluster, a Khmer
@@ -757,7 +737,7 @@ fn reattach_restores_shaped_emoji_and_bidi_rows_cell_for_cell() {
                 \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466} \
                 \u{1780}\u{17D2}\u{1780}\u{17C1} a->bEND";
     let octal: String = text.bytes().map(|byte| format!("\\{byte:03o}")).collect();
-    let temp = TempDir::new("sh-script");
+    let temp = ScratchDir::for_sockets("sh-script");
     let config = host_config(
         temp.path(),
         "scripts",

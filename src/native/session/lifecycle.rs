@@ -473,7 +473,6 @@ impl WorkspaceSet {
             }
         }
         let ws = &mut self.workspaces[ws_idx];
-        let was_active = ws.active_tab == tab_idx;
         ws.tabs.remove(tab_idx);
         if ws.tabs.is_empty() {
             // Last tab of the workspace closed -> close the workspace; the last
@@ -483,11 +482,7 @@ impl WorkspaceSet {
         // Mirror `close_with`'s `None` branch: clamp the active tab index when
         // the active (or an earlier) tab was removed, leave it untouched when a
         // later tab was closed.
-        if was_active {
-            ws.active_tab = tab_idx.min(ws.tabs.len() - 1);
-        } else if ws.active_tab > tab_idx {
-            ws.active_tab -= 1;
-        }
+        ws.adjust_active_tab_after_removal(tab_idx);
         false
     }
 
@@ -512,18 +507,13 @@ impl WorkspaceSet {
         let ws = &mut self.workspaces[ws_idx];
         match ws.tabs[tab_idx].layout.clone().close_leaf(token) {
             None => {
-                let was_active = ws.active_tab == tab_idx;
                 ws.tabs.remove(tab_idx);
                 if ws.tabs.is_empty() {
                     // Last tab of the workspace closed -> close the workspace;
                     // the last workspace closing signals app exit.
                     return self.remove_workspace(ws_idx);
                 }
-                if was_active {
-                    ws.active_tab = tab_idx.min(ws.tabs.len() - 1);
-                } else if ws.active_tab > tab_idx {
-                    ws.active_tab -= 1;
-                }
+                ws.adjust_active_tab_after_removal(tab_idx);
                 false
             }
             Some(layout) => {
@@ -714,9 +704,7 @@ impl WorkspaceSet {
         cwd: Option<std::path::PathBuf>,
     ) -> Result<SessionToken, std::io::Error> {
         let token = self.insert_spawned_session_in(grid, cwd)?;
-        let name = default_workspace_name(self.workspaces.len());
-        self.workspaces.push(Workspace::single(name, token));
-        self.active_ws = self.workspaces.len() - 1;
+        self.activate_new_workspace(token, None);
         Ok(token)
     }
 
@@ -733,9 +721,7 @@ impl WorkspaceSet {
             effective.working_directory.clone(),
             effective,
         )?;
-        let name = default_workspace_name(self.workspaces.len());
-        self.workspaces.push(Workspace::single(name, token));
-        self.active_ws = self.workspaces.len() - 1;
+        self.activate_new_workspace(token, None);
         Ok(token)
     }
 
@@ -752,12 +738,16 @@ impl WorkspaceSet {
             effective.working_directory.clone(),
             effective,
         )?;
+        self.activate_new_workspace(token, Some(profile_name.to_owned()));
+        Ok(token)
+    }
+
+    fn activate_new_workspace(&mut self, token: SessionToken, launch_profile: Option<String>) {
         let name = default_workspace_name(self.workspaces.len());
         let mut workspace = Workspace::single(name, token);
-        workspace.launch_profile = Some(profile_name.to_owned());
+        workspace.launch_profile = launch_profile;
         self.workspaces.push(workspace);
         self.active_ws = self.workspaces.len() - 1;
-        Ok(token)
     }
 
     /// Switch the active workspace to rail index `idx` (its active tab's focused
@@ -926,11 +916,7 @@ impl WorkspaceSet {
             return (true, true);
         }
         let src = &mut self.workspaces[src_idx];
-        if src.active_tab == tab_idx {
-            src.active_tab = tab_idx.min(src.tabs.len() - 1);
-        } else if src.active_tab > tab_idx {
-            src.active_tab -= 1;
-        }
+        src.adjust_active_tab_after_removal(tab_idx);
         (true, false)
     }
 

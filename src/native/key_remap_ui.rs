@@ -1,24 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! The in-app keybinding remap modal (`OverlayMode::KeyBindings`).
-//!
-//! Turns the previously display-only `keybinds` settings row into a
-//! mouse-light, keyboard-driven editor: pick an action, press a chord, and it
-//! is captured live and written to `odytty.conf` - no hand-typing of
-//! `ctrl+shift+f=search` strings (the no-hand-editing north star).
-//!
-//! Architecture (mirrors `theme_builder.rs`): this is a self-contained state
-//! machine the [`super::overlay::OverlayUi`] owns as one `OverlayMode`. Browsing
-//! navigation arrives through [`KeyRemapUi::handle_input`] like every other
-//! overlay mode; the chord-capture interaction is special - it BYPASSES the
-//! lossy `overlay_input_from_winit` mapper (which strips modifiers) and routes a
-//! raw [`KeyChord`] in through [`KeyRemapUi::deliver_chord`]. The App gates that
-//! bypass on [`KeyRemapUi::is_capturing_chord`].
-//!
-//! Persistence reuses the EXISTING serializer ([`crate::settings::
-//! key_bindings_config_value`]) so a chord authored here and one typed into the
-//! config round-trip to the identical bytes; the live `KeyBindings` table
-//! rebuilds via `from_overrides` on the reloadable apply, so a remap takes
-//! effect immediately with no restart.
+//! In-app keybinding editor for browsing, chord capture and conflict/close prompts.
+//! [`super::overlay::OverlayUi`] owns the state machine. Browsing uses
+//! [`KeyRemapUi::handle_input`]; capture receives raw [`KeyChord`] values through
+//! [`KeyRemapUi::deliver_chord`] before the lossy overlay mapper.
+//! Live previews rebuild the binding table. Save uses the shared configuration
+//! serializer, so edited and hand-authored bindings round-trip identically.
 
 use crate::settings::{
     BindableAction, KEYBINDS_ENV, KeyBindingKey, KeyBindingNamedKey, KeyBindingOverride, KeyChord,
@@ -31,13 +17,6 @@ use std::cell::Cell;
 use super::bindings::{KeyBindings, PanePrefixBindings, same_prefix_key};
 use super::overlay::OverlayInput;
 use super::settings_panel::wrap_words;
-
-/// Every `BindableAction` the in-app remap UI exposes - the full config surface,
-/// grouped core → overlay → tab → pane. Sourced from [`BindableAction::ALL`] so
-/// the editor's row set can never drift from the enum (the
-/// `all_bindable_actions_is_exhaustive` guard in the settings tests pins `ALL`
-/// to the variant set). The modal pages/scrolls, so the taller list fits.
-const ACTIONS: [BindableAction; BindableAction::ALL.len()] = BindableAction::ALL;
 
 /// What the App should do after a remap-UI key/chord. Mirrors
 /// `ThemeBuilderOutcome`: `Preview` applies the working bindings live (the
@@ -139,7 +118,7 @@ impl KeyRemapUi {
         } else {
             self.overrides.clone_from(&settings.key_bindings);
         }
-        self.selected = self.selected.min(ACTIONS.len() - 1);
+        self.selected = self.selected.min(BindableAction::ALL.len() - 1);
     }
 
     /// True while a row is capturing a chord OR a conflict-confirm is pending.
@@ -170,7 +149,7 @@ impl KeyRemapUi {
             OverlayInput::PageUp => self.move_selection(-5),
             OverlayInput::PageDown => self.move_selection(5),
             OverlayInput::Home => self.set_selection(0),
-            OverlayInput::End => self.set_selection(ACTIONS.len() - 1),
+            OverlayInput::End => self.set_selection(BindableAction::ALL.len() - 1),
             OverlayInput::Activate => self.begin_capture(),
             OverlayInput::Backspace => return self.reset_selected_row(),
             OverlayInput::Char('r') | OverlayInput::Char('R') => return self.reset_all(),
@@ -226,7 +205,7 @@ impl KeyRemapUi {
     }
 
     fn move_selection(&mut self, delta: isize) {
-        let len = ACTIONS.len() as isize;
+        let len = BindableAction::ALL.len() as isize;
         let next = (self.selected as isize + delta).clamp(0, len - 1) as usize;
         self.set_selection(next);
     }
@@ -234,7 +213,7 @@ impl KeyRemapUi {
     /// Select `index` and scroll the window just far enough to keep it shown,
     /// using the window size of the last render.
     fn set_selection(&mut self, index: usize) {
-        self.selected = index.min(ACTIONS.len() - 1);
+        self.selected = index.min(BindableAction::ALL.len() - 1);
         self.message = None;
         self.scroll = self.window_start(self.last_list_capacity.get());
     }
@@ -248,7 +227,7 @@ impl KeyRemapUi {
         let lowest = self.selected.saturating_sub(capacity - 1);
         self.scroll
             .clamp(lowest, self.selected)
-            .min(ACTIONS.len().saturating_sub(capacity))
+            .min(BindableAction::ALL.len().saturating_sub(capacity))
     }
 
     /// Questions and controls come from modal state; transient feedback follows.
@@ -306,7 +285,7 @@ impl KeyRemapUi {
     }
 
     fn begin_capture(&mut self) {
-        let action = ACTIONS[self.selected];
+        let action = BindableAction::ALL[self.selected];
         self.capture = Some(action);
         self.message = Some(format!(
             "Press a chord for {} (Esc cancels)…",
@@ -315,7 +294,7 @@ impl KeyRemapUi {
     }
 
     fn reset_selected_row(&mut self) -> KeyRemapOutcome {
-        let action = ACTIONS[self.selected];
+        let action = BindableAction::ALL[self.selected];
         let before = self.overrides.len();
         self.overrides.retain(|o| o.action != action);
         if self.overrides.len() == before {
@@ -373,7 +352,7 @@ impl KeyRemapUi {
             return None;
         }
         let index = self.window_start(self.list_capacity(body_height)) + (row_in_body - prefix);
-        (index < ACTIONS.len()).then_some(index)
+        (index < BindableAction::ALL.len()).then_some(index)
     }
 
     /// Select the action row under a left-click, reporting whether it landed on a
@@ -586,7 +565,7 @@ impl KeyRemapUi {
             return;
         }
         let capacity = self.last_list_capacity.get().max(1);
-        let max_start = ACTIONS.len().saturating_sub(capacity);
+        let max_start = BindableAction::ALL.len().saturating_sub(capacity);
         let start = self
             .window_start(capacity)
             .saturating_add_signed(delta)
@@ -625,7 +604,7 @@ impl KeyRemapUi {
             return (false, false);
         }
         let start = self.window_start(capacity);
-        (start > 0, start + capacity < ACTIONS.len())
+        (start > 0, start + capacity < BindableAction::ALL.len())
     }
 
     pub(super) fn visible_lines(&self, body_width: usize, body_height: usize) -> Vec<KeyRemapLine> {
@@ -646,7 +625,7 @@ impl KeyRemapUi {
         let capacity = body_budget.saturating_sub(rows.len());
         self.last_list_capacity.set(capacity);
         let start = self.window_start(capacity);
-        for (offset, action) in ACTIONS.iter().enumerate().skip(start) {
+        for (offset, action) in BindableAction::ALL.iter().enumerate().skip(start) {
             if rows.len() >= body_budget {
                 break;
             }
@@ -744,7 +723,10 @@ mod tests {
     }
 
     fn select_action(ui: &mut KeyRemapUi, action: BindableAction) {
-        let index = ACTIONS.iter().position(|a| *a == action).unwrap();
+        let index = BindableAction::ALL
+            .iter()
+            .position(|a| *a == action)
+            .unwrap();
         ui.set_selection(index);
     }
 
@@ -754,16 +736,11 @@ mod tests {
 
     #[test]
     fn actions_list_covers_every_bindable_action() {
-        // The remap modal now offers the full `keybinds` config surface - every
-        // `BindableAction` variant. ACTIONS is `BindableAction::ALL`, whose
-        // exhaustiveness is pinned by `all_bindable_actions_is_exhaustive` in the
-        // settings tests; here we confirm the editor inherits the full set with
-        // no duplicates.
-        assert_eq!(ACTIONS.len(), 52);
-        assert_eq!(ACTIONS, BindableAction::ALL);
-        for (i, a) in ACTIONS.iter().enumerate() {
-            for b in &ACTIONS[i + 1..] {
-                assert_ne!(a, b, "ACTIONS must be distinct");
+        // The settings tests pin enum exhaustiveness; the editor uses that
+        // canonical list directly and requires distinct actions.
+        for (i, a) in BindableAction::ALL.iter().enumerate() {
+            for b in &BindableAction::ALL[i + 1..] {
+                assert_ne!(a, b, "BindableAction::ALL must be distinct");
             }
         }
         // Sample one action from each group to prove the expansion landed.
@@ -774,7 +751,10 @@ mod tests {
             BindableAction::NewTab,                // tab
             BindableAction::ZoomPane,              // pane
         ] {
-            assert!(ACTIONS.contains(&expected), "editor must list {expected:?}");
+            assert!(
+                BindableAction::ALL.contains(&expected),
+                "editor must list {expected:?}"
+            );
         }
     }
 
@@ -1197,7 +1177,7 @@ mod tests {
     #[test]
     fn click_row_selects_and_routes_activate_to_arm_capture() {
         // open() sets a help message, so row 0 is the message and action rows
-        // start at row 1. Clicking row 1 selects ACTIONS[0]; routing Activate
+        // start at row 1. Clicking row 1 selects BindableAction::ALL[0]; routing Activate
         // (as the overlay does) arms capture - a click selects + arms, exactly
         // like Enter.
         let mut ui = ui();
@@ -1211,7 +1191,7 @@ mod tests {
     #[test]
     fn click_row_maps_offset_past_the_message_line() {
         let mut ui = ui();
-        // Row 3 = message(0) + ACTIONS[2] (rows 1,2,3 → actions 0,1,2).
+        // Row 3 = message(0) + BindableAction::ALL[2] (rows 1,2,3 → actions 0,1,2).
         assert!(ui.click_row(3, 60));
         assert_eq!(ui.render_signature().selected, 2);
     }
@@ -1228,7 +1208,7 @@ mod tests {
     fn click_row_at_or_past_the_body_height_is_rejected() {
         // A short window: only rows below body_height are rendered. The bottom
         // border row maps to `row_in_body == body_height` and must not resolve
-        // to an off-window action, even though its index is in ACTIONS bounds.
+        // to an off-window action, even though its index is in BindableAction::ALL bounds.
         let ui_ref = ui();
         // body_height 5: message row 0 + action rows 1..=4 rendered.
         assert!(ui_ref.row_at(4, 5).is_some(), "last visible row maps");

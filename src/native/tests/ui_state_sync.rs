@@ -327,6 +327,71 @@ fn synchronized_output_holds_only_the_pane_inside_its_batch() {
     );
 }
 
+/// A background pane of a split tab holds on its own clock: its release is due
+/// at its own deadline, and that deadline is what wakes the event loop, with
+/// the focused pane idle. No clock is read: the deadline comes from the hold the
+/// frame armed, and the due check takes an injected instant.
+#[test]
+fn a_background_panes_hold_releases_at_its_own_deadline_and_wakes_the_loop() {
+    let (mut app, first_terminal) = headless_app_with(
+        NativeOptions::default(),
+        Dimensions::new(80, 24),
+        Settings::default(),
+    );
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 416, WindowPadding::ZERO);
+    let first = app.active_session_token_for_test();
+    let second_terminal = Arc::new(Mutex::new(Terminal::new(40, 24)));
+    app.seed_headless_split_pane_for_test(
+        true,
+        Arc::clone(&second_terminal),
+        crate::native::test_support::headless_writer(),
+        Dimensions::new(40, 24),
+    );
+    for token in app.active_tab_pane_tokens_for_test() {
+        app.focus_session_token_for_test(token);
+        app.set_test_cell_for_test(cell(8, 16));
+        app.set_test_surface_for_test(800, 416, WindowPadding::ZERO);
+    }
+    app.focus_session_token_for_test(first);
+    app.reflow_active_panes_for_test();
+    let second = app
+        .active_tab_pane_tokens_for_test()
+        .into_iter()
+        .find(|token| *token != first)
+        .expect("a second pane");
+
+    write(&first_terminal, b"\x1b[HA1");
+    write(&second_terminal, b"\x1b[HB1");
+    let _ = app.redraw_multipane_probe_for_test();
+    assert_eq!(
+        app.session_hold_deadline_for_test(second),
+        None,
+        "no hold yet"
+    );
+
+    // Only the background pane opens a batch; the focused pane stays idle.
+    write(&second_terminal, b"\x1b[?2026h\x1b[HB2");
+    let _ = app.redraw_multipane_probe_for_test();
+    let deadline = app
+        .session_hold_deadline_for_test(second)
+        .expect("the background pane's frame armed its hold");
+    assert_eq!(app.session_hold_deadline_for_test(first), None);
+    assert_eq!(
+        app.on_screen_hold_deadline_for_test(),
+        Some(deadline),
+        "the on-screen deadline is the background pane's own"
+    );
+    assert!(
+        app.wake_deadline_for_test()
+            .is_some_and(|wake| wake <= deadline),
+        "the event loop wakes no later than the background pane's release"
+    );
+    let just_before = deadline - Duration::from_nanos(1);
+    assert!(!app.on_screen_hold_due_for_test(just_before));
+    assert!(app.on_screen_hold_due_for_test(deadline));
+}
+
 /// After a split collapses to one pane, the survivor's retained snapshot is
 /// the pane-local one its split frames stored. A synchronized-output batch
 /// that starts right then must not re-present that snapshot as the window: the

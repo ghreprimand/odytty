@@ -150,7 +150,7 @@ fn floating_starts_where_the_tiles_were_without_overlap() {
 fn the_focused_pane_paints_last_and_the_topmost_pane_wins_a_click() {
     let mut set = tab_of(2);
     float(&mut set);
-    // Grow the right-hand (focused) pane over the left one to force overlap.
+    // Move the focused pane left over its neighbour to force overlap.
     for _ in 0..30 {
         set.step_active_floating(
             FloatStep::Move {
@@ -489,19 +489,6 @@ fn a_floating_list_that_does_not_match_the_panes_restores_tiled() {
 }
 
 #[test]
-fn a_newer_schema_is_ignored_whole_and_applies_no_rectangles() {
-    let set = tab_of(2);
-    let text =
-        set.capture_shape()
-            .to_json_pretty()
-            .replacen("\"version\": 1", "\"version\": 999", 1);
-    assert!(matches!(
-        ShapeSnapshot::from_json_str(&text),
-        Err(crate::native::persistence::LoadError::VersionSkew { found: 999 })
-    ));
-}
-
-#[test]
 fn restoring_the_same_file_at_the_same_size_gives_the_same_rectangles() {
     let layout = Arrangement::Floating(FloatLayout::from_entries(vec![
         FloatEntry {
@@ -676,7 +663,7 @@ fn float_pane_shape_has_no_hidden_state() {
 }
 
 #[test]
-fn phase9_foreign_schema_with_floating_geometry_is_rejected_before_restore() {
+fn foreign_schema_with_floating_geometry_is_rejected_before_restore() {
     let mut set = tab_of(3);
     float(&mut set);
     set.step_active_floating(
@@ -720,7 +707,7 @@ fn phase9_foreign_schema_with_floating_geometry_is_rejected_before_restore() {
 }
 
 #[test]
-fn phase9_older_layout_without_arrangement_restores_all_panes_as_tiled() {
+fn older_layout_without_arrangement_restores_all_panes_as_tiled() {
     let original = tab_of(3);
     let json = original.capture_shape().to_json_pretty();
     assert!(!json.contains("\"arrangement\""));
@@ -748,7 +735,7 @@ fn phase9_older_layout_without_arrangement_restores_all_panes_as_tiled() {
 }
 
 #[test]
-fn phase9_unknown_layout_fields_do_not_bypass_newer_schema_rejection() {
+fn unknown_layout_fields_do_not_bypass_newer_schema_rejection() {
     let mut original = tab_of(2);
     float(&mut original);
     let shape = original.capture_shape();

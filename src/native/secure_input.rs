@@ -197,7 +197,7 @@ pub fn set_secure_input(enabled: bool) {
 
 /// Whether the macOS primitive is currently enabled. False on Windows and
 /// Linux, and false in tests that replace the primitive.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub fn secure_input_os_enabled() -> bool {
     OS_ENABLED.load(Ordering::SeqCst)
 }

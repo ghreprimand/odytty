@@ -217,7 +217,7 @@ mod tests {
     // ---- Adversarial inputs: plan carries env/cwd, default fallback ----
 
     #[test]
-    fn a3_plan_carries_env_and_working_directory_from_profile() {
+    fn plan_carries_env_and_working_directory_from_profile() {
         // A launch surface's resolved env and working directory must survive into
         // the spawn plan verbatim, so the child starts in the profile's context.
         let mut profile = LaunchProfile::new("dev").expect("profile");
@@ -251,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn a3_default_shell_plan_when_profile_sets_neither_shell_nor_command() {
+    fn default_shell_plan_when_profile_sets_neither_shell_nor_command() {
         // A named profile that customizes only appearance/env must still spawn the
         // platform default shell, not an empty or fabricated command.
         let mut profile = LaunchProfile::new("themed").expect("profile");
@@ -361,7 +361,7 @@ mod tests {
     }
 
     #[test]
-    fn a3_shell_spawn_applies_structured_args() {
+    fn shell_spawn_applies_structured_args() {
         let plan = LocalLaunchPlan {
             settings: Settings::default(),
             working_directory: None,

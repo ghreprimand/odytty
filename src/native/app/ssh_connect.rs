@@ -44,7 +44,7 @@ impl App {
         }
     }
 
-    /// Persist a host built in the Add / Edit connection form (REMOTE-UX P4).
+    /// Persist a host built in the Add / Edit connection form.
     /// `edit_target` `None` appends a new block; `Some(alias)` byte-splices over
     /// the existing block owning that alias, leaving every other block, comment,
     /// and unknown field untouched. Resolves the same config dir the connection
@@ -97,7 +97,7 @@ impl App {
     }
 
     /// Run a Test Connection probe for a host built in the Add / Edit form
-    /// (REMOTE-UX P4 / ODP-8) on a background thread, storing the receiver so
+    ///  on a background thread, storing the receiver so
     /// `run_about_to_wait_maintenance` can drain the tri-state result into the
     /// open form. The argv is the same non-interactive `BatchMode` one-shot the
     /// probe builder produces; a build error (an invalid host) surfaces in the
@@ -175,7 +175,7 @@ impl App {
     }
 
     /// Scan `~/.ssh` for candidate SSH private keys to seed the IdentityFile
-    /// browser (FORM-UX). Filename heuristics ONLY - this reads directory-entry
+    /// browser. Filename heuristics ONLY - this reads directory-entry
     /// NAMES and never opens a key file, so no key material ever enters memory.
     /// Returns full paths, sorted; a missing or unreadable `~/.ssh` yields an
     /// empty list and the browser shows a "type a path manually" hint. The scan
@@ -229,7 +229,7 @@ impl App {
         let token = self
             .sessions
             .connect_ssh_in_new_tab(host, self.grid, &opts)?;
-        // RESTORE-REMOTE: remember what this session connected to so the shape
+        // remember what this session connected to so the shape
         // snapshot can respawn it through the connect path on restore. A
         // currently-saved profile is stored by alias (restore re-resolves its
         // full per-host config); anything else is stored as its full
@@ -297,7 +297,7 @@ impl App {
         }
     }
 
-    /// Open `host` in a fresh workspace pre-bound to it (ODP-2C "Open in New
+    /// Open `host` in a fresh workspace pre-bound to it ("Open in New
     /// Workspace"). Creates a plain workspace (which spawns a placeholder local
     /// first tab), sets its `default_profile` so future New Tabs there route
     /// through the SSH connect path, then connects the host as the workspace's
@@ -352,7 +352,7 @@ impl App {
         }
     }
 
-    /// Delete the OdyTTY-owned `hosts.conf` block for `host` (ODP-2C "Remove…",
+    /// Delete the OdyTTY-owned `hosts.conf` block for `host` ("Remove…",
     /// P1 byte-splice) and reopen the connection manager so the removed row
     /// disappears - mirroring the Manage-Sessions kill-confirm reopen. Resolves
     /// the same config dir the manager loads from; a missing config dir, an
@@ -395,8 +395,8 @@ impl App {
         self.open_connection_overlay();
     }
 
-    /// Bind the active workspace to a host by its alias (ODP-6B). Shared by the
-    /// palette host rows and the ODP-1B host-picker path; a one-line notice
+    /// Bind the active workspace to a host by its alias. Shared by the
+    /// palette host rows and the host-picker path; a one-line notice
     /// spells out what the binding changes (every new tab/pane spawns on the
     /// remote; "New Local Tab" is the escape hatch).
     pub(in crate::native) fn bind_active_workspace_to_host_alias(&mut self, alias: String) {
@@ -405,8 +405,8 @@ impl App {
         self.raise_open_notice(workspace_bound_notice(&alias));
     }
 
-    /// Open the shared host picker (ODP-1B) seeded for binding the active
-    /// workspace (ODP-6B). Reuses the connection-manager list - the same
+    /// Open the shared host picker seeded for binding the active
+    /// workspace. Reuses the connection-manager list - the same
     /// OdyTTY-owned hosts plus any opt-in ssh-config names - with a tagged
     /// purpose so accepting a row binds instead of connecting. With no saved
     /// hosts the picker still opens and shows its empty-state hint.
@@ -421,8 +421,8 @@ impl App {
         self.request_selection_redraw();
     }
 
-    /// Open the shared host picker (ODP-1B) seeded to bind the workspace with
-    /// creation identity `identity` (RAIL-BIND). Same as
+    /// Open the shared host picker seeded to bind the workspace with
+    /// creation identity `identity`. Same as
     /// [`Self::open_bind_workspace_picker`] but the pick routes back to the
     /// CLICKED workspace rather than the active one, so a rail context menu can
     /// bind a workspace without switching to it first.
@@ -440,7 +440,7 @@ impl App {
         self.request_selection_redraw();
     }
 
-    /// Bind the workspace at rail index `idx` to a host by alias (RAIL-BIND).
+    /// Bind the workspace at rail index `idx` to a host by alias.
     /// The by-index counterpart to [`Self::bind_active_workspace_to_host_alias`];
     /// the one-line notice states plainly that the binding routes NEW tabs to
     /// the remote (existing tabs keep their shells).
@@ -454,7 +454,7 @@ impl App {
         }
     }
 
-    /// Clear the host binding of the workspace at rail index `idx` (RAIL-BIND),
+    /// Clear the host binding of the workspace at rail index `idx`,
     /// returning its New Tab to a local shell. The by-index counterpart to
     /// [`Self::unbind_active_workspace`]; unbinding an already-local workspace is
     /// a silent no-op.
@@ -468,8 +468,8 @@ impl App {
         }
     }
 
-    /// Open the shared host picker (ODP-1B) seeded to open a host in a new tab
-    /// right after the tab that owns `token` (ODP-5D "Connect to host ▸"). The
+    /// Open the shared host picker seeded to open a host in a new tab
+    /// right after the tab that owns `token` ("Connect to host ▸"). The
     /// pick routes back through [`Self::connect_host_in_tab_after`]. With no
     /// saved hosts the picker still opens and shows its empty-state hint.
     pub(in crate::native) fn open_connect_tab_after_picker(&mut self, token: SessionToken) {
@@ -483,8 +483,8 @@ impl App {
         self.request_selection_redraw();
     }
 
-    /// Open the shared host picker (ODP-1B) seeded to REPLACE the tab that owns
-    /// `token` with a saved host (ODP-5D "Replace this tab with ▸"). The pick
+    /// Open the shared host picker seeded to REPLACE the tab that owns
+    /// `token` with a saved host ("Replace this tab with ▸"). The pick
     /// routes back through [`Self::replace_tab_with_host`], which gates the
     /// destructive close behind a confirm when that tab is busy.
     pub(in crate::native) fn open_replace_tab_picker(&mut self, token: SessionToken) {
@@ -514,7 +514,7 @@ impl App {
         }
     }
 
-    /// Replace the tab that owns `target` with `host` (ODP-5D). When that tab
+    /// Replace the tab that owns `target` with `host`. When that tab
     /// holds a running foreground child the destructive close is gated behind a
     /// confirm dialog carrying the pending host + token; an idle tab (shell at
     /// its prompt) replaces directly with no prompt.
@@ -532,7 +532,7 @@ impl App {
         }
     }
 
-    /// Perform the replace (ODP-5D): open `host` adjacent to `target`, then close
+    /// Perform the replace: open `host` adjacent to `target`, then close
     /// `target` so the remote lands in its former slot. Ordered connect-then-
     /// close so the anchor still exists when the new tab is placed, and so a
     /// connect failure leaves the original tab untouched (no data loss).
@@ -548,7 +548,7 @@ impl App {
         }
     }
 
-    /// Clear the active workspace's host binding (F6-W5), returning New Tab there
+    /// Clear the active workspace's host binding, returning New Tab there
     /// to spawning a local shell. A one-line notice confirms new tabs are local
     /// again; unbinding an already-local workspace is a silent no-op.
     pub(in crate::native) fn unbind_active_workspace(&mut self) {
@@ -562,7 +562,7 @@ impl App {
     }
 
     /// The identity to remember for a session connecting to `host`
-    /// (RESTORE-REMOTE): the saved-profile alias when `host` is a currently-
+    ///: the saved-profile alias when `host` is a currently-
     /// saved `hosts.conf` (or opt-in ssh-config) entry, so restore re-resolves
     /// its full per-host configuration; otherwise the full `[user@]host[:port]`
     /// destination, which the restore path reconstructs as an ad-hoc connection.
@@ -580,7 +580,7 @@ impl App {
     }
 
     /// Snapshot the settings and saved hosts a snapshot restore needs to respawn
-    /// remote panes (RESTORE-REMOTE), owned so the spawn closure is self-
+    /// remote panes, owned so the spawn closure is self-
     /// contained and does not borrow `self` while the workspace set is borrowed
     /// mutably. Loading the saved hosts once (not per pane) keeps restore cheap.
     pub(super) fn remote_restore_context(&self) -> RemoteRestoreContext {
@@ -729,7 +729,7 @@ fn remote_display_destination(host: &ConnectionHost) -> String {
 }
 
 /// Everything the snapshot-restore spawn closure needs to reconnect a remote
-/// pane (RESTORE-REMOTE) without borrowing the `App` - owned settings plus the
+/// pane without borrowing the `App` - owned settings plus the
 /// saved-host list, gathered once by [`App::remote_restore_context`].
 pub(super) struct RemoteRestoreContext {
     saved_hosts: Vec<ConnectionHost>,
@@ -787,7 +787,7 @@ impl RemoteRestoreContext {
         let host = self.resolve(identity)?;
         let opts = self.options_for(&host);
         let command = crate::ssh_connect::ssh_command_for_host_with_options(&host, &opts).ok()?;
-        // RESTORE-UPLOAD: carry the image paste-through descriptor so a restored
+        // carry the image paste-through descriptor so a restored
         // integrated pane uploads pasted images exactly like a fresh connect.
         // Built by the same shared helper the connect path uses, so the two stay
         // in lockstep; `None` for a plain-ssh (integration-off) pane.
@@ -797,14 +797,14 @@ impl RemoteRestoreContext {
     }
 }
 
-/// The one-line notice raised when a workspace is bound to a host (W5-BIND-TOAST).
+/// The one-line notice raised when a workspace is bound to a host.
 /// It confirms the binding AND spells out the behavior change - every new tab in
 /// this workspace now spawns on the remote, and "New Local Tab" is the escape.
 fn workspace_bound_notice(alias: &str) -> String {
     format!("Workspace bound to {alias} - new tabs open there; New Local Tab escapes")
 }
 
-/// The notice raised when a workspace binding is cleared (W5-BIND-TOAST). Host-
+/// The notice raised when a workspace binding is cleared. Host-
 /// agnostic: it states the new behavior (new tabs are local again) rather than
 /// naming the host that was unbound.
 const WORKSPACE_UNBOUND_NOTICE: &str = "Workspace unbound - new tabs open locally";
@@ -887,7 +887,7 @@ fn scan_identity_entries(
                 continue;
             }
         };
-        // Skip subdirectories - a key is a file (or a symlink to one).
+        // Skip entries whose own file type is a directory; symlinks remain candidates.
         if is_dir {
             continue;
         }
@@ -919,7 +919,7 @@ fn scan_identity_entries(
     }
 }
 
-/// Filename-only heuristic for a candidate SSH private key (FORM-UX). Given a
+/// Filename-only heuristic for a candidate SSH private key. Given a
 /// bare file `name` and whether a matching `<name>.pub` sibling exists, decide
 /// whether to offer it in the IdentityFile browser. Never inspects file
 /// contents. Excludes `*.pub`, `known_hosts*`, `config`, and `authorized_keys`;
@@ -1161,7 +1161,7 @@ mod bind_notice_tests {
 
     #[test]
     fn bind_notice_names_the_host_and_the_escape() {
-        // W5-BIND-TOAST: the bind toast must carry the host, that new tabs open
+        // the bind toast must carry the host, that new tabs open
         // there, and the local-escape hatch so the surface is discoverable.
         let notice = workspace_bound_notice("prod@edge");
         assert!(notice.contains("prod@edge"), "names the host: {notice}");

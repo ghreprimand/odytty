@@ -36,7 +36,7 @@ const MAX_PANIC_MESSAGE_BYTES: usize = 1024;
 pub(crate) fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         log_panic_info(info);
-        // FREEZE-HARDEN (a): die visibly. A panicking render/update/worker
+        // die visibly. A panicking render/update/worker
         // thread must never leave the event loop alive as a zombie window,
         // and a panicking main thread must not linger half-unwound. abort()
         // (not exit()) so a debugger/coredump still sees the crashed state.

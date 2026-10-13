@@ -166,11 +166,10 @@ pub(super) fn probe_socket(socket_path: &Path) -> SocketLiveness {
 
 /// Connect errors that mean no host is serving the socket.
 fn is_absent_socket_error(error: &io::Error) -> bool {
-    error.kind() == io::ErrorKind::NotFound
-        || matches!(
-            error.raw_os_error(),
-            Some(libc::ECONNREFUSED | libc::ENOENT)
-        )
+    matches!(
+        error.raw_os_error(),
+        Some(libc::ECONNREFUSED | libc::ENOENT)
+    )
 }
 
 /// List detached sessions. Each socket is classified with [`probe_socket`];

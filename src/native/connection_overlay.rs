@@ -14,6 +14,8 @@
 //! behind the `ssh_config_hosts` opt-in. When the opt-in is off the App hands
 //! this overlay only OdyTTY-owned hosts.
 
+use super::display_text::truncate_scalars as truncate_for_width;
+
 use std::cell::Cell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -105,16 +107,8 @@ pub(super) struct ConnectionOverlay {
     add_row_focused: bool,
 }
 
-/// What accepting a row in the connection picker means (ODP-1B shared picker
-/// infra). `Connect` is the historical connection-manager behavior: the picker
-/// is the connect surface, so accept spawns ssh (and Shift+Enter optionally
-/// saves an ad-hoc host). The tagged variants turn the SAME filtered host list
-/// into the generic "menu item → seeded picker → tagged accept" mechanism: a
-/// context-menu item opens the picker seeded with saved hosts plus a pending
-/// action, and accepting a row hands the App the chosen host paired with that
-/// action to route - instead of connecting. New consumers (tab "Connect to
-/// host", connection-row actions) add their own variant when they land; the
-/// mechanism does not change.
+/// Purpose-tagged acceptance: connect normally, or return the selected host
+/// to the pending workspace/tab action that opened the picker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum ConnectionPickerPurpose {
     /// The connection manager: accept connects; ad-hoc save is offered.
@@ -130,10 +124,10 @@ pub(super) enum ConnectionPickerPurpose {
     /// while the picker is open.
     BindWorkspaceAt(SessionToken),
     /// Open the chosen saved host in a NEW tab positioned right after the tab
-    /// that owns this token (ODP-5D "Connect to host ▸"). The clicked tab is
+    /// that owns this token ("Connect to host ▸"). The clicked tab is
     /// left untouched - the new remote tab reads as "connect from here".
     ConnectTabAfter(SessionToken),
-    /// Replace the tab that owns this token with the chosen saved host (ODP-5D
+    /// Replace the tab that owns this token with the chosen saved host (
     /// "Replace this tab with ▸"). The App gates the destructive close behind a
     /// confirm when that tab holds a running foreground child.
     ReplaceTab(SessionToken),
@@ -157,11 +151,11 @@ pub(super) enum ConnectionOverlayOutcome {
     /// Launch a new tab through the named-profile resolver (v0.14). Emitted only
     /// from a profile row in the connection-manager (`Connect`) purpose.
     LaunchProfile(String),
-    /// Open the Add-connection form (REMOTE-UX P4). Raised by Tab in the
+    /// Open the Add-connection form. Raised by Tab in the
     /// connection manager; the overlay switches itself to the form mode.
     AddConnection,
-    /// Open the Edit form pre-filled from the selected OdyTTY-owned host
-    /// (REMOTE-UX P4). Raised by `\u{2192}` on a saved OdyTTY row;
+    /// Open the Edit form pre-filled from the selected OdyTTY-owned host.
+    /// Raised by `\u{2192}` on a saved OdyTTY row;
     /// `ssh-config`-imported rows are read-only and never emit this.
     EditConnection(Box<ConnectionHost>),
 }
@@ -521,7 +515,7 @@ impl ConnectionOverlay {
     }
 
     /// Map a clicked body row to the selection cursor it represents - the
-    /// inverse of the [`Self::visible_lines`] windowing (UX4-P1 click→Activate).
+    /// inverse of the [`Self::visible_lines`] windowing (click→Activate).
     /// Row 0 is the `> query` prompt; host rows follow from the live
     /// `scroll_offset`. Returns `None` for the prompt row, the empty/"No
     /// matches" hint, or a click past the last host.
@@ -540,7 +534,7 @@ impl ConnectionOverlay {
     }
 
     /// Map a right-clicked body row to `(filtered cursor, cloned host)` for the
-    /// ODP-2C connection-row context menu. Returns `None` for the prompt row,
+    /// connection-row context menu. Returns `None` for the prompt row,
     /// the empty/"No matches"/ad-hoc hint, or a click past the last host - a
     /// menu only opens on a real saved-host row. Read-only: unlike `click_row`
     /// it never moves the selection, so right-click-for-menu leaves the keyboard
@@ -563,7 +557,7 @@ impl ConnectionOverlay {
     /// Down×N + Activate by construction.
     pub(super) fn click_row(&mut self, row_in_body: usize, body_height: usize) -> bool {
         // The pinned "+ Add connection…" footer row sits at
-        // `body_height - FOOTER_ROWS`; a click there focuses it so the caller's
+        // `body_height - footer_rows(body_height)`; a click there focuses it so the caller's
         // routed Activate opens the Add form.
         let footer = self.footer_rows(body_height);
         if footer > 0 && row_in_body == body_height - footer {
@@ -725,7 +719,8 @@ impl ConnectionOverlay {
 
     /// Hidden result rows above / below the visible window, for the shared
     /// scroll affordance. One body row is the query
-    /// line, so the result viewport is `body_height - 1`. `(false, false)`
+    /// line; the result viewport also excludes the purpose-specific wrapped
+    /// footer. `(false, false)`
     /// whenever everything fits, so a tall overlay draws no arrows.
     pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
         let visible_results = self.visible_results_rows(body_height);
@@ -868,7 +863,7 @@ fn match_text(entry: &ConnectionHost) -> String {
     sanitize(&text)
 }
 
-/// Render one host row: `alias   user@host:port   [theme]   (source)`.
+/// Render one host row with its alias, destination, theme and source.
 fn row_label(entry: &ConnectionHost) -> String {
     let mut label = sanitize(&entry.alias);
     let target = connection_target(entry);
@@ -921,17 +916,10 @@ fn source_tag(source: ConnectionHostSource) -> &'static str {
     }
 }
 
-/// Strip control characters so a malformed host name can never inject escape
-/// sequences into the overlay's plain-text rows.
+/// Strip control and hidden format characters so a malformed host name can
+/// never inject escape sequences or hide characters in the overlay's rows.
 fn sanitize(text: &str) -> String {
     crate::native::display_text::sanitize_row_text(text)
-}
-
-fn truncate_for_width(text: &str, max_chars: usize) -> String {
-    if max_chars == 0 {
-        return String::new();
-    }
-    text.chars().take(max_chars).collect()
 }
 
 #[cfg(test)]
@@ -1195,7 +1183,7 @@ mod tests {
         ));
     }
 
-    // ── UX4-P1 click→Activate parity ───────────────────────────────────────
+    // ── click→Activate parity ───────────────────────────────────────
 
     #[test]
     fn click_row_selects_same_host_as_down_then_activate() {
@@ -1391,7 +1379,7 @@ mod tests {
         assert!(!overlay.click_row(2, 10), "hint row inert");
     }
 
-    // ── ODP-1B shared picker: bind purpose ─────────────────────────────────
+    // ── shared picker: bind purpose ─────────────────────────────────
 
     #[test]
     fn connect_purpose_profile_row_launches_named_profile() {
@@ -1439,7 +1427,7 @@ mod tests {
 
     #[test]
     fn non_connect_purpose_never_offers_profile_rows() {
-        // v0.14 Phase A3 route inertness: the profile launch route belongs only
+        // Catalog wiring: the profile launch route belongs only
         // to the Connect picker. A bind/replace/connect-tab picker must drop any
         // supplied profile rows so it can never emit LaunchProfile: those
         // pickers act on a saved host only. Even when profile rows are handed

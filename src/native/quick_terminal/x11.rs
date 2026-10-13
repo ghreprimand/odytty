@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! X11 global-shortcut backend (Linux) for the quick terminal (v0.15.0 A).
+//! X11 global-shortcut backend (Linux) for the quick terminal.
 //!
 //! Split out of `quick_terminal` so the X11 client code lives in one platform
 //! module. Compiled only on Linux; the whole module is behind the

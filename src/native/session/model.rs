@@ -412,6 +412,15 @@ pub(in crate::native) struct Workspace {
 }
 
 impl Workspace {
+    /// Reconcile focus after removing a tab from a nonempty workspace.
+    pub(super) fn adjust_active_tab_after_removal(&mut self, removed: usize) {
+        if self.active_tab == removed {
+            self.active_tab = removed.min(self.tabs.len() - 1);
+        } else if self.active_tab > removed {
+            self.active_tab -= 1;
+        }
+    }
+
     /// A fresh workspace wrapping a single single-pane tab for `token`.
     pub(super) fn single(name: String, token: SessionToken) -> Self {
         Self {
@@ -906,7 +915,7 @@ impl WorkspaceSet {
     }
 
     /// Number of panes in the active tab (1 ⇒ the byte-identical single path).
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(in crate::native) fn active_pane_count(&self) -> usize {
         self.active_tab_ref()
             .map(|tab| tab.layout.pane_count())

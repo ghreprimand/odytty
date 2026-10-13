@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Windows global-shortcut backend for the quick terminal (v0.15.0 A).
+//! Windows global-shortcut backend for the quick terminal.
 //!
 //! Split out of `quick_terminal` so the Win32 FFI lives in one platform module.
 //! Compiled only on Windows (the `#[cfg(target_os = "windows")]` on its `mod`

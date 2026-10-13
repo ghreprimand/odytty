@@ -75,8 +75,8 @@ fn startup_only_rows_name_the_override_without_promising_live_editing() {
         .clone();
     panel.set_environment_overrides(vec![entry.env]);
     let note = panel.environment_override_note(&entry).expect("override");
-    assert!(note.contains(entry.env));
-    assert!(!note.contains("Save still writes"));
+    assert!(note.name.contains(entry.env));
+    assert!(!note.explanation.contains("Save still writes"));
 }
 
 #[test]

@@ -267,35 +267,19 @@ pub(in crate::native) fn execute_window_merge(
     Ok(committed)
 }
 
-/// Drain each window's pending New Window request and spawn the sibling window
-/// through `factory`, appending each successfully created window. `factory`
-/// returns `None` when the sibling could not be spawned (e.g. a failed shell
-/// spawn), in which case the request is dropped rather than crashing the
-/// requesting window, matching the pre-v0.15.0 log-and-drop New Window policy.
+/// [`service_new_window_requests_then`] with nothing to resume: the sibling is
+/// appended and counted as soon as `factory` returns it. Tests drive the
+/// production drain through this, so there is one drain implementation.
 /// Returns the number of windows created.
-///
-/// Requests are collected before any window is created so a factory that
-/// appends to `windows` cannot be observed mid-iteration.
 #[cfg(test)]
-pub(in crate::native) fn service_new_window_requests<F>(
-    windows: &mut Vec<App>,
-    mut factory: F,
-) -> usize
+pub(in crate::native) fn service_new_window_requests<F>(windows: &mut Vec<App>, factory: F) -> usize
 where
     F: FnMut(NewWindowRequest) -> Option<App>,
 {
-    let requests: Vec<NewWindowRequest> = windows
-        .iter_mut()
-        .filter_map(App::take_new_window_request)
-        .collect();
-    let mut created = 0;
-    for request in requests {
-        if let Some(app) = factory(request) {
-            windows.push(app);
-            created += 1;
-        }
-    }
-    created
+    service_new_window_requests_then(windows, factory, |_, _| {
+        Ok::<(), std::convert::Infallible>(())
+    })
+    .0
 }
 
 /// A New Window whose surface could not be created: the window that asked

@@ -373,9 +373,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Listener {
                 state.tab_drag.remove_seat(name);
                 if let Some(seat) = state.seats.remove(&name) {
                     state.devices_for.remove(&seat.id());
-                    if seat.version() >= 5 {
-                        seat.release();
-                    }
+                    release_seat(&seat);
                     if let Some(device) = state.devices.remove(&name) {
                         let device_id = device.id().protocol_id();
                         // Cancel any in-flight transfer on this device (which
@@ -386,9 +384,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Listener {
                         for offer in state.core.remove_seat(device_id) {
                             state.destroy_offer(offer);
                         }
-                        if device.version() >= 2 {
-                            device.release();
-                        }
+                        release_device(&device);
                     }
                 }
             }
@@ -1024,17 +1020,27 @@ fn teardown(conn: &Connection, state: &mut Listener) {
         }
     }
     for (_, device) in state.devices.drain() {
-        if device.version() >= 2 {
-            device.release();
-        }
+        release_device(&device);
     }
     for (_, seat) in state.seats.drain() {
-        if seat.version() >= 5 {
-            seat.release();
-        }
+        release_seat(&seat);
     }
     state.tab_drag.wake(&state.proxy);
     let _ = conn.flush();
+}
+
+/// `wl_seat.release` exists from version 5; older seats are only dropped.
+fn release_seat(seat: &wl_seat::WlSeat) {
+    if seat.version() >= 5 {
+        seat.release();
+    }
+}
+
+/// `wl_data_device.release` exists from version 2; older devices are only dropped.
+fn release_device(device: &wl_data_device::WlDataDevice) {
+    if device.version() >= 2 {
+        device.release();
+    }
 }
 
 fn pollfd(fd: i32, events: i16) -> libc::pollfd {

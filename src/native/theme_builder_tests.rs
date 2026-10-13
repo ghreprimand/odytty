@@ -324,7 +324,7 @@ fn hex_entry_still_applies_verbatim_without_snap() {
     assert_eq!(b.color(ThemeField::Foreground), bg); // verbatim, not snapped
 }
 
-// --- U2 Step 2/3: pointer (slider / click-to-focus / Tab) ---------------
+// --- pointer (slider / click-to-focus / Tab) ---------------
 
 const W: usize = 72;
 const H: usize = 400;
@@ -579,7 +579,7 @@ fn visible_lines_and_hit_map_stay_lockstep() {
     assert_eq!(lines.len(), hits.len(), "lines and hit-map are 1:1");
 }
 
-/// Drive the U3 generate action end-to-end through the key path: G opens seed
+/// Drive the generate action end-to-end through the key path: G opens seed
 /// entry, the typed accent feeds `palette_gen::generate`, and the loaded spec
 /// is valid by construction - so the AA readout reads PASS (or "not
 /// floored") on *every* role, never FAIL.

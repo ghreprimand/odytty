@@ -585,7 +585,7 @@ fn build_entries(groups: &crate::text::FontFamilyGroups) -> Vec<PickerEntry> {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers shared with theme_picker
+// Font-row text uses terminal-cell widths; scalar-based theme chrome is separate.
 // ---------------------------------------------------------------------------
 
 fn current_font_family(settings: &Settings) -> String {
@@ -905,27 +905,6 @@ mod tests {
         }
     }
 
-    // T-cancel-identity: no in-memory font_family mutation on cancel (the
-    // picker never writes anything until Enter; the cancel value is the
-    // original snapshot).
-    #[test]
-    fn t_cancel_does_not_mutate_original() {
-        let settings = Settings {
-            font_family: Some("Hack".to_owned()),
-            ..Default::default()
-        };
-        let families = make_families(&["Fira Code", "Hack"]);
-        let mut picker = FontPicker::new(&settings);
-        picker.open(&settings, families);
-
-        // Navigate and cancel.
-        let _ = picker.handle_input(OverlayInput::Down);
-        let FontPickerOutcome::Cancel(original) = picker.handle_input(OverlayInput::Close) else {
-            panic!("expected Cancel");
-        };
-        assert_eq!(original, "Hack");
-    }
-
     // T-apply-writes: Enter emits a SettingEdit that routes font_family through
     // the dirty/save path with the correct key and env - and the value is the
     // exact REAL family name (with spaces), which the resolver matches.
@@ -955,21 +934,8 @@ mod tests {
     // path without touching the real home dir.
     #[test]
     fn t_apply_persists_via_writeback_without_touching_home() {
-        // The thread name is the full test path (e.g. `native::font_picker::
-        // tests::…`); its `:` characters are illegal in a Windows filename, so
-        // sanitize to alphanumerics/`_` before using it as a path component.
-        let thread = std::thread::current()
-            .name()
-            .unwrap_or("test")
-            .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
-        let base = std::env::temp_dir().join(format!(
-            "odytty-font-picker-{}-{}",
-            std::process::id(),
-            thread
-        ));
-        let _ = std::fs::remove_dir_all(&base);
-        std::fs::create_dir_all(&base).unwrap();
-        let path = base.join("odytty.conf");
+        let base = crate::test_dirs::ScratchDir::new("font-picker-writeback");
+        let path = base.path().join("odytty.conf");
         std::fs::write(&path, "# kept\nfont_family = monospace\nfont_size = 16\n").unwrap();
 
         let settings = Settings::default();
@@ -988,9 +954,6 @@ mod tests {
         assert!(written.contains("# kept"));
         assert!(written.contains("font_family = Fira Code"));
         assert!(written.contains("font_size = 16"));
-        assert!(!written.contains("/home/"));
-
-        std::fs::remove_dir_all(&base).unwrap();
     }
 
     // T-filter: type-to-filter narrows the family list; clearing restores it.

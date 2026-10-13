@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! macOS global-shortcut backend for the quick terminal (v0.15.0 A).
+//! macOS global-shortcut backend for the quick terminal.
 //!
 //! Split out of `quick_terminal` so the Carbon FFI lives in one platform
 //! module. Compiled only on macOS (the `#[cfg(target_os = "macos")]` on its

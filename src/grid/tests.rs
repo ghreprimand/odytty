@@ -2984,7 +2984,7 @@ fn cell_vertices_are_identical_with_mask_backed_coverage() {
     // only implementation, this compares against a run list crafted so that
     // linear-scan expectations are hand-checkable: covered cells emit no
     // monochrome glyph quad, uncovered cells do.
-    let Some(atlas) = atlas() else { return };
+    let atlas = atlas().expect("the bundled text face must load");
     let mut term = Terminal::new(6, 2);
     term.advance(b"abcdefghijkl");
     let snapshot = term.snapshot();
@@ -3891,9 +3891,7 @@ fn overlay_panel_cell_is_opaque_and_themed_regardless_of_cell_bg_opacity() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // A distinctive theme palette, NOT `DynamicColors::default()` (which is
     // light-gray `0xCCCCCC` on near-black `0x0B0C10`).
     let theme = DynamicColors {
@@ -3973,9 +3971,7 @@ fn overlay_panel_cell_is_opaque_and_themed_regardless_of_cell_bg_opacity() {
 // remains the authored fully opaque selection.
 #[test]
 fn selection_strength_above_one_saturates_alpha_and_strengthens_color() {
-    let Some(atlas) = atlas() else {
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     let mut term = Terminal::new(1, 1);
     term.advance(b"\x1b[?25l");
     let mut snapshot = term.snapshot();

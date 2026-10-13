@@ -34,6 +34,14 @@ pub(in crate::native) enum ChromeBand {
 /// reorder gestures. Below this, press+release remains a plain activation.
 pub(in crate::native) const CHROME_DRAG_THRESHOLD_PX: f64 = 5.0;
 
+/// Whether the straight-line distance from `press` to `at` reaches
+/// [`CHROME_DRAG_THRESHOLD_PX`]. The one arm test both reorder gestures use.
+fn crossed_chrome_drag_threshold(press: [f64; 2], at: [f64; 2]) -> bool {
+    let dx = at[0] - press[0];
+    let dy = at[1] - press[1];
+    dx * dx + dy * dy >= CHROME_DRAG_THRESHOLD_PX * CHROME_DRAG_THRESHOLD_PX
+}
+
 /// In-flight tab reorder or tear-out gesture in the horizontal top strip.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(in crate::native) struct TopTabDrag {
@@ -78,12 +86,8 @@ impl TopTabDrag {
     }
 
     pub(in crate::native) fn update_arm(&mut self, x: f64, y: f64) -> bool {
-        if !self.armed {
-            let dx = x - self.press_x;
-            let dy = y - self.press_y;
-            if dx * dx + dy * dy >= CHROME_DRAG_THRESHOLD_PX * CHROME_DRAG_THRESHOLD_PX {
-                self.armed = true;
-            }
+        if !self.armed && crossed_chrome_drag_threshold([self.press_x, self.press_y], [x, y]) {
+            self.armed = true;
         }
         self.armed
     }
@@ -135,12 +139,8 @@ impl RailWorkspaceDrag {
     /// never disarms). Returns whether the gesture is armed (a drag) after this
     /// sample, so the caller only tracks a drop target while dragging.
     pub(in crate::native) fn update_arm(&mut self, x: f64, y: f64) -> bool {
-        if !self.armed {
-            let dx = x - self.press_x;
-            let dy = y - self.press_y;
-            if dx * dx + dy * dy >= CHROME_DRAG_THRESHOLD_PX * CHROME_DRAG_THRESHOLD_PX {
-                self.armed = true;
-            }
+        if !self.armed && crossed_chrome_drag_threshold([self.press_x, self.press_y], [x, y]) {
+            self.armed = true;
         }
         self.armed
     }

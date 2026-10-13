@@ -1,44 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! F4-P3 rail auto-hide state machine - pure, GPU-free, clock-injected.
-//!
-//! When `tab_rail_autohide` is on and the tab chrome is a side rail, the rail
-//! reserves **no** content columns (one reflow at toggle time) and draws only
-//! as a **floating overlay** at its window edge when revealed - content never
-//! reflows on reveal/hide (the survey's load-bearing rule: reveal is an overlay,
-//! hide has a generous grace, show is near-instant).
-//!
-//! This module owns only the *timing state machine*; the App owns the geometry
-//! (which pixels are the reveal edge / band) and the render (building the
-//! overlay strip). The state machine is driven by three inputs:
-//! - **pointer** - [`RailAutohide::on_pointer`] with two booleans the App
-//!   derives from the live pointer: `in_edge` (the pointer is in - or its motion
-//!   *segment* crossed - the trigger zone within `TAB_RAIL_REVEAL_PX` of the
-//!   window edge; motion-aware so a fast approach that jumps over a static point
-//!   zone still arms) and `in_band` (a point test: the pointer is *now* anywhere
-//!   from the window edge through the revealed band to the seam - the
-//!   *keep-alive* region, which by construction contains the edge zone).
-//! - **keyboard flash** - [`RailAutohide::flash`] reveals the rail for
-//!   [`FLASH`] after a tab-switch / new-tab / close action (ODP-4 SHOULD), so a
-//!   chord's effect is confirmed even with the pointer away from the edge.
-//! - **suspend** - [`RailAutohide::set_suspend`] holds the hide timer while a
-//!   rail-anchored context menu / drag is active (the popup-tracking rule).
-//!
-//! Timers are advanced by [`RailAutohide::poll`] from the event loop's
-//! about-to-wait maintenance; [`RailAutohide::wake_deadline`] feeds the shared
-//! `WaitUntil` scheduler so a debounce/grace/flash boundary wakes the loop with
-//! no busy-poll.
+//! Clock-injected rail reveal, debounce, grace, flash and hide suspension.
+//! The App supplies edge/band geometry and consumes wake deadlines.
+//! Reveals use an overlay without content reflow. Rail menus and drags suspend
+//! hide grace; tab actions can reveal the rail for a bounded flash interval.
 
 use std::time::{Duration, Instant};
 
-/// Show debounce: a short confirm window between the first trigger sample and
-/// the reveal, so a single incidental crossing (a window drag sweeping the edge)
-/// does not summon the rail. Kept small - a live pointer trace showed the reveal
-/// read as "won't open": a longer dwell, combined with the old abort-on-any-out-
-/// of-band sample, killed deliberate fast approaches mid-debounce. The reveal now
-/// arms on the motion-aware trigger (the pointer *segment* crossing the edge
-/// zone, not just a point landing in it) and holds through the confirm as long as
-/// the segment stays on the rail side, so 30 ms is enough to filter a lone stray
-/// sample without making an approach feel sluggish (was 80 ms → 120 ms before).
+/// Confirm the trigger briefly before revealing; abort only after both edge
+/// and band contacts leave. Motion segments can supply the edge contact.
 pub(super) const SHOW_DEBOUNCE: Duration = Duration::from_millis(30);
 /// Hide grace: after the pointer leaves the revealed band, the rail stays up
 /// this long before hiding (middle of the 300–1000ms convention range, errs
@@ -47,14 +16,8 @@ pub(super) const HIDE_GRACE: Duration = Duration::from_millis(600);
 /// Keyboard-action flash duration (Zen's new-tab flash): a tab chord reveals the
 /// rail this long regardless of pointer position.
 pub(super) const FLASH: Duration = Duration::from_millis(1000);
-// The revealed overlay used to carry its own near-opaque
-// panel-wash floor (`max(p, 0.85)`, ODP-4 / ODP-6) so live content never
-// showed through the floating band. That made the revealed band ignore the
-// window's translucency and visibly diverge from the pinned band and the tab
-// bar under a translucent window. The overlay now shares the pinned bands'
-// wash verbatim (`App::chrome_panel_paint`); at the shipped panel-strength
-// default the band composes near-opaque anyway, preserving the legibility
-// intent without a state-dependent alpha.
+// Revealed and pinned bands share `App::chrome_panel_paint` so the same
+// translucency setting produces the same wash without a state-specific floor.
 
 /// Pointer-driven reveal phase. Orthogonal to the keyboard `flash` latch: the
 /// rail is visible when EITHER the pointer phase is revealed-ish OR a flash is
@@ -64,8 +27,8 @@ enum Phase {
     /// Not revealed, not drawn.
     Hidden,
     /// Pointer entered the edge zone at this instant; promotes to `Revealed`
-    /// after [`SHOW_DEBOUNCE`], or falls back to `Hidden` if the pointer leaves
-    /// first. Not drawn yet.
+    /// after [`SHOW_DEBOUNCE`], or falls back to `Hidden` when both edge and
+    /// band contact are absent. Not drawn yet.
     Revealing(Instant),
     /// Fully revealed and drawn.
     Revealed,
@@ -74,7 +37,7 @@ enum Phase {
     HideGrace(Instant),
 }
 
-/// The rail auto-hide reveal/hide state machine (ODP-4 §5). Pure and
+/// The rail auto-hide reveal/hide state machine . Pure and
 /// clock-injected: every transition takes an explicit `now`, so the whole thing
 /// is unit-testable without a window or a real clock.
 #[derive(Debug, Clone)]
@@ -141,7 +104,7 @@ impl RailAutohide {
         self.commit_visibility(now)
     }
 
-    /// Reveal the rail for [`FLASH`] after a keyboard tab action (ODP-4 SHOULD).
+    /// Reveal the rail for [`FLASH`] after a keyboard tab action .
     /// Extends an in-flight flash rather than shortening it. Commits the (now
     /// visible) state so the following expiry poll sees the flip.
     pub(super) fn flash(&mut self, now: Instant) {
@@ -223,13 +186,7 @@ impl RailAutohide {
             }
             Phase::Revealing(since) => {
                 if !self.in_edge && !self.in_band {
-                    // Pointer decisively away before the debounce elapsed -
-                    // neither still sweeping the trigger edge (motion-aware
-                    // `in_edge`) nor over the keep-alive band - so the arm never
-                    // flashed. A single fast follow-through that overshoots past
-                    // the seam (the live trace's 7.9px → 214px in 74 ms) keeps
-                    // `in_edge` set via segment-crossing, so a deliberate quick
-                    // approach is no longer aborted mid-confirm.
+                    // Neither edge nor band contact remains before confirmation.
                     Phase::Hidden
                 } else if now.saturating_duration_since(since) >= SHOW_DEBOUNCE {
                     Phase::Revealed

@@ -26,6 +26,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+#[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::SystemTime;
 
@@ -34,6 +35,7 @@ use super::schema::profile_name_from_path;
 use super::store::ProfileCatalog;
 
 /// Test-only count of catalogs actually parsed (cache misses).
+#[cfg(test)]
 static CATALOG_PARSE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// The last parsed catalog and the listing it was parsed from.
@@ -149,6 +151,7 @@ pub(super) fn cached(dir: &Path, listing: &Listing) -> Option<ProfileCatalog> {
 
 /// Remember `catalog` as parsed from `listing`.
 pub(super) fn store(dir: &Path, listing: Listing, catalog: &ProfileCatalog) {
+    #[cfg(test)]
     CATALOG_PARSE_COUNT.fetch_add(1, Ordering::Relaxed);
     *CACHE
         .lock()
@@ -161,6 +164,7 @@ pub(super) fn store(dir: &Path, listing: Listing, catalog: &ProfileCatalog) {
 }
 
 /// Test-only: catalogs parsed so far (cache misses).
+#[cfg(test)]
 pub fn catalog_parse_count_for_test() -> usize {
     CATALOG_PARSE_COUNT.load(Ordering::Relaxed)
 }

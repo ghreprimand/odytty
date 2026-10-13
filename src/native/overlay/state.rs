@@ -55,7 +55,7 @@ pub(in crate::native) struct OverlayUi {
     pub(super) open_with: OpenWithOverlay,
     pub(super) workspace_picker: WorkspacePicker,
     pub(super) profile_picker: ProfilePicker,
-    /// Caption (the image's filename) shown in the C4 image-viewer overlay's
+    /// Caption (the image's filename) shown in the image-viewer overlay's
     /// body. The image itself draws through the GPU image layer, over the panel;
     /// this presentation-only string is the only state the viewer mode carries.
     pub(super) image_view_caption: String,
@@ -105,27 +105,27 @@ pub(in crate::native) struct OverlayUi {
     /// and for the standalone paths (keyboard shortcut, theme capture), which
     /// close.
     pub(super) builder_from_picker: bool,
-    /// The pending host + target tab carried by the replace-tab confirm dialog
-    /// (ODP-5D). Set when the dialog opens (the clicked tab held a running
+    /// The pending host + target tab carried by the replace-tab confirm dialog.
+    /// Set when the dialog opens (the clicked tab held a running
     /// foreground child); the confirm arm emits it back so the App closes that
     /// tab and opens the host in its slot. `None` when the dialog is not open.
     /// It keys the render signature through `dialog_payload`.
     pub(super) confirm_replace_tab: Option<(Box<ConnectionHost>, SessionToken)>,
-    /// The pending host carried by the remove-host confirm dialog (ODP-2C). Set
+    /// The pending host carried by the remove-host confirm dialog. Set
     /// when "Remove…" is chosen on a connection-manager row; the confirm arm
     /// emits it back so the App deletes its `hosts.conf` block. `None` when the
     /// dialog is not open. It keys the render signature through
     /// `dialog_payload`.
     pub(super) confirm_remove_host: Option<Box<ConnectionHost>>,
-    /// The pending save carried by the overwrite-layout confirm dialog
-    /// (OVERWRITE-WARN). Set when a Save as Layout resolves to a name that
+    /// The pending save carried by the overwrite-layout confirm dialog.
+    /// Set when a Save as Layout resolves to a name that
     /// already exists on disk; carries the resolved layout `name` and which save
     /// it was (whole app vs. one workspace) so the confirm arm can either force
     /// the write (Replace) or reopen the name prompt (a different name). `None`
     /// when the dialog is not open. It keys the render signature through
     /// `dialog_payload`.
     pub(super) confirm_overwrite_layout: Option<(String, LayoutSaveKind)>,
-    /// The pending open carried by the open-layout mode dialog (LAYOUT-OPEN-MODE).
+    /// The pending open carried by the open-layout mode dialog.
     /// Set when a layout is opened onto a window that holds real state (not a
     /// single pristine workspace); carries the layout `name` so the confirm arm
     /// can either replace the current workspaces with the saved set or append
@@ -420,7 +420,7 @@ impl OverlayUi {
     }
 
     /// Open the output-replay overlay over a frozen clone of the focused
-    /// session's recorded frames (Phase 2). Presentation-only: the overlay owns
+    /// session's recorded frames. Presentation-only: the overlay owns
     /// the clone and never touches live core state. `frames` is empty when
     /// recording is off or nothing has been recorded yet, in which case the
     /// overlay shows a hint rather than failing to open.
@@ -433,7 +433,7 @@ impl OverlayUi {
     }
 
     /// Open the connection-manager overlay over a frozen list of local
-    /// connection candidates (Phase 4). Presentation-only: the overlay owns the
+    /// connection candidates. Presentation-only: the overlay owns the
     /// list and never spawns anything itself. Accepting a row emits a
     /// [`OverlayOutcome::Connect`] for the App's connect action. `entries` is
     /// empty when no hosts are configured, in which case the overlay shows a
@@ -446,8 +446,8 @@ impl OverlayUi {
         self.open_connections_for_purpose(entries, ConnectionPickerPurpose::Connect, profile_rows);
     }
 
-    /// Open the connection list as a shared picker for a tagged pending action
-    /// (ODP-1B). Identical presentation to [`Self::open_connections`]; only the
+    /// Open the connection list as a shared picker for a tagged pending action.
+    /// Identical presentation to [`Self::open_connections`]; only the
     /// meaning of accept differs (the App routes the pick per the purpose).
     pub(in crate::native) fn open_connections_for_purpose(
         &mut self,
@@ -464,7 +464,7 @@ impl OverlayUi {
     }
 
     /// Open the in-window session-attach summon overlay over a frozen list of
-    /// live detached sessions (Phase 5 / B2). Presentation-only: the overlay
+    /// live detached sessions. Presentation-only: the overlay
     /// owns the list and never attaches anything itself. Accepting a row emits a
     /// [`OverlayOutcome::AttachSession`] for the App to attach into a new tab.
     /// `entries` is empty when no sessions are live, in which case the overlay
@@ -496,7 +496,7 @@ impl OverlayUi {
     }
 
     /// Open the "Open With…" app-picker overlay over a frozen list of apps that
-    /// can open the resolved file (C3b). Presentation-only: the App enumerated
+    /// can open the resolved file. Presentation-only: the App enumerated
     /// the apps (each row carries a pre-built, argv-only command) and this
     /// overlay only displays/filters them. Accepting a row emits a
     /// [`OverlayOutcome::OpenWithApp`] the App hands to `spawn_detached`. An
@@ -530,7 +530,7 @@ impl OverlayUi {
     /// Open the "Open Layout ▸" picker over a frozen list of saved layout names
     /// (LAYOUT-SURFACE). The App seeds the names; accepting a row emits
     /// [`OverlayOutcome::ContextMenuOpenLayout`] with the chosen name for the App
-    /// to instantiate (APPEND a new workspace, WP3 8e). An empty list still opens
+    /// to instantiate (append a new workspace). An empty list still opens
     /// and shows an explanatory line so the feature is discoverable.
     /// Presentation/filter-only.
     pub(in crate::native) fn open_layout_picker(&mut self, names: Vec<String>) {
@@ -572,10 +572,10 @@ impl OverlayUi {
         self.open = true;
     }
 
-    /// Open the first-run onboarding card (ONBOARD). Called once at startup by
+    /// Open the first-run onboarding card. Called once at startup by
     /// `App::new` when the config file does not yet exist (or the
     /// `ODYTTY_ONBOARDING` override is set). Refreshes the card from the current
-    /// settings so the shortcut hints reflect the live bindings (D-OB-3).
+    /// settings so the shortcut hints reflect the live bindings.
     pub(in crate::native) fn open_onboarding(&mut self) {
         self.panel.end_slider_drag();
         self.onboarding.refresh(&self.settings);
@@ -583,7 +583,7 @@ impl OverlayUi {
         self.open = true;
     }
 
-    /// Open the in-terminal image-viewer overlay (Phase 9 / C4). The decoded
+    /// Open the in-terminal image-viewer overlay. The decoded
     /// image is uploaded into the GPU image layer by the App; this overlay only
     /// carries the presentation-only caption (the filename) and owns the
     /// open/close lifecycle. Esc dismisses; the App clears the GPU overlay image
@@ -597,14 +597,14 @@ impl OverlayUi {
         self.open = true;
     }
 
-    /// Whether the C4 image viewer is the active overlay mode. The App polls
+    /// Whether the image viewer is the active overlay mode. The App polls
     /// this each frame to clear the GPU overlay image once the viewer closes
     /// (via Esc, click-outside, or any mode switch).
     pub(in crate::native) fn image_view_open(&self) -> bool {
         self.open && self.mode == OverlayMode::ImageView
     }
 
-    /// Whether the attach-choice dialog is the active overlay mode (Phase 14).
+    /// Whether the attach-choice dialog is the active overlay mode.
     /// Used by the App's test seam to assert the dialog opened.
     #[cfg(test)]
     pub(in crate::native) fn is_attach_choice(&self) -> bool {
@@ -618,29 +618,29 @@ impl OverlayUi {
         self.open && self.mode == OverlayMode::ConfirmKillSession
     }
 
-    /// Whether the replace-tab confirm dialog is the active overlay mode
-    /// (ODP-5D). Used by the App's test seam to assert the dialog opened.
+    /// Whether the replace-tab confirm dialog is the active overlay mode.
+    /// Used by the App's test seam to assert the dialog opened.
     #[cfg(test)]
     pub(in crate::native) fn is_confirm_replace_tab(&self) -> bool {
         self.open && self.mode == OverlayMode::ConfirmReplaceTab
     }
 
-    /// Whether the remove-host confirm dialog is the active overlay mode
-    /// (ODP-2C). Used by the App's test seam to assert the dialog opened.
+    /// Whether the remove-host confirm dialog is the active overlay mode.
+    /// Used by the App's test seam to assert the dialog opened.
     #[cfg(test)]
     pub(in crate::native) fn is_confirm_remove_host(&self) -> bool {
         self.open && self.mode == OverlayMode::ConfirmRemoveHost
     }
 
-    /// Whether the overwrite-layout confirm dialog is the active overlay mode
-    /// (OVERWRITE-WARN). Used by the App's test seam to assert the dialog opened.
+    /// Whether the overwrite-layout confirm dialog is the active overlay mode.
+    /// Used by the App's test seam to assert the dialog opened.
     #[cfg(test)]
     pub(in crate::native) fn is_confirm_overwrite_layout(&self) -> bool {
         self.open && self.mode == OverlayMode::ConfirmOverwriteLayout
     }
 
-    /// Whether the open-layout mode dialog is the active overlay mode
-    /// (LAYOUT-OPEN-MODE). Used by the App's test seam to assert the dialog opened.
+    /// Whether the open-layout mode dialog is the active overlay mode.
+    /// Used by the App's test seam to assert the dialog opened.
     #[cfg(test)]
     pub(in crate::native) fn is_confirm_open_layout(&self) -> bool {
         self.open && self.mode == OverlayMode::ConfirmOpenLayout
@@ -692,14 +692,14 @@ impl OverlayUi {
             )
     }
 
-    /// Whether the close-confirmation dialog is the active overlay mode
-    /// (CLOSE-CONFIRM). Used by the App's test seam to assert the dialog opened.
+    /// Whether the close-confirmation dialog is the active overlay mode.
+    /// Used by the App's test seam to assert the dialog opened.
     #[cfg(test)]
     pub(in crate::native) fn is_confirm_close(&self) -> bool {
         self.open && self.mode == OverlayMode::ConfirmClose
     }
 
-    /// Whether the key-remap modal is armed to capture a raw chord (KB-REMAP).
+    /// Whether the key-remap modal is armed to capture a raw chord.
     /// The App gates its chord-capture bypass on this: `true` ONLY when the
     /// KeyBindings mode is active AND a row/conflict is awaiting a chord, so
     /// normal overlay navigation is never diverted (R1).
@@ -744,7 +744,7 @@ impl OverlayUi {
             }
             OverlayMode::ThemeBuilder => {}
             OverlayMode::ProfileManager => {}
-            // KB-REMAP stays open after an in-modal Ctrl+S so the user can keep
+            // The key-remap modal stays open after an in-modal Ctrl+S so the user can keep
             // editing; the modal reports the saved count and adopts the persisted
             // bindings as its new restore baseline. But if the save came from the
             // dirty-close prompt's "save" choice (P1-6), return to the settings

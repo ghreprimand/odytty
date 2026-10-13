@@ -2,7 +2,7 @@
 //! Cross-platform quick terminal: a dedicated, summonable drop-down terminal
 //! window with its own identity, geometry, monitor policy, and summon/hide
 //! lifecycle, kept distinct from ordinary windows and ordinary window
-//! restoration (v0.15.0 A).
+//! restoration.
 //!
 //! Scope of this module (the parts that are pure, deterministic, and unit
 //! testable headlessly):
@@ -45,8 +45,8 @@
 use super::window_owner::ProcessWindowId;
 
 // Platform global-shortcut backends live in per-OS submodules so all platform
-// FFI is isolated and this core file stays within the source-size budget
-// (v0.15.0 A). Each is compiled only on its platform; the key-code mappers
+// FFI is isolated and this core file stays within the source-size budget.
+// Each is compiled only on its platform; the key-code mappers
 // (`x11_keysym` / `windows_vk` / `macos_keycode`) and the display-server
 // detection stay here, cross-compiled and unit-tested on every host.
 #[cfg(target_os = "macos")]

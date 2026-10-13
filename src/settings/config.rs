@@ -362,12 +362,10 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "restoreworkspaces" | "restoresession" | "restoretabs" | "restorelayout" | "restore" => {
             Some(RESTORE_WORKSPACES_ENV)
         }
-        "profileautoswitch" | "autoswitchprofile" | "profileswitch" | "profile_switch" => {
+        "profileautoswitch" | "autoswitchprofile" | "profileswitch" => {
             Some(PROFILE_AUTO_SWITCH_ENV)
         }
-        "defaultlaunchprofile" | "defaultprofile" | "default_launch_profile" => {
-            Some(DEFAULT_LAUNCH_PROFILE_ENV)
-        }
+        "defaultlaunchprofile" | "defaultprofile" => Some(DEFAULT_LAUNCH_PROFILE_ENV),
         "cvdmode" | "colorblindmode" | "colourblindmode" | "daltonize" => Some(CVD_MODE_ENV),
         "cvdstrength" | "colorblindstrength" | "colourblindstrength" => Some(CVD_STRENGTH_ENV),
         "bell" | "bellmode" | "audiblebell" | "visualbell" => Some(BELL_ENV),

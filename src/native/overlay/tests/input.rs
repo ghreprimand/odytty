@@ -403,7 +403,7 @@ fn form_identity_browse_round_trips_and_stays_open() {
 
 #[test]
 fn bind_purpose_picker_accept_emits_bind_outcome() {
-    // ODP-1B/6B: the shared host picker opened for the BindWorkspace purpose
+    // The shared host picker opened for the BindWorkspace purpose
     // lifts an accepted host into BindWorkspaceToHost(alias) — not Connect —
     // and closes itself before emitting (like Connect).
     let mut overlay = OverlayUi::default();
@@ -425,7 +425,7 @@ fn bind_purpose_picker_accept_emits_bind_outcome() {
 
 #[test]
 fn connect_tab_after_picker_lifts_to_connect_host_in_tab_after() {
-    // ODP-5D: the shared host picker opened for ConnectTabAfter lifts an
+    // The shared host picker opened for ConnectTabAfter lifts an
     // accepted host into ConnectHostInTabAfter(host, token) — carrying the
     // clicked tab's token — and closes itself before emitting.
     let mut overlay = OverlayUi::default();
@@ -446,7 +446,7 @@ fn connect_tab_after_picker_lifts_to_connect_host_in_tab_after() {
 
 #[test]
 fn replace_tab_picker_lifts_to_replace_tab_with_host_picked() {
-    // ODP-5D: the ReplaceTab picker lifts into ReplaceTabWithHostPicked so
+    // The ReplaceTab picker lifts into ReplaceTabWithHostPicked so
     // the App can gate the destructive close behind its running-child check.
     let mut overlay = OverlayUi::default();
     overlay.open_connections_for_purpose(
@@ -466,7 +466,7 @@ fn replace_tab_picker_lifts_to_replace_tab_with_host_picked() {
 
 #[test]
 fn confirm_replace_tab_dialog_keys_confirm_and_cancel() {
-    // ODP-5D: Enter/Y on the replace confirm emits the confirmed outcome
+    // Enter/Y on the replace confirm emits the confirmed outcome
     // carrying the stashed host + token; Esc/N cancels without emitting it.
     let mut overlay = OverlayUi::default();
     overlay.open_confirm_replace_tab(Box::new(connection_host("web1")), SessionToken(2));
@@ -517,7 +517,7 @@ fn confirm_replace_tab_click_replace_confirms_cancel_dismisses() {
 
 #[test]
 fn overwrite_layout_confirm_keyboard_three_way() {
-    // OVERWRITE-WARN: Enter replaces, R reopens the prompt, Esc cancels.
+    // Enter replaces, R reopens the prompt, Esc cancels.
     let mut overlay = OverlayUi::default();
     overlay.open_confirm_overwrite_layout("work".to_owned(), LayoutSaveKind::WholeApp);
     assert!(overlay.is_confirm_overwrite_layout(), "dialog opened");
@@ -553,7 +553,7 @@ fn overwrite_layout_confirm_keyboard_three_way() {
 
 #[test]
 fn overwrite_layout_confirm_click_regions() {
-    // OVERWRITE-WARN click→key parity: the three bracket regions map, left to
+    // Overwrite-warning click→key parity: the three bracket regions map, left to
     // right, to Replace / Rename / Cancel; the leading prompt is inert.
     let replace_col = CONFIRM_OVERWRITE_LAYOUT_ACTION_LINE.find("[Enter").unwrap() + 2;
     let rename_col = CONFIRM_OVERWRITE_LAYOUT_ACTION_LINE.find("[R]").unwrap() + 1;
@@ -597,7 +597,7 @@ fn overwrite_layout_confirm_click_regions() {
 
 #[test]
 fn open_layout_mode_keyboard_three_way() {
-    // LAYOUT-OPEN-MODE: Enter replaces, A appends, Esc cancels.
+    // Enter replaces, A appends, Esc cancels.
     let mut overlay = OverlayUi::default();
     overlay.open_confirm_open_layout("work".to_owned());
     assert!(overlay.is_confirm_open_layout(), "dialog opened");
@@ -624,7 +624,7 @@ fn open_layout_mode_keyboard_three_way() {
 
 #[test]
 fn open_layout_mode_click_regions() {
-    // LAYOUT-OPEN-MODE click→key parity: the three bracket regions map, left
+    // Open-layout-mode click→key parity: the three bracket regions map, left
     // to right, to Replace / Add / Cancel; the leading prompt is inert.
     let replace_col = CONFIRM_OPEN_LAYOUT_ACTION_LINE.find("[Enter").unwrap() + 2;
     let add_col = CONFIRM_OPEN_LAYOUT_ACTION_LINE.find("[A]").unwrap() + 1;
@@ -945,7 +945,7 @@ fn tab_slot_close_other_tabs_emits_token_outcome() {
 
 #[test]
 fn tab_slot_move_to_next_workspace_emits_token_outcome() {
-    // ODP-7: with multiple workspaces, the move row targets the clicked
+    // With multiple workspaces, the move row targets the clicked
     // tab's token.
     let mut overlay = OverlayUi::default();
     overlay.open_context_menu_with_prompt_editing_hint(
@@ -978,7 +978,7 @@ fn tab_slot_move_to_next_workspace_emits_token_outcome() {
 
 #[test]
 fn tab_slot_connect_and_replace_host_emit_token_outcomes() {
-    // ODP-5D: the tab-menu host actions carry the CLICKED tab's token so the
+    // The tab-menu host actions carry the CLICKED tab's token so the
     // App seeds the picker for the right tab. Single-workspace tab menu:
     // New Tab(0) New Tab with Profile(1) Duplicate Tab(2) Rename Tab(3)
     // Close Tab(4) Close Other Tabs(5) Connect to Host(6) Replace with
@@ -1166,14 +1166,14 @@ fn content_menu_workspace_actions_target_the_active_workspace() {
         OverlayOutcome::ContextMenuRenameActiveWorkspace
     );
     assert_eq!(step_to(18), OverlayOutcome::ContextMenuCloseActiveWorkspace);
-    // ODP-6B: an unbound workspace shows Bind to Host at index 19, which
+    // An unbound workspace shows Bind to Host at index 19, which
     // lifts to the "open the shared host picker" outcome.
     assert_eq!(step_to(19), OverlayOutcome::ContextMenuBindWorkspace);
 }
 
 #[test]
 fn content_menu_bound_workspace_offers_unbind() {
-    // ODP-6B: when the active workspace is bound, the workspace section's
+    // When the active workspace is bound, the workspace section's
     // conditional row is Unbind (index 19), lifting to the direct-unbind
     // outcome (no host picker needed).
     let mut overlay = OverlayUi::default();
@@ -1532,7 +1532,7 @@ fn context_menu_keyboard_shortcuts_opens_key_bindings() {
 
 #[test]
 fn confirm_close_dialog_opens_renders_and_routes_keys() {
-    // CLOSE-CONFIRM: the dialog opens in its own mode, paints its title and
+    // The dialog opens in its own mode, paints its title and
     // copy, and routes keys per the keyboard contract.
     let mut overlay = OverlayUi::default();
     overlay.open_confirm_close();
@@ -1878,7 +1878,7 @@ fn pointer_press_on_settings_back_arrow_returns_to_sections() {
 
 #[test]
 fn every_back_titled_mode_has_a_live_title_arrow() {
-    // BACK-ARROW class guard (NF15 recurrence): every mode whose title
+    // Back-arrow class guard: every mode whose title
     // starts with `←` MUST have a title-row hit-test that accepts the arrow,
     // or the affordance is click-dead (Esc masks it). This iterates ALL
     // modes so a future `←`-titled mode without coverage fails here rather
@@ -1983,7 +1983,7 @@ fn every_back_titled_mode_has_a_live_title_arrow() {
 
 #[test]
 fn pointer_press_on_about_back_arrow_returns_to_sections() {
-    // NF15: the About view draws the same `← … (Esc = back)` title as a
+    // The About view draws the same `← … (Esc = back)` title as a
     // SectionDetail, so clicking its arrow must navigate back too. Before
     // the fix, settings_title_back_hit matched only SectionDetail, so this
     // click fell through and left the panel stranded at About (Esc worked

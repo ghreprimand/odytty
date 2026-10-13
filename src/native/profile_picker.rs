@@ -4,6 +4,8 @@
 //! Catalog load happens only when the picker opens; the default New Tab and New
 //! Workspace actions stay one-click and never touch profile enumeration.
 
+use super::display_text::truncate_scalars as truncate_for_width;
+
 use std::cell::Cell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -342,13 +344,6 @@ impl ProfilePicker {
 
 fn sanitize(text: &str) -> String {
     crate::native::display_text::sanitize_row_text(text)
-}
-
-fn truncate_for_width(text: &str, max_chars: usize) -> String {
-    if max_chars == 0 {
-        return String::new();
-    }
-    text.chars().take(max_chars).collect()
 }
 
 #[cfg(test)]

@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
+/// Independently rendered parts of the selected setting's override notice.
+pub(super) struct EnvironmentOverrideNote {
+    pub(super) name: String,
+    pub(super) explanation: &'static str,
+}
+
 impl SettingsPanel {
     pub(in crate::native) fn new(settings: &Settings) -> Self {
         let edits = SettingsEditOverlay::new(settings);
@@ -35,10 +41,20 @@ impl SettingsPanel {
         self.environment_overrides = keys;
     }
 
-    pub(super) fn environment_override_note(&self, entry: &SettingInfo) -> Option<String> {
+    pub(super) fn environment_override_note(
+        &self,
+        entry: &SettingInfo,
+    ) -> Option<EnvironmentOverrideNote> {
         (!entry.env.is_empty() && self.environment_overrides.contains(&entry.env)).then(|| {
-            let save = if entry.reloadable { " Save still writes the config;" } else { "" };
-            format!("Environment override: {}.{save} Remove this variable for the config value to take effect on next launch.", entry.env)
+            let explanation = if entry.reloadable {
+                "Save still writes the config; Remove this variable for the config value to take effect on next launch."
+            } else {
+                "Remove this variable for the config value to take effect on next launch."
+            };
+            EnvironmentOverrideNote {
+                name: format!("Environment override: {}", entry.env),
+                explanation,
+            }
         })
     }
 

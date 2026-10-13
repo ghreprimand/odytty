@@ -147,3 +147,18 @@ fn an_armed_inactive_workspace_label_shows_whole_and_lifted_at_the_drop_position
     .expect("neighbour run");
     assert!(first.iter().all(|g| !g.attrs.bold()));
 }
+
+#[test]
+fn both_reorder_gestures_arm_at_the_same_distance_and_stay_armed() {
+    // A 3-4-5 move lands exactly on the 5 px threshold; a hair short does not.
+    assert_eq!(pointer::CHROME_DRAG_THRESHOLD_PX, 5.0);
+    let mut top = TopTabDrag::new(0, 10.0, 10.0);
+    let mut rail = RailWorkspaceDrag::new(0, 10.0, 10.0);
+    assert!(!top.update_arm(12.9, 13.9));
+    assert!(!rail.update_arm(12.9, 13.9));
+    assert!(top.update_arm(13.0, 14.0));
+    assert!(rail.update_arm(13.0, 14.0));
+    // Arming is sticky: moving back inside the threshold does not disarm.
+    assert!(top.update_arm(10.0, 10.0));
+    assert!(rail.update_arm(10.0, 10.0));
+}

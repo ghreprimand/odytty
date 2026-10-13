@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Add / Edit connection form overlay (REMOTE-UX P4, ODP-3).
+//! Add/edit form state; save emits a host and optional original alias.
 //!
-//! Presentation + input state for the in-app form that creates or edits an
-//! OdyTTY-owned `hosts.conf` block. The form owns only text buffers, tri-state
-//! toggles, a focus cursor, and an inline validation message. It never writes to
-//! the file itself: accepting the form emits a [`ConnectionFormOutcome::Save`]
-//! carrying a fully-built [`ConnectionHost`] plus the edit target (the original
-//! alias for an in-place edit, or `None` for a fresh append) for the App to
-//! persist through the byte-splice writer.
+//! The form owns input buffers, focus, validation, probe and key-browser state.
+//! It never writes files: accepting emits [`ConnectionFormOutcome::Save`] with
+//! the built host and original alias for the App's preservation-first writer.
 //!
 //! Only OdyTTY-owned hosts are editable; an `ssh-config`-imported row is
 //! read-only (never written back to `~/.ssh/config`), so the App never opens the
 //! form for one. The `Protocol` field is reserved (config-only) and is carried
 //! through an edit opaquely rather than surfaced as a control.
+
+use super::display_text::truncate_scalars as truncate_for_width;
 
 use std::cell::{Cell, RefCell};
 
@@ -23,7 +21,7 @@ use crate::theme::Srgb;
 use super::overlay::OverlayInput;
 
 /// The persistent `[Browse]` chip drawn at the trailing end of the IdentityFile
-/// row when a path is set (BROWSE-UX). Clicking it opens the `~/.ssh` key
+/// row when a path is set. Clicking it opens the `~/.ssh` key
 /// browser regardless of field content; it is render-only and never stored.
 const BROWSE_CHIP: &str = "[Browse]";
 /// The chip drawn when IdentityFile is empty: doubles as the discoverability
@@ -87,8 +85,8 @@ impl FormField {
     }
 
     /// One- or two-line help for the focused field, shown in the form's footer
-    /// (FORM-UX, the SETTINGS-COMPACT focused-row pattern). Facts mirror the
-    /// `hosts.conf` reference in `docs/runtime-knobs.md` — no new claims.
+    /// shown below the controls. Facts mirror the
+    /// `hosts.conf` reference in `docs/runtime-knobs.md` - no new claims.
     fn help(self) -> &'static str {
         match self {
             FormField::Alias => {
@@ -124,7 +122,7 @@ impl FormField {
     }
 }
 
-/// The live state of a Test Connection probe (ODP-8).
+/// The live state of a Test Connection probe.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 enum TestState {
     /// No probe has run for the current field values.
@@ -163,14 +161,14 @@ pub(super) enum ConnectionFormOutcome {
         host: Box<ConnectionHost>,
         edit_target: Option<String>,
     },
-    /// Run a background Test Connection probe against the built host (ODP-8).
+    /// Run a background Test Connection probe against the built host.
     /// The form stays open and shows the probe result when it lands.
     Test(Box<ConnectionHost>),
-    /// Open the IdentityFile key browser (FORM-UX). The form stays open; the App
-    /// scans `~/.ssh` for candidate private keys (filename heuristics only —
+    /// Open the IdentityFile key browser. The form stays open; the App
+    /// scans `~/.ssh` for candidate private keys (filename heuristics only -
     /// never key contents) and seeds the in-form browser through
     /// [`ConnectionForm::open_key_browse`]. Manual typing stays available, so
-    /// this only fires when the field is empty.
+    /// Enter on an empty field or a generated chip click requests browsing.
     BrowseIdentityKeys,
 }
 
@@ -196,14 +194,14 @@ pub(super) struct ConnectionFormSignature {
     tristates: Vec<Option<bool>>,
     error: Option<String>,
     test: TestState,
-    /// The IdentityFile browser state (FORM-UX): `None` when the form shows its
+    /// The IdentityFile browser state: `None` when the form shows its
     /// fields, else the browser's query, selection, scroll and a fingerprint of
     /// its candidate list so a repaint tracks everything it draws.
     browse: Option<(String, usize, usize, usize, u64)>,
 }
 
-/// The in-form IdentityFile key browser (FORM-UX). A seeded, type-to-filter
-/// list of candidate private-key PATHS discovered under `~/.ssh` by the App —
+/// The in-form IdentityFile key browser. A seeded, type-to-filter
+/// list of candidate private-key PATHS discovered under `~/.ssh` by the App -
 /// filename heuristics only, never key contents. Accepting a row fills the
 /// IdentityFile field with the chosen path; Esc returns to the form. Manual
 /// typing is always available, so an empty scan just shows a hint.
@@ -335,7 +333,7 @@ pub(super) struct ConnectionForm {
     rendered_fields: RefCell<Vec<Option<FormField>>>,
     rendered_browse_chip: Cell<Option<(usize, usize, usize)>>,
     error: Option<String>,
-    /// The Test Connection probe state (ODP-8).
+    /// The Test Connection probe state.
     test: TestState,
     /// Replaced for each request, edit and form reset; retained requests cannot
     /// match a later form even when all field values are identical.
@@ -343,8 +341,8 @@ pub(super) struct ConnectionForm {
     /// Saved aliases that would collide on save (Add: all; Edit: all but this
     /// block's own alias). Checked inline so a collision never writes.
     existing_aliases: Vec<String>,
-    /// When `Some`, the IdentityFile key browser is active over the form
-    /// (FORM-UX). Input/render route to the browser until a pick or Esc.
+    /// When `Some`, the IdentityFile key browser is active over the form.
+    /// Input/render route to the browser until a pick or Esc.
     browse: Option<KeyBrowse>,
 }
 
@@ -566,9 +564,9 @@ impl ConnectionForm {
                 self.cycle_tristate(field, true);
                 ConnectionFormOutcome::Consumed
             }
-            // Enter on an EMPTY IdentityFile field opens the ~/.ssh key browser
-            // (FORM-UX). A non-empty field advances instead so a typed path is
-            // never interrupted — manual entry stays fully supported.
+            // Enter on an EMPTY IdentityFile field opens the ~/.ssh key browser.
+            // A non-empty field advances instead so a typed path is
+            // never interrupted - manual entry stays fully supported.
             FormField::IdentityFile if self.identity_file.trim().is_empty() => {
                 ConnectionFormOutcome::BrowseIdentityKeys
             }
@@ -581,7 +579,7 @@ impl ConnectionForm {
         }
     }
 
-    /// Seed and open the IdentityFile key browser over the form (FORM-UX). The
+    /// Seed and open the IdentityFile key browser over the form. The
     /// App discovered `candidates` by scanning `~/.ssh` (filename heuristics
     /// only), so an empty list simply shows a "type a path manually" hint.
     pub(super) fn open_key_browse(&mut self, candidates: Vec<String>) {
@@ -752,7 +750,7 @@ impl ConnectionForm {
         }
     }
 
-    /// Validate just enough to build a host to probe (no alias-collision check —
+    /// Validate just enough to build a host to probe (no alias-collision check -
     /// a Test only asks whether the destination is reachable), mark the form as
     /// testing, and emit the probe request. The App runs it on a background
     /// thread and feeds the result back through [`Self::set_test_result`].
@@ -907,7 +905,7 @@ impl ConnectionForm {
         rows
     }
 
-    /// Render one field row: `Label   value` (or the tri-state / action form).
+    /// Render one field row: label followed by its value, tri-state or action.
     fn render_field(&self, field: FormField, body_width: usize) -> ConnectionFormLine {
         let focused = field == self.focus;
         let text = match field {
@@ -957,7 +955,7 @@ impl ConnectionForm {
                 // The IdentityFile row always carries a trailing browse chip so the
                 // `~/.ssh` key browser is reachable both by keyboard (Enter on an
                 // empty field) and by mouse (click the chip) regardless of whether
-                // a path is set (BROWSE-UX). An empty field shows the hint chip
+                // a path is set. An empty field shows the hint chip
                 // `[Browse ~/.ssh keys]`; a filled field shows the path followed by
                 // a compact `[Browse]` chip. The chip is render-only: the field
                 // model never contains it and it never round-trips into a saved
@@ -1072,7 +1070,7 @@ impl ConnectionForm {
         lines
     }
 
-    /// Render the IdentityFile key browser body (FORM-UX): a `> query` prompt,
+    /// Render the IdentityFile key browser body: a `> query` prompt,
     /// then candidate file NAMES (never contents), or a "type a path manually"
     /// hint when the scan found nothing, then a key-hint footer.
     fn browse_lines(
@@ -1228,7 +1226,7 @@ enum FormRow {
     Spacer,
     Text(String, bool),
     Status(String, Option<Srgb>),
-    /// The focused-field help footer (FORM-UX). Rendered as one or more wrapped
+    /// The focused-field help footer. Rendered as one or more wrapped
     /// lines at the body width by [`ConnectionForm::visible_lines`].
     Help(FormField),
 }
@@ -1239,13 +1237,6 @@ enum FormRow {
 const TEST_GREEN: Srgb = (0x3f, 0xc0, 0x60);
 const TEST_AMBER: Srgb = (0xd0, 0x94, 0x20);
 const TEST_RED: Srgb = (0xd0, 0x44, 0x44);
-
-fn truncate_for_width(text: &str, max_chars: usize) -> String {
-    if max_chars == 0 {
-        return String::new();
-    }
-    text.chars().take(max_chars).collect()
-}
 
 /// The final path component, for browser display. Follows the platform's own
 /// separators: on Windows both `/` and `\` split, so a
@@ -1263,7 +1254,7 @@ fn basename(path: &str) -> &str {
 }
 
 /// Greedy word-wrap for the help footer: split on spaces, packing whole words up
-/// to `width` columns per line. A single word longer than `width` is hard-split
+/// to `width` Unicode scalars per line. A single word longer than `width` is hard-split
 /// so it never overflows. `width == 0` yields nothing.
 fn wrap_for_width(text: &str, width: usize) -> Vec<String> {
     if width == 0 {
@@ -1274,31 +1265,21 @@ fn wrap_for_width(text: &str, width: usize) -> Vec<String> {
     for word in text.split_whitespace() {
         let word_len = word.chars().count();
         let cur_len = current.chars().count();
-        if current.is_empty() {
-            // A word wider than the line is hard-split across lines.
-            if word_len > width {
-                let mut chars = word.chars().peekable();
-                while chars.peek().is_some() {
-                    let chunk: String = chars.by_ref().take(width).collect();
-                    lines.push(chunk);
-                }
-            } else {
-                current = word.to_owned();
-            }
-        } else if cur_len + 1 + word_len <= width {
+        if !current.is_empty() && cur_len + 1 + word_len <= width {
             current.push(' ');
             current.push_str(word);
-        } else {
+            continue;
+        }
+        if !current.is_empty() {
             lines.push(std::mem::take(&mut current));
-            if word_len > width {
-                let mut chars = word.chars().peekable();
-                while chars.peek().is_some() {
-                    let chunk: String = chars.by_ref().take(width).collect();
-                    lines.push(chunk);
-                }
-            } else {
-                current = word.to_owned();
+        }
+        if word_len > width {
+            let mut chars = word.chars().peekable();
+            while chars.peek().is_some() {
+                lines.push(chars.by_ref().take(width).collect());
             }
+        } else {
+            current = word.to_owned();
         }
     }
     if !current.is_empty() {

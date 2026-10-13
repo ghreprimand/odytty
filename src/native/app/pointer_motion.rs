@@ -442,7 +442,7 @@ impl App {
                 // owns that thin grab region so the resize cursor remains
                 // discoverable. All other band motion stays rail-only.
                 if !self.pointer_over_rail_seam(x_px, cell) {
-                    self.update_rail_overlay_hover(x_px, y_px, cell, side);
+                    self.update_rail_overlay_hover(x_px, y_px, cell);
                     return;
                 }
             }
