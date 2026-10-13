@@ -289,6 +289,21 @@ class WorkflowContracts(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse((work / "marker").exists())
 
+    def test_macos_test_retry_fits_inside_its_step_and_job_budgets(self):
+        text = (ROOT / ".github/workflows/ci.yml").read_text()
+        step = text.split("name: Test (macOS, auto-retry PTY-teardown deadlock)", 1)[1]
+        step = step.split("\n      - name:", 1)[0]
+        step_minutes = int(re.search(r"timeout-minutes: (\d+)", step)[1])
+        attempt = int(re.search(r"attempt_timeout=(\d+)", step)[1])
+        attempts = int(re.search(r"max_attempts=(\d+)", step)[1])
+        job_minutes = int(re.search(r"timeout-minutes: \$\{\{ matrix.os == 'macos-latest' && (\d+) ", text)[1])
+        # Each attempt can spend its timeout plus the 5s TERM grace, and the
+        # retry pauses 3s; the step backstop must not cut the loop mid-retry.
+        worst = attempts * (attempt + 5) + (attempts - 1) * 3
+        self.assertGreater(attempts, 1, "the deadlock retry must stay")
+        self.assertLess(worst, step_minutes * 60, "the step timeout would kill the retry loop")
+        self.assertLess(worst + 12 * 60, job_minutes * 60, "setup plus two full timeouts exceeds the job")
+
     def test_aur_source_ref_is_tag_bound_or_backfill_master(self):
         blocks = [block for block in run_blocks(ROOT / ".github/workflows/aur-publish.yml")
                   if 'ref=refs/tags/v' in block]

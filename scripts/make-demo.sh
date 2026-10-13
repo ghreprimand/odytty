@@ -49,7 +49,10 @@ EOF
 set -e
 # A hook or worktree context exports variables that select another repository
 # regardless of the working directory; the fixture must only touch its own.
-unset $(git rev-parse --local-env-vars) GIT_NAMESPACE GIT_QUARANTINE_PATH
+# The names come from git itself, one per word, so the loop splits them on purpose.
+for name in $(git rev-parse --local-env-vars) GIT_NAMESPACE GIT_QUARANTINE_PATH; do
+  unset "$name"
+done
 git init -q -b master
 git config user.name "odytty"; git config user.email "dev@example.com"
 commit() {
