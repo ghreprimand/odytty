@@ -1497,8 +1497,7 @@ deleted early, because its path may already be in use), and a helper that
 cannot be killed is reported as stuck instead of waited on and keeps counting
 against the cap until a later request finds it gone. Closing a tab never waits
 for a cleanup helper, even when the thread that watches it cannot start. A
-skipped or
-forgotten file is left to the remote's own temp-file reaper. **Windows:**
+skipped or forgotten file is left to the remote's own temp-file reaper. **Windows:**
 the upload uses the bundled `ssh.exe` the same way (no `ControlMaster` reuse, as
 OpenSSH for Windows has none), so each upload does its own connect; the clipboard
 image is read through the platform clipboard backend. A Windows *remote* is out

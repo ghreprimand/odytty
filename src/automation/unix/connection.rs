@@ -170,11 +170,13 @@ impl Write for DeadlineStream {
 }
 
 /// Run `attempt` until it connects, fails for another reason, or `deadline`
-/// passes. The first attempt is always made. A retry is made only while time
-/// remains: the deadline is checked before every attempt after the first, so an
-/// interrupted attempt cannot loop past it and a retry never runs, or succeeds,
-/// after it. A full accept queue (`WouldBlock`) sleeps no longer than the time
-/// left. Any other error, including `EINPROGRESS`, is returned for the caller.
+/// passes. The first attempt is always made, even with no time left. A retry
+/// is made only while time remains: the deadline is checked before every
+/// attempt after the first, so an interrupted attempt cannot loop past it and
+/// no retry starts after it. An attempt that started in time and succeeds is
+/// kept even if the clock passed the deadline while it ran. A full accept
+/// queue (`WouldBlock`) sleeps no longer than the time left. Any other error,
+/// including `EINPROGRESS`, is returned for the caller.
 pub(super) fn retry_connect(
     deadline: Instant,
     mut now: impl FnMut() -> Instant,

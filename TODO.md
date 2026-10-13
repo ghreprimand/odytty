@@ -20,7 +20,6 @@ roadmap.
 
 ## v0.17.0: International Text (in development)
 
-
 Saved-layout names preserve non-ASCII text on Linux, macOS and Windows, within
 96 UTF-8 bytes. ASCII letters, digits, spaces, hyphens and underscores remain;
 other ASCII punctuation, controls, Unicode line/paragraph separators and

@@ -906,9 +906,10 @@ class BoundedRun:
     """The outcome of `run_bounded`: status and capped output of a child.
 
     `truncated` means output past the per-stream cap was discarded.
-    `incomplete` means a reader was still running after the grace period, so a
-    process that outlived the child held its output open and the captured bytes
-    are a prefix. Neither is evidence of a result.
+    `incomplete` means the captured bytes are a prefix: either a reader was
+    still running after the grace period, so a process that outlived the child
+    held its output open, or `read_error` is set because reading a stream
+    failed before end of file. Neither is evidence of a result.
     """
 
     def __init__(
@@ -918,12 +919,21 @@ class BoundedRun:
         stderr: bytes,
         truncated: bool,
         incomplete: bool = False,
+        read_error: bool = False,
     ):
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
         self.truncated = truncated
         self.incomplete = incomplete
+        self.read_error = read_error
+
+
+def incomplete_cause(completed: BoundedRun, scope: str) -> str:
+    """Why an incomplete capture is unfinished, worded for `scope`."""
+    if completed.read_error:
+        return f"reading the {scope} output failed before end of file"
+    return f"a process started by the {scope} kept its output open after the {scope} exited"
 
 
 def _kill_tree(process: subprocess.Popen) -> None:
@@ -1056,6 +1066,7 @@ def run_bounded(
             bytes(chunks["stderr"]),
             overflow["stdout"] or overflow["stderr"],
             incomplete=broken["stdout"] or broken["stderr"],
+            read_error=broken["stdout"] or broken["stderr"],
         )
     except subprocess.TimeoutExpired:
         raise
@@ -1229,9 +1240,8 @@ def run_case(
         return case_entry(
             case,
             "fail",
-            "a process started by the case kept its output open after the case "
-            "exited, so the capture is unfinished; an incomplete capture is "
-            "not evidence",
+            f"{incomplete_cause(completed, 'case')}, so the capture is "
+            "unfinished; an incomplete capture is not evidence",
             duration,
             evidence_kind="capture_file",
             reference=log_path.name,
@@ -1344,16 +1354,15 @@ def run_upstream_case(
     if completed.truncated:
         diagnostic_text += f"\n[output truncated at {MAX_CAPTURE_BYTES} bytes per stream]\n"
     if completed.incomplete:
-        diagnostic_text += "\n[capture incomplete: a process outlived the suite and held its output open]\n"
+        diagnostic_text += f"\n[capture incomplete: {incomplete_cause(completed, 'suite')}]\n"
     diagnostic.write_text(diagnostic_text, encoding="utf-8")
 
     if completed.incomplete:
         return case_entry(
             case,
             "skip",
-            "a process started by the run kept its output open after the suite "
-            "exited, so the capture and the log may be unfinished and are not "
-            "read as a result",
+            f"{incomplete_cause(completed, 'suite')}, so the capture and the "
+            "log may be unfinished and are not read as a result",
             duration,
             evidence_kind="exit_status",
         )
@@ -2470,6 +2479,18 @@ class SelfTest(unittest.TestCase):
         self.assertFalse(done.truncated)
         self.assertEqual(done.stdout.strip(), b"whole")
 
+    def test_an_incomplete_capture_names_its_cause(self) -> None:
+        held = BoundedRun(0, b"", b"", False, incomplete=True)
+        broken = BoundedRun(0, b"", b"", False, incomplete=True, read_error=True)
+        self.assertEqual(
+            incomplete_cause(held, "case"),
+            "a process started by the case kept its output open after the case exited",
+        )
+        self.assertEqual(
+            incomplete_cause(broken, "case"),
+            "reading the case output failed before end of file",
+        )
+
     @unittest.skipUnless(os.name == "posix", "needs sh and POSIX process groups")
     def test_a_descendant_holding_the_pipe_open_makes_the_capture_incomplete(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2487,6 +2508,7 @@ class SelfTest(unittest.TestCase):
             )
             elapsed = time.monotonic() - started
             self.assertTrue(done.incomplete)
+            self.assertFalse(done.read_error)
             self.assertFalse(done.truncated)
             self.assertEqual(done.stdout.strip(), b"started")
             self.assertLess(elapsed, 0.9, "the grace period bounds the wait")

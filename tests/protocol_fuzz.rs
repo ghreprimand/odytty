@@ -282,6 +282,11 @@ fn host_output_cap(input_len: usize) -> usize {
     64 * input_len + 4096
 }
 
+/// Columns the head cell's owner spans by the production rule.
+fn owner_columns(cell: &Cell, ambiguous_wide: bool) -> usize {
+    odytty::core::owner_display_width(cell.ch, cell.combining(), ambiguous_wide)
+}
+
 /// Grid self-consistency scan. Walk the snapshot and assert the
 /// ownership invariant and cursor bounds. An owner is a head cell (its first
 /// scalar in `ch`, retained extension scalars in `combining`) plus, when it
@@ -306,11 +311,6 @@ fn host_output_cap(input_len: usize) -> usize {
 /// Rectangle ops sanitize sliced wide pairs to blanks, so this must hold after
 /// arbitrary DECCRA/DECFRA/DECERA/DECSERA churn over rows carrying CJK glyphs
 /// and over the cluster owners the grapheme work ships.
-/// Columns the head cell's owner spans by the production rule.
-fn owner_columns(cell: &Cell, ambiguous_wide: bool) -> usize {
-    odytty::core::owner_display_width(cell.ch, cell.combining(), ambiguous_wide)
-}
-
 fn assert_grid_consistent(seed: u64, t: &Terminal) {
     assert_snapshot_consistent(seed, t.ambiguous_wide(), &t.snapshot());
 }

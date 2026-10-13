@@ -70,15 +70,17 @@ These are design decisions, not missing features:
 - **It reports `ignore`, not `pass`, when it cannot see the screen.** See
   [Why replay cases cannot pass yet](#why-replay-cases-cannot-pass-yet).
 - **It does not accept a partial capture as a result.** Every wait on a case is
-  bounded. A case that outlives its time limit is killed together with the
-  processes it started, and a process that survives the case and keeps its
-  output open leaves the capture unfinished: a replay case then fails and an
-  upstream case is skipped, instead of reading the bytes seen so far as the
-  whole output. Cleanup of started processes uses a process group on Linux and
-  macOS and `taskkill /T` on Windows, which the Windows leg of CI does not
-  exercise. An interrupt (Ctrl-C) reaches only the runner, because each case
-  starts in its own session, so the runner kills the case's process group and
-  then re-raises the interrupt instead of leaving the subject's window behind.
+  bounded. A case that outlives its time limit is killed together with every
+  process still in its process group. A process that left the group, such as a
+  shell OdyTTY starts in its own session, and keeps the output open, or a read
+  of the output that fails, leaves the capture unfinished: a replay case then
+  fails and an upstream case is skipped, instead of reading the bytes seen so
+  far as the whole output. The runner refuses Windows before any case runs, so
+  only its self-tests reach the `taskkill /T` cleanup path there, and CI runs
+  them on Linux only. An interrupt (Ctrl-C) reaches only the runner, because
+  each case starts in its own session, so the runner kills the case's process
+  group and then re-raises the interrupt instead of leaving the subject's
+  window behind.
 - **It does not vendor, cache inside the repo, or write to your real
   configuration.** Each case runs against a private, throwaway state directory.
 

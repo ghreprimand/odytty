@@ -2172,10 +2172,11 @@ that closed while the picker was open, including when names are duplicated.
   cryptographic randomness and the POSIX remote create uses noclobber, so an
   existing path or symlink fails rather than being reused. A size cap and
   best-effort cleanup apply. At most two uploads run at once, and an `ssh`
-  that could not be stopped keeps counting until it is seen to have exited; the upload `ssh`
-  uses a 10-second connect timeout and is stopped after 120 seconds or when
-  its tab closes. An upload that finishes after its tab closed removes its
-  own remote file. Reconnected and restored remote tabs support image paste.
+  that could not be stopped keeps counting until it is seen to have exited;
+  the upload `ssh` uses a 10-second connect timeout and is stopped after 120
+  seconds or when its tab closes. An upload that finishes after its tab
+  closed removes its own remote file. Reconnected and restored remote tabs
+  support image paste.
   A workspace can be bound
   to a saved host so **New Tab** connects there, with a **New Local Tab**
   escape.

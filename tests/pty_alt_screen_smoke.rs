@@ -304,8 +304,9 @@ fn skip_missing(binary: &str) -> Option<PathBuf> {
 /// lesskey inputs (`LESSKEY`, `LESSKEYIN`, `LESSKEYIN_SYSTEM`,
 /// `LESSKEY_CONTENT`, `LESSKEY_SYSTEM`) and `PAGER`. `less` treats an empty
 /// value as unset, so each is set empty. The default lesskey files are looked
-/// up under `HOME` and `XDG_CONFIG_HOME`, so both point at `home`, an empty
-/// directory the test owns. The smoke tests assert the behavior of `less` as
+/// up under `HOME` and `XDG_CONFIG_HOME`; `PtyHarness::spawn` sets both last,
+/// to the empty test-owned directories of its `ChildEnv`, so the values set
+/// here are replaced. The smoke tests assert the behavior of `less` as
 /// installed.
 fn clean_less_env(command: &mut CommandBuilder, home: &Path) {
     for key in [
@@ -899,8 +900,11 @@ fn git_log_pager_restores_primary_screen() -> Result<()> {
     let mut command = CommandBuilder::new("git".to_string());
     fixed_env(&mut command);
     // The builder inherits the parent's environment and cannot clear it, so the
-    // variables that select a repository or configuration are pinned to the
-    // fixture instead of left to whatever the suite was started with.
+    // configuration sources and `GIT_DIR`, `GIT_WORK_TREE` and `GIT_INDEX_FILE`
+    // are pinned to the fixture instead of left to whatever the suite was
+    // started with. Other inherited repository variables (such as
+    // `GIT_OBJECT_DIRECTORY` or `GIT_COMMON_DIR`) are not pinned; `git log` only
+    // reads, so a stray value fails the test rather than changing a repository.
     let fixture = temp.path().to_string_lossy().into_owned();
     command.env("GIT_CONFIG_NOSYSTEM", "1");
     command.env("GIT_CONFIG_GLOBAL", "/dev/null");

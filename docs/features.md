@@ -1631,8 +1631,9 @@ A transient `accept` failure on Unix (too many open files, memory or buffer
 pressure, or a client that gave up first) is retried rather than stopping the
 endpoint; one that persists for about a second of consecutive failures still
 stops it with a notice, while an idle poll in between starts the count again.
-A client that finds the endpoint's accept queue full waits for a slot until
-its connect deadline and never connects after it. A mutation that failed
+A client that finds the endpoint's accept queue full retries until its
+connect deadline, sleeping no longer than the time left, and starts no retry
+after it. A mutation that failed
 before any byte was sent, including that connect timeout, is reported as
 `unavailable` and is safe to retry; a failure after sending stays
 `outcome_unknown`.
@@ -1763,7 +1764,6 @@ Wayland and X11; macOS and Windows use their native dialog implementations.
 
 Later monitor notices preserve unseen command-failure badges until the pane is
 viewed or its attention is cleared.
-
 
 OSC 9 and OSC 777 requests produce bounded, pane-owned attention state. OSC
 9;4 produces typed progress with a bounded lifetime. Terminal-authored text is
@@ -2336,7 +2336,6 @@ The profile catalog keeps an explicit mouse-wheel scroll position through
 redraws. Keyboard navigation and filtering resume following the selected row.
 Catalog filters and form text fields ignore control characters. Labels preserve
 exact fits and truncate to the overlay renderer's display-cell width.
-
 
 Saved-layout names preserve non-ASCII text on Linux, macOS and Windows, within
 96 UTF-8 bytes. ASCII letters, digits, spaces, hyphens and underscores remain;

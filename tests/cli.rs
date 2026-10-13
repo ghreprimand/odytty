@@ -491,8 +491,10 @@ fn attach_reports_unknown_session_without_creating_daemons() {
 #[cfg(unix)]
 #[test]
 fn list_and_attach_use_live_session_host_without_scrollback_dump() {
-    // This host launches the real default shell. Re-exec keeps its entire
-    // writable environment private without changing other test threads.
+    // This host launches the real default shell. Re-exec gives the host and
+    // its shell private home, config, data, state, cache and history locations
+    // without changing other test threads; the temporary and runtime
+    // directories and `ZDOTDIR` are still inherited.
     const CHILD: &str = "ODYTTY_TEST_CLI_HOST_ENV";
     if std::env::var_os(CHILD).is_none() {
         let child_env = scratch_dirs::ChildEnv::new();

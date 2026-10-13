@@ -1267,10 +1267,10 @@ fn default_shell() -> ResolvedShell {
 /// The one-shot argument vector for running `command` in `kind` and exiting.
 /// cmd uses `/C <command>`; PowerShell uses `-NoProfile -Command <command>`
 /// (`-NoProfile` skips user profile scripts for a deterministic, faster start;
-/// `-Command` runs the string and exits). PowerShell's own parser handles the
-/// trailing command string; OdyTTY's only Windows caller passes a controlled
-/// command (the `--dump-command` default), so `-Command` is sufficient and
-/// `-EncodedCommand` (base64 UTF-16LE, for hostile quoting) is not needed here.
+/// `-Command` runs the string and exits). `command` is the shell command the
+/// caller explicitly asked to run, such as the `--dump-command` argument. It
+/// is passed as one argument for the selected shell to parse, so it runs with
+/// that shell's full syntax; it is not encoded (`-EncodedCommand` is not used).
 fn one_shot_args(kind: ShellKind, command: &str) -> Vec<OsString> {
     match kind {
         ShellKind::Cmd => vec![OsString::from("/C"), OsString::from(command)],

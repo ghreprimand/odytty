@@ -464,10 +464,12 @@ fn unescape_fish(value: &str) -> String {
 }
 
 /// Normalize a recalled shell command like [`normalize_entry`], except that
-/// trailing whitespace after a final backslash is kept: the backslash escapes
-/// it (`echo end\ ` ends in a literal space), so dropping it would recall a
-/// different command ending in a dangling backslash. Only spaces and tabs are
-/// kept; a carriage return or newline after them is still trimmed.
+/// the whole run of spaces and tabs after a final backslash is kept. When the
+/// command ends in an odd number of backslashes, the last one escapes the
+/// first space or tab (`echo end\ ` ends in a literal space), so trimming
+/// would recall a different command ending in a dangling backslash; the rest
+/// of the run is unescaped and harmless to keep. A carriage return or newline
+/// after the run is still trimmed.
 fn normalize_command(raw: &str, max_entry_chars: usize) -> Option<String> {
     let start = raw.trim_start();
     let end = start.trim_end();
