@@ -123,6 +123,8 @@ pub fn run_interactive() -> Result<()> {
             &mut pending_output,
             || session.force_reader_eof(),
         ) {
+            // Match the in-order EOF path even if the producer disappeared.
+            render_debug_screen(&mut stdout, &terminal)?;
             return Ok(());
         }
     }
@@ -151,7 +153,6 @@ fn drain_pty_output(
 #[derive(Default)]
 struct ChildExitDrain {
     gone_at: Option<Instant>,
-    eof_requested: bool,
 }
 
 impl ChildExitDrain {
@@ -165,20 +166,16 @@ impl ChildExitDrain {
     ) -> bool {
         if !child_gone {
             self.gone_at = None;
-            self.eof_requested = false;
             return false;
         }
         let gone_at = self.gone_at.get_or_insert(now);
         if now.saturating_duration_since(*gone_at) < CHILD_EXIT_GRACE {
             return false;
         }
-        if !self.eof_requested {
-            // Stop a reader held open by descendants, then consume its queued
-            // chunks and in-order EOF. Never complete just because the child
-            // status is available or the queue is temporarily empty.
-            force_eof();
-            self.eof_requested = true;
-        }
+        // A best-effort wake can be interrupted. Retry until in-order EOF is
+        // consumed; the wake write is nonblocking even when the pipe is full.
+        // Queue emptiness alone never completes while the reader is alive.
+        force_eof();
         if pending.is_some() {
             return false;
         }
@@ -634,7 +631,7 @@ mod tests {
             !completion.should_finish(true, now + CHILD_EXIT_GRACE, &rx, &mut pending, || calls
                 .set(calls.get() + 1))
         );
-        assert_eq!(calls.get(), 1, "request EOF exactly once");
+        assert_eq!(calls.get(), 2, "retry EOF while no EOF was consumed");
         drop(tx);
         assert!(
             completion.should_finish(true, now + CHILD_EXIT_GRACE, &rx, &mut pending, || calls

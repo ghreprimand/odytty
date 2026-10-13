@@ -8,6 +8,54 @@ use std::{
 };
 
 #[test]
+fn startup_bash_preserves_last_argument_with_and_without_debug_hooks() {
+    let Some(bash) = find_bash() else {
+        return;
+    };
+    let dir = crate::test_dirs::ScratchDir::new("startup-bash-last-arg");
+    for tracing in ["", "set -T\n", "shopt -s extdebug\n"] {
+        for hook in [
+            "",
+            "trap ':' DEBUG\n",
+            "trap 'printf \"USER-HOOK:%s:%s:%s\\n\" \"$?\" \"$_\" \"$BASH_COMMAND\"' DEBUG\n",
+            "trap 'case \"$BASH_COMMAND\" in \"echo SKIP-ME\") false ;; *) : ;; esac' DEBUG\n",
+        ] {
+            let rc = dir.path().join("rc.bash");
+            fs::write(&rc, format!("PS1='P> '\n{tracing}{hook}{BASH_SNIPPET}")).unwrap();
+            let out = run_bash_rc(
+                &bash,
+                &rc,
+                "echo foo; echo $_; printf 'CHECK-ARG:<%s>\\n' \"$_\"\nfalse; printf 'CHECK-STATUS:<%s>\\n' \"$?\"\necho SKIP-ME; printf 'CHECK-KEEP\\n'\nexit\n",
+            );
+            assert!(
+                out.contains("CHECK-ARG:<foo>\n"),
+                "last argument changed with hook {hook:?}: {out:?}"
+            );
+            assert!(
+                out.contains("CHECK-STATUS:<1>\n"),
+                "exit status changed with hook {hook:?}: {out:?}"
+            );
+            assert!(
+                out.contains("CHECK-KEEP\n"),
+                "following command must still run"
+            );
+            if tracing.contains("extdebug") && hook.contains("SKIP-ME") {
+                assert!(
+                    !out.contains("SKIP-ME"),
+                    "existing extdebug hook must still skip its selected command"
+                );
+            }
+            if hook.contains("USER-HOOK") {
+                assert!(
+                    out.contains("USER-HOOK:0:foo:echo $_"),
+                    "user hook lost original last argument: {out:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn startup_bash_preserves_existing_debug_hook_and_status() {
     let Some(bash) = find_bash() else {
         return;

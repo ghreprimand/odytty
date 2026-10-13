@@ -852,8 +852,10 @@ prompt-only Kitty disambiguation flag through `PS0` after readline accepts a
 command; older Bash uses a prompt-guarded first-real-command DEBUG boundary.
 Both paths remove the flag before child execution and retain existing scalar or
 array-valued `PROMPT_COMMAND` hooks. Existing DEBUG traps run in the
-DEBUG context with the incoming command status preserved. The shared Bash
-wrapper gives local spawns and SSH bootstrap the same hook chaining.
+DEBUG context with the incoming command status and last argument (`$_`)
+preserved. Integration also preserves `$_` when no DEBUG hook existed. The
+shared Bash wrapper gives local spawns and SSH bootstrap the same hook chaining.
+Windows local PowerShell integration is unchanged.
 
 Unix zsh injection writes `.zshenv`, `.zprofile`, `.zlogin`, and `.zlogout`
 wrappers alongside `.zshrc` before changing the spawn environment. The first
@@ -2443,9 +2445,13 @@ model geometry and retries no faster than every 250 ms. Linux and macOS use
 this frontend; Windows rejects `--interactive`.
 On child exit, the interactive frontend drains captured PTY output through
 in-order EOF and presents the final terminal state. After a 250 ms grace,
-the PTY wake pipe requests reader EOF to bound descendant-held output. The
-loop continues polling input and resize between finite drains; a temporary
-empty queue never completes the session while the reader remains alive.
+the PTY wake pipe requests reader EOF to bound descendant-held output. Wake
+requests are nonblocking and retried until EOF. The reader drains up to 256 KiB
+of currently readable master bytes using zero-timeout polls before EOF; later
+descendant output is outside this bound. Unexpected reader disconnects also
+present the final state. The loop continues polling input and resize between
+finite drains; a temporary empty queue never completes the session while the
+reader remains alive.
 
 ## Cross-Platform Architecture
 

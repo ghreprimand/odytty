@@ -153,6 +153,8 @@ services input and resize between output drains, and refuses host-terminal
 pastes over 8 MiB whole. Resize failures are logged and retried while retaining
 the previous geometry. Child-exit completion drains captured output through
 in-order EOF, with a 250 ms reader-EOF fallback for held-open descendants.
+Forced EOF drains up to 256 KiB of currently readable master bytes, retries
+nonblocking wake requests, and presents the final state on reader disconnect.
 It is available on Linux and macOS; Windows rejects it.
 See the [CLI reference](runtime-knobs.md#introspection-and-shell-integration-commands)
 for the exact bounds.
@@ -1710,7 +1712,8 @@ case OdyTTY still parses marks a shell emits on its own but injects no hooks.
 
 Existing shells do not change until restarted. Bash uses an interactive
 `--rcfile`, so login-shell-only startup files remain the shell's responsibility.
-Existing Bash DEBUG hooks remain active with their incoming command status.
+Existing Bash DEBUG hooks remain active with their incoming command status
+and last argument (`$_`); integration also preserves `$_` without a prior hook.
 Zsh startup wrappers honor user `.zshenv` changes to `ZDOTDIR` and restore
 the user's directory for the session. Normal `.zlogin` and `.zlogout` reads
 then use that directory directly. A profile that

@@ -138,7 +138,7 @@ pub(super) const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" 
       return "${1:-0}"
     fi
     case "$BASH_COMMAND" in
-      __odytty_status_capture*|__odytty_prompt_command*|__odytty_debug_trap*|__odytty_append_prompt_command*|__odytty_prepend_prompt_command*) return "${1:-0}" ;;
+      __odytty_status_capture*|__odytty_prompt_command*|__odytty_debug_trap*|__odytty_restore_debug_context*|__odytty_append_prompt_command*|__odytty_prepend_prompt_command*) return "${1:-0}" ;;
     esac
     # Bash <4.4 never expands PS0. At the first real command boundary after a
     # prompt, remove the prompt-only Kitty disambiguation bit here instead.
@@ -152,6 +152,12 @@ pub(super) const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" 
     fi
     printf '\e]133;C\a'
     __ODYTTY_COMMAND_STARTED=1
+    return "${1:-0}"
+  }
+
+  # A final argument restores Bash's $_ after a DEBUG callback. Keep the user
+  # hook's exit status too, including its extdebug command-skip behavior.
+  __odytty_restore_debug_context() {
     return "${1:-0}"
   }
 
@@ -265,7 +271,8 @@ pub(super) const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" 
   __odytty_prepend_prompt_command __odytty_status_capture
   __odytty_append_prompt_command __odytty_prompt_command
   # trap -p supplies shell-quoted code. Decode it once, then evaluate it in
-  # the DEBUG context after restoring the original status for the user hook.
+  # the DEBUG context after restoring the original status and last argument
+  # for the user hook. Snapshot both before any trap command changes them.
   # DEBUG output from a traced command substitution would corrupt trap -p.
   # Disable function tracing only while capturing, then restore its state.
   __ODYTTY_HAD_FUNCTRACE=
@@ -277,9 +284,10 @@ pub(super) const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" 
     __ODYTTY_USER_DEBUG_TRAP=${__ODYTTY_USER_DEBUG_TRAP#trap -- }
     __ODYTTY_USER_DEBUG_TRAP=${__ODYTTY_USER_DEBUG_TRAP% DEBUG}
     eval "__ODYTTY_USER_DEBUG_TRAP=$__ODYTTY_USER_DEBUG_TRAP"
-    trap '__odytty_debug_trap "$?"; eval "$__ODYTTY_USER_DEBUG_TRAP"' DEBUG
+    trap '__ODYTTY_DEBUG_STATUS=$? __ODYTTY_DEBUG_ARG=$_; __odytty_debug_trap "$__ODYTTY_DEBUG_STATUS" "$__ODYTTY_DEBUG_ARG"; eval "$__ODYTTY_USER_DEBUG_TRAP"; __odytty_restore_debug_context "$?" "$__ODYTTY_DEBUG_ARG"' DEBUG
   else
-    trap '__odytty_debug_trap' DEBUG
+    # Without a user hook, success keeps extdebug from skipping commands.
+    trap '__odytty_debug_trap 0 "$_"' DEBUG
   fi
 fi
 "#;

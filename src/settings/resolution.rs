@@ -785,9 +785,13 @@ impl Settings {
             DEFAULT_TAB_SEAM,
             &mut warn,
         );
+        let (autohide_value, autohide_name) = match get(WORKSPACE_RAIL_AUTOHIDE_ENV) {
+            Some(value) => (Some(value), WORKSPACE_RAIL_AUTOHIDE_ENV),
+            None => (get(TAB_RAIL_AUTOHIDE_ENV), TAB_RAIL_AUTOHIDE_ENV),
+        };
         let tab_rail_autohide = parse_bool_setting(
-            rail_get!(WORKSPACE_RAIL_AUTOHIDE_ENV, TAB_RAIL_AUTOHIDE_ENV).as_deref(),
-            TAB_RAIL_AUTOHIDE_ENV,
+            autohide_value.as_deref(),
+            autohide_name,
             DEFAULT_TAB_RAIL_AUTOHIDE,
             &mut warn,
         );

@@ -1039,3 +1039,32 @@ fn live_tab_drag_defaults_on_and_round_trips_with_reloadable_settings() {
     assert_eq!(row.group, "Tabs");
     assert!(row.reloadable);
 }
+
+#[test]
+fn rail_autohide_warning_names_the_value_source() {
+    for (name, other) in [
+        (WORKSPACE_RAIL_AUTOHIDE_ENV, TAB_RAIL_AUTOHIDE_ENV),
+        (TAB_RAIL_AUTOHIDE_ENV, WORKSPACE_RAIL_AUTOHIDE_ENV),
+    ] {
+        let (_, warnings) = settings_from([(name, "invalid")]);
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.starts_with(&format!("{name}=")))
+        );
+        assert!(
+            !warnings
+                .iter()
+                .any(|warning| warning.starts_with(&format!("{other}=")))
+        );
+    }
+    let (_, warnings) = settings_from([
+        (WORKSPACE_RAIL_AUTOHIDE_ENV, "invalid"),
+        (TAB_RAIL_AUTOHIDE_ENV, "off"),
+    ]);
+    assert!(
+        warnings
+            .iter()
+            .any(|warning| warning.starts_with(&format!("{WORKSPACE_RAIL_AUTOHIDE_ENV}=")))
+    );
+}

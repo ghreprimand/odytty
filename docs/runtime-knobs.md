@@ -349,6 +349,9 @@ Legacy rail names remain accepted without warnings:
 | `workspace_rail_autohide` | `ODYTTY_WORKSPACE_RAIL_AUTOHIDE` | `tab_rail_autohide` | `ODYTTY_TAB_RAIL_AUTOHIDE` |
 | `workspace_rail_reveal_px` | `ODYTTY_WORKSPACE_RAIL_REVEAL_PX` | `tab_rail_reveal_px` | `ODYTTY_TAB_RAIL_REVEAL_PX` |
 
+Invalid workspace rail autohide values name the selected canonical or legacy
+variable in the warning on Linux, macOS and Windows.
+
 ### Choose Shell-Exit Behavior
 
 `shell_exit_closes = workspace` closes an emptied workspace, with the final
@@ -1198,9 +1201,13 @@ model geometry, and is retried no faster than every 250 ms. These limits apply
 on Linux and macOS; Windows has no interactive fallback frontend.
 On child exit, the interactive frontend drains captured PTY output through
 in-order EOF and presents the final terminal state. After a 250 ms grace,
-the PTY wake pipe requests reader EOF to bound descendant-held output. The
-loop continues polling input and resize between finite drains; a temporary
-empty queue never completes the session while the reader remains alive.
+the PTY wake pipe requests reader EOF to bound descendant-held output. Wake
+requests are nonblocking and retried until EOF. The reader drains up to 256 KiB
+of currently readable master bytes using zero-timeout polls before EOF; later
+descendant output is outside this bound. Unexpected reader disconnects also
+present the final state. The loop continues polling input and resize between
+finite drains; a temporary empty queue never completes the session while the
+reader remains alive.
 
 ## Detached-Session CLI
 

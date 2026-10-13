@@ -454,6 +454,7 @@ impl PtySession {
 
     pub fn try_clone_reader(&self) -> Result<Box<dyn Read + Send>> {
         Ok(Box::new(PtyReader {
+            forced_drain_remaining: None,
             file: self.master.try_clone().context("clone pty reader")?,
             wake: self
                 .reader_wake_read
@@ -466,8 +467,10 @@ impl PtySession {
     /// parked on the master because a `setsid`'d grandchild in a foreign process
     /// group still holds the slave open (so `kill` on the child's group cannot
     /// reach it and the master never reports EOF on its own). One byte in the
-    /// self-pipe is level-triggered, so the reader's `poll` stays readable and it
-    /// returns `Ok(0)`. Idempotent and best-effort: the session close path calls
+    /// self-pipe is level-triggered. Each reader drains at most 256 KiB of
+    /// currently readable master bytes with zero-timeout polls, then returns
+    /// `Ok(0)` even if a descendant continues writing. The wake write is
+    /// nonblocking, idempotent and best-effort: the session close path calls
     /// this after a bounded join deadline so neither the reaper nor the pump
     /// thread (and their fds) can leak on the ControlPersist case.
     pub fn force_reader_eof(&self) {
@@ -758,20 +761,31 @@ fn foreground_group_is_launch_child_only(_launch_pid: u32) -> bool {
     false
 }
 
+const FORCED_READER_DRAIN_BYTES: usize = 256 * 1024;
+
 struct PtyReader {
+    /// One fixed budget per reader after the wake is first observed.
+    forced_drain_remaining: Option<usize>,
     file: File,
     /// Read end of the session's reader-wake self-pipe. When it becomes readable
     /// (a close forced teardown via [`PtySession::force_reader_eof`]), the reader
-    /// reports EOF instead of blocking on a master a grandchild keeps open.
+    /// drains a fixed bound of readable bytes, then reports EOF instead of
+    /// blocking on a master a grandchild keeps open.
     wake: OwnedFd,
 }
 
 impl Read for PtyReader {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
         loop {
-            // Wait for either real PTY output or a forced-teardown wake. The
-            // master fd stays blocking, but we only read after `poll` reports it
-            // readable, so a healthy session is byte-identical to a direct read.
+            if self.forced_drain_remaining == Some(0) {
+                return Ok(0);
+            }
+            // A healthy reader waits for output. After the wake, only bytes
+            // already readable within the fixed budget are retained; never
+            // wait for future descendant output or refresh the budget.
             let mut fds = [
                 libc::pollfd {
                     fd: self.wake.as_raw_fd(),
@@ -784,9 +798,13 @@ impl Read for PtyReader {
                     revents: 0,
                 },
             ];
-            // SAFETY: both fds are live for the duration of the call; `poll` only
-            // reads/writes the two `pollfd` entries in `fds`.
-            let rc = unsafe { libc::poll(fds.as_mut_ptr(), 2, -1) };
+            let timeout = if self.forced_drain_remaining.is_some() {
+                0
+            } else {
+                -1
+            };
+            // SAFETY: both fds stay live; poll reads/writes only the two entries.
+            let rc = unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout) };
             if rc < 0 {
                 let error = std::io::Error::last_os_error();
                 if error.kind() == std::io::ErrorKind::Interrupted {
@@ -794,19 +812,32 @@ impl Read for PtyReader {
                 }
                 return Err(error);
             }
-            if fds[0].revents != 0 {
-                // Forced teardown: report EOF so the output pump exits promptly.
-                return Ok(0);
+            if fds[0].revents != 0 && self.forced_drain_remaining.is_none() {
+                self.forced_drain_remaining = Some(FORCED_READER_DRAIN_BYTES);
+                // Repoll with timeout zero even if both fds were ready.
+                continue;
             }
             if fds[1].revents != 0 {
-                return match self.file.read(buf) {
-                    // A closed slave surfaces as EIO on the master; treat it as a
-                    // clean EOF, exactly as the pre-poll reader did.
+                let limit = self
+                    .forced_drain_remaining
+                    .unwrap_or(buf.len())
+                    .min(buf.len());
+                return match self.file.read(&mut buf[..limit]) {
+                    // A closed slave reports EIO; retain the existing EOF mapping.
                     Err(error) if error.raw_os_error() == Some(libc::EIO) => Ok(0),
-                    result => result,
+                    Ok(len) => {
+                        if let Some(remaining) = &mut self.forced_drain_remaining {
+                            *remaining = remaining.saturating_sub(len);
+                        }
+                        Ok(len)
+                    }
+                    Err(error) => Err(error),
                 };
             }
-            // Spurious wakeup with nothing ready: poll again.
+            if self.forced_drain_remaining.is_some() {
+                return Ok(0);
+            }
+            // Spurious normal wakeup with nothing ready: wait again.
         }
     }
 }
@@ -869,18 +900,21 @@ pub(crate) fn open_pty_pair(dimensions: Dimensions) -> Result<(File, File)> {
 /// close-on-exec with `fcntl` immediately after (the same fallback the master fd
 /// uses off Linux). The wake behavior is identical on every platform. The same
 /// fork-window limit as [`open_pty_pair`] applies to both ends off Linux.
-#[cfg(target_os = "linux")]
 fn make_reader_wake_pipe() -> Result<(rustix::fd::OwnedFd, rustix::fd::OwnedFd)> {
-    pipe_with(PipeFlags::CLOEXEC).context("create pty reader wake pipe")
-}
-
-#[cfg(all(unix, not(target_os = "linux")))]
-fn make_reader_wake_pipe() -> Result<(rustix::fd::OwnedFd, rustix::fd::OwnedFd)> {
+    #[cfg(target_os = "linux")]
+    let (read_end, write_end) =
+        pipe_with(PipeFlags::CLOEXEC).context("create pty reader wake pipe")?;
+    #[cfg(not(target_os = "linux"))]
     let (read_end, write_end) = rustix::pipe::pipe().context("create pty reader wake pipe")?;
-    rustix::io::fcntl_setfd(&read_end, rustix::io::FdFlags::CLOEXEC)
-        .context("set cloexec on pty reader wake pipe read end")?;
-    rustix::io::fcntl_setfd(&write_end, rustix::io::FdFlags::CLOEXEC)
-        .context("set cloexec on pty reader wake pipe write end")?;
+    #[cfg(not(target_os = "linux"))]
+    for fd in [&read_end, &write_end] {
+        rustix::io::fcntl_setfd(fd, rustix::io::FdFlags::CLOEXEC)
+            .context("set cloexec on pty reader wake pipe")?;
+    }
+    // Repeated best-effort requests must not park an input loop on a full pipe.
+    let flags = rustix::fs::fcntl_getfl(&write_end).context("read pty reader wake flags")?;
+    rustix::fs::fcntl_setfl(&write_end, flags | rustix::fs::OFlags::NONBLOCK)
+        .context("set nonblocking pty reader wake write")?;
     Ok((read_end, write_end))
 }
 
@@ -1058,6 +1092,63 @@ mod tests {
             resolved, expected,
             "non-UTF8 login shell bytes must ride through unchanged"
         );
+    }
+
+    #[test]
+    fn reader_wake_writes_cannot_block_repeated_eof_requests() {
+        let (_wake, write) = make_reader_wake_pipe().unwrap();
+        assert!(
+            rustix::fs::fcntl_getfl(&write)
+                .unwrap()
+                .contains(rustix::fs::OFlags::NONBLOCK)
+        );
+    }
+
+    #[test]
+    fn forced_reader_eof_drains_already_readable_pty_bytes() {
+        let (master, mut slave) = open_pty_pair(TEST_DIMENSIONS).unwrap();
+        let (wake, wake_write) = make_reader_wake_pipe().unwrap();
+        let payload = b"FINAL-KERNEL-PTY-BYTES";
+        slave.write_all(payload).unwrap();
+        let mut ready = libc::pollfd {
+            fd: master.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: the master stays live and ready is one initialized pollfd.
+        assert_eq!(unsafe { libc::poll(&mut ready, 1, 1000) }, 1);
+        rustix::io::write(&wake_write, &[1]).unwrap();
+        let mut reader = PtyReader {
+            file: master,
+            wake,
+            forced_drain_remaining: None,
+        };
+        let mut captured = Vec::new();
+        reader.read_to_end(&mut captured).unwrap();
+        assert_eq!(captured, payload);
+    }
+
+    #[test]
+    fn forced_reader_drain_stops_at_byte_cap_with_readable_input() {
+        // A regular file stays poll-readable throughout the bounded drain,
+        // making the continuous-output limit deterministic without a flooder.
+        let dir = crate::test_dirs::ScratchDir::new("forced-reader-cap");
+        let path = dir.path().join("output");
+        let cap = 256 * 1024;
+        std::fs::write(&path, vec![b'x'; cap + 8192]).unwrap();
+        let (wake, wake_write) = make_reader_wake_pipe().unwrap();
+        rustix::io::write(&wake_write, &[1]).unwrap();
+        let mut reader = PtyReader {
+            file: File::open(path).unwrap(),
+            wake,
+            forced_drain_remaining: None,
+        };
+        let mut captured = Vec::new();
+        reader.read_to_end(&mut captured).unwrap();
+        assert_eq!(captured.len(), cap);
+        let mut remainder = Vec::new();
+        reader.file.read_to_end(&mut remainder).unwrap();
+        assert_eq!(remainder.len(), 8192);
     }
 
     #[test]
