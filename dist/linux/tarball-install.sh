@@ -3,11 +3,12 @@
 #
 # Run this from the extracted tarball directory. It copies the odytty binary,
 # its desktop-integration files (the .desktop launcher, AppStream metainfo,
-# and the hicolor icon set), and the licence texts (LICENSE, NOTICE and the
-# bundled fonts' licences, under PREFIX/share/licenses/odytty) into a prefix,
-# then refreshes the desktop database and icon cache if those tools are
-# present. Nothing is downloaded; this only
-# installs the files shipped in the tarball.
+# and the hicolor icon set), and the licence texts (LICENSE, NOTICE,
+# THIRD-PARTY-LICENSES and the bundled fonts' licences, under
+# PREFIX/share/licenses/odytty) into a prefix, then refreshes the desktop
+# database and icon cache if those tools are present. Nothing is downloaded;
+# this only installs the files shipped in the tarball. --uninstall removes
+# only those files, never the whole licence directory.
 #
 # Usage:
 #   ./install.sh                              install into ~/.local (no root needed)
@@ -28,12 +29,33 @@ DATA_DIR="$PREFIX/share"
 DESKTOP_ID="io.unfinished_works.odytty"
 LICENSE_DIR="$DATA_DIR/licenses/odytty"
 
+# Remove only the licence files this tarball installs: the named notices and the
+# font licence files listed in the tarball's own licenses/fonts tree. Never a
+# recursive delete: with PREFIX=/usr the directory can be shared with a deb, rpm
+# or AUR package, and a file this installer did not put there must survive. A
+# directory goes only once it is empty. Run from the extracted tarball, as the
+# install is.
+uninstall_licences() {
+    for notice in LICENSE NOTICE THIRD-PARTY-LICENSES; do
+        rm -f "$LICENSE_DIR/$notice"
+    done
+    if [ -d "$SELF_DIR/licenses/fonts" ]; then
+        ( cd "$SELF_DIR/licenses/fonts" && find . -type f -print ) | while IFS= read -r file; do
+            rm -f "$LICENSE_DIR/fonts/$file"
+        done
+    fi
+    if [ -d "$LICENSE_DIR/fonts" ]; then
+        find "$LICENSE_DIR/fonts" -depth -type d -exec rmdir {} + 2>/dev/null || true
+    fi
+    rmdir "$LICENSE_DIR" 2>/dev/null || true
+}
+
 uninstall() {
     rm -f "$BIN_DIR/odytty"
     rm -f "$DATA_DIR/applications/$DESKTOP_ID.desktop"
     rm -f "$DATA_DIR/metainfo/$DESKTOP_ID.metainfo.xml"
     find "$DATA_DIR/icons/hicolor" -name "$DESKTOP_ID.*" -delete 2>/dev/null || true
-    rm -rf "$LICENSE_DIR"
+    uninstall_licences
     echo "Removed OdyTTY from $PREFIX."
 }
 

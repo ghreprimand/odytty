@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import platform
 import re
 import subprocess
@@ -93,6 +94,18 @@ MEMORY_BUCKETS = (
     (128, "64-128 GiB"),
     (256, "128-256 GiB"),
 )
+
+
+def _finite_number(value: object) -> bool:
+    """A JSON number (not a boolean) that converts to a finite float. A NaN or
+    an integer beyond the float range (1 followed by 400 zeros is a valid JSON
+    integer) is refused here, so the runner never meets it."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:
+        return False
 
 
 def memory_bucket(total_gib: float) -> str:
@@ -943,21 +956,16 @@ def check_record(record: dict) -> list[str]:
             )
 
     budget = record.get("run_set_time_budget_hours")
-    if not isinstance(budget, (int, float)) or isinstance(budget, bool) or budget <= 0:
+    if not _finite_number(budget) or budget <= 0:
         problems.append("W6 time budget must be a positive number")
     se_budget = record.get("software_endpoint_time_budget_hours")
-    if (
-        not isinstance(se_budget, (int, float))
-        or isinstance(se_budget, bool)
-        or se_budget <= 0
-    ):
+    if not _finite_number(se_budget) or se_budget <= 0:
         problems.append("software-endpoint time budget must be a positive number")
     start_temperature_ceiling = record.get(
         "software_endpoint_start_temperature_ceiling_celsius"
     )
     if (
-        not isinstance(start_temperature_ceiling, (int, float))
-        or isinstance(start_temperature_ceiling, bool)
+        not _finite_number(start_temperature_ceiling)
         or not 60 <= start_temperature_ceiling <= 95
     ):
         problems.append(
@@ -971,18 +979,10 @@ def check_record(record: dict) -> list[str]:
     ) is None:
         problems.append("software-endpoint CPU-temperature source is not pinned")
     ceiling = record.get("instrumentation_overhead_ceiling_percent")
-    if (
-        not isinstance(ceiling, (int, float))
-        or isinstance(ceiling, bool)
-        or ceiling < 0
-    ):
-        problems.append("instrumentation-overhead ceiling must be a non-negative number")
+    if not _finite_number(ceiling) or not 0 <= ceiling <= 100:
+        problems.append("instrumentation-overhead ceiling must be between 0 and 100 percent")
     background_ceiling = record.get("background_cpu_ceiling_percent")
-    if (
-        not isinstance(background_ceiling, (int, float))
-        or isinstance(background_ceiling, bool)
-        or not 0 <= background_ceiling <= 100
-    ):
+    if not _finite_number(background_ceiling) or not 0 <= background_ceiling <= 100:
         problems.append("background CPU ceiling must be between 0 and 100 percent")
 
     planned = [entry for entry in record.get("workloads", []) if entry.get("planned")]
@@ -1381,6 +1381,33 @@ def self_test(repo_root: Path) -> list[str]:
     problems = check_record(pinned)
     if problems:
         failures.append(f"prereg: a pinned record was refused: {problems}")
+
+    # Numeric fields must be finite JSON numbers within their range: NaN, a
+    # boolean and an integer beyond the float range (which would make the
+    # runner's float() conversion raise) are each refused by name.
+    for field, bad, expected in (
+        ("run_set_time_budget_hours", 10**400, "W6 time budget"),
+        ("run_set_time_budget_hours", float("nan"), "W6 time budget"),
+        ("software_endpoint_time_budget_hours", 10**400, "software-endpoint time budget"),
+        ("instrumentation_overhead_ceiling_percent", 10**400, "instrumentation-overhead ceiling"),
+        ("instrumentation_overhead_ceiling_percent", 101, "instrumentation-overhead ceiling"),
+        ("instrumentation_overhead_ceiling_percent", True, "instrumentation-overhead ceiling"),
+        ("background_cpu_ceiling_percent", 10**400, "background CPU ceiling"),
+        (
+            "software_endpoint_start_temperature_ceiling_celsius",
+            float("nan"),
+            "start-temperature ceiling",
+        ),
+    ):
+        numeric = json.loads(json.dumps(pinned))
+        numeric[field] = bad
+        try:
+            numeric_problems = check_record(numeric)
+        except Exception as error:  # noqa: BLE001 - any raise is the failure
+            failures.append(f"prereg: {field}={bad!r:.40} raised {error!r}")
+            continue
+        if not any(expected in problem for problem in numeric_problems):
+            failures.append(f"prereg: {field}={bad!r:.40} was accepted")
 
     missing_scope_exclusion = json.loads(json.dumps(pinned))
     missing_scope_exclusion.pop("machine_scope_exclusions")

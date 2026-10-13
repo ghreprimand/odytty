@@ -169,63 +169,86 @@ fn the_install_helper_lays_the_files_out_by_font_set() {
     }
 }
 
-/// The tarball's own installer (which the one-line installer's tarball branch
-/// runs) copies LICENSE, NOTICE, THIRD-PARTY-LICENSES and the font licences to
-/// `PREFIX/share/licenses/odytty`, and `--uninstall` removes them. The test
-/// lays out an extracted tarball the way the release job assembles it, with a
-/// stand-in binary, and installs into a scratch prefix. Linux only: the
-/// tarball and its `install.sh` ship only for Linux, and the script relies on
-/// GNU `install -D` creating parent directories, which BSD `install` on macOS
-/// does not do.
+/// An extracted tarball laid out the way the release job assembles it, with a
+/// stand-in binary, and a scratch prefix and home to install into. Linux only:
+/// the tarball and its `install.sh` ship only for Linux, and the script relies
+/// on GNU `install -D` creating parent directories, which BSD `install` on
+/// macOS does not do.
 #[cfg(target_os = "linux")]
-#[test]
-fn the_tarball_installer_installs_and_removes_the_licence_texts() {
-    use std::os::unix::fs::PermissionsExt;
-    struct Scratch(PathBuf);
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
+struct TarballFixture {
+    scratch: PathBuf,
+    stage: PathBuf,
+    prefix: PathBuf,
+    home: PathBuf,
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for TarballFixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.scratch);
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl TarballFixture {
+    fn new() -> Self {
+        use std::os::unix::fs::PermissionsExt;
+        let scratch = scratch_dirs::fresh_temp_dir("odytty-tarball-install-");
+        let stage = scratch.join("odytty-linux-x86_64");
+        std::fs::create_dir_all(&stage).expect("stage");
+        std::fs::copy(
+            root().join("dist/linux/tarball-install.sh"),
+            stage.join("install.sh"),
+        )
+        .expect("installer");
+        std::fs::write(stage.join("odytty"), "#!/bin/sh\n").expect("stand-in binary");
+        std::fs::set_permissions(stage.join("odytty"), std::fs::Permissions::from_mode(0o755))
+            .expect("executable");
+        for notice in ["LICENSE", "NOTICE", "THIRD-PARTY-LICENSES"] {
+            std::fs::copy(root().join(notice), stage.join(notice)).expect("notice");
+        }
+        let status = std::process::Command::new("bash")
+            .arg(root().join("dist/install-font-licenses.sh"))
+            .arg(stage.join("licenses/fonts"))
+            .status()
+            .expect("run the helper");
+        assert!(status.success());
+        Self {
+            prefix: scratch.join("prefix"),
+            home: scratch.join("home"),
+            scratch,
+            stage,
         }
     }
-    let scratch = Scratch(scratch_dirs::fresh_temp_dir("odytty-tarball-install-"));
-    let stage = scratch.0.join("odytty-linux-x86_64");
-    std::fs::create_dir_all(&stage).expect("stage");
-    std::fs::copy(
-        root().join("dist/linux/tarball-install.sh"),
-        stage.join("install.sh"),
-    )
-    .expect("installer");
-    std::fs::write(stage.join("odytty"), "#!/bin/sh\n").expect("stand-in binary");
-    std::fs::set_permissions(stage.join("odytty"), std::fs::Permissions::from_mode(0o755))
-        .expect("executable");
-    for notice in ["LICENSE", "NOTICE", "THIRD-PARTY-LICENSES"] {
-        std::fs::copy(root().join(notice), stage.join(notice)).expect("notice");
-    }
-    let status = std::process::Command::new("bash")
-        .arg(root().join("dist/install-font-licenses.sh"))
-        .arg(stage.join("licenses/fonts"))
-        .status()
-        .expect("run the helper");
-    assert!(status.success());
 
-    let prefix = scratch.0.join("prefix");
-    let home = scratch.0.join("home");
-    let run = |args: &[&str]| {
+    fn licences(&self) -> PathBuf {
+        self.prefix.join("share/licenses/odytty")
+    }
+
+    fn run(&self, args: &[&str]) {
         let output = std::process::Command::new("sh")
-            .arg(stage.join("install.sh"))
+            .arg(self.stage.join("install.sh"))
             .args(args)
-            .env("PREFIX", &prefix)
-            .env("HOME", &home)
-            .env("XDG_DATA_HOME", home.join("data"))
-            .env("XDG_CONFIG_HOME", home.join("config"))
-            .env("XDG_CACHE_HOME", home.join("cache"))
+            .env("PREFIX", &self.prefix)
+            .env("HOME", &self.home)
+            .env("XDG_DATA_HOME", self.home.join("data"))
+            .env("XDG_CONFIG_HOME", self.home.join("config"))
+            .env("XDG_CACHE_HOME", self.home.join("cache"))
             .output()
             .expect("run the tarball installer");
         assert!(output.status.success(), "{output:?}");
-    };
+    }
+}
 
-    run(&[]);
-    let licences = prefix.join("share/licenses/odytty");
+/// The tarball's own installer (which the one-line installer's tarball branch
+/// runs) copies LICENSE, NOTICE, THIRD-PARTY-LICENSES and the font licences to
+/// `PREFIX/share/licenses/odytty`, and `--uninstall` removes them.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_tarball_installer_installs_and_removes_the_licence_texts() {
+    let fixture = TarballFixture::new();
+    fixture.run(&[]);
+    let licences = fixture.licences();
     for notice in ["LICENSE", "NOTICE", "THIRD-PARTY-LICENSES"] {
         assert_eq!(
             std::fs::read(licences.join(notice)).expect("installed notice"),
@@ -241,9 +264,52 @@ fn the_tarball_installer_installs_and_removes_the_licence_texts() {
             "{relative}"
         );
     }
-    assert!(prefix.join("bin/odytty").is_file());
+    assert!(fixture.prefix.join("bin/odytty").is_file());
 
-    run(&["--uninstall"]);
+    fixture.run(&["--uninstall"]);
     assert!(!licences.exists(), "uninstall removes the licence texts");
-    assert!(!prefix.join("bin/odytty").exists());
+    assert!(!fixture.prefix.join("bin/odytty").exists());
+}
+
+/// With `PREFIX=/usr` the licence directory can be shared with a deb, rpm or
+/// AUR package. Uninstall removes only the files the tarball installed and the
+/// directories that are then empty, never a file or directory it did not put
+/// there.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_tarball_uninstall_keeps_licence_files_it_did_not_install() {
+    let fixture = TarballFixture::new();
+    let licences = fixture.licences();
+    let foreign_file = licences.join("COPYING.packaged");
+    let foreign_font_file = licences.join("fonts").join("PackagedFont-OFL.txt");
+    let foreign_font_dir_file = licences
+        .join("fonts")
+        .join("packaged-set")
+        .join("LICENSE.txt");
+    for foreign in [&foreign_file, &foreign_font_file, &foreign_font_dir_file] {
+        std::fs::create_dir_all(foreign.parent().expect("parent")).expect("foreign dir");
+        std::fs::write(foreign, "owned by another package\n").expect("foreign file");
+    }
+
+    fixture.run(&[]);
+    fixture.run(&["--uninstall"]);
+
+    for foreign in [&foreign_file, &foreign_font_file, &foreign_font_dir_file] {
+        assert_eq!(
+            std::fs::read_to_string(foreign).expect("a foreign file survives uninstall"),
+            "owned by another package\n",
+            "{foreign:?}"
+        );
+    }
+    for notice in ["LICENSE", "NOTICE", "THIRD-PARTY-LICENSES"] {
+        assert!(!licences.join(notice).exists(), "{notice} is removed");
+    }
+    for path in listed() {
+        let relative = path.strip_prefix("assets/fonts/").expect("font path");
+        assert!(
+            !licences.join("fonts").join(relative).exists(),
+            "{relative} is removed"
+        );
+    }
+    assert!(!fixture.prefix.join("bin/odytty").exists());
 }

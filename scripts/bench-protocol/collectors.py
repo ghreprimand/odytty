@@ -356,10 +356,13 @@ def probe_context_switches() -> dict:
 
     Per-task voluntary and involuntary context switches are readable from
     `/proc/<pid>/task/<tid>/status` without privilege; the runner sums the
-    change of every thread of the terminal process tree that is alive for the
-    whole measurement and reports the metric unsupported when threads start or
-    exit in between. This is a diagnostic only. It is reported under its own
-    name and is never promoted into the wake-event metric.
+    change of every thread of the terminal process tree present, with the
+    same start time, at both measurement endpoints. It reports the metric
+    unsupported when either endpoint cannot be read completely, when the
+    thread set differs between the endpoints, or when a counter went down. A
+    thread that starts and exits between the endpoints is not seen. This is a
+    diagnostic only. It is reported under its own name and is never promoted
+    into the wake-event metric.
     """
     if _read_text(Path(f"/proc/self/task/{os.getpid()}/status")) is None:
         return _unsupported(
@@ -371,7 +374,7 @@ def probe_context_switches() -> dict:
         "metric": "context_switches",
         "semantics": (
             "voluntary and involuntary context switches summed per thread over "
-            "the process tree's threads alive for the whole measurement, "
+            "the process tree's threads present at both measurement endpoints, "
             "diagnostic only"
         ),
         "unit": "switches",

@@ -408,6 +408,14 @@ structured availability evidence, raw sample records, the canonical result,
 and a digest manifest that records the private-log omission without exposing a
 local path or private content.
 
+The measured CLI checks the preregistration's numbers, frozen schedule and time
+budget before it creates the private evidence directory. If a later pre-flight
+check (a drifted environment or collector) refuses the session before the
+results target exists, the private directory is removed when it holds no
+files, so the same paths can be retried; if an availability probe already
+wrote logs into it, it is kept and the refusal asks for a new private
+directory. Directories another process created are never removed.
+
 ## Canonical fixture digests
 
 Generator revision: the committed `fixtures.py`. Recompute with

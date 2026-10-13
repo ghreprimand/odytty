@@ -44,8 +44,12 @@ name = "odytty"
 edition = "2021"
 EOF
 # The fixture repository must come out the same whatever the user's git
-# configuration says: the branch is named explicitly, signing and hooks are off,
-# and any failing step stops the script before a wrong screenshot is taken.
+# configuration says. Every fixture git command runs with the global and system
+# configuration ignored (so signing, hooks paths, line-ending rules and the like
+# do not apply) and the repository is created without templates (so no template
+# hook is copied in); the branch is named explicitly. Any failing step stops the
+# script before a wrong screenshot is taken. The isolation is per command and
+# does not leak into the showcase session started later.
 set -e
 # A hook or worktree context exports variables that select another repository
 # regardless of the working directory; the fixture must only touch its own.
@@ -53,27 +57,28 @@ set -e
 for name in $(git rev-parse --local-env-vars) GIT_NAMESPACE GIT_QUARANTINE_PATH; do
   unset "$name"
 done
-git init -q -b master
-git config user.name "odytty"; git config user.email "dev@example.com"
+fixture_git() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git "$@"; }
+fixture_git init -q --template= -b master
+fixture_git config user.name "odytty"; fixture_git config user.email "dev@example.com"
 commit() {
   export GIT_AUTHOR_DATE="$1" GIT_COMMITTER_DATE="$1"
-  git add -A
-  git -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -qm "$2"
+  fixture_git add -A
+  fixture_git commit -qm "$2"
 }
 
 printf 'pub fn parse(_b: &[u8]) {}\n' > src/parser.rs
 commit "2024-02-01T10:00:00" "Owned DEC/xterm escape parser"
 printf 'pub struct Atlas;\n' > src/atlas.rs
 commit "2024-02-04T11:00:00" "GPU glyph atlas with HiDPI rebuilds"
-git branch -q inline-graphics
+fixture_git branch -q inline-graphics
 printf 'pub fn alt_scroll() {}\n' > src/mouse.rs
 commit "2024-02-06T09:30:00" "Implement alternate scroll mode (DECSET 1007)"
-git checkout -q inline-graphics
+fixture_git checkout -q inline-graphics
 printf '// kitty + sixel transports\n' > src/graphics.rs
 commit "2024-02-06T15:00:00" "Sixel + Kitty inline graphics transports"
-git checkout -q master
+fixture_git checkout -q master
 export GIT_AUTHOR_DATE="2024-02-07T16:00:00" GIT_COMMITTER_DATE="2024-02-07T16:00:00"
-git -c commit.gpgsign=false -c core.hooksPath=/dev/null merge -q --no-ff inline-graphics -m "Merge inline-graphics: Sixel + Kitty"
+fixture_git merge -q --no-ff inline-graphics -m "Merge inline-graphics: Sixel + Kitty"
 printf 'pub const DEFAULT_SCROLLBACK: usize = 10_000;\n' > src/scrollback.rs
 commit "2024-02-09T12:00:00" "Bounded scrollback + deterministic test harness"
 printf '// bloom + CRT scanline post-processing\n@fragment fn fs() {}\n' > shaders/post.wgsl

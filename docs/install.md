@@ -327,13 +327,15 @@ cd odytty-*-linux-x86_64 &&
 ```
 
 The bundled `install.sh` copies the binary and desktop files into a prefix,
-puts `LICENSE`, `NOTICE` and the bundled fonts' licences under
+puts `LICENSE`, `NOTICE`, `THIRD-PARTY-LICENSES` and the bundled fonts' licences under
 `PREFIX/share/licenses/odytty`, and refreshes the desktop and icon caches when
 those tools are present. `PREFIX`
 defaults to `~/.local` for a no-root per-user install (make sure
 `~/.local/bin` is on your `PATH`); run `sudo env PREFIX=/usr/local ./install.sh`
 for a system-wide install (`sudo` drops a `PREFIX` assigned before it). Remove a previous install, licence texts included, with
-`./install.sh --uninstall` (honoring the same `PREFIX`).
+`./install.sh --uninstall` from the extracted tarball (honoring the same `PREFIX`).
+It deletes only the files the installer put in `PREFIX/share/licenses/odytty`
+and the directories left empty; a file another package keeps there stays.
 
 The tarball binary bundles no libraries, so the host must provide what OdyTTY
 loads at runtime: the Vulkan loader (`libvulkan.so.1`) with a driver, Fontconfig

@@ -341,6 +341,10 @@ def windows_unmeasured() -> tuple[dict[str, object], list[dict[str, str]]]:
             "field": "swap_bytes",
             "reason": "PSAPI exposes the pagefile charge as commit_bytes, not swap",
         },
+        {
+            "field": "anonymous_bytes",
+            "reason": "PSAPI exposes the working set and pagefile charge, not an anonymous split",
+        },
     ]
     process: dict[str, object] = {
         "pss_bytes": UNMEASURED,
@@ -349,6 +353,15 @@ def windows_unmeasured() -> tuple[dict[str, object], list[dict[str, str]]]:
         "swap_bytes": UNMEASURED,
     }
     return process, unavailable
+
+
+def windows_counters_unmeasured(
+    process: dict[str, object], unavailable: list[dict[str, str]], reason: str
+) -> None:
+    """Record the PSAPI counters as unmeasured, each with the reason."""
+    for field in ("rss_bytes", "peak_rss_bytes", "commit_bytes"):
+        process[field] = UNMEASURED
+        unavailable.append({"field": field, "reason": reason})
 
 
 def capture_windows(pid: int) -> dict[str, object]:
@@ -385,11 +398,8 @@ def capture_windows(pid: int) -> dict[str, object]:
         PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, False, pid
     )
     if not handle:
-        process["rss_bytes"] = UNMEASURED
-        process["peak_rss_bytes"] = UNMEASURED
-        process["commit_bytes"] = UNMEASURED
-        unavailable.append(
-            {"field": "rss_bytes", "reason": f"OpenProcess failed for pid {pid}"}
+        windows_counters_unmeasured(
+            process, unavailable, f"OpenProcess failed for pid {pid}"
         )
     else:
         counters = PROCESS_MEMORY_COUNTERS()
@@ -403,11 +413,8 @@ def capture_windows(pid: int) -> dict[str, object]:
             process["peak_rss_bytes"] = int(counters.PeakWorkingSetSize)
             process["commit_bytes"] = int(counters.PagefileUsage)
         else:
-            process["rss_bytes"] = UNMEASURED
-            process["peak_rss_bytes"] = UNMEASURED
-            process["commit_bytes"] = UNMEASURED
-            unavailable.append(
-                {"field": "rss_bytes", "reason": "GetProcessMemoryInfo failed"}
+            windows_counters_unmeasured(
+                process, unavailable, "GetProcessMemoryInfo failed"
             )
 
     return {
@@ -447,6 +454,10 @@ def capture_macos(pid: int, runner=None) -> dict[str, object]:
         {"field": "heap_bytes", "reason": "no heap total is exposed by ps"},
         {"field": "peak_rss_bytes", "reason": "no peak resident size is exposed by ps"},
         {"field": "swap_bytes", "reason": "macOS ps exposes no swap figure"},
+        {
+            "field": "anonymous_bytes",
+            "reason": "macOS ps exposes no anonymous memory figure",
+        },
     ]
     process: dict[str, object] = {
         "pss_bytes": UNMEASURED,
@@ -503,6 +514,20 @@ def capture_unsupported() -> dict[str, object]:
         ],
         "source": UNMEASURED,
     }
+
+
+def unexplained(process: dict[str, object], unavailable: list[dict[str, str]]) -> list[str]:
+    """Process fields recorded `unmeasured` with no `unavailable` entry naming them.
+
+    An entry for the field `all` explains every field, as the unsupported
+    platform's record does.
+    """
+    named = {gap.get("field") for gap in unavailable}
+    if "all" in named:
+        return []
+    return sorted(
+        field for field, value in process.items() if value == UNMEASURED and field not in named
+    )
 
 
 def capture(pid: int, label: str | None) -> dict[str, object]:
@@ -636,6 +661,32 @@ def self_test() -> list[str]:
             failures.append(f"memory-capture: {name} gave no reason for swap_bytes")
     if capture_unsupported()["process"].get("swap_bytes") != UNMEASURED:
         failures.append("memory-capture: the unsupported record omitted swap_bytes")
+
+    # Every unmeasured process field carries its own reason, on every platform
+    # and in every failure path (the script's rule), not only swap_bytes.
+    class _NoRss:
+        stdout = "\n"
+
+    def _fails(_args, **_kwargs):
+        raise OSError("no ps")
+
+    windows_failed_process, windows_failed_gaps = windows_unmeasured()
+    windows_counters_unmeasured(windows_failed_process, windows_failed_gaps, "counters failed")
+    no_rss = capture_macos(1, runner=lambda *args, **kwargs: _NoRss())
+    no_ps = capture_macos(1, runner=_fails)
+    for name, process, gaps in (
+        ("macOS", macos["process"], macos["unavailable"]),
+        ("macOS without a resident size", no_rss["process"], no_rss["unavailable"]),
+        ("macOS without ps", no_ps["process"], no_ps["unavailable"]),
+        ("Windows", windows_process, windows_gaps),
+        ("Windows counters failed", windows_failed_process, windows_failed_gaps),
+    ):
+        missing = unexplained(process, gaps)
+        if missing:
+            failures.append(f"memory-capture: {name} gave no reason for {missing}")
+    unsupported = capture_unsupported()
+    if unexplained(unsupported["process"], unsupported["unavailable"]):
+        failures.append("memory-capture: the unsupported record left a field unexplained")
 
     # An unclassifiable name lands in `other`, never silently in `library`.
     if classify("some-data-file", None) != CLASS_OTHER:

@@ -882,55 +882,85 @@ def read_memory_bytes(cgroup: Path | None, name: str) -> int | None:
         return None
 
 
+def _task_start_time(task: Path) -> int | None:
+    """Field 22 of `/proc/<pid>/task/<tid>/stat`: the task's start time in
+    clock ticks since boot, which tells a reused thread id apart from the
+    task that held it before. The command name in field 2 may contain spaces
+    or parentheses, so fields are counted after its last `)`."""
+    try:
+        text = (task / "stat").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    fields = text.rpartition(")")[2].split()
+    # fields[0] is field 3 (state), so field 22 is fields[19].
+    if len(fields) < 20 or not fields[19].isascii() or not fields[19].isdigit():
+        return None
+    return int(fields[19])
+
+
 def read_context_switches(
     pids: set[int], proc_root: Path = Path("/proc")
-) -> dict[tuple[int, int], int] | None:
+) -> dict[tuple[int, int, int], int] | None:
     """Voluntary plus involuntary context switches for every task (thread).
 
     `/proc/<pid>/status` counts only the thread-group leader, so a
     multithreaded terminal's switches are read per task from
-    `/proc/<pid>/task/<tid>/status`, keyed by `(pid, tid)`. Returns None when
-    no task was readable.
+    `/proc/<pid>/task/<tid>/status`, keyed by `(pid, tid, start time)` so a
+    reused thread id is a different key. The reading is all or nothing: it is
+    None when there is no process, when any process's tasks cannot be listed,
+    or when any task's status lacks either counter or its start time cannot be
+    read, so a partial reading is never compared as if it were complete.
     """
-    counts: dict[tuple[int, int], int] = {}
+    if not pids:
+        return None
+    counts: dict[tuple[int, int, int], int] = {}
     for pid in pids:
         try:
             tasks = list((proc_root / str(pid) / "task").iterdir())
         except OSError:
-            continue
+            return None
         for task in tasks:
             if not task.name.isascii() or not task.name.isdigit():
                 continue
             try:
                 text = (task / "status").read_text(encoding="utf-8")
             except OSError:
-                continue
-            total = 0
-            seen = False
+                return None
+            fields: dict[str, int] = {}
             for line in text.splitlines():
-                if line.startswith(("voluntary_ctxt_switches", "nonvoluntary_ctxt_switches")):
-                    try:
-                        total += int(line.split(":")[1].strip())
-                        seen = True
-                    except (IndexError, ValueError):
-                        continue
-            if seen:
-                counts[(pid, int(task.name))] = total
+                name, _, value = line.partition(":")
+                if name in ("voluntary_ctxt_switches", "nonvoluntary_ctxt_switches"):
+                    value = value.strip()
+                    if not value.isascii() or not value.isdigit():
+                        return None
+                    fields[name] = int(value)
+            if len(fields) != 2:
+                return None
+            started = _task_start_time(task)
+            if started is None:
+                return None
+            counts[(pid, int(task.name), started)] = sum(fields.values())
     return counts or None
 
 
 def context_switch_delta(
-    start: dict[tuple[int, int], int], end: dict[tuple[int, int], int]
+    start: dict[tuple[int, int, int], int], end: dict[tuple[int, int, int], int]
 ) -> int | None:
-    """Switches made during measurement by tasks alive throughout it.
+    """Switches made between the two endpoint readings by the tasks present,
+    with the same start time, at both.
 
-    A task that started or exited in between would add or drop its whole
-    lifetime count, so a changed task set gives None (the replicate reports
-    the metric unsupported) instead of a sum over mismatched sets.
+    A task that started or exited between the endpoints would add or drop its
+    whole lifetime count, so a different task set gives None (the replicate
+    reports the metric unsupported), and so does a counter that went down,
+    which no single task's counter can do. This compares endpoints only: a
+    thread that starts and exits between them is never seen, and its switches
+    are not counted.
     """
     if start.keys() != end.keys():
         return None
-    return sum(max(0, end[key] - start[key]) for key in start)
+    if any(end[key] < start[key] for key in start):
+        return None
+    return sum(end[key] - start[key] for key in start)
 
 
 def read_drm_memory_bytes(pids: set[int], proc_root: Path = Path("/proc")) -> dict[str, int] | None:
@@ -4488,13 +4518,24 @@ def run_replicate(
         reading["process_tree_cpu_seconds"] = cpu_seconds
         if measure_seconds > 0:
             reading["normalized_cpu_percent"] = 100.0 * cpu_seconds / measure_seconds
-    switch_task_churn = False
-    if start_switches is not None and end_switches is not None:
-        switches = context_switch_delta(start_switches, end_switches)
-        if switches is None:
-            switch_task_churn = True
+    switch_unsupported: str | None = None
+    if instrumented:
+        if start_switches is None or end_switches is None:
+            switch_unsupported = (
+                "per-thread context-switch counts could not be read completely "
+                "at both measurement endpoints"
+            )
         else:
-            reading["context_switches"] = switches
+            switches = context_switch_delta(start_switches, end_switches)
+            if switches is None:
+                switch_unsupported = (
+                    "the threads present at the two measurement endpoints, "
+                    "identified by thread id and start time, differed or a "
+                    "counter went down, so the counts do not cover one fixed "
+                    "task set"
+                )
+            else:
+                reading["context_switches"] = switches
     if current_memory is not None:
         reading["current_memory"] = current_memory
     if peak_memory is not None and peak_reset:
@@ -4579,7 +4620,7 @@ def run_replicate(
         "gpu_regions": gpu or {},
         "pty_pixel_envelope_model": geometry_model_evidence,
         "peak_reset": peak_reset,
-        "context_switch_task_churn": switch_task_churn,
+        "context_switch_unsupported": switch_unsupported,
         "process_membership": "private-cgroup" if membership_proven else "unavailable",
         "invalid_reason": invalid_reason,
         "environment_checks": environment_checks,
@@ -4872,11 +4913,10 @@ def assemble_replicate_samples(
             "gpu_memory",
         ):
             per_replicate_unsupported[metric] = reason
-    if replicate.get("context_switch_task_churn", False):
-        per_replicate_unsupported["context_switches"] = (
-            "terminal threads started or exited during measurement, so per-task "
-            "context-switch counts do not cover one fixed task set"
-        )
+    if replicate.get("context_switch_unsupported"):
+        per_replicate_unsupported["context_switches"] = replicate[
+            "context_switch_unsupported"
+        ]
     if not replicate.get("peak_reset", False):
         per_replicate_unsupported["peak_memory"] = (
             "memory.peak could not be reset after the settling interval"
@@ -5030,6 +5070,147 @@ def build_document(
     }
 
 
+def _record_number(record: dict, key: str, message: str) -> float:
+    """A finite JSON number from a preregistration record, else ValueError.
+
+    Booleans and strings are refused, and an integer beyond the float range
+    (a valid JSON integer such as 1 followed by 400 zeros) is refused rather
+    than escaping as OverflowError."""
+    value = record.get(key) if isinstance(record, dict) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(message)
+    try:
+        number = float(value)
+    except OverflowError as error:
+        raise ValueError(message) from error
+    if not math.isfinite(number):
+        raise ValueError(message)
+    return number
+
+
+class PreflightRefusal(ValueError):
+    """A session refused before its results target existed, after any
+    private storage it created was cleaned up or deliberately kept."""
+
+
+def run_session_with_private_store(
+    results_dir: Path,
+    private_dir: Path,
+    owned: OwnedDirectories,
+    start,
+) -> dict:
+    """Run `start(private_dir)` and clean up its private store on a refusal.
+
+    `owned` lists the directories this invocation created for `private_dir`.
+    When `start` raises ValueError before the results target exists (a
+    pre-flight refusal such as a drifted environment or collector), the
+    store is removed if it holds no files, so the same paths can be retried
+    once the cause is fixed. If an availability probe already wrote evidence
+    into it, the store is kept and the refusal says to retry with a new
+    private directory; evidence is never deleted to make a retry pass. A
+    ValueError after the results target exists is raised unchanged.
+    """
+    try:
+        return start(private_dir)
+    except ValueError as error:
+        if results_dir.exists():
+            raise
+        if _tree_holds_files(private_dir):
+            raise PreflightRefusal(
+                f"{error}; private evidence from this attempt is kept in "
+                f"{private_dir}, so retry with a new --private-evidence-dir"
+            ) from error
+        for current, directories, _files in os.walk(private_dir, topdown=False):
+            for name in directories:
+                try:
+                    (Path(current) / name).rmdir()
+                except OSError:
+                    pass
+        remove_owned_empty_directories(owned)
+        if private_dir.exists():
+            raise PreflightRefusal(
+                f"{error}; the private directory {private_dir} could not be "
+                "removed, so retry with a new --private-evidence-dir"
+            ) from error
+        raise PreflightRefusal(str(error)) from error
+
+
+def _tree_holds_files(root: Path) -> bool:
+    """Whether anything other than a directory exists under `root`; a tree
+    that cannot be walked completely counts as holding files."""
+    failed: list[OSError] = []
+    for current, directories, files in os.walk(root, onerror=failed.append):
+        if files or any((Path(current) / name).is_symlink() for name in directories):
+            return True
+    return bool(failed)
+
+
+def preflight_record(prereg_record: dict) -> dict:
+    """The W6 checks that need only the preregistration record.
+
+    They launch nothing and create nothing, so `main` runs them before it
+    reserves private storage and `run_session` before its first probe: a
+    refused record (a bad number, a schedule that does not match its frozen
+    inputs, or a budget shorter than that schedule) leaves no directory that
+    would refuse the same paths on a retry.
+    """
+    qualified_names, _unavailable = qualified_from_prereg(prereg_record)
+    if "odytty" not in qualified_names:
+        raise ValueError("OdyTTY must be present in the frozen qualified set")
+    configurations = prereg_record.get("configurations", [])
+    if configurations != ["plain"]:
+        raise ValueError("the W6 primary runner requires the preregistered plain configuration")
+    configuration = "plain"
+    budget_seconds = _record_number(
+        prereg_record,
+        "run_set_time_budget_hours",
+        "run_set_time_budget_hours must be a positive number",
+    ) * 3600
+    if not math.isfinite(budget_seconds) or budget_seconds <= 0:
+        raise ValueError("run_set_time_budget_hours must be a positive number")
+    background_cpu_ceiling = _record_number(
+        prereg_record,
+        "background_cpu_ceiling_percent",
+        "background_cpu_ceiling_percent must be numeric",
+    )
+    if not 0 <= background_cpu_ceiling <= 100:
+        raise ValueError("background_cpu_ceiling_percent must be between 0 and 100")
+    overhead_ceiling = _record_number(
+        prereg_record,
+        "instrumentation_overhead_ceiling_percent",
+        "instrumentation_overhead_ceiling_percent must be numeric",
+    )
+    if not 0 <= overhead_ceiling <= 100:
+        raise ValueError(
+            "instrumentation_overhead_ceiling_percent must be between 0 and 100"
+        )
+    try:
+        expected_schedule = ordering.block_schedule(
+            qualified_names,
+            [configuration],
+            prereg_record["run_set"]["order_seed"],
+            REHEARSAL_BLOCKS + MEASURED_BLOCKS,
+        )
+    except (KeyError, TypeError) as error:
+        raise ValueError(
+            "preregistered W6 execution order does not match its frozen inputs"
+        ) from error
+    if prereg_record.get("w6_execution_order") != expected_schedule:
+        raise ValueError("preregistered W6 execution order does not match its frozen inputs")
+    minimum_seconds = estimate_duration_seconds(len(qualified_names), per_replicate_overhead=0)
+    if budget_seconds < minimum_seconds:
+        raise ValueError(
+            "W6 time budget is shorter than the frozen W6 schedule"
+        )
+    return {
+        "qualified": qualified_names,
+        "configuration": configuration,
+        "budget_seconds": budget_seconds,
+        "background_cpu_ceiling": background_cpu_ceiling,
+        "overhead_ceiling": overhead_ceiling,
+    }
+
+
 def run_session(
     prereg_record: dict,
     prereg_sha256: str,
@@ -5069,40 +5250,14 @@ def run_session(
     # Every pre-flight check below runs before `results_dir` is created, so a
     # refused session leaves no target behind and can be rerun as is.
     started = _utc_now()
-    qualified_names, _unavailable = qualified_from_prereg(prereg_record)
-    if "odytty" not in qualified_names:
-        raise ValueError("OdyTTY must be present in the frozen qualified set")
-    configurations = prereg_record.get("configurations", [])
-    if configurations != ["plain"]:
-        raise ValueError("the W6 primary runner requires the preregistered plain configuration")
-    configuration = "plain"
-    # Record values are checked before the first probe launch.
-    try:
-        budget_seconds = float(prereg_record["run_set_time_budget_hours"]) * 3600
-    except (KeyError, TypeError, ValueError) as error:
-        raise ValueError("run_set_time_budget_hours must be a positive number") from error
-    if not math.isfinite(budget_seconds) or budget_seconds <= 0:
-        raise ValueError("run_set_time_budget_hours must be a positive number")
-    try:
-        background_cpu_ceiling = float(
-            prereg_record["background_cpu_ceiling_percent"]
-        )
-    except (KeyError, TypeError, ValueError) as error:
-        raise ValueError("background_cpu_ceiling_percent must be numeric") from error
-    if not 0 <= background_cpu_ceiling <= 100:
-        raise ValueError("background_cpu_ceiling_percent must be between 0 and 100")
-    try:
-        overhead_ceiling = float(
-            prereg_record["instrumentation_overhead_ceiling_percent"]
-        )
-    except (KeyError, TypeError, ValueError) as error:
-        raise ValueError(
-            "instrumentation_overhead_ceiling_percent must be numeric"
-        ) from error
-    if not 0 <= overhead_ceiling <= 100:
-        raise ValueError(
-            "instrumentation_overhead_ceiling_percent must be between 0 and 100"
-        )
+    # Record values and the frozen schedule are checked before the first
+    # probe launch; `main` runs the same checks before reserving storage.
+    checked = preflight_record(prereg_record)
+    qualified_names = checked["qualified"]
+    configuration = checked["configuration"]
+    budget_seconds = checked["budget_seconds"]
+    background_cpu_ceiling = checked["background_cpu_ceiling"]
+    overhead_ceiling = checked["overhead_ceiling"]
 
     probes = probe_availability(
         qualified_names, launcher, sleep=sleep, calibrate=False
@@ -7975,6 +8130,36 @@ def _self_test() -> list[str]:
         finally:
             Path.chmod = original_chmod  # type: ignore[method-assign]
 
+        # A planned parent that another process creates between the scan and
+        # this call's `mkdir` is not this call's to remove: the reservation
+        # fails and its sink goes, but the competing directory stays.
+        race_parent = root / "race-a"
+        race_root = race_parent / "race-b" / "private"
+        original_mkdir = Path.mkdir
+
+        def competitor_first(path_self, *args, **kwargs):
+            if path_self == race_parent.resolve() and not path_self.exists():
+                original_mkdir(path_self)
+            return original_mkdir(path_self, *args, **kwargs)
+
+        Path.mkdir = competitor_first  # type: ignore[method-assign]
+        try:
+            reserve_private_storage(
+                public / "race.json", race_root, repository,
+                "race", "--race-output", "--race-private-dir",
+            )
+        except OSError:
+            if not race_parent.is_dir():
+                failures.append(
+                    "reservation: rollback removed a directory another process created"
+                )
+            if (public / "race.json").exists():
+                failures.append("reservation: a raced reservation left its sink")
+        else:
+            failures.append("reservation: a raced parent directory was accepted")
+        finally:
+            Path.mkdir = original_mkdir  # type: ignore[method-assign]
+
     fake_which = lambda name: f"/usr/bin/{name}"  # noqa: E731 - injected lookup
     missing_backend, missing_environment = preflight_window_backend(
         {
@@ -10587,16 +10772,23 @@ def _self_test() -> list[str]:
             failures.append(f"DRM resident parsing: unexpected reading {gpu_reading!r}")
 
     # Context switches are counted per thread, not from the leader's status,
-    # and a delta is taken only over one fixed task set.
+    # and a delta is taken only over one fixed, completely read task set.
     with tempfile.TemporaryDirectory() as tmp:
         proc_root = Path(tmp)
 
-        def write_task(pid: int, tid: int, voluntary: int, involuntary: int) -> None:
+        def write_task(
+            pid: int, tid: int, voluntary: int, involuntary: int, started: int = 1000
+        ) -> None:
             task = proc_root / str(pid) / "task" / str(tid)
             task.mkdir(parents=True, exist_ok=True)
             (task / "status").write_text(
                 f"Name:\tfake\nvoluntary_ctxt_switches:\t{voluntary}\n"
                 f"nonvoluntary_ctxt_switches:\t{involuntary}\n",
+                encoding="utf-8",
+            )
+            # A command name with a space and a parenthesis, then fields 3-22.
+            (task / "stat").write_text(
+                f"{tid} (odd (name) S " + " ".join(["0"] * 18) + f" {started} 0 0\n",
                 encoding="utf-8",
             )
 
@@ -10606,12 +10798,12 @@ def _self_test() -> list[str]:
             encoding="utf-8",
         )
         write_task(42, 42, 1, 1)
-        write_task(42, 43, 100, 20)
+        write_task(42, 43, 100, 20, started=2000)
         start_switches = read_context_switches({42}, proc_root)
-        if start_switches != {(42, 42): 2, (42, 43): 120}:
+        if start_switches != {(42, 42, 1000): 2, (42, 43, 2000): 120}:
             failures.append(f"context switches: per-task start reading {start_switches!r}")
         write_task(42, 42, 3, 1)
-        write_task(42, 43, 150, 30)
+        write_task(42, 43, 150, 30, started=2000)
         end_switches = read_context_switches({42}, proc_root)
         if (
             start_switches is None
@@ -10621,12 +10813,45 @@ def _self_test() -> list[str]:
             failures.append(
                 f"context switches: delta over two threads is not 62: {end_switches!r}"
             )
+        # A reused thread id with a new start time is a different task.
+        write_task(42, 43, 160, 30, started=2500)
+        reused = read_context_switches({42}, proc_root)
+        if start_switches is None or reused is None or context_switch_delta(
+            start_switches, reused
+        ) is not None:
+            failures.append("context switches: a reused thread id produced a delta")
+        write_task(42, 43, 150, 30, started=2000)
+        # A counter that went down is refused rather than clamped to zero.
+        write_task(42, 42, 0, 0)
+        decreased = read_context_switches({42}, proc_root)
+        if start_switches is None or decreased is None or context_switch_delta(
+            start_switches, decreased
+        ) is not None:
+            failures.append("context switches: a decreasing counter produced a delta")
+        write_task(42, 42, 3, 1)
         write_task(42, 44, 5, 0)
         churned = read_context_switches({42}, proc_root)
         if start_switches is None or churned is None or context_switch_delta(
             start_switches, churned
         ) is not None:
             failures.append("context switches: a changed task set produced a delta")
+        # Partial readings are never returned as if they were complete.
+        if read_context_switches({42, 77}, proc_root) is not None:
+            failures.append("context switches: a process whose tasks cannot be listed was skipped")
+        (proc_root / "42" / "task" / "44" / "status").write_text(
+            "voluntary_ctxt_switches:\t5\n", encoding="utf-8"
+        )
+        if read_context_switches({42}, proc_root) is not None:
+            failures.append("context switches: a task missing one counter was accepted")
+        (proc_root / "42" / "task" / "44" / "status").unlink()
+        (proc_root / "42" / "task" / "44" / "status").mkdir()
+        if read_context_switches({42}, proc_root) is not None:
+            failures.append("context switches: an unreadable task status was skipped")
+        (proc_root / "42" / "task" / "44" / "status").rmdir()
+        write_task(42, 44, 5, 0)
+        (proc_root / "42" / "task" / "44" / "stat").write_text("44 (x) S\n", encoding="utf-8")
+        if read_context_switches({42}, proc_root) is not None:
+            failures.append("context switches: a task without a start time was accepted")
 
     # Duration estimate is honest about a five-implementation session.
     estimate = estimate_duration_seconds(2)
@@ -11121,6 +11346,12 @@ def _self_test() -> list[str]:
         ("instrumentation_overhead_ceiling_percent", -1),
         ("instrumentation_overhead_ceiling_percent", float("nan")),
         ("run_set_time_budget_hours", float("nan")),
+        ("run_set_time_budget_hours", 10**400),
+        ("run_set_time_budget_hours", True),
+        ("background_cpu_ceiling_percent", 10**400),
+        ("background_cpu_ceiling_percent", True),
+        ("instrumentation_overhead_ceiling_percent", 10**400),
+        ("instrumentation_overhead_ceiling_percent", True),
     ):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -11145,14 +11376,14 @@ def _self_test() -> list[str]:
             except ValueError:
                 if (root / "results").exists() or refused_launcher._next_pid != launched_before:
                     failures.append(
-                        f"session: invalid {field}={bad_value!r} launched or left a target"
+                        f"session: invalid {field}={bad_value!r:.40} launched or left a target"
                     )
             except Exception as error:  # noqa: BLE001 - reported as a failure
                 failures.append(
-                    f"session: invalid {field}={bad_value!r} raised {error!r}"
+                    f"session: invalid {field}={bad_value!r:.40} raised {error!r}"
                 )
             else:
-                failures.append(f"session: invalid {field}={bad_value!r} was accepted")
+                failures.append(f"session: invalid {field}={bad_value!r:.40} was accepted")
 
     # A pre-flight refusal after the probes (a budget shorter than the
     # schedule) also leaves no results target behind.
@@ -11176,6 +11407,87 @@ def _self_test() -> list[str]:
                 failures.append("session: a refused short budget left the results target")
         else:
             failures.append("session: a budget shorter than the schedule was accepted")
+
+    # The CLI runs the same record-only checks before it reserves private
+    # storage, so a short budget creates no directory at all.
+    short_budget = _fake_prereg(["odytty"])
+    short_budget["run_set_time_budget_hours"] = 0.01
+    try:
+        preflight_record(short_budget)
+    except ValueError as error:
+        if "shorter than the frozen W6 schedule" not in str(error):
+            failures.append(f"preflight: short budget refused with {error}")
+    else:
+        failures.append("preflight: a budget shorter than the schedule was accepted")
+    try:
+        preflight_record(_fake_prereg(["odytty"]))
+    except ValueError as error:
+        failures.append(f"preflight: a valid record was refused: {error}")
+
+    # A later pre-flight refusal removes an empty private store this
+    # invocation created, so the same paths can be retried; a store holding
+    # probe evidence is kept, and a refusal after the results target exists
+    # is not treated as a pre-flight refusal.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        results = root / "results"
+        private = root / "evidence-parent" / "private"
+
+        def refuse_after_logs_dir(private_dir: Path) -> dict:
+            (private_dir / "terminal-logs").mkdir()
+            raise ValueError("live display mode does not match preregistration")
+
+        owned = make_owned_private_directories(private)
+        try:
+            run_session_with_private_store(results, private, owned, refuse_after_logs_dir)
+        except PreflightRefusal:
+            if (root / "evidence-parent").exists():
+                failures.append("cli preflight: a refused session left its empty private store")
+        except Exception as error:  # noqa: BLE001 - reported as a failure
+            failures.append(f"cli preflight: an empty-store refusal raised {error!r}")
+        else:
+            failures.append("cli preflight: a refused session was accepted")
+        try:
+            retry_owned = make_owned_private_directories(private)
+        except OSError as error:
+            failures.append(f"cli preflight: the retry was refused: {error}")
+        else:
+            remove_owned_empty_directories(retry_owned)
+
+        def refuse_after_probe_log(private_dir: Path) -> dict:
+            (private_dir / "terminal-logs").mkdir()
+            (private_dir / "terminal-logs" / "probe.log").write_text("probe", encoding="utf-8")
+            raise ValueError("collector 'x' availability drifted from preregistration")
+
+        owned = make_owned_private_directories(private)
+        try:
+            run_session_with_private_store(results, private, owned, refuse_after_probe_log)
+        except PreflightRefusal as error:
+            if not (private / "terminal-logs" / "probe.log").is_file():
+                failures.append("cli preflight: probe evidence was deleted on refusal")
+            if "new --private-evidence-dir" not in str(error):
+                failures.append(f"cli preflight: kept evidence has no retry policy: {error}")
+        except Exception as error:  # noqa: BLE001
+            failures.append(f"cli preflight: a kept-evidence refusal raised {error!r}")
+        else:
+            failures.append("cli preflight: a refused session with evidence was accepted")
+
+        later = root / "later" / "private"
+        owned = make_owned_private_directories(later)
+
+        def refuse_after_results(_private_dir: Path) -> dict:
+            results.mkdir()
+            raise ValueError("measurement aborted")
+
+        try:
+            run_session_with_private_store(results, later, owned, refuse_after_results)
+        except PreflightRefusal:
+            failures.append("cli preflight: a refusal after the results target was cleaned up")
+        except ValueError:
+            if not later.is_dir():
+                failures.append("cli preflight: a refusal after the results target removed evidence")
+        else:
+            failures.append("cli preflight: a refusal after the results target was accepted")
 
     # Each environmental invalid reason must be recoverable from the raw
     # per-side observations and remain an explicit incomplete result.
@@ -11825,7 +12137,10 @@ def reserve_private_storage(
     `label` names the target in errors and the flags name the arguments, so
     each caller reports its own option. If the private store cannot be
     created, the reservation and every directory this call created are
-    removed again, so a retry is not refused by leftovers.
+    removed again, so a retry is not refused by leftovers. Only directories
+    this call's own `mkdir` created are removed, newest first, and only while
+    each is still the same empty directory: a directory another process
+    created or replaced in the meantime is left alone.
     """
     if private_path is None:
         raise ValueError(f"{output_flag} requires {private_flag}")
@@ -11835,25 +12150,57 @@ def reserve_private_storage(
     )
     if resolved_output.exists() or private_root.exists():
         raise ValueError(f"{label} target already exists")
-    created: list[Path] = []
-    for directory in (private_root, *private_root.parents):
-        if directory.exists():
-            break
-        created.append(directory)
     reservation = resolved_output.open("x", encoding="utf-8")
     try:
-        for directory in reversed(created):
-            directory.mkdir(mode=0o700)
-            directory.chmod(0o700)
+        make_owned_private_directories(private_root)
     except OSError:
         discard_reservation(resolved_output, reservation)
-        for directory in created:
-            try:
-                directory.rmdir()
-            except OSError:
-                pass
         raise
     return resolved_output, private_root, reservation
+
+
+OwnedDirectories = list[tuple[Path, int, int]]
+
+
+def make_owned_private_directories(path: Path) -> OwnedDirectories:
+    """Create `path` and its missing parents as 0700, one level at a time.
+
+    Returns `(directory, device, inode)` for each directory this call's own
+    `mkdir` created, oldest first, recorded right after the `mkdir` and before
+    its `chmod`. A directory merely found missing beforehand is not listed:
+    another process may create it first, and it is then not this call's to
+    remove. On failure every directory this call created is removed again and
+    the error is raised.
+    """
+    planned: list[Path] = []
+    for directory in (path, *path.parents):
+        if directory.exists():
+            break
+        planned.append(directory)
+    created: OwnedDirectories = []
+    try:
+        for directory in reversed(planned):
+            directory.mkdir(mode=0o700)
+            identity = directory.lstat()
+            created.append((directory, identity.st_dev, identity.st_ino))
+            directory.chmod(0o700)
+    except OSError:
+        remove_owned_empty_directories(created)
+        raise
+    return created
+
+
+def remove_owned_empty_directories(created: OwnedDirectories) -> None:
+    """Remove directories this process created, newest first, each only while
+    it is still the same directory and empty. A directory replaced by another
+    process, or holding anything, is left in place."""
+    for directory, device, inode in reversed(created):
+        try:
+            current = directory.lstat()
+            if (current.st_dev, current.st_ino) == (device, inode):
+                directory.rmdir()
+        except OSError:
+            pass
 
 
 def reserve_reference_readiness_storage(
@@ -12778,35 +13125,50 @@ def main(argv: list[str] | None = None) -> int:
         print(f"runtime identity verification failed: {error}", file=sys.stderr)
         return 1
 
+    # The record-only checks (numbers, the frozen schedule and the budget)
+    # also run before the private directory is created.
     try:
-        private_evidence_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
-        private_evidence_dir.chmod(0o700)
+        preflight_record(prereg_record)
+    except ValueError as error:
+        print(f"W6 pre-flight refused the preregistration: {error}", file=sys.stderr)
+        return 1
+
+    try:
+        owned_private = make_owned_private_directories(private_evidence_dir)
     except OSError as error:
         print(f"cannot create private evidence directory: {error}", file=sys.stderr)
         return 1
 
-    launcher = RealLauncher(
-        backend,
-        use_scope=not args.no_scope,
-        log_dir=private_evidence_dir / "terminal-logs",
-        config_paths=config_paths,
-        calibrations=calibrations,
-        launch_environment=launch_environment,
-        font_identity=prereg_record.get("shared_font"),
-    )
+    def start_session(private_dir: Path) -> dict:
+        launcher = RealLauncher(
+            backend,
+            use_scope=not args.no_scope,
+            log_dir=private_dir / "terminal-logs",
+            config_paths=config_paths,
+            calibrations=calibrations,
+            launch_environment=launch_environment,
+            font_identity=prereg_record.get("shared_font"),
+        )
+        return run_session(
+            prereg_record,
+            _sha256(prereg_path),
+            launcher,
+            results_dir,
+            collectors.probe_all(),
+            settle_seconds=args.settle_seconds,
+            measure_seconds=args.measure_seconds,
+            measured_blocks=args.measured_blocks,
+            runner_sha256=_sha256(Path(__file__)),
+            prereg_anchor_commit=prereg_anchor_commit,
+        )
 
-    document = run_session(
-        prereg_record,
-        _sha256(prereg_path),
-        launcher,
-        results_dir,
-        collectors.probe_all(),
-        settle_seconds=args.settle_seconds,
-        measure_seconds=args.measure_seconds,
-        measured_blocks=args.measured_blocks,
-        runner_sha256=_sha256(Path(__file__)),
-        prereg_anchor_commit=prereg_anchor_commit,
-    )
+    try:
+        document = run_session_with_private_store(
+            results_dir, private_evidence_dir, owned_private, start_session
+        )
+    except PreflightRefusal as error:
+        print(f"W6 pre-flight refused the session: {error}", file=sys.stderr)
+        return 1
     results_dir.mkdir(parents=True, exist_ok=True)
     document_path = results_dir / "w6-results.json"
     with document_path.open("x", encoding="utf-8") as handle:

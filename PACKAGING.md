@@ -272,9 +272,10 @@ embedded in the binary, and their licences require the notices to accompany
 every copy. The same files ship in the deb and rpm (listed in `Cargo.toml`),
 the AUR package, the binary tarball, the AppImage and the macOS app, through
 `dist/install-font-licenses.sh`. The tarball's own `install.sh` (also run by
-the one-line installer's tarball branch) copies `LICENSE`, `NOTICE` and the
-font licences to `PREFIX/share/licenses/odytty` and removes them on
-`--uninstall`; `tests/packaging_font_licenses.rs` keeps the
+the one-line installer's tarball branch) copies `LICENSE`, `NOTICE`, `THIRD-PARTY-LICENSES`
+and the font licences to `PREFIX/share/licenses/odytty` and, on `--uninstall`,
+removes exactly those files and the directories left empty (a file another
+package keeps there stays); `tests/packaging_font_licenses.rs` keeps the
 list equal to the licence files in `assets/fonts`.
 
 `NOTICE` ships in every package and carries the Unicode License v3 text for the

@@ -266,6 +266,46 @@ class WorkflowContracts(unittest.TestCase):
             self.assertEqual(outer_changes(), [])
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_demo_repository_runs_no_global_hooks_or_template_hooks(self):
+        text = (ROOT / "scripts/make-demo.sh").read_text()
+        fixture = text.split("cat > README.md", 1)[1].split("# --- showcase frame", 1)[0]
+        program = "set -u\ncat > README.md" + fixture
+        for label in ("global hooks path", "template directory"):
+            with self.subTest(label), tempfile.TemporaryDirectory() as scratch:
+                root = Path(scratch)
+                hooks = root / "hooks"
+                hooks.mkdir()
+                for hook in ("post-checkout", "post-commit", "post-merge"):
+                    (hooks / hook).write_text("#!/bin/sh\nexit 1\n")
+                    (hooks / hook).chmod(0o755)
+                if label == "global hooks path":
+                    settings = "[core]\n\thooksPath = " + str(hooks) + "\n"
+                else:
+                    templates = root / "templates"
+                    templates.mkdir()
+                    (templates / "hooks").symlink_to(hooks)
+                    settings = "[init]\n\ttemplateDir = " + str(templates) + "\n"
+                config = root / "gitconfig"
+                config.write_text("[core]\n\tautocrlf = true\n" + settings)
+                work = root / "work"
+                (work / "src").mkdir(parents=True)
+                (work / "shaders").mkdir()
+                env = clean_environment(GIT_CONFIG_GLOBAL=str(config), GIT_CONFIG_SYSTEM=os.devnull,
+                                        HOME=str(root))
+                result = subprocess.run(["bash", "-c", program], cwd=work, env=env,
+                                        text=True, capture_output=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                merges = subprocess.run(["git", "rev-list", "--merges", "--count", "HEAD"], cwd=work,
+                                        env=clean_environment(HOME=str(root)), text=True,
+                                        capture_output=True, timeout=10).stdout.strip()
+                self.assertEqual(merges, "1")
+                local = subprocess.run(["git", "config", "--local", "--list"], cwd=work,
+                                       env=clean_environment(HOME=str(root)), text=True,
+                                       capture_output=True, timeout=10).stdout
+                self.assertNotIn("autocrlf", local)
+                self.assertFalse((work / ".git" / "hooks").exists() and any((work / ".git" / "hooks").iterdir()),
+                                 "no hook was copied into the fixture repository")
+
     def test_demo_repository_step_failure_stops_the_script(self):
         text = (ROOT / "scripts/make-demo.sh").read_text()
         fixture = text.split("cat > README.md", 1)[1].split("# --- showcase frame", 1)[0]

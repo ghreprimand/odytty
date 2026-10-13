@@ -170,9 +170,12 @@ process with no `[heap]` mapping records it `unmeasured`, not zero.
 - **macOS** reads resident size from `ps`; everything else is `unmeasured`.
 
 A field the platform does not expose is `unmeasured` and the whole record is
-marked `partial`. `swap_bytes` is read on Linux and `unmeasured` with a reason
-elsewhere; `commit_bytes` exists only in Windows records. It is never approximated, and a Linux figure is never
-substituted for another platform's.
+marked `partial`. Every `unmeasured` process field has its own entry in
+`unavailable` stating why, on every platform and in every failure path;
+`swap_bytes` and `anonymous_bytes` are read on Linux and `unmeasured` with a
+reason elsewhere, and `commit_bytes` exists only in Windows records. A figure is
+never approximated, and a Linux figure is never substituted for another
+platform's.
 
 **Mapping names are recorded as basenames, never full paths.** The basename
 carries the analytical content (`libnvidia-glcore.so.610`, `libLLVM.so.22.1`);
