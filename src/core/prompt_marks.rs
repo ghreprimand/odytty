@@ -159,29 +159,16 @@ pub(in crate::core) fn relaid_boundary_offset(
     u32::try_from(row_offset.saturating_mul(width).saturating_add(column)).unwrap_or(u32::MAX)
 }
 
-/// Merge a freshly parsed OSC 133 mark into a row's existing mark (SH1 stamps
-/// one mark per physical row).
+/// Merge a freshly parsed OSC 133 mark into a row's existing mark (one mark
+/// per physical row).
 ///
-/// The default is last-write-wins, matching the row-anchored model's original
-/// behavior. The exception is a prompt landing on a row that already carries a
-/// command's exit status: real shells emit `133;D` then `133;A` consecutively
-/// in the same prompt hook with no newline between, so the next prompt ALWAYS
-/// lands on the finished command's `D` row. Overwriting would destroy the exit
-/// (the success/fail gutter could then never show a verdict once the next
-/// prompt appeared); instead the row becomes
-/// [`PromptKind::PromptStartAfterEnd`] carrying the displaced exit.
-///
-/// A prompt stamped onto an existing merged mark preserves the displaced exit:
-/// shells emit `A` (prompt start) and `B` (command start) as separate
-/// sequences on the same row, and the second stamp must not drop what the
-/// first preserved.
-///
-/// An offset-bearing `D` over `C` also preserves both boundaries: a
-/// soft-wrapped unterminated output line anchors both marks to the same logical
-/// row even though it contains real visible output. A zero-offset collision is
-/// still the no-output collapse. The remaining combinations retain
-/// last-write-wins behavior for malformed or partial transcripts. Pure and
-/// total.
+/// A prompt that follows a command end on the same logical line keeps the
+/// displaced exit status ([`PromptKind::PromptStartAfterEnd`]); shells emit
+/// `D` then `A` with no newline, and a later `B` stamp keeps what `A`
+/// preserved. An offset-bearing `D` over `C` keeps both boundaries as an
+/// output-start/end composite; a zero-offset collision is the no-output
+/// collapse. Other malformed or partial collisions are last-write-wins.
+/// Pure and total.
 pub(in crate::core) fn merge_mark(existing: Option<PromptKind>, new: PromptKind) -> PromptKind {
     match (existing, new) {
         (Some(PromptKind::CommandEnd { exit }), PromptKind::PromptStart) => {

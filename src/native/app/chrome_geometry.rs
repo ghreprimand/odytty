@@ -22,12 +22,8 @@ pub(super) fn preview_order(count: usize, origin: usize, drop_idx: usize) -> Vec
         .filter(|idx| *idx != origin)
         .map(PreviewSlot::Tab)
         .collect();
-    let destination = if drop_idx > origin {
-        drop_idx - 1
-    } else {
-        drop_idx
-    }
-    .min(order.len());
+    let destination =
+        crate::native::session::reorder_destination(origin, drop_idx).min(order.len());
     order.insert(destination, PreviewSlot::Gap);
     order
 }
@@ -1157,15 +1153,14 @@ mod tests {
         }
     }
 
+    /// The order the commit produces, built from the destination rule it shares
+    /// with the preview (`WorkspaceSet::reorder_tab` is checked against an
+    /// independent boundary rule in the session tests).
     fn committed_order(count: usize, origin: usize, drop_idx: usize) -> Vec<usize> {
         let mut order: Vec<_> = (0..count).collect();
         let moved = order.remove(origin);
-        let destination = if drop_idx > origin {
-            drop_idx - 1
-        } else {
-            drop_idx
-        }
-        .min(order.len());
+        let destination =
+            crate::native::session::reorder_destination(origin, drop_idx).min(order.len());
         order.insert(destination, moved);
         order
     }

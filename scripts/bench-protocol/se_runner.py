@@ -1853,7 +1853,9 @@ def self_test() -> list[str]:
         **run_prereg,
         "software_endpoint_time_budget_hours": 1.0,
     }
-    budget_clock_values = iter([0.0] + [4000.0] * 32)
+    # The first reading starts the session; every later one is past the budget,
+    # however many times `run_session` reads the clock.
+    budget_clock_values = iter([0.0])
     with tempfile.TemporaryDirectory() as tmp:
         budget_result = run_session(
             budget_prereg,
@@ -1864,7 +1866,7 @@ def self_test() -> list[str]:
             {"collectors": []},
             {"status": "ok"},
             sleep=lambda _seconds: None,
-            monotonic=lambda: next(budget_clock_values),
+            monotonic=lambda: next(budget_clock_values, 4000.0),
         )
         if validate_document(budget_result, budget_prereg):
             failures.append("se-runner: budget-exhausted document was rejected")
@@ -2225,9 +2227,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     output_path = results_dir / "software-endpoint-results.json"
-    output_path.write_text(
-        json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    # Created exclusively, like every other evidence file: an existing results
+    # file is never truncated.
+    with output_path.open("x", encoding="utf-8") as output_handle:
+        output_handle.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
     errors = validate_document(document, record)
     for error in errors:
         print(error, file=sys.stderr)

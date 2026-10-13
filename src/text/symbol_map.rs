@@ -5,7 +5,7 @@
 //! a real face happens at the glyph call site.
 
 // ---------------------------------------------------------------------------
-// SYMMAP: codepoint → override-font mapping (RV6 extension, core layer).
+// SYMMAP: codepoint → override-font mapping (core layer).
 // ---------------------------------------------------------------------------
 
 /// One SYMMAP rule: an **inclusive** codepoint range `start..=end` mapped to an
@@ -112,6 +112,7 @@ impl SymbolMap {
     }
 
     /// Append an already-constructed rule (preserving first-match order).
+    #[cfg(test)]
     pub fn push_rule(&mut self, rule: SymbolMapRule) {
         self.rules.push(rule);
     }

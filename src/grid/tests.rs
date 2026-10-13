@@ -81,10 +81,7 @@ fn compact_cell_instances_reduce_dense_upload_bytes() {
 
 #[test]
 fn known_grid_vertex_count() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // 5x1 grid with "Hi" then three blanks: 5 background quads, plus glyph
     // quads only for the two inked, printable characters. Cursor hidden so
     // this asserts cell geometry alone.
@@ -98,10 +95,7 @@ fn known_grid_vertex_count() {
 
 #[test]
 fn blank_cells_emit_background_only() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // A fresh terminal is all spaces: every cell is background-only.
     // Cursor hidden so the count is pure cell geometry.
     let mut term = Terminal::new(3, 2);
@@ -114,10 +108,7 @@ fn blank_cells_emit_background_only() {
 
 #[test]
 fn cell_colors_resolve_once_per_vertex_rebuild() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // A two-pass rebuild used to resolve every lead cell twice. The count is
     // the lead-cell total, so this fails while each pass calls resolve.
     let mut term = Terminal::new(3, 2);
@@ -138,10 +129,7 @@ fn inverse_swaps_foreground_and_background() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // Default colors, no inverse: background quad uses the default bg.
     let mut plain = Terminal::new(1, 1);
     plain.advance(b"X");
@@ -166,10 +154,7 @@ fn dynamic_colors_override_rendered_defaults_and_palette() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
 
     let mut term = Terminal::new(2, 1);
     term.advance(b"\x1b[?25l\x1b]11;rgb:ffff/0000/0000\x1b\\ ");
@@ -184,10 +169,7 @@ fn dynamic_colors_override_rendered_defaults_and_palette() {
 
 #[test]
 fn unsupported_printable_emits_fallback_glyph_quad() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // 'é' is printable but outside the atlas's pre-rasterized ASCII block:
     // the renderer now draws the missing-glyph fallback box rather than
     // leaving the cell blank. Cursor hidden so only cell + glyph are counted.
@@ -208,10 +190,7 @@ fn unsupported_printable_emits_fallback_glyph_quad() {
 
 #[test]
 fn wide_continuation_spacer_emits_nothing() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // A wide character occupies a lead cell + a continuation spacer. The
     // spacer must contribute no quad (no double-draw); the lead emits one
     // background (spanning two columns) and one fallback-box glyph quad.
@@ -228,10 +207,7 @@ fn wide_continuation_spacer_emits_nothing() {
 
 #[test]
 fn cursor_visible_emits_one_block_quad_on_blank_cell() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // Fresh 3x2 terminal: cursor visible at (0,0) on a blank cell. The
     // cursor adds exactly one background (block) quad over the cell grid.
     let visible = Terminal::new(3, 2);
@@ -246,10 +222,7 @@ fn cursor_visible_emits_one_block_quad_on_blank_cell() {
 
 #[test]
 fn hidden_cursor_emits_no_cursor_quad() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     let mut term = Terminal::new(4, 1);
     term.advance(b"\x1b[?25l");
     let verts = build_vertices(&term.snapshot(), &atlas);
@@ -259,10 +232,7 @@ fn hidden_cursor_emits_no_cursor_quad() {
 
 #[test]
 fn cursor_quad_sits_at_cursor_cell() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     let cell_w = atlas.cell.width as f32;
     let cell_h = atlas.cell.height as f32;
 
@@ -280,10 +250,7 @@ fn cursor_quad_sits_at_cursor_cell() {
 
 #[test]
 fn cursor_position_is_clamped_to_grid_bounds() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     let cell_w = atlas.cell.width as f32;
     let cell_h = atlas.cell.height as f32;
 
@@ -314,10 +281,7 @@ fn cursor_over_glyph_redraws_it_inverted() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // 1x1 terminal with 'R': pending-wrap keeps the cursor on the 'R'.
     let mut term = Terminal::new(1, 1);
     term.advance(b"R");
@@ -344,10 +308,7 @@ fn colored_row_uses_ansi_palette() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // A red 'R' glyph quad should carry the indexed-1 (red) foreground.
     let mut term = Terminal::new(1, 1);
     term.advance(b"\x1b[31mR\x1b[0m");
@@ -376,10 +337,7 @@ fn attrs_select_expected_font_style() {
 
 #[test]
 fn styled_glyph_uses_styled_uv_rect() {
-    let Ok(font) = load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = load_font().expect("the bundled text face must load");
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     atlas
         .ensure_styled(&font, FontStyle::Bold, 'B')
@@ -403,10 +361,7 @@ fn styled_glyph_uses_styled_uv_rect() {
 /// background quads first, then both glyph quads.
 #[test]
 fn backgrounds_are_batched_before_glyphs() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     let mut term = Terminal::new(2, 1);
     term.advance(b"\x1b[?25lHi");
     let verts = build_vertices(&term.snapshot(), &atlas);
@@ -429,10 +384,7 @@ fn backgrounds_are_batched_before_glyphs() {
 /// bounds (offset from the cell origin + ink size), not the fixed cell rect.
 #[test]
 fn glyph_quad_uses_bearing_aware_bounds() {
-    let Ok(font) = load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = load_font().expect("the bundled text face must load");
     let atlas = GlyphAtlas::build(&font, 28.0);
     let cell_w = atlas.cell.width as f32;
     let cell_h = atlas.cell.height as f32;
@@ -466,10 +418,7 @@ fn underline_attribute_appends_thin_solid_quad() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
 
     let mut term = Terminal::new(1, 1);
     term.advance(b"\x1b[?25l\x1b[4mU");
@@ -497,10 +446,7 @@ fn underline_attribute_appends_thin_solid_quad() {
 fn underline_color_uses_sgr_58_when_set() {
     // Asserts exact passthrough color; serialize against the floor mutators.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
 
     let mut term = Terminal::new(1, 1);
     term.advance(b"\x1b[?25l\x1b[58;5;2;4mU");
@@ -517,18 +463,15 @@ fn underline_color_uses_sgr_58_when_set() {
 
 /// U1 color-type coverage at the default floor: a *truecolor* SGR-58 underline
 /// color is a byte-identical passthrough of its raw resolved color, matching the
-/// indexed case above. Non-mutating - it asserts the new enforce call is a no-op
-/// at min_contrast = 1.0 without touching the process-global floor (so it cannot
-/// interleave with the single owned global-mutator test).
+/// indexed case above. Non-mutating - it asserts the enforce call is a no-op at
+/// min_contrast = 1.0 and holds the render-globals lock so no floor mutator can
+/// run during it.
 #[test]
 fn underline_color_truecolor_passthrough_at_default_floor() {
     // Reads the process-global floor at its 1.0 baseline; serialize against the
     // floor mutators so a concurrent set cannot be observed mid-window.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     assert_eq!(text::min_contrast(), 1.0);
 
     let mut term = Terminal::new(1, 1);
@@ -547,10 +490,7 @@ fn underline_color_truecolor_passthrough_at_default_floor() {
 
 #[test]
 fn double_underline_appends_two_solid_quads() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
 
     let mut term = Terminal::new(1, 1);
     term.advance(b"\x1b[?25l\x1b[4:2mD");
@@ -573,10 +513,7 @@ fn double_underline_appends_two_solid_quads() {
 
 #[test]
 fn dotted_underline_emits_gapped_dot_quads() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
 
     let mut term = Terminal::new(1, 1);
     term.advance(b"\x1b[?25l\x1b[4:4mO");
@@ -592,10 +529,7 @@ fn dotted_underline_emits_gapped_dot_quads() {
 
 #[test]
 fn dashed_underline_emits_segmented_quads() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
 
     let mut term = Terminal::new(2, 1);
     term.advance("\x1b[?25l\x1b[4:5m表".as_bytes());
@@ -608,10 +542,7 @@ fn dashed_underline_emits_segmented_quads() {
 
 #[test]
 fn curly_underline_emits_stepped_quads() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
 
     let mut term = Terminal::new(2, 1);
     term.advance("\x1b[?25l\x1b[4:3m表".as_bytes());
@@ -663,10 +594,7 @@ fn dim_attribute_scales_effective_foreground() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
 
     let mut term = Terminal::new(1, 1);
     term.advance(b"\x1b[?25l\x1b[2;31mD");
@@ -683,26 +611,21 @@ fn dim_attribute_scales_effective_foreground() {
 /// The per-cell resolve seam passes the foreground through
 /// `text::enforce_contrast_rgba`, so a raised minimum-contrast floor actually
 /// lifts low-contrast glyph color at the render path (not just in the text.rs
-/// unit). This test deliberately owns the only grid-side mutation of the
-/// process-global floor - it raises to AAA once, exercises all three cases in
-/// that single window, then restores `1.0` before any assertion can unwind -
-/// so the suite gains no second unlocked global mutator (which could
-/// interleave and flake). The three cases:
+/// unit). It mutates the process-global floor under the render-globals lock:
+/// it raises to AAA once, exercises all three cases in that single window,
+/// then restores `1.0` before any assertion can unwind. The three cases:
 /// 1. **Body site** (per-cell glyph): the canonical low-contrast lift.
 /// 2. **Cursor-block under-glyph site**: the second floor application
 ///    (`enforce_contrast_rgba(bg, block)`), proving the floor is live there
 ///    too, so the two sites agree on honoring the floor.
 /// 3. **Combined dim + focus + floor**: a dim cell rendered unfocused, whose
 ///    contrast the two dims have already eroded below the floor - the floor
-///    still lifts it, confirming it runs last and wins by construction.
+///    still lifts it, confirming it runs after both dims.
 #[test]
 fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
     // Mutates the process-global floor; serialize against every other floor test.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
 
     // --- Case 1 inputs: a near-black glyph on a black background (~1.0). ---
     let mut body = Terminal::new(1, 1);
@@ -938,10 +861,7 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
 
 #[test]
 fn hidden_attribute_suppresses_glyph_quad() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
 
     let mut term = Terminal::new(1, 1);
     term.advance(b"\x1b[?25l\x1b[8mH");
@@ -958,10 +878,7 @@ fn strikethrough_attribute_appends_thin_solid_quad() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
 
     let mut term = Terminal::new(1, 1);
     term.advance(b"\x1b[?25l\x1b[9mS");
@@ -986,10 +903,7 @@ fn block_cursor_matches_default_build() {
     // Two builds are compared below: hold the render globals so no other test
     // changes the minimum-contrast floor or the palette between them.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // Explicit Block cursor is byte-identical to the default build path.
     let term = Terminal::new(3, 2);
     let snapshot = term.snapshot();
@@ -1007,10 +921,7 @@ fn underline_cursor_emits_single_bottom_bar() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     let cell_w = atlas.cell.width as f32;
     let cell_h = atlas.cell.height as f32;
     // Blank cell, visible cursor at (0,0). Underline cursor = one solid quad
@@ -1037,10 +948,7 @@ fn bar_cursor_emits_single_left_bar() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     let cell_w = atlas.cell.width as f32;
     let cell_h = atlas.cell.height as f32;
     let term = Terminal::new(2, 1);
@@ -1060,10 +968,7 @@ fn bar_cursor_emits_single_left_bar() {
 
 #[test]
 fn cursor_render_params_default_is_byte_identical() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // R1: a default `CursorRenderParams` threaded through the
     // with-origin/with-params path produces vertices byte-identical to the
     // legacy origin-only path, for every cursor style.
@@ -1092,10 +997,7 @@ fn cursor_render_params_offset_and_alpha_are_live() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // R1 (inverse): the threading must actually apply, a guard
     // against a future edit silently dropping `params` (which would leave the
     // default-identity test green while the feature is dead). A blank cell emits
@@ -1163,10 +1065,7 @@ fn unfocused_block_cursor_is_a_four_quad_hollow_outline() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     let snapshot = Terminal::new(2, 1).snapshot();
     let mut verts = Vec::new();
     append_cursor_vertices_with_origin(
@@ -1211,10 +1110,7 @@ fn unfocused_block_cursor_is_a_four_quad_hollow_outline() {
 
 #[test]
 fn active_large_jump_follower_suppresses_the_destination_cursor_geometry() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     let snapshot = Terminal::new(3, 2).snapshot();
     let mut vertices = Vec::new();
     append_cursor_vertices_with_origin(
@@ -1238,10 +1134,7 @@ fn unfocused_block_leaves_the_existing_glyph_in_normal_foreground() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     let mut term = Terminal::new(1, 1);
     term.advance(b"R");
     let snapshot = term.snapshot();
@@ -1280,10 +1173,7 @@ fn unfocused_block_leaves_the_existing_glyph_in_normal_foreground() {
 
 #[test]
 fn unfocused_non_block_cursor_styles_are_unchanged() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     let snapshot = Terminal::new(2, 1).snapshot();
     for style in [CursorStyle::Underline, CursorStyle::Bar] {
         let mut focused = Vec::new();
@@ -1313,10 +1203,7 @@ fn unfocused_non_block_cursor_styles_are_unchanged() {
 
 #[test]
 fn hidden_cursor_emits_nothing_for_any_style() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // Cursor hidden (also the blink "off" phase): no cursor quad regardless
     // of shape. Four blank cells -> four backgrounds only.
     let mut term = Terminal::new(4, 1);
@@ -1420,10 +1307,7 @@ fn focus_dim_recedes_fg_and_bg_perceptually_in_closure() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // Saturated blue background, bright foreground glyph (high fg/bg contrast).
     let mut term = Terminal::new(1, 1);
     term.advance(b"\x1b[?25l\x1b[38;2;235;235;235;48;2;40;70;160mX");
@@ -1501,23 +1385,12 @@ fn unfocused_baseline(snapshot: &Snapshot, atlas: &GlyphAtlas) -> Vec<Vertex> {
     v
 }
 
-/// The live closure routes SGR-dim through `dim_color`, and at
-/// `DIM_PERCEPTUAL_AMOUNT` that is *equivalent to* - not merely "as bright
-/// as" - the historical naive linear `×0.5` halving.
-///
-/// This equivalence is exact (within float round-trip error) and is a
-/// mathematical identity, not a tuning coincidence: scaling all three OKLab
-/// coordinates `(L, a, b)` by a uniform factor `k` is identical to scaling
-/// linear RGB by `k³`, because OKLab's only nonlinearity is a per-component
-/// cube root that a uniform scale commutes through. `dim_perceptual(c, a)`
-/// scales `(L, a, b)` by `1 - a`, so it equals `(1 - a)³ · c`; with
-/// `a = 1 - ∛0.5` that factor is exactly `0.5`. (Both paths therefore also
-/// preserve hue - a uniform linear scale already keeps chromaticity - so the
-/// "perceptual" framing buys hue-stability that naive halving already had;
-/// see the report flag.) This test pins the equivalence so a future change to
-/// `dim_perceptual` that silently broke the established SGR-dim output would
-/// be caught. Global-free: floor stays at its 1.0 passthrough (high-contrast
-/// color keeps it inert even under a concurrent raise).
+/// The live closure routes SGR-dim through `dim_color`; at
+/// `DIM_PERCEPTUAL_AMOUNT` the dim curve preserves the established
+/// half-luminance output. A uniform OKLab scale by `k` equals a linear-RGB
+/// scale by `k³` (the only nonlinearity is a per-component cube root), and
+/// `a = 1 - ∛0.5` makes that factor `0.5`. The floor stays at its 1.0
+/// passthrough.
 #[test]
 fn closure_sgr_dim_equals_naive_half_brightness() {
     // The render path resolves colors through the process-global default/
@@ -1525,10 +1398,7 @@ fn closure_sgr_dim_equals_naive_half_brightness() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // Saturated orange on the default dark bg: high contrast (floor inert),
     // strong chroma so any real divergence from ×0.5 would show.
     let mut term = Terminal::new(1, 1);
@@ -1591,10 +1461,7 @@ fn bg_treatment_skips_chrome_cells_but_still_modulates_content() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     let mut term = Terminal::new(2, 2);
     term.advance(b"\x1b[?25l");
     let snapshot = term.snapshot();
@@ -1736,10 +1603,7 @@ fn opaque_region_holds_marked_cells_opaque_only() {
     // while the shared render-globals guard is held; it also restores any
     // value a concurrently scheduled test left behind.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     // Three blank cells in a row => three background quads (pass 1 emits all
     // backgrounds first; blanks emit no glyph and the cursor is hidden).
     let mut term = Terminal::new(3, 1);
@@ -1815,11 +1679,10 @@ fn opaque_region_holds_marked_cells_opaque_only() {
     );
 }
 
-// SELECTION-OPACITY: `selection_opacity` tunes the selection's tint in COLOR
-// space, NOT the selected cell's surface alpha. A selected cell composites at
-// the same surface alpha as its unselected neighbors (the content opacity), so
-// the selection never couples inversely to window opacity; an unmarked cell is
-// untouched; a frame with no marked cell is byte-identical to the legacy
+// SELECTION-OPACITY: `selection_opacity` sets a selected cell's tint strength
+// and lerps its surface alpha from the content opacity up to opaque (see the
+// test below), so the selection never couples inversely to window opacity; an unmarked cell
+// is untouched; a frame with no marked cell is byte-identical to the legacy
 // builder for any selection scalar.
 fn selection_test_vertices(
     snapshot: &Snapshot,
@@ -1850,16 +1713,12 @@ fn selection_test_vertices(
     verts
 }
 
-// ANTI-REGRESSION for the selection-opacity coupling bug (task 5ef3f27e). A
-// selected cell's background SURFACE alpha is lerped from the content plane up
-// to fully opaque by the knob:
+// A selected cell's background surface alpha is lerped from the content plane
+// up to fully opaque by the knob:
 //   A_sel = cell_bg_opacity + selection_opacity * (1 - cell_bg_opacity)
-// so the selection PUNCHES THROUGH window transparency (stays visible against a
-// translucent backdrop) and is NEVER weaker than its surround, with no inverse
-// feel in either direction. The first fix over-corrected by pinning the selected
-// cell to the content opacity, which washed the selection out under a
-// translucent window even at selection_opacity == 1.0; this asserts the
-// corrected lerp.
+// so the selection stays visible against a translucent backdrop and is never
+// weaker than its surround. Pinning the selected cell to the content opacity
+// would wash it out under a translucent window.
 #[test]
 fn selection_surface_alpha_lerps_content_to_opaque() {
     // Two builds are compared below: hold the render globals so no other test
@@ -2074,10 +1933,7 @@ mod chrome_pin {
 
     #[test]
     fn top_bar_stays_pinned_while_content_glides() {
-        let Some(atlas) = atlas() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let atlas = atlas().expect("the bundled text face must load");
         let snapshot = blank_snapshot(3);
         let cell_h = atlas.cell.height as f32;
         let pad = 8.0_f32;
@@ -2121,10 +1977,7 @@ mod chrome_pin {
 
     #[test]
     fn rail_band_stays_pinned_while_content_glides() {
-        let Some(atlas) = atlas() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let atlas = atlas().expect("the bundled text face must load");
         let snapshot = blank_snapshot(2);
         let cell_h = atlas.cell.height as f32;
         let pad = 8.0_f32;
@@ -2160,10 +2013,7 @@ mod chrome_pin {
 
     #[test]
     fn inert_pin_is_byte_identical_to_none() {
-        let Some(atlas) = atlas() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let atlas = atlas().expect("the bundled text face must load");
         let snapshot = blank_snapshot(3);
         let pad = 8.0_f32;
         let origin = [pad, pad]; // at rest: no sub-row offset
@@ -2204,10 +2054,7 @@ mod chrome_pin {
         // (the bar AND the content - one uniform column basis) shifts right by
         // `gap_x`; content rows additionally shift down by `gap_y`, while the
         // bar row and the full-height rail band do not.
-        let Some(atlas) = atlas() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let atlas = atlas().expect("the bundled text face must load");
         let snapshot = blank_snapshot(3);
         let cell_w = atlas.cell.width as f32;
         let cell_h = atlas.cell.height as f32;
@@ -2248,10 +2095,7 @@ mod chrome_pin {
         // CHROME-GAP mirror: with a RIGHT rail (band in column 1, content in
         // column 0) the CONTENT stays at the padded origin and the BAND shifts
         // right by `gap_x`, opening the gap between them.
-        let Some(atlas) = atlas() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let atlas = atlas().expect("the bundled text face must load");
         let snapshot = blank_snapshot(2);
         let cell_w = atlas.cell.width as f32;
         let pad = 8.0_f32;
@@ -2312,10 +2156,7 @@ mod chrome_pin {
         // During a glide the content clamps at the BAR BOTTOM + GAP (the
         // content's true top), so the gap strip below the bar stays clean like
         // the padding band.
-        let Some(atlas) = atlas() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let atlas = atlas().expect("the bundled text face must load");
         let snapshot = blank_snapshot(3);
         let cell_h = atlas.cell.height as f32;
         let pad = 8.0_f32;
@@ -2372,10 +2213,7 @@ mod chrome_pin {
     /// row-snap build (dy 0) fails that on even heights.
     #[test]
     fn multi_row_tab_band_label_is_pixel_centered() {
-        let Some(atlas) = atlas() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let atlas = atlas().expect("the bundled text face must load");
         let cell_h = atlas.cell.height as f32;
         let pad = 8.0_f32;
         let origin = [pad, pad];
@@ -2468,10 +2306,7 @@ mod chrome_pin {
     /// half a cell on a 2-row slot, landing on the slot center.
     #[test]
     fn rail_slot_label_centers_with_the_opposite_sign() {
-        let Some(atlas) = atlas() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let atlas = atlas().expect("the bundled text face must load");
         let cell_h = atlas.cell.height as f32;
         let pad = 8.0_f32;
         let origin = [pad, pad];
@@ -2540,10 +2375,7 @@ mod chrome_pin {
 
     #[test]
     fn descender_safe_offset_lifts_centered_chrome_by_two_physical_pixels() {
-        let Some(atlas) = atlas() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let atlas = atlas().expect("the bundled text face must load");
         let cell_h = atlas.cell.height;
         for (rows, label_row) in [(1usize, 0usize), (2, 1), (2, 0), (5, 2)] {
             let centered = band_label_center_dy_rows(rows, label_row);
@@ -2581,10 +2413,7 @@ mod chrome_pin {
 
     #[test]
     fn rail_descender_offset_lifts_labels_by_two_physical_pixels() {
-        let Some(atlas) = atlas() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let atlas = atlas().expect("the bundled text face must load");
         let cell_h = atlas.cell.height;
         for slot_rows in [1usize, 2, 3, 4, 5] {
             let label_row = slot_rows.saturating_sub(1) / 2;
@@ -2663,10 +2492,7 @@ mod chrome_pin {
     /// neither move the label nor reintroduce a fractional origin).
     #[test]
     fn rail_label_glyph_top_is_whole_pixel_with_and_without_chrome_gap() {
-        let Some(atlas) = atlas() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let atlas = atlas().expect("the bundled text face must load");
         let cell_h = atlas.cell.height;
         let rail_dy_rows = rail_label_descender_safe_dy_rows(2, 0, cell_h);
         let snap = snapshot_with_ink(2, &[0]);
@@ -3005,10 +2831,7 @@ mod pane_subcell_clip {
 /// cell's origin plus the mark's bearing-aware offsets.
 #[test]
 fn combining_mark_draws_over_the_base_glyph() {
-    let Ok(font) = load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = load_font().expect("the bundled text face must load");
     let mark = '\u{0301}';
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     if atlas
@@ -3062,10 +2885,7 @@ fn combining_mark_draws_over_the_base_glyph() {
 /// from the content pass and once from the cursor redraw.
 #[test]
 fn block_cursor_redraws_combining_mark_over_the_block() {
-    let Ok(font) = load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = load_font().expect("the bundled text face must load");
     let mark = '\u{0301}';
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     if atlas
@@ -3255,10 +3075,7 @@ fn build_with_fade(snapshot: &Snapshot, atlas: &GlyphAtlas, fade: RowFade) -> Ve
 /// both build the exact same vertices as the plain selection entry point.
 #[test]
 fn row_fade_inert_and_all_ones_are_byte_identical() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     let snapshot = fade_ink_snapshot();
     let mut plain = Vec::new();
     build_cell_vertices_with_ligatures_and_selection_into(
@@ -3301,10 +3118,7 @@ fn row_fade_inert_and_all_ones_are_byte_identical() {
 /// settled row's ink is byte-identical to the never-faded build.
 #[test]
 fn row_fade_scales_only_foreground_ink_alpha() {
-    let Some(atlas) = atlas() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let atlas = atlas().expect("the bundled text face must load");
     let snapshot = fade_ink_snapshot();
     let plain = build_with_fade(&snapshot, &atlas, RowFade::NONE);
     let faded = build_with_fade(
@@ -3518,20 +3332,10 @@ fn chrome_color_glyphs_stay_pinned_during_a_glide() {
     assert_eq!(quads[0].end_pos[1], 26.0);
 }
 
-/// Regression: multi-pane color-glyph accumulation must not desync when a later
-/// pane has fewer (or zero) emoji than an earlier one.
-///
-/// `build_color_glyph_vertices_with_origin_into` CLEARS its `out` (both
-/// single-pane callers rebuild the whole buffer from scratch, so the clear is
-/// their contract). The multi-pane render loop captured
-/// `color_start = shared_buf.len()` and built straight into the shared buffer,
-/// assuming append semantics - so the builder's clear wiped earlier panes'
-/// emoji and left `shared_buf[color_start..]` slicing past the end. A split
-/// where one pane held an emoji and a later pane held none sliced `[6..]` on a
-/// now-empty buffer, panicking with `range start index 6 out of range for
-/// slice of length 0`. This pins the two facts the fix depends on: (1) the
-/// builder clears, and (2) the correct per-pane pattern is build-into-scratch
-/// then extend, which survives a zero-emoji pane following a non-empty one.
+/// Multi-pane color glyphs accumulate through cleared scratch buffers:
+/// `build_color_glyph_vertices_with_origin_into` clears its `out`, so each pane
+/// is built into scratch and then appended, which survives a zero-emoji pane
+/// following a non-empty one.
 #[test]
 fn multi_pane_color_glyphs_accumulate_across_uneven_emoji_panes() {
     use crate::emoji::ColorGlyphId;
@@ -4074,17 +3878,12 @@ fn text_brightness_and_row_fade_ride_disjoint_channels() {
     }
 }
 
-// MENU-OPACITY / MENU-THEME PARITY regression (board 46195bed): a window-level
-// overlay panel (Settings / context menu / palette / connections / replay) is
-// chrome, not terminal content. Its fill/border/title use `Color::Default` with
-// inverse (see `panel_attrs`), so the fill resolves against the snapshot's
-// `DynamicColors`, and `GpuState::update_from_panes` builds the panel at a fixed
-// opaque `1.0` -- NOT `cell_bg_opacity`. Before the fix the multi-pane path built
-// the "opaque" overlay at `cell_bg_opacity` (default `0.8`), so the panes behind
-// bled through, and seeded the overlay snapshot with `DynamicColors::default()`
-// so the panel took an off-theme gray. Single-pane never had either problem
-// (it forces `overlay_opaque_region` and paints onto the themed terminal
-// snapshot). This pins both halves at the real vertex seam.
+// MENU-OPACITY / MENU-THEME PARITY: a window-level overlay panel (Settings,
+// context menu, palette, connections, replay) is chrome. Its fill, border, and
+// title use `Color::Default` with inverse (`panel_attrs`), so they resolve
+// against the snapshot's `DynamicColors`, and `GpuState::update_from_panes`
+// builds the panel at opaque `1.0`, not `cell_bg_opacity`. This pins the
+// active palette and the opaque surface alpha at the vertex seam.
 #[test]
 fn overlay_panel_cell_is_opaque_and_themed_regardless_of_cell_bg_opacity() {
     // The render path resolves colors through the process-global default/
@@ -4168,10 +3967,10 @@ fn overlay_panel_cell_is_opaque_and_themed_regardless_of_cell_bg_opacity() {
     );
 }
 
-// SELECTION-STRENGTH boost regression (board 6238907d): above 1.0 the selection
-// keeps a fully opaque surface (its alpha saturates at 1.0, never higher) while
-// its COLOR pushes further along the backdrop->fill vector so the highlight
-// reads stronger. `1.0` remains the authored fully opaque selection.
+// SELECTION-STRENGTH: above 1.0 the selection keeps a fully opaque surface
+// (its alpha saturates at 1.0, never higher) while its COLOR pushes further
+// along the backdrop->fill vector so the highlight reads stronger. `1.0`
+// remains the authored fully opaque selection.
 #[test]
 fn selection_strength_above_one_saturates_alpha_and_strengthens_color() {
     let Some(atlas) = atlas() else {

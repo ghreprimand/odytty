@@ -468,15 +468,13 @@ fn wide_then_tall_over_budget_extent_is_still_refused() {
 }
 
 // ---------------------------------------------------------------------------
-// SX4: lazy canvas sizing + geometric growth (memory-behavior hardening)
+// Lazy canvas sizing and geometric growth
 // ---------------------------------------------------------------------------
 
 /// A header-only DCS stream (large raster declaration, NO sixel data) must not
 /// allocate the declared canvas. It has no painted pixels, so it decodes to
-/// `Empty` - and does so without materializing the ~144 MB the eager allocator
-/// used to. We can't assert allocation directly in a unit test, but `Empty`
-/// (not `TooLarge`, not `Ok`) confirms the no-data path runs before any buffer
-/// is produced.
+/// `Empty`; that result (not `TooLarge`, not `Ok`) shows the no-data path
+/// runs before any buffer is produced.
 #[test]
 fn sx4_header_only_stream_allocates_nothing() {
     // 4000x4000 = 16M px (under the 16.7M budget) but zero data.
@@ -508,8 +506,7 @@ fn sx4_header_only_stream_allocates_nothing() {
 
 /// Declared raster size still establishes the reported image dimensions even
 /// when the drawn extent is much smaller - the lazy path pads up to the
-/// declared size at `finish` rather than pre-allocating. (Regression guard for
-/// the Finding-1 fix.)
+/// declared size at `finish` rather than pre-allocating.
 #[test]
 fn sx4_declared_size_pads_small_drawn_extent() {
     // Declare 64x12 (two bands), paint a single 1-wide column in band 0.
@@ -523,9 +520,7 @@ fn sx4_declared_size_pads_small_drawn_extent() {
     assert_opaque(&img); // opaque bg fills the padded area
 }
 
-/// A large single-repeat paint that historically triggered the O(N^2)
-/// width-growth re-layout now decodes correctly and within the caps. (Behavioral
-/// guard for the Finding-2 fix; the speed win is measured out-of-band.)
+/// A large single-repeat paint decodes correctly and within the caps.
 #[test]
 fn sx4_large_repeat_paint_bounded_and_correct() {
     // No raster declaration: drawn extent defines the size. !5000~ paints 5000

@@ -169,17 +169,17 @@ fn fake_spawner(
     }
 }
 
-/// A remote spawner that never resolves a host - the default for the
-/// pre-RESTORE-REMOTE round-trip tests, which use only local leaves. A leaf
-/// carrying a `remote_host` would fall through to the local spawner.
+/// A remote spawner that rejects every remote restore identity; fixtures with
+/// only local leaves use it. A leaf carrying a `remote_host` would fall through
+/// to the local spawner.
 fn no_remote_spawner() -> impl FnMut(&mut WorkspaceSet, &str) -> Option<SessionToken> {
     |_, _| None
 }
 
-/// A headless remote spawner: records each identity it is
-/// asked to reconnect and inserts a placeholder session, standing in for the
-/// real `ssh` connect path so a test can assert remote leaves route here
-/// with the right host string.
+/// A headless remote spawner: records each identity it is asked to reconnect
+/// and inserts a placeholder session, standing in for the real `ssh` connect
+/// path so a test can assert remote leaves route here with the right host
+/// string.
 fn fake_remote_spawner(
     seen: &mut Vec<String>,
 ) -> impl FnMut(&mut WorkspaceSet, &str) -> Option<SessionToken> + '_ {

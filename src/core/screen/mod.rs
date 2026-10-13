@@ -186,6 +186,7 @@ impl Line {
         }
     }
 }
+
 /// How an in-place row mutation moved or destroyed cell content, for
 /// transforming the row's button-span sidecars in lockstep - see
 /// [`Screen::transform_row_button_spans`]. Shaped as a description of the
@@ -287,22 +288,10 @@ pub struct Screen {
     pending_wrap: bool,
     /// Owner eligible for streaming extension until a control or edit boundary.
     cluster_owner: Option<Position>,
-    /// Discriminator for the `preserve_cursor_physical_line` resize override:
-    /// `true` once the shell has applied output (printed a cell) since the last
-    /// width-changing resize. The override re-anchors the cursor to its old
-    /// physical row offset on the bet that a SIGWINCH-driven shell repaint will
-    /// immediately follow and correct it (the Linux contract). That bet only
-    /// holds when a repaint is actually coming. For BACK-TO-BACK resizes with no
-    /// intervening output (the Windows pane split/close-without-typing case,
-    /// where ConPTY/PSReadLine does not repaint on a bare `ResizePseudoConsole`),
-    /// honoring the override clamps the cursor column and - because the model
-    /// re-derives the logical offset from the displaced physical cursor each
-    /// resize - RATCHETS it toward the prompt start. Set `true` in `print_char`;
-    /// cleared at the end of `Screen::resize`. When `false`, the override is
-    /// skipped and the content-accurate cursor is kept (lossless logical
-    /// position), breaking the ratchet without changing any Linux behavior
-    /// (every interactive Linux resize is followed by a repaint, so this is
-    /// `true` on the next resize there).
+    /// True after printed output until the next width-changing resize (set in
+    /// `print_char`, cleared at the end of `Screen::resize`). The
+    /// `preserve_cursor_physical_line` override is gated on it, so consecutive
+    /// resizes without a shell repaint keep the logical cursor position.
     output_since_last_resize: bool,
     /// East Asian Ambiguous characters occupy two columns when set. Default
     /// false keeps today's narrow table. Changing it reflows this screen in
@@ -1258,6 +1247,7 @@ impl TerminalModel for Screen {
         dirty
     }
 }
+
 /// Shared dispatch logic for the terminal core, parameterised over the owned
 /// [`crate::parser::Params`] type. The OdyTTY-owned parser drives these methods
 /// through [`VtDispatch`], keeping byte parsing separate from terminal semantics.
@@ -1846,33 +1836,22 @@ fn param_or(params: &Params, index: usize, default: usize) -> usize {
         .map(usize::from)
         .unwrap_or(default)
 }
-/// Resolve a count/position CSI parameter, applying the ECMA-48 rule that an
-/// omitted *or zero* parameter means 1. The parser represents an omitted
-/// parameter as an explicit `0` (e.g. `ESC [ A` parses as a single `0` param),
-/// so the plain [`param_or`] with a default of 1 still yields 0 for these
-/// controls and turns a bare cursor move (CUU/CUD/CUF/CUB) into a no-op - the
-/// bug behind fish leaving stale completion rows on screen because its `ESC [ A`
-/// failed to return the cursor to the command line before `ESC [ J`. Use this
-/// for movement and count controls (A/B/C/D, S/T, ICH/IL/DL/DCH/ECH, REP) and
-/// for 1-based position controls (CHA/CUP/VPA). Mode-selector controls such as
-/// ED, EL, SGR, DSR, DA, and tab-clear keep [`param_or`] with a `0` default
-/// because a literal `0` there is a meaningful mode, not a count.
+
+/// Resolve a count or one-based position CSI parameter: omitted or zero means
+/// one (ECMA-48; the parser stores an omitted parameter as `0`). Mode
+/// selectors such as ED, EL, SGR, DSR, DA, and tab-clear use [`param_or`]
+/// because zero is meaningful there.
 fn param_or_one(params: &Params, index: usize) -> usize {
     param_or(params, index, 1).max(1)
 }
+
 fn private_mode_params(params: &Params) -> impl Iterator<Item = u16> + '_ {
     params.iter().filter_map(|param| param.first().copied())
 }
+
 /// Materialize the SGR parameter groups as slices for the attribute decoder.
-///
-/// A CSI private-marker byte (`<`, `=`, `>`, `?`) is recorded by the parser as a
-/// sequence *intermediate*, never as a parameter value (see the parser's
-/// `CsiEntry`/`CsiParam` ParamMarker handling), so it never reaches this list.
-/// This is therefore a straight pass-through: every group is a real numeric
-/// parameter. Historically a value-equality filter dropped any group whose first
-/// value equaled 60–63 (the ASCII codes of `<=>?`), which silently corrupted any
-/// 24-bit color (`38;2;R;G;B` / `48` / `58`) with a channel of 60/61/62/63 -
-/// fixed by removing that filter, since the marker is tracked structurally.
+/// A CSI private marker (`<`, `=`, `>`, `?`) is a sequence intermediate, never
+/// a parameter value, so every group is a real numeric parameter.
 fn sgr_params(params: &Params) -> Vec<&[u16]> {
     params.iter().collect()
 }

@@ -103,6 +103,7 @@ fn fixture() -> App {
 
 #[test]
 fn overridden_row_names_the_variable_before_truncated_help() {
+    let _globals = crate::test_lock::render_globals_lock();
     let mut app = fixture();
     let lines = app.render_overlay_rows_for_test(120, 40).join("\n");
     assert!(

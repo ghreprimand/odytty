@@ -1296,16 +1296,13 @@ impl App {
         true
     }
 
-    /// Select the entire buffer - the full scrollback plus the visible grid
-    /// (IN2 Select All). The range is stored in absolute row space, so it stays
-    /// meaningful as the viewport scrolls; the copy path resolves whatever is
-    /// visible at copy time (the app-wide selection→clipboard contract). Also
-    /// mirrors the selection to PRIMARY like any other selection. No-op on an
-    /// empty grid.
-    /// Select the focused pane's whole buffer, history included. Its size and
-    /// history length are read together under one lock, from the focused
-    /// terminal rather than the window grid, so a split pane selects exactly
-    /// its own rows.
+    /// Select the focused pane's whole buffer: the full scrollback plus the
+    /// visible grid. Its size and history length are read together under one
+    /// lock, from the focused terminal rather than the window grid, so a split
+    /// pane selects exactly its own rows. The range is stored in absolute row
+    /// space, so it stays meaningful as the viewport scrolls; the copy path
+    /// resolves whatever is visible at copy time. Also mirrors the selection to
+    /// PRIMARY like any other selection. No-op on an empty grid.
     pub(super) fn handle_select_all(&mut self) {
         let (columns, rows, history) = {
             let terminal = crate::native::lock_recover(&self.terminal);

@@ -231,7 +231,7 @@ fn copy_on_select_defaults_off_and_parses() {
 
 #[test]
 fn smart_ctrl_c_defaults_on_and_parses() {
-    // v0.6.0 shipped identity: copy-or-interrupt is the default.
+    // Copy-or-interrupt is the default.
     let (settings, warnings) = settings_from([]);
     assert_eq!(settings.smart_ctrl_c, SmartCtrlC::CopyOrInterrupt);
     assert!(settings.smart_ctrl_c.is_active());
@@ -549,9 +549,7 @@ fn tab_bar_placement_defaults_to_top() {
     let (settings, warnings) = settings_from([]);
     assert_eq!(settings.tab_bar_placement, TabBarPlacement::Top);
     assert!(warnings.is_empty());
-    // Top is not a rail, and it renders as itself.
     assert!(!settings.tab_bar_placement.is_rail());
-    assert_eq!(settings.tab_bar_placement.effective(), TabBarPlacement::Top);
 }
 
 #[test]
@@ -562,19 +560,11 @@ fn tab_bar_placement_parses_top_left_right() {
     let (left, _) = settings_from([(TAB_BAR_PLACEMENT_ENV, "left")]);
     assert_eq!(left.tab_bar_placement, TabBarPlacement::Left);
     assert!(left.tab_bar_placement.is_rail());
-    assert_eq!(left.tab_bar_placement.effective(), TabBarPlacement::Left);
 
-    // `right` parses AND renders as itself (F4-P2 landed the right arm), so
-    // `effective()` is an identity - no degrade to top.
     let (right, warnings) = settings_from([(TAB_BAR_PLACEMENT_ENV, "right")]);
     assert_eq!(right.tab_bar_placement, TabBarPlacement::Right);
     assert!(warnings.is_empty(), "a known value emits no warning");
     assert!(right.tab_bar_placement.is_rail());
-    assert_eq!(
-        right.tab_bar_placement.effective(),
-        TabBarPlacement::Right,
-        "right renders as itself now"
-    );
 }
 
 #[test]

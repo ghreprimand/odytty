@@ -109,14 +109,12 @@ list_batch() {
 write_listings() {
   local dir="$1" name f
   mkdir -p "$dir"
-  for name in $(batch_names); do
+  while IFS= read -r name; do
     list_batch "$name" > "$dir/$name.list"
-  done
-  # The project-authored census contains whitespace-free Rust paths.
-  # shellcheck disable=SC2013
-  for f in $(awk -F'\t' '!/^#/ && NF >= 5 { print $2 }' scripts/mutation-batches.tsv | sort -u); do
+  done < <(batch_names)
+  while IFS= read -r f; do
     cargo mutants --list --no-times --no-shuffle -f "$f" > "$dir/census-${f//\//__}.list"
-  done
+  done < <(awk -F'\t' '!/^#/ && NF >= 5 { print $2 }' scripts/mutation-batches.tsv | sort -u)
 }
 
 cmd_census() {
@@ -193,7 +191,6 @@ cmd_stage1() {
   printf 'command %s\n' "${args[*]}" > "$dir/command.txt"
   run_confined "odytty-mut-s1-$name" "$dir/run.log" "${args[@]}"
   require_clean_tree
-  tail -1 "$dir/run.log" >/dev/null
 }
 
 cmd_stage2() {

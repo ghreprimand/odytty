@@ -102,10 +102,7 @@ fn fit_scale_degenerate_inputs_stay_positive_and_capped() {
 
 #[test]
 fn override_symbol_glyph_fits_within_cell_and_is_centered() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let symbol = '\u{2731}'; // HEAVY ASTERISK - inked in the fixture (~0.70 em sq)
     let cp = symbol as u32;
     let mut atlas = GlyphAtlas::build(&font, 24.0);
@@ -185,10 +182,7 @@ fn override_symbol_glyph_fits_within_cell_and_is_centered() {
 
 #[test]
 fn fit_machinery_leaves_primary_ascii_byte_identical() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     // Per-ASCII-slot ink after a plain build (all rasterized through the `None`
     // fit path).

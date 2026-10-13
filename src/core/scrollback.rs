@@ -197,23 +197,9 @@ impl LogicalLine {
     }
 }
 
-/// Memoized *shape* of the physical projection at a single width.
-///
-/// This used to memoize the projection itself - every physical row, with its
-/// own copy of every cell. That is a full second copy of the store's content,
-/// and at depth it was measured at parity with the logical ring: a 100k-line
-/// store paid for its scrollback twice.
-///
-/// It is replaced by the projection's shape: how many physical rows each
-/// logical line produces at this width, and the total. That is the only part of
-/// the projection every consumer needs, it is what makes an absolute row index
-/// resolvable to a logical line without materializing anything, and it costs
-/// one `usize` per logical line instead of a row of cells per row.
-///
-/// Rows themselves are produced on demand and not retained, because no consumer
-/// needs them retained: the render path reads a viewport-sized tail, the point
-/// queries read one row, and the two whole-store readers (search and the prompt
-/// -mark enumeration) are user-initiated rather than per-frame. See
+/// Memoized physical-row starts and total row count at one width and width
+/// policy. Rows are produced on demand and not retained, so the cache holds
+/// one `usize` per logical line and no cell copies. See
 /// [`Scrollback::physical_tail`] and [`Scrollback::physical_all`].
 #[derive(Debug, Clone)]
 struct Projection {
@@ -309,20 +295,11 @@ struct LimitEnforcement {
     evicted_lines: usize,
 }
 
-/// Default maximum number of logical lines retained in scrollback. Each scrolled
-/// -off hard-terminated line is one logical line, so this is the user-facing
-/// "lines of history" cap. Chosen to match the common terminal default (xterm,
-/// kitty, alacritty all default near this) and bounds steady-state memory: the
-/// ring stores [`StoredCell`] at 28 B/cell, so at 80 columns 10k lines of
-/// hard-terminated history measures 23.8 MB of ring. (This note has now been
-/// wrong twice, in the same way: it said 36 B/cell and ~28 MB after `Cell` grew
-/// to 44, then 44 B/cell and ~34.5 MB after the ring stopped storing `Cell`.
-/// Both times the model outlived the code. The figure above is a measurement -
-/// `stage_b_cell_shrink_projection`, hard 10,000 - not an arithmetic product,
-/// which is why it does not equal 10,000 x 80 x 28.) Without a cap, a
-/// process that streams
-/// unbounded output (`yes`, `cat bigfile`, a runaway loop) would grow OdyTTY's
-/// memory until the OS OOM-killed it. See [`Scrollback::push_row`].
+/// Default cap of 10,000 logical lines (each scrolled-off hard-terminated
+/// line is one). The aggregate cell budget additionally bounds long wrapped
+/// histories; a zero limit disables both, and the per-line cell ceiling
+/// always applies. See
+/// [`Scrollback::push_row`].
 pub(in crate::core) const DEFAULT_SCROLLBACK_LIMIT: usize = 10_000;
 
 /// Defensive ceiling on the cell count of a *single* logical line. The line cap
@@ -1067,25 +1044,9 @@ impl Scrollback {
         (self.lines.capacity(), cells, spans)
     }
 
-    /// Heap bytes this store currently holds, split by what holds them.
-    ///
-    /// The logical-line ring and the memoized projection shape are reported
-    /// separately rather than summed. They are structurally different costs:
-    /// the ring is the content, the projection is the cached description of how
-    /// that content wraps at the current width, and they are reclaimed by
-    /// different means. A single total cannot say which one a change moved,
-    /// which makes any before/after comparison unattributable - and the
-    /// projection field is exactly where that mattered, because it once held a
-    /// full second copy of the ring and now holds one `usize` per line.
-    ///
-    /// `ring_slack` is the reserved-but-unused part of `ring` - capacity minus
-    /// length, across the ring's own slots and each line's allocations. It is a
-    /// **breakdown of `ring`, not an addition to it**, so that reclaimable
-    /// waste is visible as a figure rather than inferred from a model.
-    ///
-    /// Capacities are used rather than lengths because capacity is what the
-    /// process is resident for. Saturating throughout: an attribution figure
-    /// must never wrap into a smaller number.
+    /// Heap capacity this store holds, with the logical ring and the
+    /// projection shape reported separately. `ring_slack` is the unused part
+    /// of `ring`, not an additional cost. All byte arithmetic saturates.
     pub(in crate::core) fn stored_bytes(&self) -> ScrollbackBytes {
         let slot = std::mem::size_of::<LogicalLine>() as u64;
         let ring_slots = (self.lines.capacity() as u64).saturating_mul(slot);

@@ -71,8 +71,9 @@ pub const MAX_BIDI_PARAGRAPH_BYTES: usize = 16 * MAX_BIDI_PARAGRAPH_OWNERS;
 /// Most physical rows one paragraph may span before it gets identity layout.
 pub const MAX_BIDI_PARAGRAPH_ROWS: usize = MAX_BIDI_PARAGRAPH_OWNERS;
 
-/// Widest owner, in cells, the plan accepts. Unicode width tables reach 3
-/// (a Khmer sign); wider input is malformed and gets identity layout.
+/// Widest owner, in cells, the plan accepts. Terminal owners are 0 to 2 cells
+/// wide (the Khmer signs the width tables make 3 wide are pinned to one cell);
+/// 4 is headroom, and wider input is malformed and gets identity layout.
 pub const MAX_BIDI_OWNER_WIDTH: u8 = 4;
 
 /// One logical owner unit: a base scalar plus attached marks, or a blank.

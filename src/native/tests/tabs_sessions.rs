@@ -1897,10 +1897,10 @@ fn top_seam_wins_its_right_junction_with_a_live_scrollbar() {
     app.set_workspace_rail_for_test("right");
     app.set_tab_rail_width_manual_for_test(16);
     app.scroll_up_for_test(usize::MAX);
-    if app.scrollback_len_for_test() == 0 {
-        eprintln!("skipping: no scrollback materialized");
-        return;
-    }
+    assert!(
+        app.scrollback_len_for_test() > 0,
+        "scrolling up must materialize scrollback; the precondition is not environmental"
+    );
 
     let span = app.top_panel_span_for_test().expect("right top span");
     let seam_y = app.tab_bar_seam_y_for_test().expect("top seam");
@@ -3744,10 +3744,10 @@ fn right_rail_scrollbar_stays_in_the_content_not_under_the_rail() {
     app.set_workspace_rail_for_test("right");
     app.scroll_up_for_test(usize::MAX);
     let len = app.scrollback_len_for_test();
-    if len == 0 {
-        eprintln!("skipping: no scrollback materialized");
-        return;
-    }
+    assert!(
+        len > 0,
+        "scrolling up must materialize scrollback; the precondition is not environmental"
+    );
     let (cols, rows) = app.grid_dims_for_test();
     let offset = app.viewport_offset_for_test();
     let thumb = scroll_indicator_quad(
@@ -4371,12 +4371,11 @@ fn focused_pane_overlay_paints_focused_pane_search_matches() {
     // Searchable content in the focused session, then a query that matches it.
     app.advance_tab_bytes_at_position_for_test(0, b"needle\r\n");
     app.drive_search_for_test("needle");
-    // Require a real match so the assertion is meaningful (skip if the PTY-backed
-    // terminal did not register the write in this environment).
-    if app.search_match_count_for_test() == 0 {
-        eprintln!("skipping: no search match registered");
-        return;
-    }
+    // Require a real match so the assertion is meaningful.
+    assert!(
+        app.search_match_count_for_test() > 0,
+        "the written text must register a search match"
+    );
 
     let metrics = cell(10, 20);
     let grid = Dimensions::new(40, 4);
@@ -4432,10 +4431,10 @@ fn per_pane_overlay_gates_the_search_bar_to_the_focused_pane() {
     };
     app.advance_tab_bytes_at_position_for_test(0, b"needle\r\n");
     app.drive_search_for_test("needle");
-    if app.search_match_count_for_test() == 0 {
-        eprintln!("skipping: no search match registered");
-        return;
-    }
+    assert!(
+        app.search_match_count_for_test() > 0,
+        "the written text must register a search match"
+    );
     let sbl = app.scrollback_len_for_test();
     let pane_grid = Dimensions::new(40, 4);
     let last_row = pane_grid.rows - 1;
@@ -4649,7 +4648,6 @@ fn prefix_focus_next_cycles_panes() {
 /// (Command spawn fails NotFound before any process starts), so the test never
 /// spawns a real opener on the shared box. Returns the app, the left pane's id,
 /// and both panes' recorded PTY writes (left, right).
-#[cfg(test)]
 type SplitPathFixture = (
     App,
     usize,
@@ -4657,7 +4655,6 @@ type SplitPathFixture = (
     crate::test_dirs::AbsentProgram,
 );
 
-#[cfg(test)]
 fn split_app_with_path_in_left_pane() -> Option<SplitPathFixture> {
     let cols = 40usize;
     let rows = 20usize;
@@ -4701,16 +4698,6 @@ fn split_app_with_path_in_left_pane() -> Option<SplitPathFixture> {
     let opener = crate::test_dirs::AbsentProgram::new();
     app.set_interactive_paths_editor_for_test(&opener.program);
     Some((app, left_id, [b_left, b_right], opener))
-}
-
-/// The host open modifier: Cmd (super) on macOS, Ctrl on Linux/Windows.
-#[cfg(test)]
-fn hold_open_modifier(app: &mut App, held: bool) {
-    if cfg!(target_os = "macos") {
-        app.set_super_key_for_test(held);
-    } else {
-        app.set_ctrl_modifier_for_test(held);
-    }
 }
 
 #[test]
@@ -6518,7 +6505,6 @@ fn workspace_drag_rearms_after_activation_without_pointer_motion() {
 /// RAIL-DRAG shared setup: a left-rail app with three named workspaces (a, b, c)
 /// and the active one at index 2 (c), the cell + rail geometry the drop-target
 /// math is expressed against. `None` when no PTY is available.
-#[cfg(test)]
 fn rail_drag_app() -> Option<App> {
     let mut app = tab_bar_app()?;
     app.set_test_cell_for_test(cell(8, 16));
@@ -6846,7 +6832,6 @@ fn a_dragged_workspace_order_persists_through_the_shape_snapshot() {
 /// This is the case the shipped drag tests missed -- they only drove a
 /// single-pane active tab, so the multipane left-press branch (which swallowed
 /// every rail press once the active tab was split) was never on the path.
-#[cfg(test)]
 fn rail_drag_split_app() -> Option<App> {
     let mut app = rail_drag_app()?;
     let dims = NativeOptions::default().initial_grid;

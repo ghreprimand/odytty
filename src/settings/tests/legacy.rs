@@ -701,7 +701,7 @@ fn missing_config_file_is_a_nonfatal_not_found() {
 
 #[test]
 fn config_reload_poller_uses_injected_time_and_fingerprint_changes() {
-    let path = PathBuf::from("/tmp/odytty-test.conf");
+    let path = PathBuf::from("poller-fixture.conf");
     let t0 = Instant::now();
     let old = ConfigFileFingerprint {
         modified: SystemTime::UNIX_EPOCH + Duration::from_secs(10),
@@ -766,7 +766,7 @@ fn config_reload_preserves_startup_env_precedence() {
 
 #[test]
 fn config_reload_applies_usable_values_and_surfaces_warnings() {
-    // F13: a rewrite with an out-of-range value must not discard the whole
+    // A rewrite with an out-of-range value must not discard the whole
     // reload. The bad value falls back (matching the startup path) and the
     // warning is surfaced rather than blocking the live reload.
     let dir = std::env::temp_dir().join(format!("odytty-cf2-bad-{}", std::process::id()));
@@ -792,7 +792,7 @@ fn config_reload_applies_usable_values_and_surfaces_warnings() {
 
 #[test]
 fn config_reload_applies_a_real_edit_despite_an_unknown_key() {
-    // F13 canonical case: an unknown/future/typo'd key must not block a live
+    // An unknown, future or misspelled key must not block a live
     // edit to a real setting. The real value reloads; the unknown key is a
     // surfaced-but-non-fatal notice.
     let dir = std::env::temp_dir().join(format!("odytty-cf2-unknown-{}", std::process::id()));

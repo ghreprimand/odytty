@@ -860,7 +860,7 @@ fn symbol_font_source_value(settings: &Settings) -> String {
 }
 
 fn appearance(theme: Theme) -> &'static str {
-    if relative_luminance(theme.background) > 0.18 {
+    if relative_luminance(theme.background) > odytty::theme::LIGHT_BACKGROUND_LUMINANCE {
         "light"
     } else {
         "dark"
@@ -1358,6 +1358,7 @@ mod tests {
             "--execute",
             "--working-directory",
             "--working-dir",
+            "--profile",
             "--title",
             "--app-id",
             "--class",
@@ -1372,6 +1373,9 @@ mod tests {
             "shell-integration",
             "new --detached",
             "attach --diagnostic",
+            "control",
+            "attach",
+            "--",
         ] {
             assert!(
                 reference.contains(spelling),

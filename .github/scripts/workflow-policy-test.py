@@ -144,8 +144,14 @@ class WorkflowContracts(unittest.TestCase):
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         step = ci.split("name: GPU validation availability (macOS/Windows)", 1)[1]
         step = step.split("      #", 1)[0]
-        names = step.split("--show-output", 1)[1].split()
+        names = [
+            name
+            for name in step.split("--show-output", 1)[1].split("|", 1)[0].split()
+            if name != "\\"
+        ]
         self.assertTrue(names, "the availability smoke names no test")
+        self.assertIn("executed=", step, "the smoke reports no executed count")
+        self.assertIn("skipped=", step, "the smoke reports no skipped count")
         for name in names:
             with self.subTest(test=name):
                 self.assertIn(name, listed)
@@ -170,7 +176,10 @@ class WorkflowContracts(unittest.TestCase):
                 self.assertEqual(envfile.read_text(), "")
 
     def test_demo_failed_directory_change_stops_before_writing(self):
-        prefix = (ROOT / "scripts/make-demo.sh").read_text().split("cat > README.md", 1)[0]
+        text = (ROOT / "scripts/make-demo.sh").read_text()
+        self.assertIn("cat > README.md", text, "the fixture marker moved; update this test")
+        prefix = text.split("cat > README.md", 1)[0]
+        self.assertIn('mkdir -p "$DEMO/src"', prefix, "the fixture directory step moved")
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
             (root / "target/release").mkdir(parents=True)
@@ -183,12 +192,32 @@ class WorkflowContracts(unittest.TestCase):
                 stub = tools / name
                 stub.write_text("#!/bin/sh\nexit " + str(status) + "\n")
                 stub.chmod(0o755)
-            program = prefix.replace("DEMO=/tmp/odytty-demo", 'DEMO="' + str(root / "missing") + '"')
-            result = subprocess.run(["bash", "-c", program + "\nprintf unsafe > marker\n"], cwd=root,
-                                    env=dict(os.environ, PATH=str(tools) + os.pathsep + os.environ["PATH"]),
+            # The stubbed mkdir cannot create the fixture directory, so the
+            # directory change that follows must stop the script.
+            result = subprocess.run(["bash", "-c", prefix + "\nprintf unsafe > marker\n"], cwd=root,
+                                    env=dict(os.environ, TMPDIR=str(root),
+                                             PATH=str(tools) + os.pathsep + os.environ["PATH"]),
                                     text=True, capture_output=True, timeout=5)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse((root / "marker").exists())
+
+    def test_manifest_version_comes_from_the_package_table(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            manifest = Path(scratch, "Cargo.toml")
+            manifest.write_text('[dependencies.foo]\nversion = "9.9.9"\n\n'
+                                '[package]\nname = "x"\nversion = "1.2.3"\n')
+            result = subprocess.run(["bash", str(ROOT / ".github/scripts/derive-version.sh")],
+                                    cwd=scratch, text=True, capture_output=True, timeout=10,
+                                    env=clean_environment(GITHUB_REF_TYPE="branch"))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "1.2.3")
+
+    def test_demo_files_live_in_one_private_fresh_directory(self):
+        text = (ROOT / "scripts/make-demo.sh").read_text()
+        self.assertEqual(re.findall(r"/tmp/odytty", text), [], "a fixed /tmp name remains")
+        self.assertIn('mktemp -d "${TMPDIR:-/tmp}/odytty-demo.XXXXXX"', text)
+        for name in ("showcase.sh", "showcase-frame.sh", "rc.sh", "demo.log"):
+            self.assertIn(f'"$WORK/{name}"', text)
 
     def test_demo_repository_is_the_same_under_any_git_configuration(self):
         text = (ROOT / "scripts/make-demo.sh").read_text()

@@ -1135,6 +1135,9 @@ initial window title, and `--working-directory` sets the initial PTY directory;
 both also accept `--flag=value`. `--working-dir` is an accepted compatibility
 alias for `--working-directory`.
 
+`--profile NAME` (also `--profile=NAME`) launches with the named launch profile;
+the name must be valid and nonempty. See [Profiles](profiles.md).
+
 `-e` or `--execute` runs the remaining argv as the initial command instead of
 the default shell. A bare `--` has the same command-boundary meaning. Anything
 after the command boundary belongs to the child, even when it resembles an

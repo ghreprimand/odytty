@@ -310,8 +310,9 @@ the graphics stack - a partial image is worse than none.
 A client that shares the screen with other programs cannot know which image
 *ids* are free. It can instead pick an image *number* with `I=`. Numbers are
 deliberately not unique: transmitting with a number always creates a new image
-rather than replacing an existing one, and every command that addresses by
-number acts on the **newest** image carrying it.
+rather than replacing an existing one, and the transmission, frame, and
+animation commands that accept a number act on the **newest** image carrying
+it. Display (`a=p`) and placement deletes still need `i=` (see below).
 
 A transmission that carries a number is answered with both the id the terminal
 assigned and the number the client chose - `i=<id>,I=<number>` - which is how

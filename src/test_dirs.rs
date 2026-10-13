@@ -40,6 +40,38 @@ impl Drop for ScratchDir {
     }
 }
 
+/// Whether `text` carries a token that looks like an absolute path: a leading
+/// `/`, or a drive letter with a separator (`C:\`, `C:/`). Tokens split on
+/// whitespace, `=` and quotes, so `key = /x` and `key="C:\x"` are both caught.
+/// Used to check that written files hold no machine-local path on any platform.
+#[cfg(test)]
+pub(crate) fn contains_absolute_path_token(text: &str) -> bool {
+    text.split(|c: char| c.is_whitespace() || matches!(c, '=' | '"' | '\''))
+        .any(|token| {
+            let mut chars = token.chars();
+            token.starts_with('/')
+                || matches!(
+                    (chars.next(), chars.next(), chars.next()),
+                    (Some(letter), Some(':'), Some('\\' | '/')) if letter.is_ascii_alphabetic()
+                )
+        })
+}
+
+#[cfg(test)]
+mod absolute_path_token_tests {
+    use super::contains_absolute_path_token as found;
+
+    #[test]
+    fn unix_and_windows_paths_are_found_and_plain_settings_are_not() {
+        assert!(found("font = /home/someone/x.ttf"));
+        assert!(found("font=\"C:\\Users\\someone\\x.ttf\""));
+        assert!(found("path D:/fonts"));
+        assert!(!found(
+            "theme = dracula\n# kept\nfont_size = 18\nratio = 3/4\n"
+        ));
+    }
+}
+
 /// A program path no process can resolve: a name inside a scratch folder this
 /// fixture owns and never populates. It has a directory part, so no `PATH`
 /// entry can supply it (a bare name would resolve through an inherited `PATH`).

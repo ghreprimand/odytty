@@ -81,11 +81,11 @@ pub const SHAPED_SCRIPT_RANGES: &[(u32, u32)] = &[
 pub const SHAPE_CACHE_CAPACITY: usize = 4096;
 /// Most fallback faces whose shaping tables are kept parsed.
 const FACE_CACHE_CAPACITY: usize = 8;
-/// Most glyphs accepted from shaping one owner. Retained owners hold at most
-/// 17 scalars; a larger result keeps the per-cell path.
+/// Most glyphs accepted from shaping one owner; a larger result keeps the
+/// per-cell path.
 const MAX_RUN_GLYPHS: usize = 64;
-/// Retained scalars per owner: the base plus `MAX_COMBINING` extensions.
-const OWNER_SCALARS: usize = 17;
+/// Retained scalars per owner: the base plus its extensions.
+const OWNER_SCALARS: usize = crate::core::MAX_COMBINING + 1;
 
 fn in_stage(ch: char) -> bool {
     let cp = ch as u32;

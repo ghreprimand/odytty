@@ -103,10 +103,9 @@ fn system_alias_respects_explicit_os_dark_override() {
 }
 
 #[test]
-fn system_alias_keeps_explicit_follow_off_display_value() {
-    // The alias forces follow_os_theme on internally, but the explicit
-    // follow_os_theme setting remains a separate, user-editable row. Setting
-    // the alias must not alter the authored theme name.
+fn system_alias_keeps_the_authored_theme() {
+    // The alias forces follow_os_theme on internally; setting it must not alter
+    // the authored theme name.
     let (settings, _) = settings_from([(THEME_ENV, SYSTEM_THEME_NAME)]);
     assert_eq!(
         settings.theme, DEFAULT_THEME,

@@ -256,7 +256,18 @@ fn pointer_delete_confirmation_uses_the_rendered_button_spans() {
     manager.open(catalog_with(&["dev"]), None);
     let _ = manager.handle_input(OverlayInput::Char('x'));
     let action_row = rendered_row(&manager, "[Enter] Delete");
-    let cancel_col = "[Enter] Delete    ".chars().count();
+    // The Cancel button's column comes from the rendered line, not a copy of
+    // its layout string.
+    let line = manager
+        .visible_lines(80, 400)
+        .into_iter()
+        .nth(action_row)
+        .expect("action row")
+        .text;
+    let cancel_col = line
+        .find("[Esc] Cancel")
+        .map(|byte| line[..byte].chars().count())
+        .expect("a Cancel button on the confirmation row");
     assert!(matches!(
         manager.handle_pointer_press(80, 400, action_row, cancel_col),
         ProfileManagerOutcome::Consumed

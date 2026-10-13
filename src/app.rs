@@ -174,6 +174,8 @@ fn spawn_stdin_reader(tx: Sender<Vec<u8>>) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Draw the snapshot as plain text for the debug view. Each cell contributes
+/// its base scalar only; extension scalars and attributes are not shown.
 fn render_debug_screen(stdout: &mut Stdout, terminal: &Terminal) -> Result<()> {
     let snapshot = terminal.snapshot();
     stdout
@@ -318,7 +320,8 @@ enum InputAction {
 }
 
 struct TerminalModeGuard {
-    raw: RawModeGuard,
+    /// Held only so raw mode is restored when the guard drops.
+    _raw: RawModeGuard,
 }
 
 impl TerminalModeGuard {
@@ -329,7 +332,7 @@ impl TerminalModeGuard {
             .write_all(b"\x1b[?1049h\x1b[?2004h\x1b[?25l")
             .context("enter alternate screen")?;
         stdout.flush().context("flush terminal mode setup")?;
-        Ok(Self { raw })
+        Ok(Self { _raw: raw })
     }
 }
 
@@ -337,7 +340,6 @@ impl Drop for TerminalModeGuard {
     fn drop(&mut self) {
         let _ = stdout().write_all(b"\x1b[?25h\x1b[?2004l\x1b[?1049l");
         let _ = stdout().flush();
-        let _ = &self.raw;
     }
 }
 

@@ -191,12 +191,10 @@ impl App {
         }
     }
 
-    /// The placement actually honored by the render path this frame. All three
-    /// placements now render (F4-P2 landed the right rail), so
-    /// [`TabBarPlacement::effective`] is an identity; the indirection is kept as
-    /// the single seam the render/reserve paths read.
+    /// The tab bar placement the render and reserve paths read. Every
+    /// placement renders as configured.
     pub(super) fn effective_placement(&self) -> TabBarPlacement {
-        self.settings.tab_bar_placement.effective()
+        self.settings.tab_bar_placement
     }
 
     pub(super) fn render_top_bar_widget(
@@ -245,10 +243,8 @@ impl App {
             let label = "New window";
             let start = output.glyphs.len().saturating_sub(label.len() + 1);
             for (glyph, ch) in output.glyphs.iter_mut().skip(start).zip(label.chars()) {
-                glyph.ch = ch;
                 // The badge replaces whatever label owner or wide tail was here.
-                glyph.owner = None;
-                glyph.wide_tail = false;
+                glyph.set_symbol(ch);
                 let (r, g, b) = colors.foreground;
                 glyph.attrs.foreground = Color::Rgb(r, g, b);
                 glyph.attrs.set_bold(true);

@@ -243,6 +243,12 @@ fn nerd_font_sample_labels_match_the_bundled_glyphs() {
         ('\u{f02d2}', "md-heart_box", "nf-md-heart_box"),
         ('\u{eafc}', "cod-git_commit", "nf-cod-git_commit"),
         ('\u{e264}', "fae-cheese", "nf-fae-cheese"),
+        ('\u{e725}', "dev-git_branch", "nf-dev-git_branch"),
+        ('\u{f07c}', "fa-folder_open", "nf-fa-folder_open"),
+        // FontAwesome 6 renamed the glyph "house"; the fixture keeps the alias.
+        ('\u{f015}', "fa-house", "nf-fa-home"),
+        ('\u{f120}', "fa-terminal", "nf-fa-terminal"),
+        ('\u{f1d3}', "fa-git", "nf-fa-git"),
     ];
     for (ch, glyph_name, label) in samples {
         let glyph = font

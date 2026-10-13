@@ -9,13 +9,11 @@
 //! entirely in this module; by the time bytes reach Layer 2 they are
 //! 8-bit-clean control bytes.
 //!
-//! ## Design (PA2-r originality)
+//! ## Design
 //!
-//! This layer differs structurally from the first-generation OdyTTY parser
-//! (which folded UTF-8 into the Ground state of its main state machine):
-//! lifting UTF-8 out makes Layer 2 a clean byte-only control automaton, and
-//! shrinks the partial-codepoint logic to one focused module instead of
-//! threading it through every state's hot path. The bulk ASCII fast-path
+//! Keeping UTF-8 here makes Layer 2 a byte-only control automaton and keeps
+//! the partial-codepoint logic in one module instead of threading it through
+//! every state. The bulk ASCII fast-path
 //! (a single linear scan + one `from_utf8_unchecked` per maximal run) gives
 //! plain text its zero-branch route through the parser; non-ASCII scalars
 //! take a per-scalar careful decode.
@@ -42,7 +40,7 @@
 //! Unicode 3.9 guideline that `std::str::from_utf8`'s `valid_up_to` /
 //! `error_len` already implement). The exception: a lone invalid byte in
 //! `0x80..=0x9F` executes as a C1 control (matching the "no 8-bit C1
-//! introduction" UTF-8-mode policy - see `mod.rs` divergence ledger). A
+//! introduction" UTF-8-mode policy - see the `mod.rs` policy ledger). A
 //! truncated trailing codepoint at the end of a chunk is carried, not emitted,
 //! until the next chunk arrives; a truncated codepoint then interrupted by ESC
 //! emits `U+FFFD` and processes the control.
@@ -227,14 +225,12 @@ impl Segmenter {
                 } else {
                     match err.error_len() {
                         Some(invalid_len) => {
-                            // Definitively invalid.
-                            let b0 = self.partial_buf[0];
+                            // Definitively invalid. The carry only ever holds
+                            // an incomplete lead byte, never a lone C1 byte,
+                            // so this is always a replacement character.
+                            debug_assert!(!(0x80..=0x9F).contains(&self.partial_buf[0]));
                             self.partial_len = 0;
-                            if invalid_len == 1 && (0x80..=0x9F).contains(&b0) {
-                                sink.execute(b0);
-                            } else {
-                                sink.print('\u{FFFD}');
-                            }
+                            sink.print('\u{FFFD}');
                             PartialOutcome::Consumed(invalid_len.saturating_sub(old_len))
                         }
                         None => {

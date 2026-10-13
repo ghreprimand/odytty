@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! ID3/U5 background treatments (gradient / vignette), driven through the real
+//! Background treatments (gradient / vignette), driven through the real
 //! grid cell-vertex background seam via the CPU compositor.
 
 use odytty::core::{CursorStyle, Snapshot, Terminal};
@@ -34,7 +34,7 @@ fn cell_bg_luminance(frame: &Frame, col: usize, row: usize) -> f32 {
     sum / n as f32
 }
 
-/// KILL-SHOT (trap 1): the default (inactive) treatment composites a frame that
+/// The default (inactive) treatment composites a frame that
 /// is byte-identical to the plain render - the off-path is pixel-identical.
 #[test]
 fn off_path_is_pixel_identical() {
@@ -123,7 +123,7 @@ fn vignette_darkens_toward_corners() {
     );
 }
 
-/// KILL-SHOT (T2 / off-path identity): with `cell_bg_opacity = 1.0` the cells
+/// Off-path identity: with `cell_bg_opacity = 1.0` the cells
 /// are fully opaque, so even with a background image present behind them the
 /// composited cell backgrounds are byte-identical to the plain render - the
 /// image is fully hidden behind opaque cells. This is the `bg[3] * 1.0 == bg[3]`

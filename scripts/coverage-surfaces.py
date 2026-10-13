@@ -279,7 +279,9 @@ def mask_source(text):
         if char == "'":
             j = i + 1
             if j < n and text[j] == "\\":
-                k = j + 1
+                # Skip the escaped character, so `'\''` closes at its own
+                # final quote and not at the escaped one.
+                k = j + 2
                 while k < n and text[k] != "'" and text[k] != "\n":
                     k += 1
                 if k < n and text[k] == "'":
@@ -1766,6 +1768,11 @@ def self_test():
     check("raw string" not in masked, "raw string content was not masked")
     check("must not open a scope" not in masked, "comment content was not masked")
     check("pub fn production" in masked, "masking destroyed code text")
+    escaped_quote = "['\\'','x']"
+    check(
+        mask_source(escaped_quote).strip("[] ,") == "",
+        "an escaped-quote character literal desynchronized the masker",
+    )
 
     # ---- test-only extents ---------------------------------------------
     spans = find_test_only_spans(FIXTURE_SOURCE)

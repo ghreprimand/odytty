@@ -38,7 +38,7 @@ pub(in crate::native) struct ChromePinGeom {
     pub(in crate::native) gap_y: f32,
 }
 
-/// VE4 new-output fade: the App-computed per-content-row FOREGROUND alpha ramp
+/// New-output fade: the App-computed per-content-row FOREGROUND alpha ramp
 /// for one single-pane frame, plus the decorated-snapshot chrome offsets that
 /// map decorated rows/columns back to content cells (chrome band + rail cells
 /// never fade). Stored on [`GpuState`] via [`GpuState::set_row_fade`] and
@@ -547,7 +547,7 @@ pub(in crate::native) struct OverlayTop<'a> {
     pub(in crate::native) treatment: grid::BackgroundTreatmentParams,
 }
 
-/// The F4-P3 rail **auto-hide overlay**: the revealed rail band drawn as a
+/// The rail **auto-hide overlay**: the revealed rail band drawn as a
 /// floating strip at its window edge, over live content, without any content
 /// reflow. Composited topmost like an [`OverlayTop`], but with a layered stack
 /// around the strip snapshot so the band reads over the terminal beneath it
@@ -666,7 +666,7 @@ pub(in crate::native) fn accumulate_pane_color_glyphs(
         runs,
         origin,
         chrome_pin,
-        // VE4 new-output fade: single-pane only (parity with the prior overlay
+        // New-output fade: single-pane only (parity with the prior overlay
         // mechanism); split panes never fade.
         grid::RowFade::NONE,
     );

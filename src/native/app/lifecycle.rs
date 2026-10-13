@@ -554,7 +554,7 @@ impl App {
                     target.needs_rebuild = true;
                     target.refresh_tab_title();
                 }
-                // Redraw suppression (design doc §2.5 audit row #4): wake the
+                // Redraw suppression: wake the
                 // window when the session is *any visible pane of the active
                 // tab*, not only the focused one - a background pane producing
                 // output must repaint in a split. For a single-pane tab

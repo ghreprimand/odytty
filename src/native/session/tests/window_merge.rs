@@ -19,7 +19,7 @@ use crate::native::session::window_merge::{MAX_MERGED_WORKSPACES, MergeError};
 /// tests use a realistic disjoint base so the "destination allocator range is
 /// preserved" invariant is meaningful - the destination minting from 2 can
 /// never reach the source's range.
-const SRC_BASE: u64 = 1 << 40;
+const SRC_BASE: u64 = crate::native::window_owner::WINDOW_TOKEN_STRIDE;
 
 /// A destination set with two single-pane workspaces holding tokens 0 and 1
 /// (the primary window's range starts at 0). Its allocator sits at 2.
@@ -326,7 +326,7 @@ fn windows_seeded_with_disjoint_bases_never_collide() {
     // range, so no interleaving of mints can produce the same token - the
     // invariant that lets a merge move a session between arenas without re-keying
     // its live pump.
-    const STRIDE: u64 = 1 << 40;
+    const STRIDE: u64 = crate::native::window_owner::WINDOW_TOKEN_STRIDE;
     let mut primary = WorkspaceSet::new(build_session_with_id(SessionToken(0)), None);
     let mut sibling = WorkspaceSet::new(build_session_with_id(SessionToken(STRIDE)), None);
     let mut seen = std::collections::HashSet::new();
@@ -348,7 +348,7 @@ fn windows_seeded_with_disjoint_bases_never_collide() {
 fn a_set_refuses_to_mint_past_its_disjoint_range() {
     // A set seeded near the top of its stride refuses the mint that would cross
     // into the next window's range, so it can never alias a sibling's token.
-    const STRIDE: u64 = 1 << 40;
+    const STRIDE: u64 = crate::native::window_owner::WINDOW_TOKEN_STRIDE;
     // Seed the launch session one below the ceiling of the first sibling range.
     let mut set = WorkspaceSet::new(build_session_with_id(SessionToken(2 * STRIDE - 2)), None);
     // next_token is 2*STRIDE-1, still inside [STRIDE, 2*STRIDE): one mint left.

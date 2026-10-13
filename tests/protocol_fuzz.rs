@@ -964,7 +964,7 @@ fn push_attr_list(rng: &mut FuzzRng, s: &mut String) {
     }
 }
 
-/// (7a') RC2 attribute-rectangle ops: DECSACE extent select (`CSI Ps * x`),
+/// (7a') Attribute-rectangle ops: DECSACE extent select (`CSI Ps * x`),
 /// DECCARA change-attrs (`CSI Pt;Pl;Pb;Pr;Pm $ r`), and DECRARA reverse-attrs
 /// (`CSI Pt;Pl;Pb;Pr;Pm $ t`). These mutate cell attributes only - never the
 /// glyph or its width - so the grid-consistency invariant must still hold.
@@ -1739,7 +1739,7 @@ fn protocol_fuzz_rect_copy_churn_deep() {
 }
 
 // ---------------------------------------------------------------------------
-// (H) Button protocol OSCs: totality, no grid writes, bounded table
+// (L) Button protocol OSCs: totality, no grid writes, bounded table
 // ---------------------------------------------------------------------------
 
 /// A button OSC in either spelling - valid, malformed, truncated, or hostile.

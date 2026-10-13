@@ -268,6 +268,14 @@ impl Session {
 /// query the workspace list. The keyboard/palette layer wires these in; the
 /// rail chrome reuses them. None of them run until a second workspace
 /// exists, so single-workspace behavior is untouched.
+/// Where a tab dragged from slot `from` and dropped on boundary `to` (a slot
+/// boundary in `0..=len`) lands once it has been removed from the list. The one
+/// rule shared by the commit ([`WorkspaceSet::reorder_tab`]) and the drag
+/// preview, so the two cannot drift.
+pub(in crate::native) fn reorder_destination(from: usize, to: usize) -> usize {
+    if to > from { to - 1 } else { to }
+}
+
 impl WorkspaceSet {
     /// Remove the workspace at `ws_idx` (its last tab just closed - no empty
     /// workspaces, ODP-3) and clamp `active_ws` onto a surviving workspace,
@@ -831,7 +839,7 @@ impl WorkspaceSet {
         if from >= ws.tabs.len() || to > ws.tabs.len() {
             return false;
         }
-        let dest = if to > from { to - 1 } else { to };
+        let dest = reorder_destination(from, to);
         if dest == from {
             return false;
         }

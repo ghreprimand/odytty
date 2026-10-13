@@ -432,7 +432,9 @@ standalone checksums and discard invalidated digital signatures. Font paths
 follow regular-file symlinks and validate the opened file on every platform.
 
 Monochrome glyph coverage refuses invalid scales and rasters
-larger than 4,096 pixels on either axis before allocation. Non-finite contrast
+larger than 4,096 pixels on either axis before allocation. The bound is per
+axis, so the largest accepted raster needs about 64 MiB of transient
+scan-converter memory (one `f32` per pixel) while that glyph is drawn. Non-finite contrast
 and brightness inputs preserve the original colors. These bounds apply on
 Linux, macOS, and Windows.
 
@@ -2359,9 +2361,9 @@ Saved-layout names preserve non-ASCII text on Linux, macOS and Windows, within
 96 UTF-8 bytes. ASCII letters, digits, spaces, hyphens and underscores remain;
 ZWJ, ZWNJ, VS15 and VS16 remain after visible text. Other ASCII punctuation,
 controls, Unicode line/paragraph separators and remaining default-ignorable
-Unicode scalars become underscores. Truncation ends before a
-complete scalar would exceed the byte limit. Existing underscore aliases stay
-usable and are not renamed automatically.
+Unicode scalars become underscores. Truncation ends before a complete scalar
+would exceed the byte limit. Existing underscore aliases stay usable and are
+not renamed automatically.
 
 Path-picker starting probes and directory listings share a four-worker limit
 on Linux, macOS and Windows. A timed-out probe retains its slot until it exits;

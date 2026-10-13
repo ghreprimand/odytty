@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! ID3/U5 background-image pass: image decode + CPU blur + readability scrim.
+//! Background-image pass: image decode + CPU blur + readability scrim.
 //!
 //! A full-window textured quad drawn behind the terminal grid. The image is
 //! decoded once, optionally CPU box-blurred at load time, and scanned for its
@@ -209,9 +209,8 @@ fn prepare_background(
     })
 }
 
-/// The theme-background luminance boundary between dark and light themes, shared
-/// with the CVD polarity heuristic so the project stays consistent.
-const LIGHT_THEME_LUMINANCE_THRESHOLD: f32 = 0.18;
+/// The shared dark/light theme-background luminance boundary, as `f32`.
+const LIGHT_THEME_LUMINANCE_THRESHOLD: f32 = crate::theme::LIGHT_BACKGROUND_LUMINANCE as f32;
 
 /// GPU resources + cached luminance bounds for the background image pass.
 pub(in crate::native) struct BgImageGpu {
@@ -258,7 +257,7 @@ pub(in crate::native) struct BgImageGpu {
     l_treat_min: f32,
     /// Explicit scrim override (`None` ⇒ auto-compute the floor-safe scrim).
     scrim_override: Option<f32>,
-    /// TRANSPARENCY: the window background alpha the wallpaper quad is drawn at.
+    /// The window background alpha the wallpaper quad is drawn at.
     /// `1.0` (the default and the opaque path) reproduces the pre-transparency
     /// output exactly; while the window is translucent this rides the uniform's
     /// third slot so the image scales to the window opacity instead of
@@ -290,7 +289,7 @@ impl BgImageGpu {
         0
     }
 
-    /// TRANSPARENCY: the window background alpha the wallpaper quad is currently
+    /// The window background alpha the wallpaper quad is currently
     /// drawn at (test accessor; the live value is set by
     /// [`Self::set_window_alpha`]).
     #[cfg(test)]
@@ -552,7 +551,7 @@ impl BgImageGpu {
         queue.write_buffer(&self.uniform_buf, 0, bytemuck::cast_slice(&uniform));
     }
 
-    /// TRANSPARENCY: set the window background alpha the wallpaper quad is drawn
+    /// Set the window background alpha the wallpaper quad is drawn
     /// at. `1.0` restores the fully-opaque wallpaper (byte-identical to the
     /// pre-transparency output); a value below `1.0` scales the image so the
     /// desktop shows through it instead of the wallpaper repainting the
@@ -583,8 +582,7 @@ impl BgImageGpu {
         self.refresh_scrim(queue, theme, cell_bg_opacity, scrim_override);
     }
 
-    /// Rebuild the render pipeline against a new scene-target format (C1
-    /// regression fix). Called from `GpuState::rebuild_scene_pipelines` when a
+    /// Rebuild the render pipeline against a new scene-target format. Called from `GpuState::rebuild_scene_pipelines` when a
     /// live CRT/bloom toggle flips the scene target between the surface format
     /// and the HDR offscreen format; without this the stale-format pipeline is
     /// bound inside the new pass and wgpu raises a color-target-mismatch
@@ -616,7 +614,7 @@ impl BgImageGpu {
 
 /// Build the scrim uniform `[scrim_alpha, scrim_is_white, window_alpha, pad]`
 /// for the active theme. Pure: drives both the initial upload and every
-/// refresh. `window_alpha` rides the third slot (TRANSPARENCY) so the wallpaper
+/// refresh. `window_alpha` rides the third slot so the wallpaper
 /// fragment scales to the window opacity; `1.0` is the opaque, byte-identical
 /// value.
 fn scrim_uniform(
@@ -652,8 +650,8 @@ fn theme_background_luminance(theme: &Theme) -> f32 {
 ///
 /// `l_bg` is the WCAG relative luminance of the *effective* theme background
 /// (the same reference the per-cell minimum-contrast floor uses, since the caller passes the
-/// CVD-adapted/OS-resolved theme). Polarity follows the 0.18 luminance boundary
-/// shared across the codebase. The auto scrim is [`readability_scrim_for`],
+/// CVD-adapted/OS-resolved theme). Polarity follows the shared
+/// [`crate::theme::LIGHT_BACKGROUND_LUMINANCE`] boundary. The auto scrim is [`readability_scrim_for`],
 /// which returns `0.0` whenever the floor is disabled (`min_contrast <= 1.0`)
 /// or the cell layer is opaque (`opacity >= 1.0`) - so the no-scrim identity
 /// paths hold. An explicit override is clamped and bypasses the computation.
@@ -930,6 +928,14 @@ mod tests {
     }
 
     #[test]
+    fn light_theme_threshold_keeps_its_f32_value() {
+        assert_eq!(
+            LIGHT_THEME_LUMINANCE_THRESHOLD.to_bits(),
+            0.18_f32.to_bits()
+        );
+    }
+
+    #[test]
     fn opaque_cells_need_no_scrim() {
         // T2 / off-path: cell_bg_opacity == 1.0 ⇒ scrim 0.0 regardless of image.
         let (alpha, _) = compute_scrim(
@@ -1004,7 +1010,7 @@ mod tests {
 
     #[test]
     fn scrim_uniform_carries_window_alpha() {
-        // TRANSPARENCY: the wallpaper fragment reads the window alpha from the
+        // The wallpaper fragment reads the window alpha from the
         // uniform's third slot. Opaque path (window_alpha == 1.0) is
         // byte-identical to the pre-transparency output; while translucent the
         // slot holds the window alpha so the image scales with the opacity
@@ -1342,7 +1348,7 @@ mod tests {
         pollster::block_on(scope.pop())
     }
 
-    /// C1 regression: a live CRT/bloom toggle flips the scene-target format,
+    /// Regression: a live CRT/bloom toggle flips the scene-target format,
     /// and the background-image pipeline must retarget with it. The stale
     /// pipeline binding into the new-format pass is exactly the wgpu
     /// validation error that crashed the frame; after `rebuild_pipeline` the
@@ -1377,7 +1383,7 @@ mod tests {
         .expect("bundled background must load");
 
         // Document the failure mode the fix exists for: the surface-format
-        // pipeline inside an HDR pass is a validation error (the C1 crash).
+        // pipeline inside an HDR pass is a validation error.
         assert!(
             draw_into(device, queue, &bg, hdr_format).is_some(),
             "stale-format draw must raise a validation error"
@@ -1399,7 +1405,7 @@ mod tests {
         );
     }
 
-    /// TRANSPARENCY: `set_window_alpha` stores the live window alpha, re-uploads
+    /// `set_window_alpha` stores the live window alpha, re-uploads
     /// the uniform slot without panicking, and is a no-op when unchanged. A
     /// freshly-loaded image starts opaque (`1.0`) so the opaque path is
     /// byte-identical until GpuState seeds a translucent value.

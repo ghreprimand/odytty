@@ -14,16 +14,9 @@ use super::discovery::{collect_font_files, file_stem, font_search_dirs, normaliz
 use super::metrics::is_monospace;
 
 // ---------------------------------------------------------------------------
-// Real font metadata (skrifa): family name, weight, italic, monospace.
-//
-// Family identity is read from the font's `name` table, never guessed from the
-// filename stem: `CascadiaCodeItalic.ttf` has no separator yet its real family
-// is "Cascadia Code", and the regular face must be chosen by OS/2 weight (400),
-// not by the shortest stem. Table metadata goes through skrifa here;
-// glyph outlines and rasterization go through FontHandle (skrifa outlines fed
-// to ab_glyph_rasterizer). The OS/2 and post tables are read
-// as raw integers, applying the standard OpenType defaults and validation
-// (weight/width defaults, italic, fixed-pitch).
+// Real font metadata (skrifa): family name, weight, italic, monospace. The
+// OS/2 and post tables are read as raw integers with the standard OpenType
+// defaults and validation (weight/width defaults, italic, fixed-pitch).
 // ---------------------------------------------------------------------------
 
 /// Metadata read from a font file's tables, used to enumerate families and pick
@@ -60,7 +53,7 @@ pub(super) fn read_face_meta(path: &Path) -> Option<FaceMeta> {
     // can report fixed-pitch and slip past the monospace probe, listing a
     // proportional/color face as a text mono family in the picker. A real text
     // mono font always covers basic Latin; an emoji/icon font never does. This
-    // does NOT affect the separate RV6 symbol/PUA-icon fallback path.
+    // does NOT affect the separate symbol/PUA-icon fallback path.
     if !font_has_basic_latin_coverage(&font) {
         return None;
     }
@@ -164,22 +157,6 @@ pub(super) fn path_is_monospace(path: &Path, meta: &FaceMeta) -> bool {
         .unwrap_or(false)
 }
 
-/// Distinct real family names that have at least one monospace face, sorted
-/// case-insensitively and deduplicated. This is what the font picker lists; it
-/// reads real metadata, so italic/variant files of one family collapse into a
-/// single entry and proportional-only families never appear.
-pub fn font_families() -> Vec<String> {
-    let mut families = font_families_in_dirs(&font_search_dirs());
-    if !families
-        .iter()
-        .any(|family| normalize_family(family) == normalize_family(BUNDLED_FONT_FAMILY))
-    {
-        families.push(BUNDLED_FONT_FAMILY.to_owned());
-        families.sort_by_key(|name| name.to_lowercase());
-    }
-    families
-}
-
 /// The two font families OdyTTY bundles and can always load from compiled-in
 /// bytes, regardless of host installation: the default (Victor Mono) first,
 /// then JetBrains Mono. Both are always selectable in the picker's **Bundled
@@ -227,7 +204,10 @@ pub fn font_families_grouped_in_dirs(dirs: &[PathBuf]) -> FontFamilyGroups {
     FontFamilyGroups { bundled, system }
 }
 
-/// [`font_families`] over an explicit directory set, for hermetic tests.
+/// Distinct real family names under `dirs` that have at least one monospace
+/// face, sorted case-insensitively and deduplicated. Real metadata means
+/// italic/variant files of one family collapse into a single entry and
+/// proportional-only families never appear.
 pub fn font_families_in_dirs(dirs: &[PathBuf]) -> Vec<String> {
     let metas = collect_font_files(dirs)
         .into_iter()
@@ -266,9 +246,8 @@ pub(super) fn distinct_monospace_families(metas: &[(FaceMeta, bool)]) -> Vec<Str
 }
 
 /// Pick the index of the best "regular" face among `metas`: prefer an upright
-/// face over an italic one, then the weight closest to Regular (400). This is
-/// the fix for the washed-out-thin-text bug - `Thin` (100) loses to `Regular`
-/// (400) by weight distance, where the old shortest-stem rule wrongly chose it.
+/// face over an italic one, then the weight closest to Regular (400), so
+/// `Thin` (100) loses to `Regular` (400) by weight distance.
 pub(super) fn pick_regular_index(metas: &[FaceMeta]) -> Option<usize> {
     metas
         .iter()

@@ -293,25 +293,11 @@ pub enum UnderlineStyle {
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub struct Attrs {
     /// Packed boolean SGR attributes - bold, dim, italic, underline, blink,
-    /// strikethrough, inverse, hidden - one bit each (see the `F_*` masks).
-    /// Private so the storage can evolve; read/written through the generated
-    /// getters (`bold()`…`hidden()`) and setters (`set_bold(..)`…). Packing the
-    /// eight former `bool` fields into a single `u16` took `Attrs` from 28
-    /// bytes to 20, which the perf benches showed costs per-cell
-    /// write/blank-row throughput on scroll-heavy feeds.
-    ///
-    /// This note used to add "and `Cell` from 44 to 36". That was true when it
-    /// was written and is not true now: `Cell` is now 92 bytes because it retains up to sixteen extension
-    /// scalars. Scrollback keeps those scalars in its per-line sidecar. Both sizes are pinned by compile-time assertion in
-    /// `crate::core::tests::cell_equivalence`, so the figures here are
-    /// measured rather than remembered.
-    ///
-    /// `Cell` is what the **live grid** stores and what every reader outside
-    /// the core sees. Scrollback stores a narrower cell -
-    /// `crate::core::stored_cell::StoredCell`, 28 bytes, with the combining
-    /// array held per line instead of per cell - and converts at the projection
-    /// boundary. A change to `Cell`'s layout therefore moves grid cost
-    /// directly and ring cost only through that type.
+    /// strikethrough, inverse, hidden - one bit each (see the `F_*` masks),
+    /// read and written through the generated getters and setters. Live cells
+    /// retain bounded extension scalars; scrollback stores narrower cells with
+    /// per-line marks. Type sizes are pinned by the layout tests in
+    /// `crate::core::tests::cell_equivalence`.
     flags: u16,
     pub underline_style: UnderlineStyle,
     pub underline_color: Option<Color>,

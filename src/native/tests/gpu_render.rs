@@ -1049,10 +1049,7 @@ fn vertex_buffer_capacity_is_grow_only() {
 
 #[test]
 fn build_vertices_into_reuses_existing_vec_capacity() {
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = text::load_font().expect("the bundled text face must load");
     let atlas = GlyphAtlas::build(&font, 24.0);
     let snapshot = snapshot(&["reuse"], 10);
     let mut vertices = Vec::with_capacity(4096);
@@ -1066,10 +1063,7 @@ fn build_vertices_into_reuses_existing_vec_capacity() {
 
 #[test]
 fn padded_cell_vertices_start_at_window_padding_origin() {
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = text::load_font().expect("the bundled text face must load");
     let atlas = GlyphAtlas::build(&font, 24.0);
     let snapshot = snapshot(&["X"], 1);
     let padding = WindowPadding::from_logical(8.0, 1.0);
@@ -1104,21 +1098,71 @@ fn padded_cell_vertices_start_at_window_padding_origin() {
     assert!(vertices.iter().all(|vertex| vertex.pos[1] >= origin[1]));
 }
 
-#[test]
-fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
-    // The cursor layer is built twice here - once appended to a full rebuild,
-    // once on its own - and the two are compared byte-for-byte. The
-    // under-cursor glyph color is floored through the process-global
-    // minimum-contrast seam, so a floor change landing between the two appends
-    // diverges them. Hold the shared render-globals guard across both.
+/// Build the cursor layer twice for one `params`: appended to a full cell
+/// rebuild, and on its own as the cursor-only path does. Both are compared
+/// byte for byte and the standalone layer is returned with the origin used.
+///
+/// The under-cursor glyph colour is floored through the process-global
+/// minimum-contrast seam, so a floor change landing between the two appends
+/// would diverge them; the shared render-globals guard is held across both.
+/// This compares the shared helper
+/// with itself, so it catches nondeterminism through process globals; the
+/// production `GpuState` paths are covered by the render-signature
+/// classification asserted beside each call.
+fn cursor_layer_full_and_cursor_only(
+    params: CursorRenderParams,
+) -> (Vec<crate::grid::Vertex>, [f32; 2]) {
     let _guard = crate::test_lock::render_globals_lock();
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = text::load_font().expect("the bundled text face must load");
     let atlas = GlyphAtlas::build(&font, 24.0);
     let snapshot = snapshot(&[" "], 1);
     let origin = [8.0, 12.0];
+
+    let mut full = Vec::new();
+    crate::grid::build_cell_vertices_with_focus_dim_and_origin_into(
+        &mut full,
+        &snapshot,
+        &atlas,
+        &[],
+        0.0,
+        origin,
+        crate::grid::BackgroundTreatmentParams::default(),
+        crate::settings::DEFAULT_CELL_BG_OPACITY,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
+        None,
+        crate::grid::ChromePin::NONE,
+    );
+    let cell_vertices = full.len();
+    append_cursor_layer_vertices(
+        &mut full,
+        &snapshot,
+        &atlas,
+        CursorStyle::Block,
+        origin,
+        &[],
+        params,
+        None,
+    );
+
+    let mut cursor_only = Vec::new();
+    append_cursor_layer_vertices(
+        &mut cursor_only,
+        &snapshot,
+        &atlas,
+        CursorStyle::Block,
+        origin,
+        &[],
+        params,
+        None,
+    );
+
+    assert_eq!(&full[cell_vertices..], cursor_only.as_slice());
+    (cursor_only, origin)
+}
+
+#[test]
+fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
     let params = CursorRenderParams {
         offset: [3.25, -1.5],
         alpha: 0.42,
@@ -1136,46 +1180,7 @@ fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
         "terminal output classifies the mid-slide frame as a Full rebuild"
     );
 
-    let mut full = Vec::new();
-    crate::grid::build_cell_vertices_with_focus_dim_and_origin_into(
-        &mut full,
-        &snapshot,
-        &atlas,
-        &[],
-        0.0,
-        origin,
-        crate::grid::BackgroundTreatmentParams::default(),
-        crate::settings::DEFAULT_CELL_BG_OPACITY,
-        // TEXT-BRIGHTNESS identity.
-        1.0,
-        None,
-        crate::grid::ChromePin::NONE,
-    );
-    let cell_vertices = full.len();
-    append_cursor_layer_vertices(
-        &mut full,
-        &snapshot,
-        &atlas,
-        CursorStyle::Block,
-        origin,
-        &[],
-        params,
-        None,
-    );
-
-    let mut cursor_only = Vec::new();
-    append_cursor_layer_vertices(
-        &mut cursor_only,
-        &snapshot,
-        &atlas,
-        CursorStyle::Block,
-        origin,
-        &[],
-        params,
-        None,
-    );
-
-    assert_eq!(&full[cell_vertices..], cursor_only.as_slice());
+    let (cursor_only, origin) = cursor_layer_full_and_cursor_only(params);
     let cursor = cursor_only[0];
     assert_eq!(
         cursor.pos,
@@ -1186,19 +1191,6 @@ fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
 
 #[test]
 fn full_rebuild_cursor_layer_matches_cursor_only_during_large_jump_follower() {
-    // The cursor layer is built twice here - once appended to a full rebuild,
-    // once on its own - and the two are compared byte-for-byte. The
-    // under-cursor glyph color is floored through the process-global
-    // minimum-contrast seam, so a floor change landing between the two appends
-    // diverges them. Hold the shared render-globals guard across both.
-    let _guard = crate::test_lock::render_globals_lock();
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
-    let atlas = GlyphAtlas::build(&font, 24.0);
-    let snapshot = snapshot(&[" "], 1);
-    let origin = [8.0, 12.0];
     let params = CursorRenderParams {
         follower_active: true,
         ..CursorRenderParams::default()
@@ -1214,46 +1206,7 @@ fn full_rebuild_cursor_layer_matches_cursor_only_during_large_jump_follower() {
         "terminal output keeps the active follower frame on the Full path"
     );
 
-    let mut full = Vec::new();
-    crate::grid::build_cell_vertices_with_focus_dim_and_origin_into(
-        &mut full,
-        &snapshot,
-        &atlas,
-        &[],
-        0.0,
-        origin,
-        crate::grid::BackgroundTreatmentParams::default(),
-        crate::settings::DEFAULT_CELL_BG_OPACITY,
-        // TEXT-BRIGHTNESS identity.
-        1.0,
-        None,
-        crate::grid::ChromePin::NONE,
-    );
-    let cell_vertices = full.len();
-    append_cursor_layer_vertices(
-        &mut full,
-        &snapshot,
-        &atlas,
-        CursorStyle::Block,
-        origin,
-        &[],
-        params,
-        None,
-    );
-
-    let mut cursor_only = Vec::new();
-    append_cursor_layer_vertices(
-        &mut cursor_only,
-        &snapshot,
-        &atlas,
-        CursorStyle::Block,
-        origin,
-        &[],
-        params,
-        None,
-    );
-
-    assert_eq!(&full[cell_vertices..], cursor_only.as_slice());
+    let (cursor_only, _origin) = cursor_layer_full_and_cursor_only(params);
     assert!(
         cursor_only.is_empty(),
         "both paths suppress the ordinary destination cursor while the follower is active"
@@ -1262,64 +1215,12 @@ fn full_rebuild_cursor_layer_matches_cursor_only_during_large_jump_follower() {
 
 #[test]
 fn full_rebuild_cursor_layer_matches_cursor_only_when_unfocused() {
-    // The cursor layer is built twice here - once appended to a full rebuild,
-    // once on its own - and the two are compared byte-for-byte. The
-    // under-cursor glyph color is floored through the process-global
-    // minimum-contrast seam, so a floor change landing between the two appends
-    // diverges them. Hold the shared render-globals guard across both.
-    let _guard = crate::test_lock::render_globals_lock();
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
-    let atlas = GlyphAtlas::build(&font, 24.0);
-    let snapshot = snapshot(&[" "], 1);
-    let origin = [8.0, 12.0];
     let params = CursorRenderParams {
         focused: false,
         ..CursorRenderParams::default()
     };
 
-    let mut full = Vec::new();
-    crate::grid::build_cell_vertices_with_focus_dim_and_origin_into(
-        &mut full,
-        &snapshot,
-        &atlas,
-        &[],
-        0.0,
-        origin,
-        crate::grid::BackgroundTreatmentParams::default(),
-        crate::settings::DEFAULT_CELL_BG_OPACITY,
-        // TEXT-BRIGHTNESS identity.
-        1.0,
-        None,
-        crate::grid::ChromePin::NONE,
-    );
-    let cell_vertices = full.len();
-    append_cursor_layer_vertices(
-        &mut full,
-        &snapshot,
-        &atlas,
-        CursorStyle::Block,
-        origin,
-        &[],
-        params,
-        None,
-    );
-
-    let mut cursor_only = Vec::new();
-    append_cursor_layer_vertices(
-        &mut cursor_only,
-        &snapshot,
-        &atlas,
-        CursorStyle::Block,
-        origin,
-        &[],
-        params,
-        None,
-    );
-
-    assert_eq!(&full[cell_vertices..], cursor_only.as_slice());
+    let (cursor_only, _origin) = cursor_layer_full_and_cursor_only(params);
     assert_eq!(
         cursor_only.len(),
         4 * INSTANCES_PER_QUAD,
@@ -1823,10 +1724,7 @@ fn hyperlink_open_action_uses_scheme_allowlist() {
 
 #[test]
 fn cursor_blink_tail_is_bounded_after_cell_geometry() {
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = text::load_font().expect("the bundled text face must load");
     let atlas = GlyphAtlas::build(&font, 24.0);
     let mut snapshot = snapshot(&["A"], 1);
     let mut vertices = Vec::new();
@@ -1897,10 +1795,7 @@ fn viewport_uniform_is_thirty_two_bytes() {
 
 #[test]
 fn snapshot_glyph_ensure_populates_dynamic_non_ascii_slots() {
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = text::load_font().expect("the bundled text face must load");
     let Some((ch, expected_uv)) = ['é', '─', 'Ω', '世'].into_iter().find_map(|ch| {
         let mut probe = GlyphAtlas::build(&font, 24.0);
         let fallback = probe.uv_rect(ch)?;
@@ -1934,10 +1829,7 @@ fn snapshot_glyph_ensure_populates_dynamic_non_ascii_slots() {
 
 #[test]
 fn snapshot_glyph_ensure_populates_styled_ascii_slots() {
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = text::load_font().expect("the bundled text face must load");
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     let fallback = atlas
         .uv_rect_styled(FontStyle::Bold, 'A')
@@ -1958,10 +1850,7 @@ fn snapshot_glyph_ensure_populates_styled_ascii_slots() {
 
 #[test]
 fn snapshot_glyph_ensure_skips_hidden_cells() {
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = text::load_font().expect("the bundled text face must load");
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     let mut terminal = Terminal::new(1, 1);
     terminal.advance("\x1b[?25l\x1b[8mé".as_bytes());

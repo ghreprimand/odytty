@@ -821,7 +821,7 @@ pub(super) fn parse_remote_persist(
     }
 }
 
-/// Shared numeric parser for the F4-P1 rail/panel knobs: an absent/blank value
+/// Shared numeric parser for the rail and panel knobs: an absent/blank value
 /// yields `default`; a non-finite or unparseable value warns (`what` names the
 /// quantity) and falls back; otherwise the value is clamped to `[min, max]`.
 fn parse_clamped_f32(
@@ -952,7 +952,7 @@ pub(super) fn parse_tab_rail_gap(raw: Option<&OsStr>, warn: &mut impl FnMut(&str
     )
 }
 
-/// Parse the rail slot height in rows (F4-P1; clamped to `{1, 2}`).
+/// Parse the rail slot height in rows (clamped to `{1, 2}`).
 pub(super) fn parse_tab_rail_slot_rows(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     parse_clamped_f32(
         raw,
@@ -978,7 +978,7 @@ pub(super) fn parse_tab_panel_strength(raw: Option<&OsStr>, warn: &mut impl FnMu
     )
 }
 
-/// Parse the rail auto-hide reveal-zone width in px (F4-P1; behavior in P3).
+/// Parse the rail auto-hide reveal-zone width in px.
 pub(super) fn parse_tab_rail_reveal_px(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     parse_clamped_f32(
         raw,

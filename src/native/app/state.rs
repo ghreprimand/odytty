@@ -25,7 +25,7 @@ pub(in crate::native) struct App {
     /// A held, already-exited session awaiting its first non-release key event.
     pub(super) held_exit: Option<SessionToken>,
     /// Active *authored* presentation theme (from `ODYTTY_THEME`, updated on
-    /// settings changes). The theme as written — what round-trips/authoring
+    /// settings changes). The theme as written - what round-trips/authoring
     /// read; the colors published to the renderer are [`Self::effective_theme`].
     pub(super) theme: Theme,
     /// Theme actually published to the renderer (U4): [`Self::theme`] after
@@ -83,9 +83,10 @@ pub(in crate::native) struct App {
     /// still forces a non-retained redraw and the gutter repaints. Stays at its
     /// initial value while the gutter is off.
     pub(super) prompt_marks_epoch: u64,
-    /// The terminal grid size last applied to the model and PTY. Tracked so a
-    /// `Resized` event that does not change the whole-cell grid skips redundant
-    /// model/PTY resize work (idempotence): only surface reconfigure runs.
+    /// Whole-window content dimensions last applied by native resize. Tracked
+    /// so a `Resized` event that does not change the whole-cell grid skips
+    /// redundant model/PTY resize work (idempotence): only surface reconfigure
+    /// runs. Pane grids are separate (see `focused_grid`).
     pub(in crate::native) grid: Dimensions,
     /// Latest modifier state, tracked across `ModifiersChanged` events so a key
     /// press can be encoded with the Ctrl/Alt/Shift held at press time. `winit`
@@ -243,7 +244,7 @@ pub(in crate::native) struct App {
     pub(super) frame_callback_hatch_paints_for_test: u64,
     /// BLACK-SCREEN-ON-RESTORE: whether the window is currently minimized (its
     /// surface reported a 0x0 size via `Resized`). Used to suppress the skipped-
-    /// frame retry while minimized — there is nothing to paint, so a retry would
+    /// frame retry while minimized - there is nothing to paint, so a retry would
     /// only burn wakeups. Cleared on the next non-zero `Resized` (restore).
     pub(super) window_minimized: bool,
     /// Last occlusion state reported by the windowing backend. Kept separate
@@ -291,7 +292,8 @@ pub(in crate::native) struct App {
     /// drives the reveal/hide of the floating rail overlay from the pointer edge
     /// zone, keyboard flashes, and the debounce/grace timers. The reservation is
     /// removed (`tab_reserve` → NONE) the moment autohide is active, so reveal is
-    /// a pure overlay and never reflows content.
+    /// a pure overlay and never reflows content. Only the side-band reservation
+    /// goes: the top strip reserve remains.
     pub(super) rail_autohide: rail_autohide::RailAutohide,
     /// The previous physical pointer x fed to the reveal machine, for the
     /// motion-aware trigger: the segment from this to the current sample is
@@ -324,10 +326,10 @@ pub(in crate::native) struct App {
     pub(super) focused: bool,
     /// Button Protocol B3 focus-transfer exclusion (the Ghostty #11167 class):
     /// set on every focus gain, taken by the next content left press. That
-    /// press — the click that activated the window — never latches a button;
+    /// press - the click that activated the window - never latches a button;
     /// everything else about it (selection, opens, reports) is unchanged. A
     /// deliberate second click then works normally. Over-approximates for a
-    /// keyboard focus gain followed by a click (that click is excluded too) —
+    /// keyboard focus gain followed by a click (that click is excluded too)  -
     /// the safe side: a button fires a PTY write, so a click whose intent was
     /// "give this window focus" must never trigger one.
     pub(super) focus_click_pending: bool,
@@ -380,7 +382,7 @@ pub(in crate::native) struct App {
     /// request, ephemeral per-PTY consent, and the neutral-notice rate limit.
     pub(super) osc52_write: osc52::Osc52WriteState,
     /// UX-A (Phase 11): in-memory, per-launch click-to-open discoverability
-    /// state — the transient bottom-left "Ctrl+click to open" hint plus the
+    /// state - the transient bottom-left "Ctrl+click to open" hint plus the
     /// mis-click bookkeeping that decides when to raise it. NOT persisted; resets
     /// every window launch. Idle (and byte-identity-irrelevant) on the default /
     /// feature-off path: the painter and signature both early-out when not shown.
@@ -430,7 +432,7 @@ pub(in crate::native) struct App {
     pub(super) palette_status_redraws: usize,
     /// CLOSE-CONFIRM: set when the confirmation dialog is accepted (or the
     /// non-confirming close path decides to exit) so `window_event` can exit the
-    /// loop after the overlay outcome is applied — `apply_overlay_outcome` only
+    /// loop after the overlay outcome is applied - `apply_overlay_outcome` only
     /// has `&mut self` and cannot reach the `ActiveEventLoop` itself.
     pub(super) pending_exit: bool,
     /// Image paste-through confirm state (F6-i7). `Some` while a clipboard image
@@ -457,19 +459,20 @@ pub(in crate::native) struct App {
     /// (which owns the single quick-terminal lifecycle). Zero at rest, so the
     /// ordinary window path is unaffected.
     pub(super) pending_quick_toggles: usize,
-    /// v0.15.0 D stable process window identity, minted once at construction and
-    /// never reused for the process lifetime. The process window owner names
-    /// this window by it (merge target picker, event routing) so a backend
-    /// `winit::window::WindowId` changing across a surface recreate never
-    /// reassigns identity. Single-window behavior is unaffected: it is only read
-    /// through cross-window operations that do not exist until a second window
-    /// opens.
+    /// This window is the source of a live tab drag: the host skips its
+    /// maintenance and presentation until the drag completes.
     pub(super) live_drag_source: bool,
+    /// This window is the provisional destination of a live tab drag.
     pub(super) live_drag_destination: bool,
     /// Withhold the first buffer until ordered Wayland attachment is acknowledged.
     pub(super) live_drag_map_blocked: bool,
     #[cfg(target_os = "linux")]
     pub(super) wayland_live_available: bool,
+    /// Stable process window identity, minted once at construction and never
+    /// reused for the process lifetime. The process window owner names this
+    /// window by it (merge target picker, event routing) so a backend
+    /// `winit::window::WindowId` changing across a surface recreate never
+    /// reassigns identity.
     pub(super) process_window_id: crate::native::window_owner::ProcessWindowId,
     /// v0.15.0 C: monotonic incarnation of THIS window's native Wayland surface,
     /// bumped in `try_resume_presentation` each time the surface is (re)created
@@ -584,7 +587,7 @@ pub(in crate::native) struct App {
     /// Visible multi-session tab strip state. Presentation-only; the session
     /// model stays in `WorkspaceSet`.
     pub(super) tab_bar: TabBar,
-    /// Vertical tab rail state (F4-V2 R1) — the sibling of `tab_bar`, active
+    /// Vertical tab rail state (F4-V2 R1) - the sibling of `tab_bar`, active
     /// only when `tab_bar_placement` is a rail. Presentation-only.
     pub(super) tab_rail: TabRail,
     pub(super) rename_state: Option<RenameState>,
@@ -607,7 +610,7 @@ pub(in crate::native) struct App {
     /// overlay is open. Set on `MouseInput { Pressed, Left }` and cleared on
     /// `MouseInput { Released, Left }` through the overlay pointer path. Used to
     /// gate overlay slider drag moves so that cursor movements after the button
-    /// is released can NEVER advance an armed drag — even if the drag state is
+    /// is released can NEVER advance an armed drag - even if the drag state is
     /// somehow stale. `CursorMoved` carries no button state, so this flag is the
     /// reliable held-button seam for the settings-slider path (D-SLIDER-GUARD).
     pub(super) overlay_left_held: bool,
@@ -636,10 +639,11 @@ pub(in crate::native) struct App {
     /// press of the same button clears its bit first (the release was lost),
     /// and focus loss clears every bit.
     pub(super) owned_releases: u8,
-    /// INTERACTIVE-PATHS (Phase 7): the process `$HOME`, cached once at startup
-    /// (it never changes mid-process) so `~`-prefixed path spans can be expanded
-    /// at hover time without a per-move `getenv`. `None` when `$HOME` is unset or
-    /// not valid UTF-8; only consulted while `interactive_paths` is on.
+    /// The restore-home string, cached once at startup so `~`-prefixed path
+    /// spans can be expanded at hover time without a per-move environment read:
+    /// `HOME` on Unix, `USERPROFILE` on Windows. `None` when it is unset or not
+    /// valid UTF-8, which disables tilde expansion; only consulted while
+    /// `interactive_paths` is on.
     pub(super) home_dir: Option<String>,
     /// C4 image viewer: the decoded RGBA buffer + dims for the image currently
     /// shown in the `ImageView` overlay, kept so a window resize can recompute
@@ -1020,7 +1024,7 @@ impl App {
         };
         // ONBOARD (D-OB-1/D-OB-2): open the first-run welcome card iff the
         // config file does not yet exist (or the env override is set). First-run
-        // memory is the user-owned config's existence — no telemetry, no flag
+        // memory is the user-owned config's existence - no telemetry, no flag
         // file (U6). Materializing the config (saving any setting) retires it.
         //
         // Gated out of test builds: the unit-test harness constructs many Apps

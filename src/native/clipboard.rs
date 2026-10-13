@@ -78,7 +78,7 @@ pub(super) struct NativeClipboard {
     pub(super) force_write_fail: bool,
     /// Test-only: the last text handed to `write_clipboard_text`. The real
     /// clipboard I/O is compiled out under `cfg(test)`, so this records what a
-    /// write path *would* have set — letting NF21-5 prove a focused OSC 52 write
+    /// write path *would* have set - letting NF21-5 prove a focused OSC 52 write
     /// reaches the clipboard while a non-focused one is discarded before it does.
     #[cfg(test)]
     pub(super) last_clipboard_write: Option<String>,
@@ -89,7 +89,7 @@ pub(super) struct NativeClipboard {
     pub(super) injected_clipboard_text: Option<String>,
     /// Test-only: PNG bytes `read_image_png` returns instead of touching the real
     /// clipboard. The real image read (`arboard::Clipboard::get_image`) is
-    /// compiled out under `cfg(test)` for the same reasons text I/O is — so the
+    /// compiled out under `cfg(test)` for the same reasons text I/O is - so the
     /// image paste-through (F6-i7) confirm flow can be driven from a synthetic
     /// clipboard image without a live system clipboard.
     #[cfg(test)]
@@ -274,7 +274,7 @@ impl NativeClipboard {
 
     /// Read a clipboard image, PNG-encoded. Returns `None` when
     /// the clipboard holds no image, the platform has no image support, or
-    /// encoding fails — the paste path then falls through to text. The bytes are
+    /// encoding fails - the paste path then falls through to text. The bytes are
     /// re-encoded to PNG (lossless and universally handled) from the backend's
     /// RGBA image so the transfer format is fixed regardless of the source. As
     /// with the text paths, unit tests never reach the real clipboard
@@ -591,7 +591,7 @@ pub(super) fn encode_paste_chunks(
 ) -> Vec<Vec<u8>> {
     let chunk_size = chunk_size.max(1);
     if bracketed_paste {
-        // The whole framed paste — start marker, sanitized body, end marker —
+        // The whole framed paste - start marker, sanitized body, end marker  -
         // is one indivisible chunk. Every downstream sink treats one write as
         // one atomic unit: the outbound queue's drop-oldest overflow policy
         // drops whole chunks (so a paste is retained or discarded entire,

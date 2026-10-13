@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Owned CSI/DCS parameter container - OdyTTY-original storage.
+//! Owned CSI/DCS parameter container.
 //!
 //! `Params` models a VT control sequence's parameter list the way the
 //! terminal core consumes it: an ordered list of **parameters**, each of which
 //! is a non-empty list of **subparameters** (the colon-separated groups in
 //! sequences like `38:2::r:g:b`). The shape (`Params::iter()` yielding `&[u16]`
-//! per parameter) is preserved so the live `Screen` dispatch and the differential
-//! oracle see exactly the same surface they did under the first-generation
-//! state core.
+//! per parameter) is the surface both the live `Screen` dispatch and the
+//! differential oracle read.
 //!
-//! ## Storage decision (PA2-r, primary-spec)
+//! ## Storage
 //!
 //! `MAX_PARAMS = 32` slots total (parameters + subparameters combined), which
-//! is the canonical DEC ANSI parameter cap. The reimplementation uses:
+//! is the canonical DEC ANSI parameter cap. The storage is:
 //!
 //! - `values: [u16; 32]` - every parameter and subparameter value, in order.
 //!   Inline; zero heap.
@@ -30,16 +29,9 @@
 //! Saturating-on-overflow arithmetic and the "32 slots → set `ignore`" rule
 //! match the parser policy pinned by golden fixtures.
 //!
-//! ## Originality note
-//!
-//! This is an OdyTTY-designed encoding written from the primary specs (ECMA-48
-//! parameter syntax and the DEC ANSI 32-slot cap). It is structurally distinct
-//! from the first-generation `Params` (two `Vec`s - a flattened value list and
-//! a parallel `group_len_at` array): the new design is allocation-free, the
-//! boundary metadata is one machine word, and group reconstruction is a
-//! bit-scan rather than an array walk. The public surface (`iter`, `len`,
-//! `is_empty`, `iter`, `IntoIterator`) is deliberately small and owned by
-//! OdyTTY's parser/screen seam.
+//! The encoding is allocation-free, the boundary metadata is one machine
+//! word, and group reconstruction is a bit-scan. The public surface (`iter`,
+//! `len`, `is_empty`, `IntoIterator`) is deliberately small.
 
 /// Maximum number of flattened parameter slots (parameters + subparameters).
 /// The canonical DEC ANSI parameter cap; once full, the parser sets the

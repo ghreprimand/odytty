@@ -506,7 +506,7 @@ fn chrome_base_gaps_replace_overlapping_edge_wash_without_double_tint() {
     assert!(!rects_intersect(clipped[0].rect, base.rect));
 }
 
-/// NF11 helper: sum of quad areas (quads are asserted disjoint separately).
+/// Helper: sum of quad areas (quads are asserted disjoint separately).
 fn quad_area(rect: [f32; 4]) -> f32 {
     (rect[2] - rect[0]).max(0.0) * (rect[3] - rect[1]).max(0.0)
 }
@@ -587,7 +587,7 @@ fn multi_pane_wash_covers_two_by_two_layout() {
     assert_eq!(wash_area + grid_area, 200.0 * 100.0);
 }
 
-/// NF11 parity: for a single grid the multi-pane sweep produces exactly the
+/// Edge-wash parity: for a single grid the multi-pane sweep produces exactly the
 /// single-pane function's four quads (top / left / right / bottom), so the
 /// two paths wash identical geometry when a layout collapses to one pane.
 #[test]
@@ -611,7 +611,7 @@ fn multi_pane_wash_single_grid_matches_single_pane_wash() {
     );
 }
 
-/// NF11 control: grids covering the whole surface produce no wash quads -
+/// Edge-wash control: grids covering the whole surface produce no wash quads -
 /// the flush (no padding, no remainder) case emits nothing, matching the
 /// no-image / opaque-cells gate's byte-identical guarantee.
 #[test]
@@ -1090,7 +1090,7 @@ fn post_options_from_settings(settings: &Settings) -> post::PostProcessOptions {
     }
 }
 
-/// ID3/U5 visual gate: build the real background-image GPU pipeline from a
+/// Visual gate: build the real background-image GPU pipeline from a
 /// decoded PNG. Exercises `BgImageGpu::load` end-to-end - PNG decode + box blur
 /// + worst-case luminance scan + scrim uniform + WGSL shader compile + pipeline
 /// + bind group - against a live adapter, so a malformed shader or bind-group
@@ -1309,7 +1309,7 @@ fn overlay_image_fit_rect_tracks_set_and_clear() {
     device.poll(wgpu::PollType::wait_indefinitely()).ok();
 }
 
-/// C4 real-code render proof: `draw_overlay` paints the viewer
+/// Render proof: `draw_overlay` paints the viewer
 /// (full-viewport scrim + image) onto a swapchain-format target via the real
 /// overlay pipelines. Renders a scene fill (green) first, then opens a
 /// `LoadOp::Load` overlay pass exactly as `render` does post-effects, and reads
@@ -1512,7 +1512,7 @@ fn overlay_draws_image_over_backing_onto_swapchain() {
     device.poll(wgpu::PollType::wait_indefinitely()).ok();
 }
 
-/// The C4 viewer overlay uses a LINEAR sampler, so a photo
+/// The image-viewer overlay uses a LINEAR sampler, so a photo
 /// scaled DOWN to fit is smoothly interpolated rather than stair-stepped. Proof
 /// by behavior: render a pure 0/255 grayscale checkerboard overlay that the fit
 /// logic scales below 1.0, read back the swapchain, and assert intermediate gray
@@ -1705,7 +1705,7 @@ fn overlay_uses_linear_sampling_for_scaled_images() {
     device.poll(wgpu::PollType::wait_indefinitely()).ok();
 }
 
-/// Bug 4 regression (Phase 3 Cut 1, `bd84d3f`): an inline image placed in a
+/// Regression: an inline image placed in a
 /// split pane must actually reach the framebuffer, clipped to that pane's
 /// sub-rect. The unit geometry tests exercise `placement_quad_with_origin`, but
 /// only a real-GPU render of the `update_panes` -> `draw_below`/`draw_above`
@@ -2097,7 +2097,7 @@ fn color_quad_vertices(rect: [f32; 4]) -> [ColorGlyphVertex; 1] {
     }]
 }
 
-// --- TRANSPARENCY: window transparency (alpha-mode selection + off-path equality) ---
+// --- Window transparency (alpha-mode selection + off-path equality) ---
 
 #[test]
 fn select_alpha_mode_prefers_premultiplied() {

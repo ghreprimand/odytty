@@ -257,7 +257,7 @@ fn roundtrip_shell_available(test: &str, bin: &str) -> bool {
         test,
         bin,
         shell_available(bin),
-        std::env::var_os("ODYTTY_REQUIRE_SHELL_TESTS").is_some(),
+        crate::native::test_support::availability::required_by_env("ODYTTY_REQUIRE_SHELL_TESTS"),
     )
 }
 

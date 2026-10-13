@@ -36,8 +36,7 @@
 //! axis** (the `a`/`b` plane) - orthogonal coordinates, so the floor's L-lift
 //! cannot undo the separation. [`adapt_palette`] runs the correction across the
 //! chromatic roles, holds background/foreground structural, then re-floors
-//! against the same per-role surface mapping the theme generator/builder use, so
-//! the output clears the floor **by construction**.
+//! against the same per-role surface mapping the theme generator/builder use.
 //!
 //! ## Determinism
 //!

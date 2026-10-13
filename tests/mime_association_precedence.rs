@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Project-authored maps never read the filesystem or launch an application.
 use odytty::desktop::{DesktopEnv, MimeProbe, enumerate_open_with};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -14,7 +13,6 @@ impl MimeProbe for Probe {
 #[derive(Default)]
 struct Env {
     files: HashMap<PathBuf, String>,
-    reads: RefCell<Vec<PathBuf>>,
 }
 impl DesktopEnv for Env {
     fn config_dirs(&self) -> Vec<PathBuf> {
@@ -24,7 +22,6 @@ impl DesktopEnv for Env {
         vec!["fixture-data-high".into(), "fixture-data-low".into()]
     }
     fn read_file(&self, path: &Path) -> Option<String> {
-        self.reads.borrow_mut().push(path.to_owned());
         self.files.get(path).cloned()
     }
 }

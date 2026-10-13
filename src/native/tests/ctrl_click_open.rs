@@ -10,11 +10,11 @@
 //! Headless (no GPU/window): the App runs over a headless session whose writer is a
 //! recording buffer, so the SGR mouse report the app WOULD receive is observable
 //! byte-for-byte - an empty buffer proves the press was intercepted and opened
-//! instead of reported. The open dispatch is proven WITHOUT launching a real
-//! opener by pointing the editor override at a sentinel program that cannot
-//! exist (`odytty_ci_selftest_editor`): the argv-only spawn fails cleanly with
-//! ENOENT and raises the transient open-notice, so the notice is the positive
-//! "the open ran" signal and no process is ever started on the shared machine.
+//! instead of reported. The open dispatch is proven without launching a real
+//! opener by pointing the editor override at a program path inside a scratch
+//! folder that is never filled: the argv-only spawn fails cleanly with ENOENT
+//! and raises the transient open-notice, so the notice is the positive "the open
+//! ran" signal and no process is started.
 //! Synthetic only: `/proj/...` is fabricated and the stat-gate is a `MapProbe`
 //! over a fixed map. Skipped when no PTY is available (CI sandboxes).
 
@@ -69,26 +69,16 @@ fn build_app(content: &[u8]) -> (App, Arc<Mutex<Vec<u8>>>) {
 }
 
 /// Turn interactive paths on, install a stat-gate that resolves
-/// `/proj/src/main.rs` to a file, and point the editor override at a sentinel
-/// program that cannot exist so an open dispatch fails cleanly (no real opener).
-fn arm_path_open(app: &mut App) {
+/// `/proj/src/main.rs` to a file, and point the editor override at a program
+/// path that cannot exist so an open dispatch fails cleanly (no real opener).
+/// The returned fixture keeps the scratch folder alive.
+fn arm_path_open(app: &mut App) -> crate::test_dirs::AbsentProgram {
     app.set_interactive_paths_for_test(true);
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
-    // Sentinel: not a real binary; the argv-only spawn ENOENTs and raises a
-    // notice instead of launching anything on the shared box.
-    app.set_interactive_paths_editor_for_test("odytty_ci_selftest_editor");
-}
-
-/// Hold/release the host's open modifier - Cmd (super) on macOS, Ctrl on Linux
-/// and Windows - the same per-OS chord `OpenerOs::host()` resolves inside the
-/// press route. The live route reads the host OS internally, so the test drives
-/// whichever modifier is the open chord on the runner.
-fn hold_open_modifier(app: &mut App, held: bool) {
-    if cfg!(target_os = "macos") {
-        app.set_super_key_for_test(held);
-    } else {
-        app.set_ctrl_modifier_for_test(held);
-    }
+    // A path with a directory part, so no inherited `PATH` entry can supply it.
+    let absent = crate::test_dirs::AbsentProgram::new();
+    app.set_interactive_paths_editor_for_test(&absent.program);
+    absent
 }
 
 /// Position the pointer inside the path span at row 0 so `hovered_path` latches.
@@ -111,7 +101,7 @@ fn left_press_release(app: &mut App) {
 #[test]
 fn ctrl_click_over_path_under_mouse_reporting_opens_and_does_not_report() {
     let (mut app, pty_bytes) = build_app(PATH_LINE);
-    arm_path_open(&mut app);
+    let _absent = arm_path_open(&mut app);
     app.enable_mouse_reporting_for_test(); // DECSET 1000: a TUI now owns clicks
     hover_on_path(&mut app);
     assert!(
@@ -139,7 +129,7 @@ fn ctrl_click_over_path_under_mouse_reporting_opens_and_does_not_report() {
 #[test]
 fn ctrl_click_off_a_span_under_mouse_reporting_still_reports_to_the_app() {
     let (mut app, pty_bytes) = build_app(PATH_LINE);
-    arm_path_open(&mut app);
+    let _absent = arm_path_open(&mut app);
     app.enable_mouse_reporting_for_test();
     hover_off_span(&mut app);
     assert!(
@@ -167,7 +157,7 @@ fn ctrl_click_off_a_span_under_mouse_reporting_still_reports_to_the_app() {
 #[test]
 fn plain_click_over_path_under_mouse_reporting_reports_as_before() {
     let (mut app, pty_bytes) = build_app(PATH_LINE);
-    arm_path_open(&mut app);
+    let _absent = arm_path_open(&mut app);
     app.enable_mouse_reporting_for_test();
     hover_on_path(&mut app);
     assert!(app.hovered_path_for_test().is_some());

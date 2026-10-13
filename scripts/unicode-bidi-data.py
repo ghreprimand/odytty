@@ -347,18 +347,18 @@ def main() -> int:
     ucd = Path(sys.argv[1])
     FIXTURES.mkdir(parents=True, exist_ok=True)
     (FIXTURES / "BidiCharacterTest-subset.txt").write_text(
-        "\n".join(character_subset(ucd / "BidiCharacterTest.txt")) + "\n", encoding="utf-8"
+        "\n".join(character_subset(ucd / "BidiCharacterTest.txt")) + "\n", encoding="utf-8", newline="\n"
     )
     (FIXTURES / "BidiTest-subset.txt").write_text(
-        "\n".join(class_subset(ucd / "BidiTest.txt")) + "\n", encoding="utf-8"
+        "\n".join(class_subset(ucd / "BidiTest.txt")) + "\n", encoding="utf-8", newline="\n"
     )
     MIRRORED_RS.parent.mkdir(parents=True, exist_ok=True)
-    MIRRORED_RS.write_text(mirrored_table(ucd / "DerivedBinaryProperties.txt"), encoding="utf-8")
-    CLASSES_RS.write_text(classes_table(ucd / "DerivedBidiClass.txt"), encoding="utf-8")
+    MIRRORED_RS.write_text(mirrored_table(ucd / "DerivedBinaryProperties.txt"), encoding="utf-8", newline="\n")
+    CLASSES_RS.write_text(classes_table(ucd / "DerivedBidiClass.txt"), encoding="utf-8", newline="\n")
     BRACKETS_RS.write_text(
-        brackets_table(ucd / "BidiBrackets.txt", ucd / "UnicodeData.txt"), encoding="utf-8"
+        brackets_table(ucd / "BidiBrackets.txt", ucd / "UnicodeData.txt"), encoding="utf-8", newline="\n"
     )
-    MIRRORING_RS.write_text(mirroring_table(ucd / "BidiMirroring.txt"), encoding="utf-8")
+    MIRRORING_RS.write_text(mirroring_table(ucd / "BidiMirroring.txt"), encoding="utf-8", newline="\n")
     return 0
 
 

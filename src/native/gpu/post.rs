@@ -108,8 +108,10 @@ impl PostProcessResources {
             label: Some("odytty-bloom-shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/bloom.wgsl").into()),
         });
-        let bright_bind_group_layout = create_bright_bind_group_layout(device);
-        let blur_bind_group_layout = create_blur_bind_group_layout(device);
+        let bright_bind_group_layout =
+            create_sampled_pass_bind_group_layout(device, "odytty-bloom-bright-bgl");
+        let blur_bind_group_layout =
+            create_sampled_pass_bind_group_layout(device, "odytty-bloom-blur-bgl");
         let bloom_composite_bind_group_layout = create_bloom_composite_bind_group_layout(device);
         let bright_pipeline = create_bloom_pipeline(
             device,
@@ -170,22 +172,25 @@ impl PostProcessResources {
             create_half_res_texture(device, config, offscreen_format, "odytty-bloom-bright");
         let (ping, ping_view) =
             create_half_res_texture(device, config, offscreen_format, "odytty-bloom-ping");
-        let bright_bind_group = create_bright_bind_group(
+        let bright_bind_group = create_sampled_pass_bind_group(
             device,
+            "odytty-bloom-bright-bg",
             &bright_bind_group_layout,
             &offscreen_view,
             &sampler,
             &bloom_uniform,
         );
-        let blur_h_bind_group = create_blur_bind_group(
+        let blur_h_bind_group = create_sampled_pass_bind_group(
             device,
+            "odytty-bloom-blur-bg",
             &blur_bind_group_layout,
             &bright_view,
             &linear_sampler,
             &bloom_uniform,
         );
-        let blur_v_bind_group = create_blur_bind_group(
+        let blur_v_bind_group = create_sampled_pass_bind_group(
             device,
+            "odytty-bloom-blur-bg",
             &blur_bind_group_layout,
             &ping_view,
             &linear_sampler,
@@ -323,22 +328,25 @@ impl PostProcessResources {
     }
 
     fn rebuild_bloom_bind_groups(&mut self, device: &wgpu::Device) {
-        self.bright_bind_group = create_bright_bind_group(
+        self.bright_bind_group = create_sampled_pass_bind_group(
             device,
+            "odytty-bloom-bright-bg",
             &self.bright_bind_group_layout,
             &self.offscreen_view,
             &self.sampler,
             &self.bloom_uniform,
         );
-        self.blur_h_bind_group = create_blur_bind_group(
+        self.blur_h_bind_group = create_sampled_pass_bind_group(
             device,
+            "odytty-bloom-blur-bg",
             &self.blur_bind_group_layout,
             &self.bright_view,
             &self.linear_sampler,
             &self.bloom_uniform,
         );
-        self.blur_v_bind_group = create_blur_bind_group(
+        self.blur_v_bind_group = create_sampled_pass_bind_group(
             device,
+            "odytty-bloom-blur-bg",
             &self.blur_bind_group_layout,
             &self.ping_view,
             &self.linear_sampler,
@@ -418,16 +426,14 @@ fn create_half_res_texture(
     (texture, view)
 }
 
-fn create_bright_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+/// Layout of a bloom pass that samples one texture with one uniform (the
+/// bright-pass and blur passes share it).
+fn create_sampled_pass_bind_group_layout(
+    device: &wgpu::Device,
+    label: &'static str,
+) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("odytty-bloom-bright-bgl"),
-        entries: &[texture_entry(0), sampler_entry(1), uniform_entry(2)],
-    })
-}
-
-fn create_blur_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("odytty-bloom-blur-bgl"),
+        label: Some(label),
         entries: &[texture_entry(0), sampler_entry(1), uniform_entry(2)],
     })
 }
@@ -481,33 +487,17 @@ fn uniform_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
-fn create_bright_bind_group(
+/// Bind group for a [`create_sampled_pass_bind_group_layout`] pass.
+fn create_sampled_pass_bind_group(
     device: &wgpu::Device,
-    layout: &wgpu::BindGroupLayout,
-    scene: &wgpu::TextureView,
-    sampler: &wgpu::Sampler,
-    uniform: &wgpu::Buffer,
-) -> wgpu::BindGroup {
-    device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("odytty-bloom-bright-bg"),
-        layout,
-        entries: &[
-            bind_texture(0, scene),
-            bind_sampler(1, sampler),
-            bind_uniform(2, uniform),
-        ],
-    })
-}
-
-fn create_blur_bind_group(
-    device: &wgpu::Device,
+    label: &'static str,
     layout: &wgpu::BindGroupLayout,
     source: &wgpu::TextureView,
     sampler: &wgpu::Sampler,
     uniform: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("odytty-bloom-blur-bg"),
+        label: Some(label),
         layout,
         entries: &[
             bind_texture(0, source),

@@ -10,6 +10,16 @@
 // include site is not the start of a module. Keep every function here pure and
 // dependency-free so both include sites compile it identically.
 
+/// The directory a linked-worktree or submodule `.git` file points at.
+///
+/// In those checkouts `.git` is a file holding `gitdir: <path>`, not a
+/// directory, so `.git/HEAD` does not exist. Returns the trimmed path, or `None`
+/// when the contents are not a `gitdir:` pointer or name nothing.
+fn dot_git_pointer(contents: &str) -> Option<&str> {
+    let path = contents.trim().strip_prefix("gitdir:")?.trim();
+    (!path.is_empty()).then_some(path)
+}
+
 /// True when `s` is a plausible abbreviated-or-full git object name: 7..=40
 /// ASCII hex digits. 7 is git's minimum useful abbreviation; 40 is a full
 /// SHA-1 name.

@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Core-owned model of the live editable prompt-input region (B-DESIGN §2).
+//! Core-owned model of the live editable prompt-input region.
 //!
-//! The select+Delete feature must never send bytes to the shell that do not
-//! correspond to a real edit of the shell's line-editor buffer - a wrong delete
-//! is worse than a no-op. That charter requires the input-region geometry to be
-//! computed HERE, in core, where the soft-wrap `wrapped` flags, the cursor, the
-//! OSC 133 `B` input-start mark, and the private edit-region signal all
-//! co-reside. The flat [`Snapshot`](crate::core::Snapshot) handed to native has
-//! no per-row wrap flag and no logical-line grouping, so any multi-row
-//! derivation done consumer-side would be guessing.
+//! Derives editable prompt geometry from row wrap flags, the OSC 133 input
+//! boundary, the cursor, and optional shell rune counts, and returns a
+//! non-Exact certainty when the grid cannot prove an edit geometry. It lives
+//! in core because the flat [`Snapshot`](crate::core::Snapshot) has no
+//! per-row wrap flag or logical-line grouping.
 //!
 //! [`derive_input_region`] is a pure function over borrowed row views so the
 //! whole geometry model is unit-testable without a `Screen` (and without a

@@ -4,8 +4,8 @@
 use crate::native::gpu::{HeadlessGpuFixture, headless_gpu_lifetime, headless_test_instance};
 
 /// Environment variable that makes a missing GPU prerequisite fail the test
-/// instead of skipping it. CI's Linux validation step sets it, where a
-/// software Vulkan adapter is installed.
+/// instead of skipping it. CI's Linux validation step sets it to `1`, where a
+/// software Vulkan adapter is installed; any other value leaves it off.
 pub(in crate::native) const REQUIRE_GPU_TESTS_ENV: &str = "ODYTTY_REQUIRE_GPU_TESTS";
 
 /// A headless device for `test`, or `None` when the test must skip.
@@ -32,7 +32,7 @@ pub(in crate::native) fn headless_device_with_limits(
     hdr: bool,
     required_limits: wgpu::Limits,
 ) -> Option<HeadlessGpuFixture> {
-    let required = std::env::var_os(REQUIRE_GPU_TESTS_ENV).is_some();
+    let required = super::availability::required_by_env(REQUIRE_GPU_TESTS_ENV);
     let lifetime = headless_gpu_lifetime();
     // Serialize driver init against every other parallel test creating a device.
     let init_guard = crate::test_lock::device_creation_lock();

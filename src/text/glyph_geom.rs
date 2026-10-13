@@ -2,15 +2,11 @@
 //! OdyTTY-owned glyph geometry and font-parse error types.
 //!
 //! These are thin value types: glyph id, pixel scale, positioned glyph, a
-//! rectangle, and an unscaled outline (curves plus control-point bounds). They
-//! carry the same field layouts and method names the renderer used previously,
-//! so the cell-metric, bounds and coverage arithmetic in [`super::font_handle`]
-//! and the atlas is unchanged; only the crate that owns the type names moves.
+//! rectangle, and an unscaled outline (curves plus control-point bounds).
 //!
 //! The 2D coordinate type is [`Point`], re-exported from `ab_glyph_rasterizer`
 //! so glyph curves and the rasterizer's `draw_line`/`draw_quad`/`draw_cubic`
-//! share one point type without a cast. Owning these names lets OdyTTY drop the
-//! direct `ab_glyph` font-parser dependency while keeping the scan-converter.
+//! share one point type without a cast.
 
 pub use ab_glyph_rasterizer::{Point, point};
 
@@ -114,9 +110,8 @@ pub enum OutlineCurve {
 
 /// A font file could not be parsed into a usable face.
 ///
-/// Its [`Display`](std::fmt::Display) text is deliberately the literal
-/// `InvalidFont`, matching the previous parser's error string so
-/// [`super::TextError::Parse`]'s message is unchanged.
+/// Its [`Display`](std::fmt::Display) text is the literal `InvalidFont`, which
+/// [`super::TextError::Parse`]'s message carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FontParseError;
 

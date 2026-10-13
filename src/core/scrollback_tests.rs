@@ -645,25 +645,17 @@ fn open_line_after_closed_history_is_bounded_without_a_terminator() {
 }
 
 // ---------------------------------------------------------------------------
-// Shell-owns-cursor (ConPTY) resize through the production lazy path must keep
-// the cursor at its incoming VISIBLE row, not at a combined-buffer offset.
-//
-// `resize_lazy_with_options` prepends `cursor_prefix` pulled-scrollback rows to
-// the live grid before reflow and feeds the reflow a COMBINED-buffer cursor row
-// (`cursor_prefix + cursor.row`). When `shell_owns_cursor_on_resize` is true the
-// reflow takes its `None` cursor arm, which (pre-fix) treated that combined row
-// as a visible row and clamped it to the new grid - drifting the cursor down by
-// `cursor_prefix` and pinning it to the bottom. Every prior shell-owns test fed
-// EMPTY scrollback (`cursor_prefix == 0`) with a bottom-row cursor, where the
-// buggy and correct values coincide, so the drift hid for many commits. These
-// two tests use NON-empty pulled scrollback and a NON-bottom cursor through the
-// production path, which is the only place the combined coordinate is built.
+// A shell-owned resize keeps the incoming visible cursor position despite
+// retained history and width changes. These fixtures use nonempty history and
+// non-bottom cursors through `resize_lazy_with_options`, the only place the
+// combined-buffer cursor row (`cursor_prefix + cursor.row`) is built, so
+// visible and combined coordinates differ.
 // ---------------------------------------------------------------------------
 
 /// Basic drift: with pulled scrollback (`cursor_prefix > 0`), a width
 /// change, and a non-bottom cursor, the shell-owns resize must keep the cursor
-/// at its incoming visible row (0). Pre-fix the `None` arm clamps the combined
-/// row (5) to the bottom row (4) - the observed downward drift.
+/// at its incoming visible row (0), not the combined row (5) clamped to the
+/// bottom row (4).
 #[test]
 fn shell_owns_resize_with_pulled_scrollback_keeps_incoming_visible_row() {
     // Five short hard-terminated scrollback lines (one physical row each at the
@@ -693,9 +685,8 @@ fn shell_owns_resize_with_pulled_scrollback_keeps_incoming_visible_row() {
         },
     );
 
-    // The shell owns placement; the terminal must keep the incoming VISIBLE row
-    // (0), clamped to the new dims - NOT the combined row (5) clamped to the
-    // bottom (4) that the pre-fix `None` arm produced.
+    // The shell owns placement: keep the incoming visible row (0), clamped to
+    // the new dims, not the combined row (5) clamped to the bottom (4).
     assert_eq!(
         result.cursor,
         Position { row: 0, column: 1 },
@@ -705,13 +696,9 @@ fn shell_owns_resize_with_pulled_scrollback_keeps_incoming_visible_row() {
 
 /// Decision gate: a width SHRINK where the content ABOVE the cursor rewraps
 /// into MORE physical rows, so the post-rewrap `visible_start` (6) diverges from
-/// `cursor_prefix` (1). This is the case that separates the three candidate
-/// fixes, all of which agree when `visible_start == cursor_prefix`:
-///   (a) subtract `visible_start`  -> row 0 (cursor flung to the top) - WRONG
-///   (b) subtract `cursor_prefix`  -> row 1 (incoming visible row)    - CORRECT
-///   (c) recompute the visible row -> row 1 (same as b)
-/// Pre-fix the `None` arm subtracts nothing -> row 2. Asserting row 1 makes this
-/// test reject BOTH the pre-fix code AND candidate (a), pinning candidate (b).
+/// `cursor_prefix` (1). Subtracting `cursor_prefix` keeps the incoming visible
+/// row (1); subtracting `visible_start` would give row 0 and subtracting
+/// nothing row 2, so this case pins the prefix subtraction.
 #[test]
 fn shell_owns_resize_shrink_rewrap_above_cursor_pins_cursor_prefix_fix() {
     // One long hard-terminated scrollback line of 100 'x' (5 physical rows at
@@ -1112,10 +1099,9 @@ fn measure_wrapped_scrollback(
 // storage change in order to be worth anything during one.
 
 /// Rebuild the logical lines a projection encodes, by joining physical rows on
-/// the soft-wrap flag and concatenating each cell's full grapheme cluster.
-///
-/// Wide-glyph spacer cells contribute nothing: the base char already carries the
-/// glyph, so counting the spacer would double it.
+/// the soft-wrap flag. Concatenate logical source owners, omitting wide
+/// continuation and source-less wrap padding: the base cell already carries the
+/// glyph, so counting its spacer would double it.
 fn logical_graphemes(rows: &[Line]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut current = String::new();
@@ -1187,11 +1173,11 @@ fn scrollback_projection_preserves_graphemes_at_every_width() {
         let store = term.screen().scrollback_store();
         let rows = store.physical_tail(width, store.physical_len(width));
         let read_back = logical_graphemes(&rows);
-        // Blank padding is the projection's business, not this oracle's: a row
-        // is stored full-width, so a wrapped line's last row contributes the
-        // spaces that pad it. Comparing trimmed content keeps the property
-        // ("no grapheme is lost, gained, or reordered") independent of the
-        // padding policy, which `same_width_roundtrip` already pins.
+        // Trim only ordinary trailing blank cells before comparing. Source-less
+        // wrap padding is already omitted by `logical_graphemes`, and the
+        // padding policy itself is pinned by `same_width_roundtrip`, so the
+        // property ("no grapheme is lost, gained, or reordered") stays
+        // independent of it.
         let content: Vec<String> = read_back
             .iter()
             .map(|line| line.trim_end_matches(' ').to_string())

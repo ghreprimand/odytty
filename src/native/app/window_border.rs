@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! ID4 themed window border: an optional thin frame in the theme `border` role
+//! Themed window border: an optional thin frame in the theme `border` role
 //! color drawn around the terminal content, in single-pane and split tabs alike.
 //!
 //! The frame is painted as four [`SolidQuad`]s forming a ring whose inner edge
@@ -7,8 +7,8 @@
 //! window-padding band: it never overlaps cell area, so the grid text
 //! is untouched and the plain/fast path is unaffected. The border thickness is
 //! authored in logical pixels and multiplied by the surface scale factor
-//! (`ctx.scale`) so it is a consistent visual weight across displays (T-ID4-2,
-//! DPI), and it is clamped to the available padding so a thick border on a
+//! (`ctx.scale`) so it is a consistent visual weight across displays, and it is
+//! clamped to the available padding so a thick border on a
 //! narrow padding band can never bleed past the surface edge. Because the ring
 //! is derived entirely from the live content rect (padding + columns·cell_w /
 //! rows·cell_h), it tracks the viewport on every resize with no stored rect.
@@ -21,7 +21,7 @@
 //! so the border quad is always recomputed when any input that affects it
 //! changes, and a Retained frame correctly keeps the previously drawn border.
 //!
-//! Off-path contract (`window_border` defaults to `false`, T-ID4-1):
+//! Off-path contract (`window_border` defaults to `false`):
 //! [`App::paint_window_border_quads`] returns before emitting any quad, so the
 //! default render path is byte-identical to before this feature existed.
 
@@ -130,7 +130,7 @@ mod tests {
     const ROWS: usize = 6;
     const COLS: usize = 40;
 
-    fn build_app() -> Option<App> {
+    fn build_app() -> App {
         let d = Dimensions::new(COLS, ROWS);
         let (mut app, _terminal) = crate::native::test_support::headless_app_with(
             crate::native::options::NativeOptions::default(),
@@ -143,7 +143,7 @@ mod tests {
             height: CELL_H,
             baseline: 0,
         });
-        Some(app)
+        app
     }
 
     /// Padding a headless App has no GPU to report: an explicit logical band
@@ -175,9 +175,7 @@ mod tests {
 
     #[test]
     fn off_path_emits_nothing() {
-        let Some(app) = build_app() else {
-            return;
-        };
+        let app = build_app();
         assert!(!app.settings.window_border, "off by default");
         let mut quads = Vec::new();
         app.paint_window_border_quads(&ctx(&app), &mut quads);
@@ -188,9 +186,7 @@ mod tests {
 
     #[test]
     fn on_path_emits_four_border_quads_in_theme_color() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.window_border = true;
         let c = ctx(&app);
         assert!(
@@ -216,9 +212,7 @@ mod tests {
 
     #[test]
     fn border_stays_outside_the_content_rect() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.window_border = true;
         let c = ctx(&app);
         let pad = c.window_padding.as_f32();
@@ -248,9 +242,7 @@ mod tests {
 
     #[test]
     fn border_tracks_content_rect_after_resize() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.window_border = true;
         let pad = ctx(&app).window_padding.as_f32();
         assert!(pad > 0.0, "the fixture has a padding band");
@@ -284,9 +276,7 @@ mod tests {
     /// and never thicker than the padding band leaves room for.
     #[test]
     fn border_thickness_scales_with_dpi_and_is_capped_by_the_padding() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.window_border = true;
         let thickness = |quads: &[SolidQuad]| quads[0].rect[3] - quads[0].rect[1];
         let mut hidpi = Vec::new();

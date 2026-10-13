@@ -9,6 +9,16 @@ import sys
 import tomllib
 
 VERSION = r"[0-9]+\.[0-9]+\.[0-9]+"
+LOCKFILES = ("Cargo.lock", "fuzz/parser_graphics/Cargo.lock")
+APPSTREAM = "dist/linux/io.unfinished_works.odytty.metainfo.xml"
+
+
+def lockfile_version(text: str, name: str) -> str:
+    """The version recorded for the `odytty` package in a lockfile."""
+    match = re.search(r'^name = "odytty"\nversion = "([^"]+)"$', text, re.MULTILINE)
+    if match is None:
+        raise ValueError(f"{name}: no odytty package entry")
+    return match[1]
 
 
 def read(root: Path, name: str) -> str:
@@ -108,6 +118,17 @@ def check(root: Path, release_version: str | None = None) -> None:
                 if marker(content, "Release candidate", name) != release_version:
                     raise ValueError(f"{name}: release candidate differs from requested version")
             version_section(docs["TODO.md"], release_version, "release candidate")
+        else:
+            # The tagged commit is the published one: no candidate marker may remain.
+            for name, content in {**docs, "docs/releases/README.md": index}.items():
+                if re.search(r"^Release candidate: \*\*v", content, re.MULTILINE):
+                    raise ValueError(f"{name}: a release candidate marker remains at the published version")
+        for lockfile in LOCKFILES:
+            if lockfile_version(read(root, lockfile), lockfile) != release_version:
+                raise ValueError(f"{lockfile}: odytty version differs from the release version")
+        appstream = re.search(r'<release version="([^"]+)"', read(root, APPSTREAM))
+        if appstream is None or appstream[1] != release_version:
+            raise ValueError(f"{APPSTREAM}: newest release entry differs from the release version")
 
 
 def main() -> int:

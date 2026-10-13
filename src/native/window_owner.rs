@@ -55,12 +55,18 @@ static NEXT_WINDOW_ID: AtomicU64 = AtomicU64::new(0);
 /// infallible construction boundary treat `None` as an unreachable fail-closed
 /// error rather than a case to recover from.
 pub(in crate::native) fn next_window_id() -> Option<ProcessWindowId> {
-    NEXT_WINDOW_ID
+    take_window_id(&NEXT_WINDOW_ID).map(ProcessWindowId)
+}
+
+/// Hand out the counter's current value and advance it, refusing (`None`)
+/// rather than wrapping at the ceiling. Taking the counter lets tests drive
+/// the production arithmetic on a private atomic.
+fn take_window_id(counter: &AtomicU64) -> Option<u64> {
+    counter
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |cur| {
             cur.checked_add(1)
         })
         .ok()
-        .map(ProcessWindowId)
 }
 
 /// Process-monotonic surface-incarnation counter. Bumped every time a window
@@ -130,7 +136,13 @@ pub(in crate::native) fn next_window_token_base() -> Option<u64> {
     // ranges exist to guarantee. A process never opens ~2^24 windows, so this
     // ceiling is unreachable in practice; refusing fails the window creation
     // closed instead of silently producing a colliding allocator.
-    NEXT_WINDOW_TOKEN_BASE
+    take_token_base(&NEXT_WINDOW_TOKEN_BASE)
+}
+
+/// The allocation step of [`next_window_token_base`] on an explicit counter, so
+/// tests drive the production arithmetic on a private atomic.
+fn take_token_base(counter: &AtomicU64) -> Option<u64> {
+    counter
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |cur| {
             if cur > MAX_WINDOW_TOKEN_BASE {
                 // Exhausted: leave the counter pinned and refuse.
@@ -381,19 +393,16 @@ mod tests {
 
     #[test]
     fn window_id_refuses_at_the_ceiling_rather_than_wrapping() {
-        // A private counter driven to the top confirms the allocator returns
-        // `None` at exhaustion instead of wrapping to a repeated id. The
-        // production static shares this `checked_add` logic; a local copy keeps
-        // the test hermetic (it must not perturb the process-wide counter).
+        // A private counter driven to the top confirms the production step
+        // returns `None` at exhaustion instead of wrapping to a repeated id,
+        // without perturbing the process-wide counter.
         let counter = AtomicU64::new(u64::MAX);
-        let alloc = |c: &AtomicU64| -> Option<u64> {
-            c.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |cur| {
-                cur.checked_add(1)
-            })
-            .ok()
-        };
-        assert_eq!(alloc(&counter), None, "refuses at the ceiling");
-        assert_eq!(alloc(&counter), None, "stays refused (no wrap to 0)");
+        assert_eq!(take_window_id(&counter), None, "refuses at the ceiling");
+        assert_eq!(
+            take_window_id(&counter),
+            None,
+            "stays refused (no wrap to 0)"
+        );
     }
 
     #[test]
@@ -414,24 +423,14 @@ mod tests {
         // Drive a private allocator to the ceiling and confirm it REFUSES the
         // exhausted allocation instead of saturating (which would repeat the
         // final base and alias an existing window's range). The production
-        // static shares this logic; exercising a local copy keeps the test
+        // step runs on a private counter, which keeps the test
         // hermetic and fast.
         let counter = AtomicU64::new(MAX_WINDOW_TOKEN_BASE);
-        let alloc = |c: &AtomicU64| -> Option<u64> {
-            c.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |cur| {
-                if cur > MAX_WINDOW_TOKEN_BASE {
-                    None
-                } else {
-                    Some(cur.saturating_add(WINDOW_TOKEN_STRIDE))
-                }
-            })
-            .ok()
-        };
         // The last valid base is handed out exactly once...
-        assert_eq!(alloc(&counter), Some(MAX_WINDOW_TOKEN_BASE));
+        assert_eq!(take_token_base(&counter), Some(MAX_WINDOW_TOKEN_BASE));
         // ...and every subsequent request refuses rather than repeating it.
-        assert_eq!(alloc(&counter), None);
-        assert_eq!(alloc(&counter), None);
+        assert_eq!(take_token_base(&counter), None);
+        assert_eq!(take_token_base(&counter), None);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Shared image-file decode point (FLAG B + FLAG F).
+//! Shared image-file decode point.
 //!
 //! Every image-file decode in the app funnels through this one module so the
 //! decode bound is enforced in exactly one place - the same "single audit
@@ -8,7 +8,7 @@
 //! * the background-image / wallpaper path ([`super::gpu::image`]), and
 //! * the in-terminal image viewer overlay.
 //!
-//! ## The decode bound (FLAG B)
+//! ## The decode bound
 //!
 //! The terminal graphics `ImageStore` enforces a 64 MiB cap, but that cap is
 //! applied *after* decode - on the resulting RGBA buffer. A crafted small file
@@ -33,11 +33,11 @@
 
 use std::path::Path;
 
-/// Maximum decoded dimension per axis (FLAG B). 12000px comfortably covers
+/// Maximum decoded dimension per axis. 12000px comfortably covers
 /// 8K-and-beyond screenshots and large photos while refusing a dimension bomb.
 pub(in crate::native) const MAX_IMAGE_DIM: u32 = 12_000;
 
-/// Decoder allocation budget (FLAG B). Subsequent RGBA conversion and resizing
+/// Decoder allocation budget. Subsequent RGBA conversion and resizing
 /// can allocate additional buffers outside this budget. The post-decode
 /// graphics store separately limits retained image data.
 pub(in crate::native) const MAX_IMAGE_ALLOC_BYTES: u64 = 256 * 1024 * 1024;

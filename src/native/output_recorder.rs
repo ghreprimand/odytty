@@ -148,6 +148,15 @@ impl RecorderHandle {
         }
     }
 
+    /// Record the frame `snapshot` builds, but only when recording is on: the
+    /// default-off path is a single relaxed load and never builds a snapshot.
+    /// This is the gate the PTY pump applies on every output chunk.
+    pub(super) fn record_if_enabled(&self, snapshot: impl FnOnce() -> Snapshot) {
+        if self.is_enabled() {
+            self.record(snapshot());
+        }
+    }
+
     /// Record a frame. The caller has already checked [`Self::is_enabled`] and
     /// built `snapshot` (typically under the terminal lock it already holds), so
     /// this only locks the ring briefly to push + evict. It also re-checks

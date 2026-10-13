@@ -192,10 +192,10 @@ fn independent_switches_change_pixels_and_live_settings_rekey_the_frame() {
                 Dimensions::new(16, 2),
                 Settings::default(),
             );
-            let conf_dir =
-                std::env::temp_dir().join(format!("odytty-script-shaping-{}", std::process::id()));
-            std::fs::create_dir_all(&conf_dir).unwrap();
-            let conf = conf_dir.join("odytty.conf");
+            // A unique folder per iteration, removed when it goes out of scope
+            // even if an assertion fails.
+            let scratch = crate::test_dirs::ScratchDir::new("ottss");
+            let conf = scratch.path().join("odytty.conf");
             std::fs::write(&conf, "# kept\n").unwrap();
             app.set_config_path_for_test(conf.clone());
             app.open_settings_overlay_for_test();
@@ -236,7 +236,6 @@ fn independent_switches_change_pixels_and_live_settings_rekey_the_frame() {
                 "toggling back restores pixels: {text:?}, bidi={bidi}"
             );
             assert_eq!(terminal.lock().unwrap().snapshot().cells, snapshot.cells);
-            std::fs::remove_dir_all(&conf_dir).unwrap();
         }
     }
 }

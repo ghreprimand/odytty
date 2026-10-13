@@ -243,29 +243,21 @@ impl GpuState {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("odytty-clear-encoder"),
             });
-        if self.post_active() {
-            if let Some(format) = self.post_process_format {
-                if self.post_process.is_none() {
-                    self.post_process = Some(PostProcessResources::new(
-                        &self.device,
-                        &self.config,
-                        format,
-                    ));
-                }
-                let post_process = self.post_process.as_ref().expect("post process resources");
-                self.encode_scene_pass(&mut encoder, &post_process.offscreen_view);
-                post_process.encode_post_process(
-                    &mut encoder,
-                    &self.queue,
-                    &view,
-                    self.post_options(),
-                );
-                // Viewer draws over the post-processed frame (effects-free).
-                self.encode_overlay_pass(&mut encoder, &view);
-            } else {
-                self.encode_scene_pass(&mut encoder, &view);
-                self.encode_overlay_pass(&mut encoder, &view);
+        if self.post_active()
+            && let Some(format) = self.post_process_format
+        {
+            if self.post_process.is_none() {
+                self.post_process = Some(PostProcessResources::new(
+                    &self.device,
+                    &self.config,
+                    format,
+                ));
             }
+            let post_process = self.post_process.as_ref().expect("post process resources");
+            self.encode_scene_pass(&mut encoder, &post_process.offscreen_view);
+            post_process.encode_post_process(&mut encoder, &self.queue, &view, self.post_options());
+            // Viewer draws over the post-processed frame (effects-free).
+            self.encode_overlay_pass(&mut encoder, &view);
         } else {
             self.encode_scene_pass(&mut encoder, &view);
             self.encode_overlay_pass(&mut encoder, &view);

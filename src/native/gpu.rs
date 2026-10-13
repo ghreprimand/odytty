@@ -42,18 +42,12 @@ mod resources;
 mod scene;
 mod types;
 
-// Re-exports that preserve the `crate::native::gpu::*` paths this renderer has
-// always offered its parent module. Every name below was reachable at that path
-// before the renderer was split across responsibility modules, so the facade
-// republishes all of them unconditionally rather than only the ones a given
-// build configuration happens to call. Statements marked with
-// `allow(unused_imports)` carry names that no longer have a caller in every
-// configuration; the allow is scoped to the individual statement so an unused
-// import anywhere else still fails the build.
+// The facade re-exports what the parent module calls. Names only tests use
+// are `cfg(test)`-gated, so the dead-code lint still sees production callers.
 
 pub(super) use post::{BloomOptions, CrtOptions};
 
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(super) use fonts::StyleFonts;
 
 pub(super) use frame::FrameOutcome;
@@ -61,7 +55,7 @@ pub(super) use frame::FrameOutcome;
 #[cfg(test)]
 pub(super) use pipeline_policy::SurfaceFailureAction;
 pub(super) use pipeline_policy::content_build_opacity;
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(super) use pipeline_policy::{
     adapter_is_software, backend_stages, blend_state_for_color_glyphs, blend_state_for_subpixel,
     choose_surface_format, colored_content_build_opacity, effect_params, effective_subpixel_mode,
@@ -70,7 +64,7 @@ pub(super) use pipeline_policy::{
     theme_clear_color,
 };
 
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(super) use pipelines::{
     create_cell_pipeline, create_color_glyph_pipeline, create_cursor_glow_pipeline,
     create_cursor_streak_pipeline,
@@ -78,16 +72,15 @@ pub(super) use pipelines::{
 
 pub(in crate::native) use resources::AdapterDiagnostics;
 pub(super) use resources::GpuState;
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(super) use resources::{
     ViewportUniform, create_atlas_bind_group, create_color_atlas_bind_group,
     grow_vertex_buffer_capacity, physical_font_px,
 };
 
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(super) use scene::{
-    append_cursor_layer_vertices, ensure_snapshot_glyphs,
-    ensure_snapshot_glyphs_excluding_color_runs, multi_pane_wallpaper_edge_wash_quads,
+    append_cursor_layer_vertices, ensure_snapshot_glyphs, multi_pane_wallpaper_edge_wash_quads,
     wallpaper_edge_wash_quads_with_pin,
 };
 
@@ -95,11 +88,11 @@ pub(super) use types::{
     ChromePinGeom, CursorGlowRequest, CursorStreakRequest, OverlayTop, PaneRender, PanelFrameQuads,
     RailOverlay, RowFadeSpec,
 };
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(super) use types::{
-    CursorGlowInstance, CursorGlowVertex, CursorStreakInstance, CursorStreakVertex,
-    accumulate_pane_color_glyphs, append_cursor_glow_vertices, append_cursor_streak_vertices,
-    quads_excluding, rail_overlay_chrome_pin, retained_cursor_effects,
+    CursorGlowInstance, CursorGlowVertex, CursorStreakVertex, accumulate_pane_color_glyphs,
+    append_cursor_glow_vertices, append_cursor_streak_vertices, quads_excluding,
+    rail_overlay_chrome_pin, retained_cursor_effects,
 };
 #[cfg(test)]
 pub(super) use types::{
@@ -107,12 +100,8 @@ pub(super) use types::{
     build_cursor_streak_instance_with_bidi,
 };
 
-// `cursor_glow_falloff` and `wallpaper_edge_wash_quads` were already gated to
-// test builds where they were defined, so their facade paths keep the same gate.
-#[allow(unused_imports)]
 #[cfg(test)]
 pub(super) use scene::wallpaper_edge_wash_quads;
-#[allow(unused_imports)]
 #[cfg(test)]
 pub(super) use types::cursor_glow_falloff;
 

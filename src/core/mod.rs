@@ -147,6 +147,7 @@ pub use snapshot_envelope::{
     SnapshotPromptMark, SnapshotRow, SnapshotScrollRegion, SnapshotTerminalState,
 };
 pub(crate) use text_owners::{TextOwnerSpan, pop_text_owner, text_owner_spans, text_owners};
+pub(crate) use types::MAX_COMBINING;
 pub use types::{
     Attrs, Cell, CellMetrics, CharsetModes, ClipboardRequest, ClipboardSelection, Color,
     CursorStyle, Dimensions, DirtyRegion, DynamicColors, KeyboardModes, LinkId, MouseButton,

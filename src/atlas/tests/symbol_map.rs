@@ -5,7 +5,7 @@
 //! installed (the default), `symbol_map_font_for` returns `None`, the chosen
 //! raster face stays the primary font, and every glyph path is byte-for-byte
 //! the no-SYMMAP renderer. When an override range is installed it takes
-//! priority over geometric box-drawing and the RV6 symbol fallback, with
+//! priority over geometric box-drawing and the symbol fallback, with
 //! first-match-wins precedence matching `text::SymbolMap`.
 
 use super::*;
@@ -13,10 +13,7 @@ use std::sync::Arc;
 
 #[test]
 fn empty_symbol_map_font_for_returns_none() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let atlas = GlyphAtlas::build(&font, 24.0);
     // Default state: no override map → every lookup is the identity (None).
     assert!(atlas.symbol_map_font_for('A').is_none());
@@ -26,10 +23,7 @@ fn empty_symbol_map_font_for_returns_none() {
 
 #[test]
 fn explicit_empty_map_is_identity() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     atlas.set_symbol_map_fonts(Vec::new());
     assert!(atlas.symbol_map_font_for('\u{2500}').is_none());
@@ -37,16 +31,10 @@ fn explicit_empty_map_is_identity() {
 
 #[test]
 fn symbol_map_font_for_matches_range_and_first_wins() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     // Reload distinct instances so Arc identity tells the two override faces
     // apart (each Arc wraps a separately loaded handle).
-    let (Some(face_a), Some(face_b), Some(face_c)) = (test_font(), test_font(), test_font()) else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let (face_a, face_b, face_c) = (test_font(), test_font(), test_font());
     let a = Arc::new(face_a);
     let b = Arc::new(face_b);
     let c = Arc::new(face_c);
@@ -83,14 +71,8 @@ fn symbol_map_font_for_matches_range_and_first_wins() {
 
 #[test]
 fn symbol_map_font_for_wins_over_installed_fallback() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
-    let (Some(fallback_face), Some(override_face)) = (test_font(), test_font()) else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
+    let (fallback_face, override_face) = (test_font(), test_font());
     let fallback = Arc::new(fallback_face);
     let override_font = Arc::new(override_face);
     let mut atlas = GlyphAtlas::build(&font, 24.0);
@@ -114,10 +96,7 @@ fn empty_map_ensure_styled_is_byte_identical() {
     // change landing between the two passes diverges the sums. Hold the shared
     // render-globals guard across both passes.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let Some(ch) = glyph_bearing_non_ascii(&font) else {
         eprintln!("skipping: font has no usable non-ASCII glyph");
         return;
@@ -147,18 +126,12 @@ fn empty_map_ensure_styled_is_byte_identical() {
 
 #[test]
 fn override_renders_a_real_glyph_from_the_override_face() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let Some(ch) = glyph_bearing_non_ascii(&font) else {
         eprintln!("skipping: font has no usable non-ASCII glyph");
         return;
     };
-    let Some(override_face) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let override_face = test_font();
     let cp = ch as u32;
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     atlas.set_symbol_map_fonts(vec![(cp, cp, Arc::new(override_face))]);
@@ -175,17 +148,11 @@ fn override_renders_a_real_glyph_from_the_override_face() {
 
 #[test]
 fn override_suppresses_geometric_for_a_box_drawing_codepoint() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     // A box-drawing codepoint that the geometric path recognizes.
     let box_ch = '\u{2500}'; // BOX DRAWINGS LIGHT HORIZONTAL
     assert!(crate::boxdraw::covers(box_ch));
-    let Some(override_face) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let override_face = test_font();
     let cp = box_ch as u32;
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     atlas.set_geometric_boxdraw(true);

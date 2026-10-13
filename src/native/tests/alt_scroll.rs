@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! ALT-SCROLL (DECSET 1007) routing tests. On the alternate screen - which has
+//! Alternate-scroll (DECSET 1007) routing tests. On the alternate screen - which has
 //! no scrollback - a wheel notch is translated into cursor-key presses so a TUI
 //! that enables alternate-scroll without full mouse tracking (classic pagers
 //! like `less`, `man`, `git log`) still scrolls. The emulated arrow count

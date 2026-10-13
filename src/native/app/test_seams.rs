@@ -285,7 +285,7 @@ impl App {
 
     /// Test seam (OVERLAY-SMALL-WINDOW): open the connection-manager overlay
     /// pre-loaded with `count` SYNTHETIC OdyTTY-owned hosts, bypassing the real
-    /// `~/.ssh` / `hosts.conf` load path entirely. Synthetic data only — no real
+    /// `~/.ssh` / `hosts.conf` load path entirely. Synthetic data only - no real
     /// host or key material is ever read (privacy rule). Lets a small-window
     /// scroll test overflow the list deterministically without files.
     #[cfg(test)]
@@ -345,7 +345,7 @@ impl App {
     /// Test seam (OVERLAY-SMALL-WINDOW): open the command palette pre-seeded
     /// with `count` SYNTHETIC history entries, bypassing the real shell-history
     /// read so a small-window scroll test overflows deterministically. Synthetic
-    /// data only — no real history is read.
+    /// data only - no real history is read.
     #[cfg(test)]
     pub(in crate::native) fn open_palette_with_synthetic_history_for_test(&mut self, count: usize) {
         let history: Vec<String> = (0..count)
@@ -407,7 +407,7 @@ impl App {
         self.pointer_cell = None;
     }
 
-    /// Test seam (C11): read the active session's cached pointer cell — the
+    /// Test seam (C11): read the active session's cached pointer cell - the
     /// selection anchor `begin_selection` consumes. Lets the focus-follows-click
     /// test assert the anchor lands under the live click, not a stale per-pane
     /// coordinate.
@@ -1080,8 +1080,8 @@ impl App {
     }
 
     /// Test seam (CURSOR-ICON / divider hover): inject the surface size and
-    /// window padding so `multipane_geometry()` — and the divider resize-cursor
-    /// path it feeds — resolves headlessly without a GPU. See
+    /// window padding so `multipane_geometry()` - and the divider resize-cursor
+    /// path it feeds - resolves headlessly without a GPU. See
     /// [`App::test_surface`].
     #[cfg(test)]
     pub(in crate::native) fn set_test_surface_for_test(
@@ -1186,7 +1186,7 @@ impl App {
     }
 
     /// Test seam (UX-A / Phase 11): the armed-underline span (row, start, end) as
-    /// the painter + cache signature see it — `Some` only when `interactive_paths`
+    /// the painter + cache signature see it - `Some` only when `interactive_paths`
     /// is on, Ctrl is held, and a resolved path is hovered; `None` otherwise so
     /// the plain-hover / feature-off byte-identity can be asserted.
     #[cfg(test)]
@@ -1274,7 +1274,7 @@ impl App {
 
     /// Test seam (INTERACTIVE-PATHS / C3): drive the Ctrl+click open gate
     /// directly and report whether it fired. Returns `false` (no spawn) when the
-    /// feature is off, the Ctrl gate is unmet, or no path is hovered — the cases
+    /// feature is off, the Ctrl gate is unmet, or no path is hovered - the cases
     /// the gate tests assert. The success branch spawns, so tests only exercise
     /// the false branches.
     #[cfg(test)]
@@ -1303,7 +1303,7 @@ impl App {
 
     /// Test seam (OPEN-NOTICE / P0-2): drive the production open-or-notice path
     /// for an explicit argv, so a test can assert that a FAILED spawn raises a
-    /// visible notice and a SUCCESSFUL spawn does not — without going through the
+    /// visible notice and a SUCCESSFUL spawn does not - without going through the
     /// pointer/menu plumbing.
     #[cfg(test)]
     pub(in crate::native) fn spawn_open_or_notice_for_test(&mut self, argv: &[String]) {
@@ -1442,7 +1442,7 @@ impl App {
 
     /// Test seam (CHROME-GAP hit routing): the empty-chrome context-menu
     /// surface the production right-press route resolves for the current
-    /// pointer — `"workspace"` / `"tab"` — or `None` when the press would fall
+    /// pointer - `"workspace"` / `"tab"` - or `None` when the press would fall
     /// through to the content grid menu (including the padding-wide neutral
     /// gap strips between content and the chrome bands).
     pub(in crate::native) fn empty_chrome_menu_surface_for_test(&self) -> Option<&'static str> {
@@ -1581,7 +1581,7 @@ impl App {
         ));
         // `test_cell` / `test_surface` are per-session (accessed via Deref to the
         // active session), so carry the current values onto the freshly-active
-        // workspace's session — otherwise the headless geometry (resolved_cell /
+        // workspace's session - otherwise the headless geometry (resolved_cell /
         // resolved_surface) goes unset after the switch.
         let cell = self.test_cell;
         let surface = self.test_surface;
@@ -1784,7 +1784,7 @@ impl App {
 
     /// Test seam (F4-P3 reveal-paint gate): read/reset the frame-rebuild flag the
     /// `should_rebuild_frame` gate consults. `self.needs_rebuild` Derefs to the
-    /// ACTIVE pane's flag — the same one the production rail-reveal paths must set
+    /// ACTIVE pane's flag - the same one the production rail-reveal paths must set
     /// so a visibility flip actually rebuilds and paints the overlay (a redraw
     /// request alone is dropped by the rebuild gate).
     #[cfg(test)]
@@ -1841,7 +1841,7 @@ impl App {
     }
 
     /// Test seam (F4-P3): the reveal `(in_edge, in_band)` contact for a raw
-    /// pointer x — including the scrollbar-drag yield — or `None` off a
+    /// pointer x - including the scrollbar-drag yield - or `None` off a
     /// rail / autohide. The point-only contact (no previous sample), so it
     /// asserts the static trigger/band geometry; the motion-aware segment path is
     /// exercised through the live feed (`feed_rail_pointer_for_test`). Set
@@ -1949,7 +1949,7 @@ impl App {
     /// Test seam (F4-P3): the UNDECORATED content snapshot's `(columns, rows)`.
     /// Paired with `decorated_snapshot_dims_for_test` so the phantom-top-bar
     /// regression (auto-hide leaking a top bar into a side-placed decoration) is
-    /// pinned as `decorated == raw` — no rows grown off the top, no columns off
+    /// pinned as `decorated == raw` - no rows grown off the top, no columns off
     /// the side.
     #[cfg(test)]
     pub(in crate::native) fn raw_snapshot_dims_for_test(&self) -> Option<(usize, usize)> {
@@ -2019,7 +2019,7 @@ impl App {
     }
 
     /// Test seam (F4-P3 / NF20): whether the rail auto-hide machine schedules a
-    /// wake at `now` — the state machine's contribution to `next_wake_deadline`.
+    /// wake at `now` - the state machine's contribution to `next_wake_deadline`.
     /// `false` means the machine is idle (steady Hidden, or Revealed with the
     /// pointer parked) and adds no self-wake, so an idle auto-hidden window
     /// cannot spin the event loop. Clock-injected for determinism.
@@ -2041,7 +2041,7 @@ impl App {
     }
 
     /// Test seam (NF20-B): arm the ACTIVE pane's cursor blink (blinking +
-    /// focused) at `now`, so its activity-hold deadline enters the wake set — the setup
+    /// focused) at `now`, so its activity-hold deadline enters the wake set - the setup
     /// for the per-session deadline fan-out regression (a pane whose blink is
     /// armed and then backgrounded must not strand a stale wake).
     #[cfg(test)]
@@ -2062,7 +2062,7 @@ impl App {
     }
 
     /// Test seam (NF20-B): arm the ACTIVE pane's cursor-animation (ease + slide)
-    /// deadlines at `now`, so both enter the wake set — the setup for asserting
+    /// deadlines at `now`, so both enter the wake set - the setup for asserting
     /// they do not strand a stale wake once the pane is backgrounded.
     #[cfg(test)]
     pub(in crate::native) fn arm_active_cursor_anim_for_test(&mut self, now: std::time::Instant) {
@@ -2192,7 +2192,7 @@ impl App {
         self.synchronized_output_hold.should_hold(true, now);
     }
 
-    /// Test seam (NF21-7): the render gate's rebuild decision — `self.needs_rebuild`
+    /// Test seam (NF21-7): the render gate's rebuild decision - `self.needs_rebuild`
     /// (the focused pane) ORed, when multi-pane, with any visible pane of the
     /// active tab. Lets the split-pane regression assert output into a
     /// non-focused pane drives a rebuild without a GPU.
@@ -2401,7 +2401,7 @@ impl App {
     /// Test seam (IN2): drive a mouse button edge through the exact production
     /// window-level routing (`handle_mouse_input`), so the right-click context
     /// menu's precedence against the TUI report gate, the Shift override, and an
-    /// already-open overlay are pinned through the real path — not reimplemented.
+    /// already-open overlay are pinned through the real path - not reimplemented.
     #[cfg(test)]
     pub(in crate::native) fn dispatch_mouse_button_for_test(
         &mut self,
@@ -2508,6 +2508,16 @@ impl App {
     pub(in crate::native) fn expire_context_menu_debounce_for_test(&mut self) {
         self.context_menu_opened_at =
             std::time::Instant::now().checked_sub(std::time::Duration::from_secs(3600));
+    }
+
+    /// Test seam: keep the open debounce window open for the rest of the test,
+    /// so a test that needs the "just opened" state does not depend on how long
+    /// a loaded runner takes to deliver its presses. The window opens at a
+    /// future instant, and its elapsed time saturates at zero until then.
+    #[cfg(test)]
+    pub(in crate::native) fn hold_context_menu_debounce_open_for_test(&mut self) {
+        self.context_menu_opened_at =
+            Some(std::time::Instant::now() + std::time::Duration::from_secs(3600));
     }
 
     /// Test seam (FIX-A): whether the last `open_context_menu` ran the
@@ -2645,7 +2655,7 @@ impl App {
     }
 
     /// Test seam (KB-REMAP R2): whether the remap modal is armed to capture a
-    /// raw chord — the predicate the production key path gates its bypass on.
+    /// raw chord - the predicate the production key path gates its bypass on.
     #[cfg(test)]
     pub(in crate::native) fn overlay_capturing_chord_for_test(&self) -> bool {
         self.overlay.is_capturing_chord()
@@ -2697,7 +2707,7 @@ impl App {
         self.resolve_active_theme()
     }
 
-    /// Test seam (OS-THEME): resolve the active theme WITHOUT publishing — proves
+    /// Test seam (OS-THEME): resolve the active theme WITHOUT publishing - proves
     /// the pure off-path identity (`follow_os_theme = false` ⇒ authored theme).
     #[cfg(test)]
     pub(in crate::native) fn resolve_active_theme_for_test(&self) -> Theme {
@@ -2942,7 +2952,7 @@ impl App {
     }
 
     /// Test seam (RAIL-DRAG): whether a rail-anchored surface (a drag, menu, or
-    /// rename) is currently holding the auto-hide rail revealed — the
+    /// rename) is currently holding the auto-hide rail revealed - the
     /// autohide-hold assertion for a workspace drag.
     #[cfg(test)]
     pub(in crate::native) fn rail_pinned_open_for_test(&self) -> bool {
@@ -2984,7 +2994,7 @@ impl App {
 
     /// Test seam (RESTORE-THEME): apply the current app-global presentation state
     /// (theme colors / palette / cursor defaults / scrollback cap) to every
-    /// session's terminal — the same sweep restore-on-launch and layout append
+    /// session's terminal - the same sweep restore-on-launch and layout append
     /// run so snapshot-spawned sessions stop rendering in the default palette.
     #[cfg(test)]
     pub(in crate::native) fn apply_model_state_to_all_sessions_for_test(&mut self) {
@@ -2995,7 +3005,7 @@ impl App {
     /// HEADLESS leaf spawner (no event-loop proxy), so CI EXERCISES the seed
     /// instead of skipping. A proxy-backed variant would need a real winit
     /// `EventLoop`, which cannot be
-    /// built where no display exists (CI, most agent shells) — there it returns
+    /// built where no display exists (CI, most agent shells) - there it returns
     /// early and asserts nothing. This variant spawns each appended leaf through
     /// the headless append seam, so the seed actually runs and is asserted
     /// everywhere the suite runs, including macOS.
@@ -3116,7 +3126,7 @@ impl App {
     }
 
     /// Test seam (NF21-6): run one arena-wide bell + prompt-marks drain and
-    /// return `(focused_bell, background_bell, focused_prompt_changed)` — so a
+    /// return `(focused_bell, background_bell, focused_prompt_changed)` - so a
     /// test can assert routing without a real window (urgency is a no-op
     /// headlessly). The per-tab activity latch is applied as a side effect.
     #[cfg(test)]
@@ -3180,7 +3190,7 @@ impl App {
     }
 
     /// F6-W5: directly set the active workspace's host binding, bypassing the
-    /// host-list resolution — so a headless test can exercise the New Tab
+    /// host-list resolution - so a headless test can exercise the New Tab
     /// routing without a configured `hosts.conf`.
     #[cfg(test)]
     pub(in crate::native) fn set_workspace_binding_for_test(&mut self, alias: Option<String>) {
@@ -3327,7 +3337,7 @@ impl App {
         self.rename_state.is_some()
     }
 
-    /// Test seam (LAYOUT-OPEN-MODE): drive the production `open_layout` gating —
+    /// Test seam (LAYOUT-OPEN-MODE): drive the production `open_layout` gating  -
     /// onto a pristine window it opens directly, onto real state it raises the
     /// Replace/Add/Cancel dialog.
     #[cfg(test)]
@@ -3411,7 +3421,7 @@ impl App {
     /// NF21-3: seed the layout-dependent UI state (a live selection, an active
     /// copy-mode caret, and a hovered-URL span) onto the session at `session`,
     /// so a test can drive `apply_grid_resize` and assert that a BACKGROUND tab
-    /// gets these coordinates cleared — not only the active one.
+    /// gets these coordinates cleared - not only the active one.
     #[cfg(test)]
     pub(in crate::native) fn seed_layout_dependent_state_for_test(&mut self, session: usize) {
         let Some(token) = self.sessions.token_at_position(session) else {
@@ -3579,7 +3589,7 @@ impl App {
         self.modifiers = prev;
     }
 
-    /// Test seam (C22/C12/C5): whether any overlay is currently open — the
+    /// Test seam (C22/C12/C5): whether any overlay is currently open - the
     /// predicate keyboard dispatch gates full-overlay key routing on.
     #[cfg(test)]
     pub(in crate::native) fn overlay_open_for_test(&self) -> bool {
@@ -3915,7 +3925,7 @@ impl App {
     }
 
     /// Test seam (W2): drive the shared rename field on the workspace at rail
-    /// index `idx` — open it, replace its text with `new`, and commit (Enter).
+    /// index `idx` - open it, replace its text with `new`, and commit (Enter).
     /// Returns the workspace's name afterward so a test can assert the field
     /// re-targets `Workspace.name`.
     pub(in crate::native) fn rename_workspace_via_field_for_test(
@@ -4232,7 +4242,7 @@ impl App {
     }
 
     /// Test seam (FONT-SAVE-CORRECTNESS BUG 2): drive the post-write live-apply
-    /// step that `save_overlay_settings` now performs — re-applying the
+    /// step that `save_overlay_settings` now performs - re-applying the
     /// just-written config through the shared `OverlayEdit` reload seam so a
     /// picked font / theme / panel edit takes effect immediately, not at the
     /// next restart. Wraps the exact production `apply_overlay_settings` the save
@@ -4288,6 +4298,12 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn on_window_focus_changed_for_test(&mut self, focused: bool) {
         self.on_window_focus_changed(focused);
+    }
+
+    /// Test seam: how many physical keys are recorded as taken by local UI.
+    #[cfg(test)]
+    pub(in crate::native) fn locally_consumed_key_count_for_test(&self) -> usize {
+        self.locally_consumed_keys.len()
     }
 
     /// Test seam (NF21-11): the current App-level IME preedit string.
@@ -4369,7 +4385,7 @@ impl App {
     }
 
     /// Confirm the pending image paste (Enter), returning what the upload worker
-    /// would have shipped (session id, PNG byte length) — recorded instead of a
+    /// would have shipped (session id, PNG byte length) - recorded instead of a
     /// real `ssh` under `cfg(test)`.
     #[cfg(test)]
     pub(in crate::native) fn confirm_image_paste_for_test(

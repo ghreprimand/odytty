@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Screen operations split out of the parent module for the modularity cap:
-//! scrolling, line/char insert-delete, erase, cursor motion, mode setting,
-//! and reset. These are inherent `Screen` methods moved verbatim from
-//! `super` (M4 mechanical split); private methods were widened to
-//! `pub(super)` so the parent module can still call them.
+//! Screen scrolling, line/char insert-delete, erase, cursor motion, mode
+//! setting and reporting, and reset, as inherent `Screen` methods.
 
 use super::*;
 

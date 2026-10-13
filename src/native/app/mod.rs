@@ -155,7 +155,7 @@ mod mouse_protocol;
 mod multi_window;
 mod multi_window_host;
 mod new_row_fade;
-mod open_notice;
+pub(in crate::native) mod open_notice;
 mod open_with_ui;
 mod os_theme;
 pub(in crate::native) mod osc52;
@@ -212,7 +212,7 @@ mod tab_chrome;
 // F4-P1: unified tab-panel + seam background-quad geometry (color from
 // `tab_chrome`), spliced into the GPU background segment behind the chrome.
 pub(super) mod tab_panel;
-// F4-V2 R1: vertical tab rail widget — the sibling of `tab_bar`, active when
+// F4-V2 R1: vertical tab rail widget - the sibling of `tab_bar`, active when
 // `tab_bar_placement` is a rail.
 #[cfg(test)]
 mod device_loss_tests;
@@ -275,7 +275,7 @@ const CWD_CHECKPOINT_SETTLE: Duration = Duration::from_secs(5);
 const CWD_CHECKPOINT_MIN_INTERVAL: Duration = Duration::from_secs(60);
 /// How long a failed shape save waits before the autosave or cwd checkpoint
 /// tries again, so a full or unwritable disk costs one attempt (and one
-/// warning) per interval.
+/// warning) per timer per interval; the two timers keep separate deadlines.
 const SHAPE_SAVE_RETRY: Duration = Duration::from_secs(30);
 
 /// A press landing on the context menu within this window of it opening is
@@ -306,7 +306,7 @@ pub(super) enum RenameTarget {
     /// workspace as a named layout instead of renaming it.
     SaveLayout(SessionToken),
     /// A "Save as Layout" name prompt for the WHOLE application (SAVE-ALL-LAYOUT):
-    /// on Enter, captures every workspace as one named layout. Carries no index —
+    /// on Enter, captures every workspace as one named layout. Carries no index  -
     /// the capture is session-wide.
     SaveAllLayout,
 }
@@ -400,7 +400,7 @@ fn is_ctrl_c_key(logical: &WinitKey) -> bool {
     }
 }
 
-/// Whether a logical key is `Delete` or `Backspace` (SELDEL-KEY) — either one
+/// Whether a logical key is `Delete` or `Backspace` (SELDEL-KEY) - either one
 /// deletes a selection, matching the universal GUI convention. Modifier state is
 /// checked by the caller; this only inspects the key identity.
 fn is_selection_delete_key(logical: &WinitKey) -> bool {

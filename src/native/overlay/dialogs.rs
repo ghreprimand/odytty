@@ -366,8 +366,8 @@ impl OverlayUi {
         }
     }
 
-    /// Hit-test a left-click in the attach-choice dialog body (Phase 14;
-    /// click→key parity, mirroring `confirm_close_click`). The action line
+    /// Hit-test a left-click in the attach-choice dialog body (click→key
+    /// parity, mirroring `confirm_close_click`). The action line
     /// ([`ATTACH_CHOICE_ACTION_LINE`]) is the 3rd body row (index 2); a click on
     /// the "New tab" region attaches in a new tab, the "Replace" region replaces
     /// the current tab, and anywhere else - including the leading prompt text and
@@ -985,7 +985,7 @@ impl OverlayUi {
                 }
             }
             ContextMenuOutcome::Activate(item) => {
-                // ODP-2C connection-row items need bespoke transitions (Edit opens
+                // Connection-row items need bespoke transitions (Edit opens
                 // the form in place, Remove opens a confirm, the rest close and
                 // route App-side), so handle them before the generic close.
                 if matches!(
@@ -1280,7 +1280,7 @@ impl OverlayUi {
                     // Detach & switch choice dialog. The overlay cannot read the
                     // terminal, so the cwd is resolved App-side, not here.
                     ContextMenuItem::DetachSwitch => OverlayOutcome::ContextMenuDetachSwitch,
-                    // ODP-2C connection-row items are handled by the early-return
+                    // Connection-row items are handled by the early-return
                     // above whenever the surface is `ConnectionRow`; they are
                     // never visible on any other surface, so reaching here is
                     // defensive-only. The menu already closed itself.
@@ -1304,7 +1304,7 @@ impl OverlayUi {
         }
     }
 
-    /// Route an activated ODP-2C connection-row menu item. Open in New Tab / New
+    /// Route an activated connection-row menu item. Open in New Tab / New
     /// Workspace / Bind close the manager and hand the App the clicked host;
     /// Edit opens the P4 form in place (returning to the form, not the grid);
     /// Remove opens the confirm dialog over the still-loaded manager. A missing

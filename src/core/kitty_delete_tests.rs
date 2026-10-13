@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! K2 fixtures: Kitty delete actions (a=d), query (a=q), and DECSDM (mode 80).
+//! Kitty delete actions (a=d), query (a=q), and DECSDM (mode 80) fixtures.
 
 use super::*;
 
@@ -10,8 +10,15 @@ use super::*;
 /// Build a Kitty APC for a 2×2 RGBA image with transmit+display, protocol id `id`.
 fn kitty_put_2x2(id: u32) -> Vec<u8> {
     let rgba = [0xFFu8; 16];
-    let b64 = simple_base64(&rgba);
+    let b64 = crate::core::kitty::encode_base64_bytes(&rgba);
     format!("\x1b_Ga=T,f=32,s=2,v=2,i={id};{b64}\x1b\\").into_bytes()
+}
+
+/// Like [`kitty_put_2x2`], displayed over `columns` x `rows` cells.
+fn kitty_put_2x2_spanning(id: u32, columns: u32, rows: u32) -> Vec<u8> {
+    let rgba = [0xFFu8; 16];
+    let b64 = crate::core::kitty::encode_base64_bytes(&rgba);
+    format!("\x1b_Ga=T,f=32,s=2,v=2,i={id},c={columns},r={rows};{b64}\x1b\\").into_bytes()
 }
 
 /// Build a Kitty APC delete command.
@@ -26,7 +33,7 @@ fn kitty_delete(spec: char, extra: &str) -> Vec<u8> {
 /// Build a Kitty APC query command for a 1×1 RGBA image.
 fn kitty_query_1x1() -> Vec<u8> {
     let rgba = [0xFFu8; 4];
-    let b64 = simple_base64(&rgba);
+    let b64 = crate::core::kitty::encode_base64_bytes(&rgba);
     format!("\x1b_Ga=q,f=32,s=1,v=1,i=99;{b64}\x1b\\").into_bytes()
 }
 
@@ -36,31 +43,6 @@ fn kitty_query_bad() -> Vec<u8> {
     "\x1b_Ga=q,f=32,s=2,v=2,i=99;AAAA\x1b\\"
         .to_string()
         .into_bytes()
-}
-
-/// Minimal base64 encoder for test payloads.
-fn simple_base64(data: &[u8]) -> String {
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::new();
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
-        let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
-        let triple = (b0 << 16) | (b1 << 8) | b2;
-        out.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
-        out.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
-        if chunk.len() > 1 {
-            out.push(CHARS[((triple >> 6) & 0x3F) as usize] as char);
-        } else {
-            out.push('=');
-        }
-        if chunk.len() > 2 {
-            out.push(CHARS[(triple & 0x3F) as usize] as char);
-        } else {
-            out.push('=');
-        }
-    }
-    out
 }
 
 /// Build a sixel DCS: solid 16×6 red block.
@@ -113,8 +95,12 @@ fn delete_by_image_id_lowercase() {
     t.advance(&kitty_delete('i', "i=10"));
     let vis = t.visible_graphics(0);
     assert_eq!(vis.len(), 1);
-    // Image 10 still in store (lowercase)
-    assert!(t.graphics().store().len() >= 2);
+    assert_eq!(
+        vis[0].row, 2,
+        "the surviving placement is image 20's, at row 2"
+    );
+    // Lowercase keeps both images in the store.
+    assert_eq!(t.graphics().store().len(), 2);
 }
 
 #[test]
@@ -125,7 +111,12 @@ fn delete_by_image_id_uppercase_frees() {
     t.advance(&kitty_put_2x2(20));
 
     t.advance(&kitty_delete('I', "i=10"));
-    assert_eq!(t.visible_graphics(0).len(), 1);
+    let vis = t.visible_graphics(0);
+    assert_eq!(vis.len(), 1);
+    assert_eq!(
+        vis[0].row, 2,
+        "the surviving placement is image 20's, at row 2"
+    );
     // Image 10 freed because no placements remain for it
     assert_eq!(t.graphics().store().len(), 1);
 }
@@ -164,6 +155,31 @@ fn delete_at_position() {
 
     t.advance(&kitty_delete('p', "x=0,y=0"));
     assert_eq!(t.visible_graphics(0).len(), 0);
+}
+
+#[test]
+fn delete_at_position_covers_interior_cells_and_ignores_a_miss() {
+    let mut t = Terminal::new(80, 24);
+    // Image 1 covers columns 0..3 and rows 0..2; image 2 sits well below it.
+    t.advance(&kitty_put_2x2_spanning(1, 3, 2));
+    t.advance(b"\x1b[10;1H");
+    t.advance(&kitty_put_2x2(2));
+    assert_eq!(t.visible_graphics(0).len(), 2);
+
+    // One column past the right edge and one row past the bottom edge miss.
+    t.advance(&kitty_delete('p', "x=3,y=0"));
+    t.advance(&kitty_delete('p', "x=0,y=2"));
+    assert_eq!(
+        t.visible_graphics(0).len(),
+        2,
+        "cells outside delete nothing"
+    );
+
+    // A covered interior cell, not the anchor, removes that placement only.
+    t.advance(&kitty_delete('p', "x=2,y=1"));
+    let vis = t.visible_graphics(0);
+    assert_eq!(vis.len(), 1);
+    assert_eq!(vis[0].row, 9, "the other image's placement survives");
 }
 
 #[test]

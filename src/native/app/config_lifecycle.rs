@@ -713,7 +713,6 @@ impl App {
         self.apply_model_state_to_all_sessions();
         if let Some(gpu) = self.gpu.as_mut().filter(|_| !self.gpu_device_lost) {
             gpu.set_theme(self.effective_theme);
-            gpu.set_visual(self.visual);
             gpu.set_text_gamma(self.settings.text_gamma);
             gpu.set_bloom(bloom_options(&self.settings));
             gpu.set_crt(crt_options(&self.settings));

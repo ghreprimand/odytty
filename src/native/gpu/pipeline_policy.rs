@@ -114,7 +114,7 @@ pub(in crate::native) fn theme_clear_color(theme: &Theme) -> wgpu::Color {
     }
 }
 
-/// TRANSPARENCY: choose the swapchain composite-alpha mode. A transparent
+/// Choose the swapchain composite-alpha mode. A transparent
 /// window needs the compositor to blend the surface alpha, so prefer a
 /// transparency-capable mode - `PreMultiplied` first (the framebuffer this
 /// renderer produces over a zero clear is premultiplied), then
@@ -164,7 +164,7 @@ pub(in crate::native) fn colored_content_build_opacity(
     cell_bg_opacity * window_bg_alpha.max(colored_bg_opacity)
 }
 
-/// TRANSPARENCY: the color the scene pass clears to. Fully transparent
+/// The color the scene pass clears to. Fully transparent
 /// (premultiplied zero) while the window is translucent, so the desktop shows
 /// through and the whole treatment-over-desktop stack - wallpaper layer then
 /// cell background quads, each premultiplied `(rgb·a, a)` - composites over it
@@ -658,6 +658,70 @@ mod instance_owner_tests {
             live_entries(),
             before,
             "isolation checks must not seed the live presentation owner"
+        );
+    }
+}
+
+/// Repeat tracking for uncaptured GPU errors: the last message and how many
+/// times in a row it has occurred.
+pub(super) struct GpuErrorRepeats {
+    last: Option<String>,
+    count: u64,
+}
+
+impl GpuErrorRepeats {
+    pub(super) const fn new() -> Self {
+        Self {
+            last: None,
+            count: 0,
+        }
+    }
+
+    /// Record one error and return its repeat count when it should be logged.
+    /// A new message logs at once; a repeated one logs again only at
+    /// power-of-two counts, so an error raised every frame cannot flood the log.
+    pub(super) fn record(&mut self, message: &str) -> Option<u64> {
+        if self.last.as_deref() == Some(message) {
+            self.count = self.count.saturating_add(1);
+        } else {
+            self.last = Some(message.to_owned());
+            self.count = 1;
+        }
+        self.count.is_power_of_two().then_some(self.count)
+    }
+}
+
+#[cfg(test)]
+mod gpu_error_repeat_tests {
+    use super::GpuErrorRepeats;
+
+    #[test]
+    fn repeated_gpu_errors_log_at_power_of_two_counts() {
+        let mut repeats = GpuErrorRepeats::new();
+        let logged: Vec<Option<u64>> = (0..9).map(|_| repeats.record("stale format")).collect();
+        assert_eq!(
+            logged,
+            [
+                Some(1),
+                Some(2),
+                None,
+                Some(4),
+                None,
+                None,
+                None,
+                Some(8),
+                None
+            ]
+        );
+        assert_eq!(
+            repeats.record("another error"),
+            Some(1),
+            "a new message logs at once"
+        );
+        assert_eq!(
+            repeats.record("stale format"),
+            Some(1),
+            "an interrupted run restarts"
         );
     }
 }

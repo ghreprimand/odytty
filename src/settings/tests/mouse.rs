@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Focused tests for the mouse/pointer settings (MOUSE-AUTOSCROLL-VEL and
-//! friends), kept out of the large `legacy` module so that file stays under the
-//! source-size cap.
+//! Focused tests for the mouse and pointer settings, kept out of the large
+//! `legacy` module so that file stays under the source-size cap.
 
 use super::*;
 

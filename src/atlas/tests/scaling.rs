@@ -9,10 +9,7 @@ use super::*;
 /// survive. This is R1 invalidation by construction.
 #[test]
 fn rebuild_at_larger_size_grows_cell_and_drops_dynamic_slots() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     // Build at 1x-equivalent density and populate the dynamic region.
     let mut small = GlyphAtlas::build(&font, 16.0);
     if let Some(ch) = glyph_bearing_non_ascii(&font) {
@@ -51,10 +48,7 @@ fn rebuild_at_larger_size_grows_cell_and_drops_dynamic_slots() {
 /// non-decreasing as density rises. Building twice at one size is identical.
 #[test]
 fn cell_metrics_deterministic_and_monotonic_across_scales() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     // 16 px logical at scales 1.0 / 1.25 / 1.5 / 2.0.
     let sizes = [16.0f32, 20.0, 24.0, 32.0];
     let mut prev: Option<CellSize> = None;
@@ -98,10 +92,7 @@ fn glyph_cells_matches_core_width_rule() {
 
 #[test]
 fn allocate_wide_slot_spans_two_cells_in_one_row() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     let lead = atlas.allocate_slots(2).expect("wide slot");
     // Lead carries span 2; the reserved next slot carries span 1.
@@ -125,10 +116,7 @@ fn allocate_wide_slot_spans_two_cells_in_one_row() {
 
 #[test]
 fn wide_allocation_burns_filler_to_avoid_row_wrap() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 20.0);
     // Advance allocation until the next slot is the last column of a row.
     while atlas.next_slot % atlas.cols != atlas.cols - 1 {
@@ -149,10 +137,7 @@ fn wide_allocation_burns_filler_to_avoid_row_wrap() {
 
 #[test]
 fn rasterize_clip_width_relieves_wide_glyph_clipping() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     // Build a cell at one size, then rasterize a heavy glyph at DOUBLE the
     // size so its natural ink exceeds a single cell - the same shape a real
     // width-2 glyph takes relative to a single-cell slot. With a single-cell
@@ -207,10 +192,7 @@ fn rasterize_clip_width_relieves_wide_glyph_clipping() {
 
 #[test]
 fn ensure_wide_codepoint_consumes_two_slots_when_supported() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let Some(ch) = wide_glyph_supported(&font) else {
         eprintln!("skipping: no wide (CJK/fullwidth) glyph in the loaded font");
         return;
@@ -241,10 +223,7 @@ fn ensure_wide_codepoint_consumes_two_slots_when_supported() {
 /// slots in the same row) and every UV is strictly within [0, 1].
 #[test]
 fn h3_uv_seam_free_across_fractional_scales() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     for &scale in &[1.0f32, 1.25, 1.5, 1.75, 2.0] {
         let px = physical_font_px(16.0, scale);
         let atlas = GlyphAtlas::build(&font, px);
@@ -285,10 +264,7 @@ fn h3_uv_seam_free_across_fractional_scales() {
 /// span, and the UV width matches the inked width in atlas pixels.
 #[test]
 fn h3_glyph_quad_uv_consistency_at_fractional_scales() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     for &scale in &[1.0f32, 1.25, 1.5, 1.75, 2.0] {
         let px = physical_font_px(16.0, scale);
         let atlas = GlyphAtlas::build(&font, px);

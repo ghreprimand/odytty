@@ -23,10 +23,10 @@ use super::*;
 /// a hit acts on the active workspace's TABS (top bar) or the WORKSPACES (rail).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::native) enum ChromeBand {
-    /// The top tab strip — Switch/Close/NewTab act on tabs of the active
+    /// The top tab strip - Switch/Close/NewTab act on tabs of the active
     /// workspace.
     TopBar,
-    /// The workspace rail sidebar — Switch/Close/NewTab act on workspaces.
+    /// The workspace rail sidebar - Switch/Close/NewTab act on workspaces.
     WorkspaceRail,
 }
 
@@ -92,15 +92,15 @@ impl TopTabDrag {
 /// In-flight drag-to-reorder gesture on a workspace rail slot (RAIL-DRAG). A
 /// left press on a workspace slot ARMS the gesture; pointer motion past
 /// [`CHROME_DRAG_THRESHOLD_PX`] promotes it to an active drag (`armed`); release
-/// commits the reorder through the shipped `move_workspace` engine, or — if the
-/// threshold was never crossed — falls through to a plain workspace activate;
+/// commits the reorder through the shipped `move_workspace` engine, or - if the
+/// threshold was never crossed - falls through to a plain workspace activate;
 /// Escape cancels with the rail order untouched. The rail auto-hide is held
 /// open for the gesture's lifetime so the drop target never vanishes mid-drag.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(in crate::native) struct RailWorkspaceDrag {
     /// Source workspace index the press landed on (the slot being moved).
     pub(in crate::native) origin_idx: usize,
-    /// Physical-pixel X/Y of the initial press — the threshold origin.
+    /// Physical-pixel X/Y of the initial press - the threshold origin.
     press_x: f64,
     press_y: f64,
     /// Pointer distance from the grabbed slot's top edge, in pixels. With the
@@ -131,7 +131,7 @@ impl RailWorkspaceDrag {
     }
 
     /// Feed a fresh pointer position. Promotes to `armed` once the straight-line
-    /// distance from the press crosses [`CHROME_DRAG_THRESHOLD_PX`] (sticky — it
+    /// distance from the press crosses [`CHROME_DRAG_THRESHOLD_PX`] (sticky - it
     /// never disarms). Returns whether the gesture is armed (a drag) after this
     /// sample, so the caller only tracks a drop target while dragging.
     pub(in crate::native) fn update_arm(&mut self, x: f64, y: f64) -> bool {
@@ -232,7 +232,7 @@ impl App {
             }
         }
         // UX4-P1: an open overlay captures the pointer before any
-        // selection / PTY-report / hyperlink logic — the mouse analogue
+        // selection / PTY-report / hyperlink logic - the mouse analogue
         // of the keyboard `if self.overlay.is_open()` guard. Shift and
         // the TUI mouse mode are not consulted here.
         if self.overlay.is_open() {
@@ -263,7 +263,7 @@ impl App {
             return;
         }
         // RAIL-DRAG: an in-flight workspace-rail drag owns the left button for
-        // its whole lifetime — a release ends it (commit-on-drag / activate-on-
+        // its whole lifetime - a release ends it (commit-on-drag / activate-on-
         // click), swallowing the event wherever the pointer wandered (the drop
         // may land far from the origin slot, off the rail band entirely, so this
         // cannot rely on `current_chrome_hit`). Motion is handled in
@@ -430,8 +430,8 @@ impl App {
                     ElementState::Pressed,
                     Some((ChromeBand::TopBar, TabHit::Close(idx))),
                 ) => {
-                    // The tab-strip `×` closes the WHOLE tab at `idx` — every
-                    // pane it holds — mirroring the menu/keyboard "Close Tab".
+                    // The tab-strip `×` closes the WHOLE tab at `idx` - every
+                    // pane it holds - mirroring the menu/keyboard "Close Tab".
                     // Exit keys on the last *tab* of the last *workspace*, never
                     // the last *pane*.
                     if let Some(token) = self.sessions.workspaces
@@ -572,7 +572,7 @@ impl App {
                 _ => {}
             }
         }
-        // B3: a latched button press resolves its paired release HERE — before
+        // B3: a latched button press resolves its paired release HERE - before
         // the selection finish, the swallow arm (which would eat it), and the
         // report gate (which would leak an unpaired release to a TUI that
         // enabled reporting mid-gesture). `finish_button_click` fires only on
@@ -609,7 +609,7 @@ impl App {
         // being visible (`viewport offset > 0`); the hit-test returns `None` at
         // the live tail and when disabled, so this branch is inert there and the
         // press routing below stays byte-identical. Sits before the TUI-report
-        // branch so grabbing the thumb wins over mouse reporting — but only when
+        // branch so grabbing the thumb wins over mouse reporting - but only when
         // the press actually lands on the thumb; every other press (including in
         // a mouse-reporting app) falls through to exactly the historical path.
         if self.settings.scrollbar_drag
@@ -627,8 +627,8 @@ impl App {
         // the platform open modifier held (Ctrl on Linux/Windows, Cmd on macOS),
         // opens the target even while a mouse-tracking TUI has mouse reporting
         // enabled. Placed BEFORE the report gate so the open wins over the PTY
-        // report for this exact gesture. Every other press — a plain click, or
-        // an open-modifier click NOT over a resolved span — fails this guard and
+        // report for this exact gesture. Every other press - a plain click, or
+        // an open-modifier click NOT over a resolved span - fails this guard and
         // falls through to the report gate byte-identically, so a reporting app
         // still receives all of its clicks. With reporting off the open would
         // fire in the left-press arm below anyway; this only moves it one step
@@ -700,7 +700,7 @@ impl App {
         // active the right-click is reported to the PTY and this is never
         // reached. Shift+right-click bypasses the report gate (Shift is excluded
         // from `should_report_mouse_to_pty`), so it falls through to here and
-        // opens the menu even in a TUI — the same Shift override convention as
+        // opens the menu even in a TUI - the same Shift override convention as
         // local selection. In a plain shell the gate is skipped and the menu
         // opens. No enable bool: the report gate IS the off switch (D-IN2-1).
         if button == WinitMouseButton::Right && state == ElementState::Pressed {
@@ -711,7 +711,7 @@ impl App {
         if button == WinitMouseButton::Left {
             match state {
                 ElementState::Pressed => {
-                    // B3 button arm — AHEAD of OSC 8: a button is an explicit
+                    // B3 button arm - AHEAD of OSC 8: a button is an explicit
                     // UI chip and wins ties with any hyperlink underneath it.
                     // Plain click activates (no modifier; Shift only as the
                     // reporting-TUI override); the arm is a no-op whenever the
@@ -760,7 +760,7 @@ impl App {
     /// - while a drag is in progress, a left release ends it and persists the
     ///   dragged width, and any other left event is swallowed;
     /// - a left press on the seam grab band arms a drag (motion sets the manual
-    ///   width) — unless it is the second press of a double-click, which resets
+    ///   width) - unless it is the second press of a double-click, which resets
     ///   the rail to auto width instead.
     ///
     /// Off a rail (`pointer_over_rail_seam` is false) it consumes nothing, so
@@ -811,7 +811,7 @@ impl App {
     /// - while a drag is in progress, a left release ends it and persists the
     ///   dragged height, and any other left event is swallowed;
     /// - a left press on the seam grab band arms a drag (motion sets the manual
-    ///   height) — unless it is the second press of a double-click, which resets
+    ///   height) - unless it is the second press of a double-click, which resets
     ///   the tab bar to auto height instead.
     ///
     /// Off the seam (`pointer_over_tab_bar_seam` is false) it consumes nothing,
@@ -864,7 +864,7 @@ impl App {
     /// thumb (MOUSE-SCROLLBAR), returning the grab offset within the thumb when
     /// the press lands on the visible thumb's grab band, else `None`. The thumb
     /// is visible only while scrolled back (`viewport offset > 0`), so a press
-    /// at the live tail (the default) never grabs — keeping the plain press path
+    /// at the live tail (the default) never grabs - keeping the plain press path
     /// byte-identical. Uses `pointer_px`, the same cached coordinates the
     /// SGR-pixel report path relies on (button events carry no coordinates).
     pub(super) fn scrollbar_hit_test(&self) -> Option<f32> {
@@ -895,7 +895,7 @@ impl App {
     /// The chrome band and hit under the pointer this frame. The workspace rail
     /// is resolved FIRST: it is a full-height sidebar, so in the top-left corner
     /// (a rail column over the top-bar row) the rail wins. The top tab bar is
-    /// then resolved in its own X space — a left rail reserves the left columns,
+    /// then resolved in its own X space - a left rail reserves the left columns,
     /// so the bar is shifted right by that band. `None` off all chrome.
     pub(in crate::native) fn current_chrome_hit(&self) -> Option<(ChromeBand, TabHit)> {
         if !self.any_chrome_shown() {
@@ -970,7 +970,7 @@ impl App {
         // MOUSE-WHEEL (zoom): Ctrl+wheel adjusts the font size, but only while
         // mouse reporting is off. The report gate above already returned for a
         // reporting app, so Ctrl+wheel there passes through to the PTY untouched
-        // — this branch is never reached in that case. Gated on the `wheel_zoom`
+        // - this branch is never reached in that case. Gated on the `wheel_zoom`
         // setting (default on); when off, Ctrl+wheel falls through to the plain
         // scrollback path below, byte-identical to today. Ctrl+wheel is a zoom
         // gesture, so it is consumed here and never also scrolls scrollback
@@ -983,8 +983,8 @@ impl App {
         if self.settings.wheel_zoom && self.modifiers.ctrl {
             // WHEEL-SENS: coalesce the burst before mapping to a font step so
             // one physical notch is exactly one step (cap one per notch). The
-            // gesture is consumed unconditionally — even when the carry is still
-            // sub-notch or the size is clamped at a bound — so Ctrl+wheel never
+            // gesture is consumed unconditionally - even when the carry is still
+            // sub-notch or the size is clamped at a bound - so Ctrl+wheel never
             // falls through to scrollback (T-zoom-clamp).
             if let Some(notch) = self.wheel_accum.coalesce_zoom(delta, cell_height) {
                 let steps = wheel_zoom_steps(notch);
@@ -1003,7 +1003,7 @@ impl App {
         // unchanged notch path below.
         if let MouseScrollDelta::PixelDelta(pos) = delta {
             // Drive the continuous lane on the pane UNDER THE POINTER (in a split;
-            // the active pane on a single-pane tab), not the focused/active pane —
+            // the active pane on a single-pane tab), not the focused/active pane  -
             // matching the discrete notch lane's `local_wheel_scroll_target` and
             // fixing the focus/pointer mismatch. Eligibility is that pane's own
             // (its screen, the knob, no Ctrl/selection). Ineligible cases
@@ -1030,7 +1030,7 @@ impl App {
             }
             // ALT-SCROLL (DECSET 1007): on the alternate screen (which has no
             // scrollback) a TUI that enables alternate-scroll WITHOUT full mouse
-            // tracking — classic pagers like `less`, `man`, `git log` — expects
+            // tracking - classic pagers like `less`, `man`, `git log` - expects
             // the wheel to move via cursor keys. Reporting is already off here
             // (the report gate returned above), so translate the wheel into
             // Up/Down presses at the SAME multiplied count as local scrollback
@@ -1064,7 +1064,7 @@ impl App {
     /// Adjust the live font size by `steps` pixels (MOUSE-WHEEL Ctrl+wheel
     /// zoom), clamped to the supported range, routed through the existing live
     /// settings-apply seam so the atlas rebuild and grid reflow run exactly as
-    /// a `font_size` settings edit would — no separate resize path. A no-op when
+    /// a `font_size` settings edit would - no separate resize path. A no-op when
     /// the clamp leaves the size unchanged (already at the min/max), so zooming
     /// past the bound does nothing. The change is applied live but not written
     /// to disk: the same transient behavior as dragging the overlay slider
@@ -1134,7 +1134,7 @@ impl App {
     ///   selection entirely over non-input cells such as a right-prompt
     ///   decoration). Consuming the key with a hint is the charter behavior:
     ///   a wrong delete is worse than a no-op.
-    /// * [`SelectionDeleteOutcome::FallThrough`] — rung R0 fails (no local
+    /// * [`SelectionDeleteOutcome::FallThrough`] - rung R0 fails (no local
     ///   selection at the live tail) or the selection does not touch the input
     ///   region at all: the key falls through to the normal encode path,
     ///   exactly as before.
@@ -1168,13 +1168,13 @@ impl App {
             return SelectionDeleteOutcome::FallThrough;
         }
         // R2: certainty Unknown (stale mark / hard newlines) can never back a
-        // real buffer edit — unconditional no-op.
+        // real buffer edit - unconditional no-op.
         if region.certainty == InputCertainty::Unknown {
             return SelectionDeleteOutcome::NoOpWithHint;
         }
         // R3, NF14-R, Option R: a SINGLE-ROW RightEdgeUnknown
         // region falls through to the R4 clamp below using the core-computed
-        // heuristic right edge (last non-blank cell) — the shipped pre-B2
+        // heuristic right edge (last non-blank cell) - the shipped pre-B2
         // behavior. This deliberately re-accepts the bounded risk that a
         // right-aligned decoration on the input row is treated as input,
         // because the strict ODP-3 gate made select+Delete a complete no-op
@@ -1261,7 +1261,7 @@ impl App {
             return;
         };
         // Fail-safe: if the clipboard write fails, do not delete the editable
-        // input and do not clear the selection — the text stays in-place as
+        // input and do not clear the selection - the text stays in-place as
         // if Cut had not been invoked. Only proceed with the delete when the
         // write actually succeeded (D-IN2-CUT-SAFE).
         if self.clipboard.write_text(&selection.text).is_none() {
@@ -1280,7 +1280,7 @@ impl App {
     /// SELDEL-KEY: delete the selected editable prompt input via the Delete /
     /// Backspace key, sharing the exact gated path as the right-click Delete /
     /// Cut. Returns `true` (the key was consumed) only when a local selection
-    /// intersects the current editable input line — i.e. the same condition that
+    /// intersects the current editable input line - i.e. the same condition that
     /// enables the menu's Delete item (shell integration reported the input
     /// boundary, the selection is on the live prompt row, and the viewport is at
     /// the live tail). Returns `false` in every other case so the caller falls
@@ -1299,7 +1299,7 @@ impl App {
             }
             // Ladder rungs R2/R3 + default (B-DESIGN §4): the selection is on
             // the input region but the geometry cannot back a real buffer
-            // edit. Consume the key — never forward a blind Delete/Backspace —
+            // edit. Consume the key - never forward a blind Delete/Backspace  -
             // clear the selection, and (NF17) raise the geometry-unavailable
             // hint. The input mark IS present here, so shell integration is
             // active; pointing at Settings would be misleading.
@@ -1353,8 +1353,8 @@ impl App {
     /// Reset terminal-grid pointer state when entering any overlay mode.
     ///
     /// An open overlay captures the pointer (UX4-P1), so any in-progress local
-    /// selection — and crucially any TUI mouse-report button still held from a
-    /// press before the overlay opened — must be cleared on entry. Overlay
+    /// selection - and crucially any TUI mouse-report button still held from a
+    /// press before the overlay opened - must be cleared on entry. Overlay
     /// presses short-circuit before `handle_reported_mouse_input` and overlay
     /// releases are inert, so a stale `report_button` would otherwise survive
     /// the overlay and re-enter the held-button motion path after it closes.
@@ -1382,7 +1382,7 @@ impl App {
         // paired release is then consumed by the overlay, so drop the swallow
         // latch here too and never carry it past the overlay.
         self.swallow_open_left_release = false;
-        // B3: never carry a latched button press past an overlay either — its
+        // B3: never carry a latched button press past an overlay either - its
         // release belongs to the overlay now.
         self.pressed_button = None;
         // WHEEL-SENS (T-reset): clear the wheel carry on overlay entry so a
@@ -1536,7 +1536,7 @@ impl App {
     /// `rail_ws_drag` is itself what holds an auto-hide rail open for the
     /// gesture: `rail_pinned_open()` reads `rail_ws_drag.is_some()`, so the rail
     /// stays revealed for the drag's whole lifetime and the drop target can
-    /// never vanish mid-drag — this method sets no separate pin flag, the live
+    /// never vanish mid-drag - this method sets no separate pin flag, the live
     /// drag IS the pin. If the press position is somehow unknown, degrade to a
     /// plain activate so the slot is never left inert.
     pub(super) fn begin_workspace_drag(&mut self, idx: usize) {
@@ -1604,7 +1604,7 @@ impl App {
     }
 
     /// Cancel an in-flight workspace-rail drag (RAIL-DRAG) with the rail order
-    /// untouched — the Escape path. Returns `true` when a drag was actually
+    /// untouched - the Escape path. Returns `true` when a drag was actually
     /// cancelled (so the key handler can consume the Escape), `false` when none
     /// was in flight (the key falls through to its normal meaning). Releases the
     /// auto-hide hold and repaints to drop the indicator.
@@ -1632,8 +1632,8 @@ impl App {
 
     /// Commit a rail drag: move the workspace at `from` to insertion index `to`
     /// (0..=count, as the shared chrome geometry returns), by walking the shipped
-    /// single-step `move_workspace` one slot at a time. Reusing that engine — not
-    /// a bespoke splice — keeps the active-follow-by-identity and shape-snapshot
+    /// single-step `move_workspace` one slot at a time. Reusing that engine - not
+    /// a bespoke splice - keeps the active-follow-by-identity and shape-snapshot
     /// persistence semantics identical to the context-menu Move Up/Down path.
     /// Flashes the rail and requests a redraw when the order actually changed.
     fn commit_workspace_drag(&mut self, from: usize, to: usize) {

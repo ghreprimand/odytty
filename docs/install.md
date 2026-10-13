@@ -337,8 +337,8 @@ included, with `./install.sh --uninstall` from the extracted tarball (honoring
 the same `PREFIX`).
 Both install and uninstall refuse `PREFIX=/usr`, including dot components,
 trailing slashes and symlink aliases that resolve to `/usr`. There is no
-override: use apt, dnf, rpm or the AUR package manager to manage a package
-installation. The tarball uses GNU `realpath` to check the prefix before
+override: manage a package installation with apt, dnf, rpm, or pacman and an
+AUR helper. The tarball uses GNU `realpath` to check the prefix before
 changing any files. In an allowed prefix, uninstall removes the binary,
 desktop files, named licence texts and bundled font licences, and leaves other
 licence files and nonempty licence directories in place. Use a separate prefix

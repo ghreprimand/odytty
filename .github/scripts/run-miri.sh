@@ -278,7 +278,10 @@ for entry in "${filters[@]}"; do
     # the same log must never downgrade a real UB report.
     result="undefined-behavior"
     ub_total=$((ub_total + 1))
-  elif grep -Eq "unsupported operation|can't call foreign function|is not supported" "$log"; then
+  elif [ "$rc" -ne 0 ] \
+    && grep -Eq "unsupported operation|can't call foreign function|is not supported" "$log"; then
+    # Only a failing run can be unsupported: a passing log that merely prints
+    # one of these phrases (a test name, a dependency warning) is a pass.
     result="unsupported"
     unsupported_total=$((unsupported_total + 1))
   elif [ "$rc" -eq 0 ]; then

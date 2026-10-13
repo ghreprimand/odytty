@@ -1,24 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Transient, non-blocking native status notices.
 //!
-//! v0.4.0 swallowed every `Command::spawn()` error at the single
-//! [`super::interactive_paths::spawn_detached`] point, so a missing or broken
-//! opener (`xdg-open`/`open`) was indistinguishable from "feature off" - the
-//! user clicked and nothing happened, with no explanation. This surface fixes
-//! that: when an open/reveal spawn fails, the App raises a short message that
-//! paints as a one-row banner over the top of the grid and auto-expires. Routine
-//! security status can reuse the same bounded surface with a neutral tone.
+//! When an open/reveal spawn fails (a missing or broken opener such as
+//! `xdg-open` or `open`), the App raises a short message that paints as a
+//! one-row banner over the top of the grid and auto-expires, so the failure is
+//! distinguishable from the feature being off. Routine security status reuses
+//! the same bounded surface with a neutral tone.
 //!
-//! Design constraints (from the Phase-2 ruling):
-//! * NON-BLOCKING - it never captures focus, pauses the loop, or eats input;
-//!   it is purely a painted row plus a wake deadline, modelled on the existing
-//!   bell-flash overlay plumbing.
-//! * OPEN FAILURES REMAIN FAILURE-ONLY - [`App::spawn_open_or_notice`] sets its
-//!   notice from the `Err` arm only; the success path never touches it.
-//! * BYTE-IDENTICAL WHEN ABSENT - both the painter ([`App::paint_open_notice_cells`])
-//!   and the cache signature ([`App::open_notice_overlay_signature`]) early-out
-//!   when `open_notice` is `None`, so a no-error / feature-off frame is
-//!   unchanged from before this surface existed.
+//! * Non-blocking: it never captures focus, pauses the loop, or eats input; it
+//!   is a painted row plus a wake deadline.
+//! * Open failures only: [`App::spawn_open_or_notice`] sets its notice from the
+//!   `Err` arm; the success path never touches it.
+//! * Unchanged when absent: both the painter ([`App::paint_open_notice_cells`])
+//!   and the cache signature ([`App::open_notice_overlay_signature`]) return
+//!   early when `open_notice` is `None`.
 
 /// Failure notice for typed or committed input the session writer refused.
 pub(in crate::native) const INPUT_NOT_DELIVERED_NOTICE: &str =
@@ -228,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn notice_attrs_are_inverse_attention_colors() {
+    fn notice_attrs_use_direct_attention_colors() {
         let a = notice_attrs(NoticeTone::Failure);
         assert_eq!(a.background, Color::Indexed(9));
         assert_eq!(a.foreground, Color::Indexed(0));

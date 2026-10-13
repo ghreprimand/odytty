@@ -3,8 +3,8 @@
 
 /// Maximum background-luminance attenuation an ID3/U5 treatment may apply, at
 /// full strength and the farthest falloff point. The cap keeps the effect
-/// subtle by construction; the RV1 floor (applied immediately after, on the
-/// treated background) is the hard readability guarantee regardless.
+/// subtle by construction; the RV1 floor, applied immediately after on the
+/// treated background, then corrects the foreground on a best-effort basis.
 pub const MAX_BG_TREATMENT_DARKEN: f32 = 0.55;
 
 /// Which ID3/U5 background treatment is active. [`BackgroundTreatment::None`]
@@ -24,9 +24,10 @@ pub enum BackgroundTreatment {
 /// the resolved background color in [`build_cell_vertices_with_focus_dim_and_origin_into`].
 ///
 /// The treatment runs **before** the RV1 minimum-contrast floor, so the floor
-/// sees the treated per-cell background and re-lifts the foreground to keep
-/// contrast above the configured ratio - readability is preserved by
-/// construction, per cell. The [`Default`] is the identity (`kind = None`,
+/// sees the treated per-cell background and corrects the foreground toward the
+/// configured ratio per cell. The floor is best effort (see
+/// [`crate::text::enforce_contrast_rgba`]), and the later brightness lift can
+/// lower contrast on light backgrounds. The [`Default`] is the identity (`kind = None`,
 /// `strength = 0.0`), for which [`Self::active`] is `false`, the apply block is
 /// skipped, and the rendered frame is byte-identical to the pre-feature
 /// renderer. Lives here (not in the native overlay registry) because

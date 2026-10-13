@@ -265,7 +265,7 @@ impl RenderQuality {
     }
 }
 
-/// ID3/U5 background-treatment selector. The shipped default is `Image` (see the
+/// Background-treatment selector. The shipped default is `Image` (see the
 /// `#[default]` variant below), which draws the bundled wallpaper behind the
 /// grid with a scrim. `Off` is the opt-out that leaves the cell background
 /// exactly as resolved (the plain/fast path, pixel-identical to no treatment).
@@ -521,14 +521,13 @@ impl RemoteImagePaste {
 
 /// Where the tab bar/rail sits relative to the terminal content.
 /// `Top` (default) is the shipped horizontal strip; `Left`/`Right` are the
-/// vertical rails on either side. All three placements render (F4-P2 landed the
-/// `Right` arm), so [`TabBarPlacement::effective`] is now an identity.
+/// vertical rails on either side. All three placements render.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TabBarPlacement {
     /// Horizontal strip across the top (the shipped default).
     #[default]
     Top,
-    /// Vertical rail down the left side (F4-V2 R1).
+    /// Vertical rail down the left side.
     Left,
     /// Vertical rail down the right side. Mirror of the left rail: the
     /// content stays at column 0 and the rail band sits at the far right; the
@@ -562,16 +561,6 @@ impl TabBarPlacement {
         }
     }
 
-    /// The placement actually honored by the current render path. All three
-    /// placements now render (F4-P2 landed the `Right` rail), so this is an
-    /// identity. It is retained as the single choke point the render/reserve
-    /// paths read, so a future placement that needs a fallback has one seam to
-    /// add it - callers keep going through `effective()` rather than the raw
-    /// setting.
-    pub fn effective(self) -> Self {
-        self
-    }
-
     pub(super) fn parse(value: &str) -> Option<Self> {
         match normalize_name(value).as_str() {
             "top" | "horizontal" | "bar" => Some(Self::Top),
@@ -582,7 +571,7 @@ impl TabBarPlacement {
     }
 }
 
-/// Workspace-rail visibility and side (design doc ODP-2). The rail lists
+/// Workspace-rail visibility and side. The rail lists
 /// WORKSPACES (never tabs - tabs are the top bar, always). `Auto` (default)
 /// reveals the rail only once a second workspace exists, so a single-workspace
 /// launch is a zero-chrome change from a top-only tab bar. `Always` pins it even
@@ -641,7 +630,7 @@ impl WorkspaceRail {
     }
 }
 
-/// ControlPersist window for the reuse master (ODP-9 Tier 2, `remote_persist`).
+/// ControlPersist window for the reuse master (`remote_persist`).
 /// The reuse path keeps an authenticated `ssh` master alive after the last tab
 /// to a host closes, so a daily-driver host is authenticated roughly once per
 /// boot rather than once per tab. This knob sets how long that master lingers.
@@ -721,7 +710,7 @@ impl RemotePersist {
 ///
 /// Persisted as `auto` or a plain integer, so an existing numeric config
 /// (`tab_rail_width = 20`) round-trips as `Manual(20)` - old configs keep their
-/// exact behavior (F4-P4 migration rule).
+/// exact behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TabRailWidth {
     /// Auto-size to the longest tab title, clamped to the auto max (default).
@@ -970,7 +959,7 @@ pub struct Settings {
     /// never affected.
     pub inactive_pane_dim: f32,
     pub render_quality: RenderQuality,
-    /// ID3/U5 background treatment. Shipped default is `Image` (the bundled
+    /// Background treatment. Shipped default is `Image` (the bundled
     /// wallpaper); `off` is the opt-out pixel-identical plain path.
     pub background_treatment: BackgroundTreatment,
     /// Optional PNG image file path for the `image` background treatment. The
@@ -1038,11 +1027,11 @@ pub struct Settings {
     /// knob via [`Self::effective_crt_curvature`].
     pub crt_curvature: f32,
     pub subpixel: SubpixelMode,
-    /// Line-height multiplier baked into the glyph cell (LINEHEIGHT). `1.0`
+    /// Line-height multiplier baked into the glyph cell. `1.0`
     /// (default) adds zero leading and is pixel-identical to before; higher
     /// values grow the cell box and add symmetric vertical breathing room.
     pub line_height: f32,
-    /// Box-drawing stroke-thickness multiplier (BOXTHICK). `1.0` (default)
+    /// Box-drawing stroke-thickness multiplier. `1.0` (default)
     /// reproduces the historical geometric box-drawing weights byte-identically;
     /// other values scale the rule thickness.
     pub box_thickness: f32,
@@ -1178,7 +1167,7 @@ pub struct Settings {
     /// Optional explicit symbol / Nerd-font file path. `None` means auto-resolve
     /// a suitable symbol face when [`Settings::symbol_fallback`] is enabled.
     pub symbol_font: Option<PathBuf>,
-    /// Per-codepoint-range font-family override (SYMMAP, extends RV6). Routes
+    /// Per-codepoint-range font-family override. Routes
     /// specific Unicode ranges to named font families without patching the body
     /// font. The default is an empty map: every lookup returns `None`, so glyph
     /// resolution is byte-identical to the no-override path. First-match-wins.
@@ -1237,14 +1226,14 @@ pub struct Settings {
     /// wheel inside a TUI mouse-reporting app - stays byte-identical. Off
     /// returns Ctrl+wheel to plain scrollback movement.
     pub wheel_zoom: bool,
-    /// Per-command success/fail gutter. When on, a thin coloured bar at
-    /// the left edge of each finished command's prompt row reads green for an
-    /// explicit `exit 0` and red for a non-zero exit, sourced from the OSC 133
-    /// command blocks and coloured from the active ANSI palette (so it
-    /// daltonises with U4 for free). On by default; the off path draws nothing
-    /// and is pixel-identical to a plain margin.
+    /// Per-command success/fail gutter. When on, a thin coloured bar at the left
+    /// edge of each finished command's prompt row reads green for an explicit `exit
+    /// 0` and red for a non-zero exit, sourced from the OSC 133 command blocks and
+    /// coloured from the active ANSI palette (so it daltonises with the
+    /// colour-vision adaptation for free). On by default; the off path draws
+    /// nothing and is pixel-identical to a plain margin.
     pub command_status_gutter: bool,
-    /// Always show the tab bar, even for a single tab (F4 ODP-7). Off by
+    /// Always show the tab bar, even for a single tab. Off by
     /// default; with one unnamed tab the bar stays hidden and the render path is
     /// byte-identical to today. A lone tab with a custom name shows the bar
     /// regardless of this setting.
@@ -1331,8 +1320,8 @@ pub struct Settings {
     /// ([`DEFAULT_SHELL_KEY_ENHANCEMENT`]): while on, Ctrl+C stops raising
     /// SIGINT in bash.
     pub shell_key_enhancement: bool,
-    /// Restore the previous workspace/tab/pane shape at launch (WP2, sub-ODP
-    /// 8a). Off by default; only a bare `odytty` launch restores, and any CLI
+    /// Restore the previous workspace/tab/pane shape at launch. Off by
+    /// default; only a bare `odytty` launch restores, and any CLI
     /// argument suppresses it. Shape-only (names/titles/order/split-tree/cwd),
     /// never grid content or commands. The autosave that feeds restore runs on
     /// the primary instance regardless of this flag.
@@ -1404,7 +1393,7 @@ pub struct Settings {
     /// sawtooth). Only detented wheels use this; high-resolution/touchpad input
     /// uses `pixel_scroll`. At rest the render path is byte-identical.
     pub scroll_glide: bool,
-    /// Colour-vision-deficiency palette adaptation mode (U4, Accessibility).
+    /// Colour-vision-deficiency palette adaptation mode (Accessibility).
     /// `Off` by default - the off path publishes the authored palette unchanged
     /// and is pixel-identical to before. The deficiency modes daltonise the
     /// palette (16 ANSI + cursor/selection/search roles) so confusable colours
@@ -1518,7 +1507,7 @@ pub struct Settings {
     /// also grants the protocol's bounded structural actions; terminal input
     /// and terminal-content reads remain outside the protocol.
     pub automation_endpoint: bool,
-    /// Opt-in interactive filesystem paths (Phase 7+). Off by default; while off
+    /// Opt-in interactive filesystem paths. Off by default; while off
     /// the pointer path never scans terminal text for paths and the plain hover
     /// path is byte-identical. When on, hovering a path-looking span that
     /// resolves to a real filesystem entry shows the pointer (hand) cursor.

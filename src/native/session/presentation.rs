@@ -503,7 +503,7 @@ impl WorkspaceSet {
 
     /// True when `token` is a currently visible pane of the **active** tab -
     /// i.e. its output should drive a redraw even when it is not the focused
-    /// pane (design doc §2.5 audit row #4: redraw suppression must key on "any
+    /// pane (redraw suppression must key on "any
     /// visible pane of the active tab", not just the focused one). For a
     /// single-pane tab this is exactly `active_id() == token`, so the
     /// single-pane redraw decision is unchanged.
@@ -582,7 +582,7 @@ impl WorkspaceSet {
 
     /// The pane of the active tab under a pixel point, or `None` in a divider
     /// gap / outside content. Focus-follows-click resolves the clicked pane
-    /// through this (design doc §4.3 / audit row #6).
+    /// through this.
     pub(in crate::native) fn active_pane_at_point(
         &self,
         content: PaneRect,

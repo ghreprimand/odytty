@@ -1,16 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! OdyTTY-owned VT parser (Stage 4.5 Foundation Ownership).
+//! OdyTTY's VT parser, the only parser on the byte path from PTY to `Screen`.
 //!
-//! This module is the OdyTTY-owned VT parser on the byte path from PTY to
-//! Screen. Since PA3 it is the sole production parser.
+//! ## Two-layer pipeline
 //!
-//! ## Two-layer pipeline (PA2-r clean-room design)
-//!
-//! The PA2-r rebuild splits the parser into two clean layers along the
-//! text/control boundary, an OdyTTY-original structural choice taken from the
-//! primary specifications (vt100.net DEC ANSI parser diagram, ECMA-48, xterm
-//! `ctlseqs`). Neither the former parser dependency nor Ghostty source was
-//! consulted during this rebuild.
+//! The parser splits into two layers along the text/control boundary. Its
+//! behavior follows the vt100.net DEC ANSI parser diagram, ECMA-48, and xterm
+//! `ctlseqs`.
 //!
 //! ```text
 //! ┌───────────── Layer 1 (segmenter.rs) ─────────────┐
@@ -36,14 +31,12 @@
 //! └──────────────────────────────────────────────────┘
 //! ```
 //!
-//! ## Originality boundary
+//! ## Design axes
 //!
-//! Each axis of the design is a deliberate OdyTTY choice, documented in the
-//! submodule headers:
+//! Each axis is documented in the submodule headers:
 //!
 //! - **State transitions** - flat `match (state, byte-class)` returning an
-//!   [`action::Action`], NOT per-state methods (the first-generation shape)
-//!   and NOT the Williams `[state][256]` table (canonical reference).
+//!   [`action::Action`].
 //! - **UTF-8 strategy** - lifted entirely out of the state machine into the
 //!   Layer-1 [`segmenter`]; partial-codepoint carry lives in one place.
 //! - **Dispatch shape** - hybrid pure-action core + thin driver adapter;

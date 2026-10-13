@@ -4,7 +4,7 @@
 #
 # Renders the showcase frame inside a REAL OdyTTY window (so it uses OdyTTY's
 # own glyph atlas + CRT/bloom/vignette post-processing), then helps you capture
-# it with grim+slurp. Everything runs from a sanitized /tmp fake repo - no real
+# it with grim+slurp. Everything runs from a sanitized temporary fake repo - no real
 # user data, safe for a public screenshot.
 #
 # Tagline is "a GPU-accelerated terminal emulator written in Rust" - no version,
@@ -12,9 +12,15 @@
 #
 # Usage:  bash scripts/make-demo.sh  [output.png]
 #         (default output: ~/odytty-demo-new.png)
+#
+# Every generated file lives in one fresh private directory made with mktemp,
+# so another user cannot pre-create a path the script then writes and runs. The
+# directory is left in place (the window is still showing it) and its path is
+# printed at the end.
 set -u
 
-DEMO=/tmp/odytty-demo
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/odytty-demo.XXXXXX")" || exit 1
+DEMO="$WORK/odytty-demo"
 OUT="${1:-$HOME/odytty-demo-new.png}"
 
 # --- pick an odytty binary: repo release build, else newest local dev build ---
@@ -33,7 +39,7 @@ echo "using binary : $BIN"
 echo "output target: $OUT"
 
 # --- build a sanitized fake repo so 'git log --graph' + 'tree' have content ---
-rm -rf "$DEMO"; mkdir -p "$DEMO/src" "$DEMO/shaders"; cd "$DEMO" || exit 1
+mkdir -p "$DEMO/src" "$DEMO/shaders"; cd "$DEMO" || exit 1
 cat > README.md <<'EOF'
 # OdyTTY
 A from-scratch, GPU-rendered terminal emulator.
@@ -86,11 +92,11 @@ commit "2024-02-09T12:05:00" "shaders: bloom + CRT post-processing pass"
 set +e
 
 # --- showcase frame (tagline: no version, no "for Linux") ---
-cat > /tmp/odytty-showcase.sh <<'SHEOF'
+cat > "$WORK/showcase.sh" <<'SHEOF'
 #!/usr/bin/env bash
 # Sanitized OdyTTY showcase frame. No real user data - safe for screenshots.
 set -u
-cd /tmp/odytty-demo 2>/dev/null || true
+cd "$(dirname "$0")/odytty-demo" 2>/dev/null || true
 
 clear
 printf '\n'
@@ -144,21 +150,22 @@ printf '  \033[38;5;245mligatures:\033[0m \033[38;5;159m-> => != >= <= === |> ::
 # --- Fake prompt left on screen so the shot ends on a clean prompt ---
 printf '\033[38;5;213mody\033[0m \033[38;5;245m~/projects/nebula\033[0m \033[38;5;81m\xe2\x9d\xaf\033[0m '
 SHEOF
-chmod +x /tmp/odytty-showcase.sh
+chmod +x "$WORK/showcase.sh"
 
 # frame = showcase without the trailing fake prompt (PS1 provides the live one)
-sed '/213mody/d' /tmp/odytty-showcase.sh > /tmp/odytty-showcase-frame.sh
-chmod +x /tmp/odytty-showcase-frame.sh
+sed '/213mody/d' "$WORK/showcase.sh" > "$WORK/showcase-frame.sh"
+chmod +x "$WORK/showcase-frame.sh"
 
-cat > /tmp/odytty-rc.sh <<'RCEOF'
+cat > "$WORK/rc.sh" <<'RCEOF'
 # Sanitized interactive shell for screenshots - no real user data.
 export HISTFILE=/dev/null
 unset HISTSIZE
 PROMPT_COMMAND=
 PS1=$'\033[38;5;213mody\033[0m \033[38;5;245m~/projects/nebula\033[0m \033[38;5;81m\xe2\x9d\xaf\033[0m '
-cd /tmp/odytty-demo 2>/dev/null || true
+here="$(dirname "${BASH_SOURCE[0]}")"
+cd "$here/odytty-demo" 2>/dev/null || true
 # paint the showcase frame, then drop to the live prompt
-bash /tmp/odytty-showcase-frame.sh
+bash "$here/showcase-frame.sh"
 RCEOF
 
 # --- launch OdyTTY showing the splash (uses your odytty.conf theme + effects) ---
@@ -173,11 +180,11 @@ setsid "$BIN" \
       PATH=/usr/local/bin:/usr/bin:/bin \
       SHELL=/bin/bash \
       LANG=en_US.UTF-8 \
-      bash --noprofile --rcfile /tmp/odytty-rc.sh -i \
-  >/tmp/odytty-demo.log 2>&1 &
+      bash --noprofile --rcfile "$WORK/rc.sh" -i \
+  >"$WORK/demo.log" 2>&1 &
 sleep 3
 if ! pgrep -af 'odytty' | grep -q "$BIN"; then
-  echo "WARNING: OdyTTY may not have started - check /tmp/odytty-demo.log" >&2
+  echo "WARNING: OdyTTY may not have started - check $WORK/demo.log" >&2
 fi
 
 # --- capture ---
@@ -198,3 +205,5 @@ else
   echo "grim/slurp not found. Capture the window with your screenshot tool, e.g.:"
   echo "  grim -g \"\$(slurp)\" $OUT"
 fi
+
+echo "demo files: $WORK (remove it when you are done)"

@@ -191,7 +191,7 @@ pub(in crate::native) enum OverlayOutcome {
     /// Unbind the workspace at this rail index. The App clears the
     /// clicked slot's binding directly.
     ContextMenuUnbindWorkspaceAt(usize),
-    /// Bind the active workspace to the saved host with this alias (ODP-1B/6B).
+    /// Bind the active workspace to the saved host with this alias.
     /// Emitted by the shared host picker when opened for the BindWorkspace
     /// purpose; the App calls the frozen `set_active_workspace_default_profile`.
     BindWorkspaceToHost(String),
@@ -201,11 +201,11 @@ pub(in crate::native) enum OverlayOutcome {
     /// current rail position, or does nothing once it has closed.
     BindWorkspaceAtToHost(crate::native::session::SessionToken, String),
     /// Open the shared host picker for the tab holding this token, seeded for
-    /// the ODP-5D "Connect to host" purpose (a new adjacent remote tab). The
+    /// the "Connect to host" purpose (a new adjacent remote tab). The
     /// menu closed itself; the App opens the picker.
     ContextMenuConnectToHost(SessionToken),
     /// Open the shared host picker for the tab holding this token, seeded for
-    /// the ODP-5D "Replace this tab with host" purpose. The menu closed itself.
+    /// the "Replace this tab with host" purpose. The menu closed itself.
     ContextMenuReplaceTabWithHost(SessionToken),
     /// Open the picked saved host in a NEW tab positioned right after the tab
     /// holding this token. Emitted by the shared host picker opened for
@@ -221,11 +221,11 @@ pub(in crate::native) enum OverlayOutcome {
     /// after the running-child confirm; the dialog closed itself.
     ReplaceTabWithHostConfirmed(Box<ConnectionHost>, SessionToken),
     /// Open a connection-manager row's host in a NEW workspace pre-bound to it
-    /// (ODP-2C "Open in New Workspace"). The context menu closed itself; the App
+    /// ("Open in New Workspace"). The context menu closed itself; the App
     /// creates a fresh workspace, sets its `default_profile`, and connects its
     /// first tab. Boxed to keep this short-lived enum small.
     ConnectHostInNewWorkspace(Box<ConnectionHost>),
-    /// The remove-host confirm dialog was accepted (ODP-2C "Remove…"): delete the
+    /// The remove-host confirm dialog was accepted ("Remove…"): delete the
     /// OdyTTY-owned `hosts.conf` block for this host and reopen the connection
     /// manager so the row disappears. Emitted only after the confirm; the dialog
     /// closed itself. Boxed to keep this short-lived enum small.
@@ -337,7 +337,7 @@ pub(in crate::native) enum OverlayOutcome {
     ContextMenuOpenPath(Box<crate::paths::Resolved>),
     /// Open a resolved image span in the in-terminal viewer from the context
     /// menu's file section. The menu has already closed itself;
-    /// the App decodes the image (with the FLAG B decode bound), uploads it to
+    /// the App decodes the image (with the shared decode bound), uploads it to
     /// the GPU image layer, and opens the `ImageView` overlay. Boxed to keep
     /// this short-lived enum small.
     ContextMenuOpenInOdytty(Box<crate::paths::Resolved>),
@@ -618,7 +618,7 @@ pub(in crate::native) enum OverlayInput {
     Save,
     Backspace,
     Close,
-    /// Cycle the theme builder's focused OKLCH channel (U2 Step 2/3). Ignored by
+    /// Cycle the theme builder's focused OKLCH channel. Ignored by
     /// the settings panel and theme picker (their `handle_input` default arms
     /// drop it).
     Tab,

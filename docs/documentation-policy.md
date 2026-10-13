@@ -36,7 +36,10 @@ Release preparation also runs
 release-notes check. CI checks status convergence; the source archive and
 publication jobs check the target version. The guard detects inconsistent
 published markers, stale latest-release claims, unfinished target milestones,
-and the regression that lists the entire shipped profile system as a gap.
+and the regression that lists the entire shipped profile system as a gap. With
+`--release-version` it also checks that no `Release candidate:` marker remains
+once that version is the published one, and that `Cargo.lock`, the fuzz
+lockfile and the newest AppStream release entry carry the target version.
 It does not establish test success, verify remote publication, or replace
 review of prose and retained evidence.
 

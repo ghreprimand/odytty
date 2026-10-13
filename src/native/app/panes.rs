@@ -9,9 +9,9 @@
 //! between panes. When two or more *tabs* exist the tab strip is drawn as an
 //! extra one-row pane along the top.
 //!
-//! Hard boundary: the **single-pane** path never reaches this module — the
+//! Hard boundary: the **single-pane** path never reaches this module - the
 //! caller only calls [`App::rebuild_multipane`] when `active_is_single_pane()`
-//! is false — so the byte-identical fast path is wholly untouched. This path is
+//! is false - so the byte-identical fast path is wholly untouched. This path is
 //! deliberately the only new behaviour.
 //!
 //! Every pane paints its own selection and search-match highlights, keyed to
@@ -103,7 +103,7 @@ type MultipaneFrameInputs = (
 pub(super) const PANE_DIVIDER_PX: f32 = 1.0;
 
 /// How far on each side of a 1px divider a press still grabs it, in physical
-/// pixels — the hairline divider would be near-impossible to hit otherwise.
+/// pixels - the hairline divider would be near-impossible to hit otherwise.
 pub(super) const DIVIDER_GRAB_PX: f32 = 6.0;
 
 /// The per-pane focus-dim value for the multi-pane render path: the focused
@@ -130,9 +130,9 @@ pub(super) fn pane_focus_dim(is_focused: bool, inactive_dim: f32) -> f32 {
 pub(super) struct TabReserve {
     /// Rows reserved off the top (horizontal bar).
     pub(super) top_rows: usize,
-    /// Columns reserved off the left (left rail) — the rail's visual band width.
+    /// Columns reserved off the left (left rail) - the rail's visual band width.
     pub(super) left_cols: usize,
-    /// Columns reserved off the right (right rail — R2; always 0 in R1) — the
+    /// Columns reserved off the right (right rail - R2; always 0 in R1) - the
     /// rail's visual band width.
     pub(super) right_cols: usize,
     /// Compatibility field for generic geometry. Production chrome keeps this
@@ -181,7 +181,7 @@ impl TabReserve {
     /// chrome band this reservation describes. "Content never touches chrome":
     /// the same `window_padding_px` value that separates content from the
     /// window edges also separates it from the rail's content-facing edge and
-    /// from the tab bar's bottom edge — one padding value, no extra knob. A
+    /// from the tab bar's bottom edge - one padding value, no extra knob. A
     /// side is zero when its band is absent, and every side is zero at zero
     /// padding, so the padding-0 frame stays byte-identical (flush) and the
     /// auto-hidden rail (which reserves nothing) keeps full-bleed content.
@@ -211,7 +211,7 @@ pub(super) struct ChromeGap {
 }
 
 /// The pixel rectangle available to panes: the surface minus window padding on
-/// all sides, and minus the tab chrome — the top strip (`reserve.top_rows`) or
+/// all sides, and minus the tab chrome - the top strip (`reserve.top_rows`) or
 /// the side rail (`reserve.left_cols`/`right_cols`) when shown. For a
 /// single-pane tab this rect's cell dimensions equal `self.grid`, so the
 /// single-pane resize/render geometry is unchanged (it never calls this).
@@ -240,7 +240,7 @@ pub(super) fn pane_content_rect(
     PaneRect::new(pad + left_w + gap.left, pad + tab_h + gap.top, w, h)
 }
 
-/// Map a physical pointer position to a cell in **window-overlay space** — the
+/// Map a physical pointer position to a cell in **window-overlay space** - the
 /// content grid an open window-level overlay centers within (multi-pane). Pure
 /// so the multi-pane hit-test geometry is unit-testable without a GPU. Returns
 /// `None` when the content rect spans no cells. The pointer is clamped into the
@@ -378,7 +378,7 @@ impl App {
     /// production; in headless tests (no GPU) a [`App::test_surface`] override
     /// stands in so the multi-pane pointer/cursor path is testable. In non-test
     /// builds the override field does not exist, so this is exactly
-    /// `self.gpu.as_ref().map(|g| (g.surface_size(), g.window_padding()))` —
+    /// `self.gpu.as_ref().map(|g| (g.surface_size(), g.window_padding()))`  -
     /// byte-identical to the previous inline `gpu.surface_size()` /
     /// `gpu.window_padding()` reads.
     ///
@@ -446,7 +446,7 @@ impl App {
     /// for overlay hit-testing and context-menu spawn. In a single-pane tab this
     /// is exactly `self.pointer_cell` (already window-space), so the single-pane
     /// path is unchanged. In a multi-pane tab `self.pointer_cell` is relative to
-    /// the focused pane's sub-grid — wrong for a window-level overlay — so this
+    /// the focused pane's sub-grid - wrong for a window-level overlay - so this
     /// recomputes it against the content rect from the window-level physical
     /// pointer cache. Settling a divider invalidates the resized pane's
     /// coordinate-bound UI state, including its per-session `pointer_px`, but
@@ -461,15 +461,15 @@ impl App {
     }
 
     /// The pointer cell **relative to the focused pane's sub-rect** in a
-    /// multi-pane tab — the basis local text selection anchors and extends
+    /// multi-pane tab - the basis local text selection anchors and extends
     /// against, since `self.terminal` / `self.selection` operate on the
     /// focused pane's sub-grid, which is offset from the window origin
     /// (`self.grid` is the App's whole-window grid, not the pane's). Returns
     /// `None` on a single-pane tab (where the byte-identical window-origin
     /// mapping in `update_pointer_cell` is correct) or when the
     /// geometry / cached pointer is unavailable. Uses the cached absolute
-    /// `pointer_px` — the same physical-pixel basis `multipane_geometry` and the
-    /// divider hit-tests use — and the focused pane's rect origin already
+    /// `pointer_px` - the same physical-pixel basis `multipane_geometry` and the
+    /// divider hit-tests use - and the focused pane's rect origin already
     /// includes the tab-bar offset, so no separate tab-bar adjustment is needed.
     pub(super) fn active_pane_pointer_cell(&self) -> Option<CellPoint> {
         let (x_px, y_px) = self.pointer_px?;
@@ -482,7 +482,7 @@ impl App {
     /// C11: `pointer_px` is a per-*session* field reached through App's `Deref`
     /// to the active session. After a focus-follows-click `set_active_focus`,
     /// `self.pointer_px` resolves to the newly-focused pane's OWN last-stored
-    /// coordinate (stale — from when it was previously focused), not the click
+    /// coordinate (stale - from when it was previously focused), not the click
     /// that is switching focus. The caller must therefore capture the live click
     /// coords BEFORE the focus switch and pass them here so the selection anchor
     /// lands under the actual click.
@@ -648,7 +648,7 @@ impl App {
     /// COALESCING (Phase H): a drag fires one move per pixel; the kernel-side
     /// PTY resize is deliberately NOT issued here. The on-screen grid reflows
     /// live per-move, but the shell learns its new size from exactly one
-    /// coalesced `resize_all_panes` the release handler flushes at drag-end —
+    /// coalesced `resize_all_panes` the release handler flushes at drag-end  -
     /// avoiding a `ResizePseudoConsole`/`SIGWINCH` flood that scrambles the
     /// shell's prompt repaint on ConPTY.
     pub(super) fn drag_divider_to_pointer(&mut self) {
@@ -812,7 +812,7 @@ impl App {
         // Cut 1: per-pane inline graphics. Each pane's visible placements +
         // upload payloads are collected under the pane's session-token namespace
         // (StoredImageId is a per-terminal counter, so panes can share a numeric
-        // id for different images — the namespace disambiguates). `origin` is the
+        // id for different images - the namespace disambiguates). `origin` is the
         // pane's glide-shifted render origin (images ride the scroll like glyphs);
         // `scissor` is the pane's at-rest content rect so an image cannot bleed
         // across a divider on either axis. Empty on panes with no graphics, so a
@@ -952,7 +952,7 @@ impl App {
             // when the wheel scrolled THIS pane. The field is zeroed at rest and
             // on every viewport change (`clear_scroll_frac_of`) and left untouched
             // by `advance_session_glide` when no glide is armed, so it is exactly
-            // 0.0 unless a lane is actively offsetting this pane — no stale leak.
+            // 0.0 unless a lane is actively offsetting this pane - no stale leak.
             let frac_px = session.scroll_frac_offset;
             let snapshot = terminal.snapshot_with_scrollback(render_offset);
             if *token == focused {
@@ -991,8 +991,8 @@ impl App {
             // inter-pane separation is then exactly the 1px divider, uniform
             // across both axes (a single-pane / zoomed rect == content yields a
             // zero offset, so the byte-identical path is unchanged). The divider
-            // position itself is untouched — only the grid content shifts within
-            // the pane — so smooth per-pixel divider drag is preserved.
+            // position itself is untouched - only the grid content shifts within
+            // the pane - so smooth per-pixel divider drag is preserved.
             // PANE-PADDING: inset the pane by the window padding on every
             // divider-facing edge so its grid gains breathing room from the
             // divider (the reported "flush against the divider" regression). The
@@ -1258,7 +1258,7 @@ impl App {
         // sit at `[pad, pad]` and never overlap the content rect (reserved out of
         // it above), so push order relative to the content panes is irrelevant.
         //
-        // F4-P3: under rail auto-hide the pinned strip is suppressed — the rail
+        // F4-P3: under rail auto-hide the pinned strip is suppressed - the rail
         // draws only as the floating overlay (`build_rail_overlay`, below). This
         // guard mirrors the single-pane `decorate_snapshot_with_tab_bar` fix: the
         // `rail_side()` dispatch reads the (zeroed) auto-hide reservation and
@@ -1380,12 +1380,12 @@ impl App {
                 content_clip: None,
                 occluders: &[],
                 // TAB-LABEL-CENTERING: this strip's own label offset (one axis is
-                // always 0.0 — a strip is either the top bar or the rail).
+                // always 0.0 - a strip is either the top bar or the rail).
                 band_glyph_dy_rows: strip.band_glyph_dy_rows,
                 rail_glyph_dy_rows: strip.rail_glyph_dy_rows,
                 cursor_glow: None,
                 cursor_streak: None,
-                // COLORED-BG-FLOOR EXEMPT: chrome strip — band fills stay under
+                // COLORED-BG-FLOOR EXEMPT: chrome strip - band fills stay under
                 // `tab_panel_strength`'s opacity contract.
                 chrome: true,
                 bidi: None,
@@ -1414,7 +1414,7 @@ impl App {
                 rail_glyph_dy_rows: 0.0,
                 cursor_glow: pane_cursor_glow[idx],
                 cursor_streak: pane_cursor_streak[idx],
-                // COLORED-BG-FLOOR: terminal content — colored backgrounds float
+                // COLORED-BG-FLOOR: terminal content - colored backgrounds float
                 // to the knob's alpha under a translucent window.
                 chrome: false,
                 bidi: pane_bidi[idx].as_ref().map(|(_, map)| map),
@@ -1631,7 +1631,7 @@ struct ChromeStrip {
 /// classic single-row bar keeps its label on the only row (`band_top`),
 /// byte-identical to the pre-adjustable path.
 ///
-/// The label row is `band_top + rows / 2` — the nearest row to the band's
+/// The label row is `band_top + rows / 2` - the nearest row to the band's
 /// geometric centre, rounding a half-row tie to the lower of the two middle
 /// rows so an even-height band never pins the label to the top row. (A plain
 /// floor `(rows - 1) / 2` biased every even height upward: a two-row bar sat

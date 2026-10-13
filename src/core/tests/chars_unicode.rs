@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Core behavioral tests (M4 mechanical split from core/tests.rs).
+//! ICH, DCH, ECH and wide-cell editing behavior.
 
 use super::*;
 

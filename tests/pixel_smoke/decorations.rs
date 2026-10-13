@@ -8,7 +8,7 @@ use odytty::text;
 
 use crate::harness::*;
 
-/// U1 byte-identical guarantee at the default floor. A frame mixing a 256-color
+/// Byte-identical guarantee at the default floor. A frame mixing a 256-color
 /// foreground, a truecolor foreground, and an explicit SGR-58 underline color
 /// must composite with each color *unchanged* at `min_contrast = 1.0` - the new
 /// underline-color enforce call is a verifiable visual no-op on the plain path.

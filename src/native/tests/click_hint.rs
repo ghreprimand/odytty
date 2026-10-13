@@ -16,7 +16,6 @@
 use super::*;
 use crate::native::app::interactive_paths::MapProbe;
 use crate::paths::FsKind;
-use winit::event::MouseButton as WinitMouseButton;
 
 const COLS: usize = 80;
 const ROWS: usize = 24;
@@ -48,19 +47,6 @@ fn hover_on_path(app: &mut App) {
 fn plain_left_click(app: &mut App) {
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
     app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
-}
-
-/// Hold/release the host's open modifier - Cmd (super) on macOS, Ctrl on Linux -
-/// the same per-OS chord `OpenerOs::host()` resolves inside
-/// `armed_path_underline_cells`. The live App method reads the host OS
-/// internally (unlike the `gpu_render.rs` value-seam tests), so the test must
-/// drive whichever modifier is the open chord on the runner.
-fn hold_open_modifier(app: &mut App, held: bool) {
-    if cfg!(target_os = "macos") {
-        app.set_super_key_for_test(held);
-    } else {
-        app.set_ctrl_modifier_for_test(held);
-    }
 }
 
 // ── Armed underline (Ctrl+hover) ───────────────────────────────────────────
@@ -222,6 +208,11 @@ fn a_path_removed_after_the_hover_is_not_opened() {
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
     hover_on_path(&mut app);
     assert!(app.hovered_path_for_test().is_some(), "the path resolved");
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::Pointer,
+        "the hover shows the hand"
+    );
     // The file is removed; the row text and cwd are unchanged.
     app.set_test_path_probe_for_test(MapProbe::new([]));
     assert!(
@@ -231,6 +222,11 @@ fn a_path_removed_after_the_hover_is_not_opened() {
     assert!(
         app.hovered_path_for_test().is_none(),
         "the stale hover clears"
+    );
+    assert_ne!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::Pointer,
+        "the hand does not outlive the hover"
     );
 }
 

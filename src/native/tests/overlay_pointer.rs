@@ -155,8 +155,7 @@ fn overlay_stepper_click_sets_once_and_cursor_move_is_inert() {
         buttons = app.overlay_first_stepper_button_cells_for_test();
     }
     let Some((down_button, up_button)) = buttons else {
-        eprintln!("skipping: no stepper row visible at this size");
-        return;
+        panic!("no stepper row became visible after scrolling the Fonts section");
     };
 
     let numeric_values = |app: &App| -> Vec<(&'static str, f32)> {
@@ -177,6 +176,7 @@ fn overlay_stepper_click_sets_once_and_cursor_move_is_inert() {
     app.set_pointer_cell_for_test(down_button.row, down_button.column);
     app.handle_overlay_pointer_move();
     assert!(!app.overlay_is_dragging_for_test(), "hover does not drag");
+    let before_click = numeric_values(&app);
 
     // Press the up button -> applies one value immediately, without
     // arming drag state or queued live-apply state.
@@ -195,6 +195,10 @@ fn overlay_stepper_click_sets_once_and_cursor_move_is_inert() {
         "left-held drag gate stays off for settings steppers"
     );
     let after_click = numeric_values(&app);
+    assert_ne!(
+        after_click, before_click,
+        "the click on the up button changed a stepper value"
+    );
 
     // CursorMoved to the down button is inert.
     app.set_pointer_cell_for_test(down_button.row, down_button.column);
@@ -315,8 +319,7 @@ fn focus_loss_after_settings_stepper_click_leaves_moves_inert() {
         buttons = app.overlay_first_stepper_button_cells_for_test();
     }
     let Some((down_button, up_button)) = buttons else {
-        eprintln!("skipping: no stepper row visible at this size");
-        return;
+        panic!("no stepper row became visible after scrolling the Fonts section");
     };
 
     // Press the up button; this applies once without drag state.
@@ -423,8 +426,7 @@ fn move_is_inert_after_settings_stepper_click_and_release() {
         buttons = app.overlay_first_stepper_button_cells_for_test();
     }
     let Some((down_button, up_button)) = buttons else {
-        eprintln!("skipping: no stepper row visible at this size");
-        return;
+        panic!("no stepper row became visible after scrolling the Fonts section");
     };
 
     // Press the up button to set once.
@@ -523,8 +525,7 @@ fn stepper_release_without_pointer_cell_stays_inert_after_click() {
         buttons = app.overlay_first_stepper_button_cells_for_test();
     }
     let Some((down_button, up_button)) = buttons else {
-        eprintln!("skipping: no stepper row visible at this size");
-        return;
+        panic!("no stepper row became visible after scrolling the Fonts section");
     };
 
     // Press to set once without arming drag.

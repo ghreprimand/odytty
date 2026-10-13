@@ -66,43 +66,22 @@ pub(in crate::core) struct ReflowOptions {
     pub preserve_cursor_physical_line: bool,
     pub cursor_pending_wrap: bool,
     pub collapse_prompt_start_row: Option<usize>,
-    /// Whether the shell applied output since the last resize. The
-    /// `preserve_cursor_physical_line` override re-anchors the cursor onto its
-    /// old physical row offset on the bet that a SIGWINCH-driven shell repaint
-    /// will immediately follow and correct it. That bet only holds when a
-    /// repaint is actually coming, i.e. when there was output since the last
-    /// resize (the Linux interactive case is always true). For back-to-back
-    /// resizes with no intervening output (the Windows split/close-without-typing
-    /// case over ConPTY, which does not repaint on a bare resize), honoring the
-    /// override clamps the cursor column and ratchets it toward the prompt start
-    /// across cycles. When this is false, the override is skipped and the
-    /// content-accurate cursor is kept.
+    /// Whether output has arrived since the last resize. The
+    /// `preserve_cursor_physical_line` override applies only when this is
+    /// true, i.e. when a shell repaint is expected; consecutive resizes with no
+    /// output (ConPTY does not repaint on a bare resize) keep the
+    /// content-accurate cursor.
     pub repaint_expected: bool,
-    /// Whether the backend's shell authoritatively repaints with ABSOLUTE
-    /// positioning on every resize, so the terminal must NOT move the cursor
-    /// itself. True for the ConPTY (Windows) backend: conhost reflows its own
-    /// screen buffer and re-emits an absolute `CUP` on every
-    /// `ResizePseudoConsole`, so any cursor translation OdyTTY performs only
-    /// fights that repaint (flinging the cursor rows away from where PSReadLine
-    /// places it). When true, cursor placement is deferred to the shell: the
-    /// content/scrollback rewrap still runs (history recovery - ConPTY does not
-    /// resend scrollback), but `cursor_dest` is forced to `None` so the cursor
-    /// is kept at its incoming position clamped to the new dims, then corrected
-    /// by the shell's repaint on the next pump tick. Default false: a POSIX PTY
-    /// delegates resize repaint to the app's SIGWINCH handler, which Linux
-    /// shells service with a RELATIVE repaint the override is built to
-    /// cooperate with, so the unix backend keeps today's behavior byte-identical.
+    /// Whether the backend's shell owns cursor placement on resize (ConPTY
+    /// re-emits an absolute `CUP` after `ResizePseudoConsole`). When true the
+    /// content still rewraps but the cursor keeps its incoming position,
+    /// clamped to the new dims. Production ConPTY width changes use the
+    /// separate no-rewrap path. Default false (POSIX PTYs).
     pub shell_owns_cursor_on_resize: bool,
-    /// Number of combined-buffer rows that precede the OLD visible window, i.e.
-    /// the prefix rows the lazy resize prepended to the live grid before reflow
-    /// (`cursor_prefix` in `resize_lazy_with_options`). The incoming `cursor.row`
-    /// is a COMBINED-buffer row (`combined_cursor_prefix + old_visible_row`), so
-    /// subtracting this recovers the incoming VISIBLE row. Only the `None` cursor
-    /// arm (cursor placement deferred - the `shell_owns_cursor_on_resize` path)
-    /// reads it; the `Some` arm maps the cursor through its content cell and
-    /// already subtracts `visible_start`. Default `0`: direct callers pass a
-    /// `cursor.row` that is already visible-relative (empty scrollback), so the
-    /// subtraction is a no-op and their behavior is byte-identical.
+    /// Combined-buffer rows preceding the old visible window (`cursor_prefix`
+    /// in `resize_lazy_with_options`). The deferred-placement cursor arm
+    /// subtracts it to recover the old visible cursor row. Direct callers
+    /// pass `0`.
     pub combined_cursor_prefix: usize,
     /// East Asian Ambiguous characters occupy two columns when set.
     pub ambiguous_wide: bool,

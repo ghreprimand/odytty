@@ -110,7 +110,9 @@ pub fn detect_paths_with_options(line: &str, options: DetectionOptions) -> Vec<P
     spans
 }
 
-/// Most token-run candidates the hover-expansion generator will stat-probe.
+/// Most longest-first token-run candidates the hover-expansion generator keeps.
+/// The single hovered token is always appended when truncation dropped it, so
+/// up to `MAX_HOVER_CANDIDATES + 1` candidates are probed.
 const MAX_HOVER_CANDIDATES: usize = 8;
 
 /// How many tokens on each side of the hovered token the run window spans. A
@@ -726,11 +728,11 @@ mod tests {
         }
         assert_eq!(raws(line), vec!["~/Projects/Archon".to_owned()]);
 
-        // The other Unicode-whitespace alias: NEL is the `0x85` tail of many
-        // glyphs. A token containing a raw `0x85` continuation byte must not
-        // split either.
-        let nel_glyph = "/proj/\u{2028}x.rs"; // U+2028 = E2 80 A8
-        let _ = detect_paths(nel_glyph); // must not panic
+        // A multi-byte scalar from the Unicode separator block (U+2028 LINE
+        // SEPARATOR, `E2 80 A8`) inside a token keeps the token whole and the
+        // scan does not panic.
+        let separator = "/proj/\u{2028}x.rs";
+        assert_eq!(raws(separator), vec![separator.to_owned()]);
     }
 
     #[test]

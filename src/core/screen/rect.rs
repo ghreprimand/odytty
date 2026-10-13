@@ -73,6 +73,9 @@ impl Screen {
         }
     }
 
+    /// DECSED (`CSI ? Ps J`): erase unprotected cells in the display. DEC
+    /// defines Ps 0 to 2; Ps 3 deliberately mirrors the xterm ED 3 extension
+    /// and also clears scrollback, so both erase forms treat it alike.
     pub(super) fn selective_erase_display(&mut self, mode: usize) {
         match mode {
             0 => {

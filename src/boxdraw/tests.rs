@@ -358,13 +358,12 @@ fn box_thickness_multiplier_scales_stroke_weight() {
 
 #[test]
 fn covered_ranges_all_produce_buffers() {
-    // Every codepoint the module classifies must also produce a buffer, and the
-    // documented block + powerline ranges are fully covered.
+    // The documented box drawing, block, Braille and powerline ranges are fully
+    // covered, and every covered codepoint produces a buffer.
     for code in 0x2500u32..=0x257F {
         let ch = char::from_u32(code).unwrap();
-        if covers(ch) {
-            assert!(coverage(ch, W, H).is_some());
-        }
+        assert!(covers(ch), "box drawing {code:#x} should be covered");
+        assert!(coverage(ch, W, H).is_some());
     }
     for code in 0x2580u32..=0x259F {
         let ch = char::from_u32(code).unwrap();
@@ -559,7 +558,6 @@ fn triangular_three_quarters_inverts_the_quarter() {
     // The three-quarters block inks strictly more than its quarter counterpart
     // and reaches the edge opposite the apex.
     let q = cov('\u{1FB6C}'); // LEFT quarter
-    let tq = cov('\u{1FB6B}'); // complement of LOWER quarter → broad fill
     let count = |b: &[u8]| b.iter().filter(|&&v| v > 0).count();
     let three_q = cov('\u{1FB68}'); // complement of LEFT quarter
     assert!(
@@ -568,7 +566,40 @@ fn triangular_three_quarters_inverts_the_quarter() {
     );
     // Complement of LEFT reaches the right edge.
     assert!(at(&three_q, W - 1, H / 2) > 0, "right edge should be inked");
-    let _ = tq;
+}
+
+/// A lower diagonal fill and its upper twin (22 codepoints later) are
+/// complements: together they ink every pixel exactly once, within rounding.
+#[test]
+fn lower_diagonal_fills_and_their_upper_twins_tile_a_solid_cell() {
+    for (w, h) in [(W, H), (11, 23), (12, 24)] {
+        for code in 0x1FB3Cu32..0x1FB3C + 22 {
+            let lower = coverage(char::from_u32(code).unwrap(), w, h).expect("covered");
+            let upper = coverage(char::from_u32(code + 22).unwrap(), w, h).expect("covered");
+            for (i, (a, b)) in lower.iter().zip(&upper).enumerate() {
+                let sum = u16::from(*a) + u16::from(*b);
+                assert!(
+                    (253..=257).contains(&sum),
+                    "U+{code:X} and its twin sum to {sum} at pixel {i} for {w}x{h}"
+                );
+            }
+        }
+    }
+}
+
+/// The negative diagonals ink the cell and cut strokes out of it.
+#[test]
+fn negative_diagonals_ink_the_cell_with_holes() {
+    for code in [0x1FBBDu32, 0x1FBBE, 0x1FBBF] {
+        let buf = coverage(char::from_u32(code).unwrap(), W, H).expect("covered");
+        let inked = buf.iter().filter(|&&value| value == 255).count();
+        let holes = buf.iter().filter(|&&value| value < 128).count();
+        assert!(
+            inked > holes,
+            "U+{code:X} inks more of the cell than it cuts out"
+        );
+        assert!(holes > 0, "U+{code:X} has strokes cut out");
+    }
 }
 
 #[test]

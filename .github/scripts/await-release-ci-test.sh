@@ -72,12 +72,14 @@ total="$(cat "$dir/count")"
 if [ "$attempt" -gt "$total" ]; then
   attempt="$total"
 fi
-payload="$(cat "$dir/payload.$attempt")"
-if [ "$payload" = "BOOM" ]; then
+payload_file="$dir/payload.$attempt"
+if [ "$(cat "$payload_file")" = "BOOM" ]; then
   echo "simulated API failure" >&2
   exit 1
 fi
-printf '%s' "$payload"
+# Printed from the file, not from a command substitution, so a body of only
+# whitespace reaches the waiter unchanged.
+cat "$payload_file"
 STUB
   chmod +x "$dir/fetch.sh"
 }
@@ -150,6 +152,9 @@ await_case "transient fetch failure then green" 0 2 "$target" "BOOM" "$green_pay
 
 # An empty successful API response is retryable, not a definitive CI refusal.
 await_case "empty response then green" 0 2 "$target" "" "$green_payload"
+
+# A body of only whitespace is retried the same way.
+await_case "whitespace-only response then green" 0 2 "$target" $'\n' "$green_payload"
 
 # A fetch that never recovers still fails closed at the deadline.
 RELEASE_CI_WAIT_INTERVAL_SECONDS=1 RELEASE_CI_WAIT_TIMEOUT_SECONDS=2 await_case "fetch failure forever times out closed" 1 "" "$target" "BOOM"

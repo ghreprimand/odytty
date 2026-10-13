@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Mouse/focus/title reports and key-binding/key-mapping tests. (M6 mechanical split from native/tests.rs).
+//! Mouse/focus/title reports and key-binding/key-mapping tests.
 
 use super::*;
 

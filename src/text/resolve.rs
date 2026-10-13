@@ -62,7 +62,7 @@ impl std::fmt::Display for FontResolveError {
     }
 }
 
-/// Resolve a `ODYTTY_FONT_FAMILY` value to a validated monospace face, or report
+/// Resolve an `ODYTTY_FONT_FAMILY` value to a validated monospace face, or report
 /// **why** resolution failed (see [`FontResolveError`]).
 ///
 /// Accepts either a direct path to a `.ttf`/`.otf` file or a family **name**
@@ -71,8 +71,8 @@ impl std::fmt::Display for FontResolveError {
 /// (`Err(NotMonospace)`) so the caller can either surface that or fall back to
 /// the bundled face. The family is matched against the real `name`-table
 /// family (not the filename stem) and the regular face prefers normal width,
-/// then OS/2 weight closest to 400 and upright posture. Style variants are discovered by metadata but not
-/// opened. Pure with respect to `dirs`, so tests can supply a fixture directory.
+/// then OS/2 weight closest to 400 and upright posture. Style variants are
+/// discovered by metadata but not opened. Pure with respect to `dirs`, so tests can supply a fixture directory.
 pub fn try_resolve_font_family(
     query: &str,
     dirs: &[PathBuf],
@@ -230,7 +230,7 @@ pub fn resolve_font_weight_faces(family: &str, weight: &str, dirs: &[PathBuf]) -
         })
         .collect();
     // Stable and descending: equal scores keep scan order, so the first entry
-    // is the earliest best-scoring file, as before.
+    // is the earliest best-scoring file.
     scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
     scored.into_iter().map(|(_, path)| path).collect()
 }

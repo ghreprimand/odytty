@@ -86,10 +86,7 @@ fn lcd_filter_off_mode_is_byte_identical() {
 
 #[test]
 fn subpixel_filter_keeps_atlas_geometry_unchanged() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let gray = GlyphAtlas::build(&font, 24.0);
     let rgb = GlyphAtlas::build_with_subpixel(&font, 24.0, SubpixelMode::Rgb);
 

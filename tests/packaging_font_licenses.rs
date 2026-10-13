@@ -286,10 +286,9 @@ fn the_tarball_installer_installs_and_removes_the_licence_texts() {
     assert!(!fixture.prefix.join("bin/odytty").exists());
 }
 
-/// A custom prefix can contain other licence files. Uninstall removes only
-/// the files the tarball installed and the
-/// directories that are then empty, never a file or directory it did not put
-/// there.
+/// A custom prefix can contain other licence files. Uninstall removes only the
+/// files the tarball installed and the directories that are then empty, never
+/// a file or directory it did not put there.
 #[cfg(target_os = "linux")]
 #[test]
 fn the_tarball_uninstall_keeps_licence_files_it_did_not_install() {

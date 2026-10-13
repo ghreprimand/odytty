@@ -8,10 +8,7 @@ use super::*;
 /// so missing glyphs render exactly as before (no regression).
 #[test]
 fn glyph_quad_fallback_is_full_cell_and_matches_uv_rect() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let atlas = GlyphAtlas::build(&font, 24.0);
     let q = atlas.glyph_quad('é').expect("fallback quad");
     assert_eq!((q.offset_x, q.offset_y), (0, 0));
@@ -31,10 +28,7 @@ fn glyph_quad_fallback_is_full_cell_and_matches_uv_rect() {
 /// reported offset/size match it relative to the cell origin.
 #[test]
 fn glyph_quad_bounds_track_actual_ink() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let atlas = GlyphAtlas::build(&font, 28.0);
     let slot = 'g' as u32 - FIRST_CHAR + 1;
     let (minx, miny, maxx, maxy) = scan_slot_ink(&atlas, slot).expect("'g' has ink");
@@ -62,10 +56,7 @@ fn glyph_quad_bounds_track_actual_ink() {
 /// adjacent cells' strokes meet flush rather than leaving a gutter.
 #[test]
 fn box_drawing_quad_spans_full_cell_width() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     if !font_has_glyph(&font, '\u{2500}') {
         eprintln!("skipping: font lacks box-drawing glyph");
         return;
@@ -92,10 +83,7 @@ fn box_drawing_quad_spans_full_cell_width() {
 /// codepoint range; skipped only if the loaded font never overflows a cell.
 #[test]
 fn some_glyph_quad_overflows_the_cell() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 28.0);
     let cw = atlas.cell.width as i32;
     let ch_h = atlas.cell.height as i32;
@@ -147,10 +135,7 @@ fn some_glyph_quad_overflows_the_cell() {
 /// its own slot's bounds, distinct from the regular glyph.
 #[test]
 fn styled_glyph_quad_resolves_styled_slot() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     atlas
         .ensure_styled(&font, FontStyle::Bold, 'A')
@@ -169,10 +154,7 @@ fn styled_glyph_quad_resolves_styled_slot() {
 /// non-empty and horizontally intersect the cell.
 #[test]
 fn combining_mark_ink_lands_over_the_cell_box() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mark = '\u{0301}'; // combining acute accent
     if !font_has_glyph(&font, mark) {
         eprintln!("skipping: font has no combining acute");
@@ -201,10 +183,7 @@ fn combining_mark_ink_lands_over_the_cell_box() {
 /// already-drawn base glyph and a tofu box there would obscure the base.
 #[test]
 fn combining_mark_quad_filters_missing_marks() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     // Never ensured: no resident slot, no quad (glyph_quad_styled would have
     // reported the fallback box here).

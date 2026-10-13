@@ -8,6 +8,8 @@ import re
 import sys
 import tomllib
 
+REPOSITORY_URL = "https://github.com/ghreprimand/odytty"
+
 
 def description(root: Path, version: str) -> str:
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
@@ -36,7 +38,7 @@ def description(root: Path, version: str) -> str:
         raise ValueError("release notes must be linked from docs/releases/README.md")
     downloads = (root / ".github/release-downloads.md").read_text(encoding="utf-8")
     downloads = downloads.replace("@VERSION@", version)
-    link = f"https://github.com/ghreprimand/odytty/blob/v{version}/docs/releases/{version}.md"
+    link = f"{REPOSITORY_URL}/blob/v{version}/docs/releases/{version}.md"
     return f"{summary}\n\n[Release notes]({link})\n\n{downloads}"
 
 

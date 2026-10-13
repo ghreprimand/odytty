@@ -192,8 +192,7 @@ fn responds_to_secondary_device_attributes() {
 
     terminal.advance(b"\x1b[>c");
 
-    // DA2 is a version inventory, not a graphics-capability bitmap. Sixel is
-    // advertised only in DA1 (bit 4). This reply must not grow a sixel bit.
+    // DA2 reports version inventory; graphics capability belongs to DA1.
     assert_eq!(terminal.take_host_output(), b"\x1b[>65;1;0c");
 }
 

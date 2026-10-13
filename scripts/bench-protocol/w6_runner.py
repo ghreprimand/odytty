@@ -418,10 +418,14 @@ def parse_hyprctl_clients(
         workspace = entry.get("workspace") or {}
         monitor = entry.get("monitor")
         workspace_id = workspace.get("id")
+        # A window with no monitor or no workspace id cannot be placed on an
+        # active workspace; comparing two missing ids would call it visible.
         visible = (
             bool(entry.get("mapped", True))
             if active_workspaces is None
-            else active_workspaces.get(monitor) == workspace_id
+            else monitor is not None
+            and workspace_id is not None
+            and active_workspaces.get(monitor) == workspace_id
         )
         windows.append(
             {
@@ -963,22 +967,47 @@ def context_switch_delta(
     return sum(end[key] - start[key] for key in start)
 
 
-def read_drm_memory_bytes(pids: set[int], proc_root: Path = Path("/proc")) -> dict[str, int] | None:
+# Most descriptors read per measured process. A process past this bound makes
+# the reading unsupported rather than a lower bound that is published as a
+# measurement.
+MAX_FDINFO_ENTRIES = 1024
+_DRM_UNIT_FACTORS = {
+    "b": 1,
+    "bytes": 1,
+    "kib": 1024,
+    "kb": 1024,
+    "mib": 1024 * 1024,
+    "mb": 1024 * 1024,
+}
+
+
+def read_drm_memory_bytes(
+    pids: set[int],
+    proc_root: Path = Path("/proc"),
+    max_entries: int = MAX_FDINFO_ENTRIES,
+) -> dict[str, int] | None:
     """Return preregisterable DRM resident regions without collapsing them.
 
     `drm-total-*` describes allocation and is an alternative representation,
     not an additional resident quantity. Mixing or summing the two would
     double-count memory and is therefore structurally impossible here.
+
+    The reading is `None` (unsupported) whenever it could be only a lower
+    bound: a process with more descriptors than `max_entries`, or a region
+    size in a unit other than bytes, KiB or MiB.
     """
     totals: dict[str, int] = {}
     seen_clients: set[str] = set()
     for pid in pids:
         fdinfo = proc_root / str(pid) / "fdinfo"
         try:
-            entries = sorted(fdinfo.iterdir())
+            # Descriptor numbers in numeric order, not string order.
+            entries = sorted(fdinfo.iterdir(), key=lambda entry: (len(entry.name), entry.name))
         except OSError:
             continue
-        for entry in entries[:64]:
+        if len(entries) > max_entries:
+            return None
+        for entry in entries:
             try:
                 text = entry.read_text(encoding="utf-8")
             except OSError:
@@ -1006,12 +1035,11 @@ def read_drm_memory_bytes(pids: set[int], proc_root: Path = Path("/proc")) -> di
                     amount = int(parts[0])
                 except ValueError:
                     continue
-                if len(parts) > 1 and parts[1].lower() in ("kib", "kb"):
-                    amount *= 1024
-                elif len(parts) > 1 and parts[1].lower() in ("mib", "mb"):
-                    amount *= 1024 * 1024
-                elif len(parts) > 1 and parts[1].lower() not in ("b", "bytes"):
-                    continue
+                if len(parts) > 1:
+                    factor = _DRM_UNIT_FACTORS.get(parts[1].lower())
+                    if factor is None:
+                        return None
+                    amount *= factor
                 totals[field] = totals.get(field, 0) + amount
     if not totals:
         return None
@@ -1428,7 +1456,8 @@ class RealLauncher:
                             and scale > 0
                         ):
                             scales[monitor.get("id")] = float(scale)
-                except (TypeError, ValueError):
+                except (AttributeError, TypeError, ValueError):
+                    # A payload that is not a list of objects.
                     return []
                 return parse_hyprctl_clients(clients.stdout, active, scales)
             if name == "swaymsg":
@@ -2081,16 +2110,22 @@ def _thermal_throttle_count() -> int | None:
     return sum(values) if values else None
 
 
-def _system_cpu_ticks() -> tuple[int, int] | None:
+def _system_cpu_ticks(stat_path: Path = Path("/proc/stat")) -> tuple[int, int] | None:
+    """(total, idle) ticks from the first `/proc/stat` line.
+
+    `guest` and `guest_nice` are already counted inside `user` and `nice`, so
+    only the first eight columns are summed; adding them would inflate the
+    total on a host that runs virtual machines.
+    """
     try:
-        fields = Path("/proc/stat").read_text(encoding="utf-8").splitlines()[0].split()
+        fields = stat_path.read_text(encoding="utf-8").splitlines()[0].split()
         values = [int(value) for value in fields[1:]]
     except (OSError, ValueError, IndexError):
         return None
     if len(values) < 4:
         return None
     idle = values[3] + (values[4] if len(values) > 4 else 0)
-    return sum(values), idle
+    return sum(values[:8]), idle
 
 
 def _external_power_state(root: Path = Path("/sys/class/power_supply")) -> str | None:
@@ -2107,7 +2142,9 @@ def _external_power_state(root: Path = Path("/sys/class/power_supply")) -> str |
             kind = (supply / "type").read_text(encoding="utf-8").strip().lower()
         except OSError:
             continue
-        if kind in {"mains", "usb", "usb_c", "wireless"}:
+        # The kernel reports several USB supply types (usb, usb_c, usb_dcp,
+        # usb_cdp, usb_aca, usb_pd, usb_pd_drp), so USB is matched by prefix.
+        if kind in {"mains", "wireless"} or kind.startswith("usb"):
             mains_seen = True
             try:
                 mains_online |= (supply / "online").read_text(encoding="utf-8").strip() == "1"
@@ -2998,17 +3035,6 @@ def validate_reference_readiness(record: object, prereg_record: dict) -> bool:
             for probe in probes
         )
     )
-
-
-def _calibration_diagnostic_sha256(record: object) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            record,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode("utf-8")
-    ).hexdigest()
 
 
 def _public_diagnostic_record_safe(record: object) -> bool:
@@ -4264,6 +4290,10 @@ def run_replicate(
     """Execute one settle-and-measure replicate and return its raw reading."""
     if not evidence_id or not re.fullmatch(r"[a-z0-9-]+", evidence_id):
         raise ValueError("every replicate requires an immutable phase/attempt evidence id")
+    if not isinstance(expected_environment, dict):
+        # Refused before any terminal is launched: the readiness and oracle
+        # checks below compare against it unconditionally.
+        raise ValueError("every replicate requires its preregistered expected environment")
     if hasattr(launcher, "replicate_result"):
         return launcher.replicate_result(
             implementation,
@@ -4278,7 +4308,7 @@ def run_replicate(
     # below compares against it rather than a fixed cell count, so a terminal
     # whose stable grid is not the normalization target is still measured
     # correctly - and any mid-run relayout still fails.
-    registered_geometry = (expected_environment or {}).get("cell_geometry")
+    registered_geometry = expected_environment.get("cell_geometry")
     registered_grid = (
         (registered_geometry["columns"], registered_geometry["rows"])
         if profiles.stable_cell_geometry(registered_geometry)
@@ -4305,8 +4335,14 @@ def run_replicate(
     ready_record = None
     geometry_model_evidence = None
     stable_ready_envelope = False
+    windows: list = []
+    readiness_started = time.monotonic()
     try:
         for _ in range(WINDOW_MAP_TIMEOUT_SECONDS):
+            # Each pass also runs window queries that take real time, so the
+            # pass count alone does not bound the wait.
+            if time.monotonic() - readiness_started >= WINDOW_MAP_TIMEOUT_SECONDS:
+                break
             cgroup = (
                 cgroup_resolver(launched)
                 if cgroup_resolver
@@ -4632,26 +4668,20 @@ def run_replicate(
     }
 
 
-def _file_size(path: Path | None) -> int | None:
-    if path is None:
-        return None
-    try:
-        return path.stat().st_size
-    except OSError:
-        return None
-
-
 def _read_oracle_records(path: Path | None) -> list[dict]:
     if path is None:
         return []
     try:
-        return [
+        records = [
             json.loads(line)
             for line in path.read_text(encoding="utf-8").splitlines()
             if line
         ]
     except (OSError, UnicodeError, ValueError):
         return []
+    # A syntactically valid line that is not an object cannot be a record, and
+    # would fail every later `.get`.
+    return [record for record in records if isinstance(record, dict)]
 
 
 def _geometry_record_sequence(record: dict) -> int | None:
@@ -9414,7 +9444,7 @@ def _self_test() -> list[str]:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             observed_durations = []
-            for label, pre_start_delay in (("fast", 0.0), ("slow", 0.10)):
+            for label, pre_start_delay in (("fast", 0.0), ("slow", 0.50)):
                 oracle = root / f"{label}.jsonl"
                 start = root / f"{label}.start"
                 master, slave = pty.openpty()
@@ -9480,9 +9510,11 @@ def _self_test() -> list[str]:
                         process.kill()
                         process.wait(timeout=2)
                     os.close(master)
-            if len(observed_durations) == 2 and (
-                any(not 0.04 <= duration <= 0.20 for duration in observed_durations)
-                or abs(observed_durations[0] - observed_durations[1]) > 0.10
+            # The child runs for 0.05 s after the start edge. A duration that
+            # included the 0.50 s pre-start delay would be about 0.55 s, so the
+            # bound sits at half the delay, which a loaded host does not reach.
+            if len(observed_durations) == 2 and any(
+                not 0.04 <= duration <= 0.25 for duration in observed_durations
             ):
                 failures.append(
                     "timing: real child measurement duration included pre-start mapping delay"
@@ -9765,6 +9797,13 @@ def _self_test() -> list[str]:
         failures.append("window lookup: failed to match a live pid")
     if window_for_pids(clients, {99}) is not None:
         failures.append("window lookup: matched a pid that owns no window")
+
+    unlocated = parse_hyprctl_clients(
+        json.dumps([{"pid": 5, "class": "odytty", "mapped": True, "size": [800, 600]}]),
+        {},
+    )
+    if not unlocated or unlocated[0]["visible"]:
+        failures.append("window parse: a window with no monitor or workspace was called visible")
 
     overlap_clients = parse_hyprctl_clients(
         json.dumps(
@@ -10770,6 +10809,84 @@ def _self_test() -> list[str]:
             "drm-resident-shared0": 2 * 1024,
         }:
             failures.append(f"DRM resident parsing: unexpected reading {gpu_reading!r}")
+
+        # A reading that could only be a lower bound is unsupported: more
+        # descriptors than the bound, and a unit that is not bytes, KiB or MiB.
+        for index in range(10, 13):
+            (fdinfo / str(index)).write_text(
+                f"drm-client-id:\t{index}\ndrm-resident-shared0:\t1 KiB\n", encoding="utf-8"
+            )
+        if read_drm_memory_bytes({42}, proc_root, max_entries=5) is not None:
+            failures.append("DRM resident parsing: a process past the descriptor bound was read")
+        full = read_drm_memory_bytes({42}, proc_root, max_entries=64)
+        if not full or full.get("drm-resident-shared0") != 2 * 1024 + 3 * 1024:
+            failures.append(f"DRM resident parsing: descriptors 10-12 were not all read: {full!r}")
+        (fdinfo / "13").write_text(
+            "drm-client-id:\t13\ndrm-resident-shared0:\t1 GiB\n", encoding="utf-8"
+        )
+        if read_drm_memory_bytes({42}, proc_root) is not None:
+            failures.append("DRM resident parsing: an unknown unit was skipped, not unsupported")
+
+    if result_schema.W6_MEASURED_BLOCKS != MEASURED_BLOCKS:
+        failures.append("blocks: the validator and the runner disagree on measured blocks")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        oracle = Path(tmp) / "oracle.jsonl"
+        oracle.write_text('{"kind": "a"}\n3\n[1]\n{"kind": "b"}\n', encoding="utf-8")
+        if [item["kind"] for item in _read_oracle_records(oracle)] != ["a", "b"]:
+            failures.append("oracle records: a non-object line was returned as a record")
+
+    # An unreadable file never matches a pin, and a placeholder pin matches nothing.
+    with tempfile.TemporaryDirectory() as tmp:
+        present = Path(tmp) / "present"
+        present.write_bytes(b"bytes")
+        good = hashlib.sha256(b"bytes").hexdigest()
+        if not _digest_matches(present, good):
+            failures.append("digest: a matching pinned digest was refused")
+        for bad in ("unknown", None, "", good.upper(), good[:-1]):
+            if _digest_matches(present, bad):
+                failures.append(f"digest: the pin {bad!r} was accepted")
+        if (
+            _digest_matches(Path(tmp) / "missing", "unknown")
+            or _digest_matches(Path(tmp) / "missing", None)
+            or _digest_matches(Path(tmp) / "missing", good)
+        ):
+            failures.append("digest: an unreadable file matched a pin")
+
+    # `guest` columns are inside `user`/`nice` and are not added to the total;
+    # every USB supply type counts as external power.
+    with tempfile.TemporaryDirectory() as tmp:
+        stat = Path(tmp) / "stat"
+        stat.write_text("cpu  10 20 30 40 50 60 70 80 90 100\n", encoding="utf-8")
+        if _system_cpu_ticks(stat) != (360, 90):
+            failures.append(f"cpu ticks: guest columns were summed: {_system_cpu_ticks(stat)!r}")
+        supplies = Path(tmp) / "supplies"
+        for name, kind, online in (("a", "USB_PD", "1"), ("b", "Battery", None)):
+            supply = supplies / name
+            supply.mkdir(parents=True)
+            (supply / "type").write_text(kind + "\n", encoding="utf-8")
+            if online is not None:
+                (supply / "online").write_text(online + "\n", encoding="utf-8")
+            else:
+                (supply / "status").write_text("Not charging\n", encoding="utf-8")
+        if _external_power_state(supplies) != "external":
+            failures.append("power state: a USB-PD supply was not recognised as external power")
+        (supplies / "a" / "online").write_text("0\n", encoding="utf-8")
+        if _external_power_state(supplies) != "battery":
+            failures.append("power state: an offline USB-PD supply was treated as external power")
+
+    # A replicate without its expected environment is refused before anything is
+    # launched (the launcher below would fail the test if it were touched).
+    class _MustNotLaunch:
+        def __getattr__(self, name):
+            raise AssertionError(f"launcher.{name} used before the environment check")
+
+    try:
+        run_replicate("odytty", 1, _MustNotLaunch(), 1, 1, evidence_id="check-1")
+    except ValueError:
+        pass
+    else:
+        failures.append("replicate: a missing expected environment was accepted")
 
     # Context switches are counted per thread, not from the leader's status,
     # and a delta is taken only over one fixed, completely read task set.
@@ -11948,13 +12065,25 @@ def _self_test() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _sha256(path: Path) -> str:
+def _sha256(path: Path) -> str | None:
+    """Hex SHA-256 of a file, or `None` when it cannot be read."""
     import hashlib
 
     try:
         return hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError:
-        return "unknown"
+        return None
+
+
+def _digest_matches(path: Path, pinned: object) -> bool:
+    """Whether `path` hashes to `pinned`, which must itself be a real digest.
+
+    An unreadable file never matches, and neither does a pin that is not a
+    64-digit hex string, so a missing file cannot satisfy a placeholder pin.
+    """
+    if not isinstance(pinned, str) or not re.fullmatch(r"[0-9a-f]{64}", pinned):
+        return False
+    return _sha256(path) == pinned
 
 
 def verify_boot_settle_relation(
@@ -12003,11 +12132,11 @@ def verify_runtime_identities(record: dict, repo_root: Path) -> None:
     ]
     for identity, path in pinned_files:
         digest = identity.get("sha256") or identity.get("statistics_sha256")
-        if _sha256(path) != digest:
+        if not _digest_matches(path, digest):
             raise ValueError(f"runtime tool digest differs from preregistration: {path.name}")
-    collector_digest = _sha256(repo_root / "scripts/bench-protocol/collectors.py")
+    collectors_path = repo_root / "scripts/bench-protocol/collectors.py"
     for collector in record.get("collectors", []):
-        if collector.get("implementation_sha256") != collector_digest:
+        if not _digest_matches(collectors_path, collector.get("implementation_sha256")):
             raise ValueError("runtime collector implementation differs from preregistration")
     for entry in record.get("implementations", []):
         if entry.get("availability") != "qualified":
@@ -12019,14 +12148,14 @@ def verify_runtime_identities(record: dict, repo_root: Path) -> None:
         executable = shutil.which(entry.get("launch_executable", ""))
         if not recipe or recipe[0] != entry.get("launch_executable") or not executable:
             raise ValueError(f"qualified implementation {name!r} has no pinned executable")
-        if _sha256(Path(executable)) != entry.get("artifact_sha256"):
+        if not _digest_matches(Path(executable), entry.get("artifact_sha256")):
             raise ValueError(f"qualified implementation {name!r} artifact digest drifted")
         config_path = Path(str(entry.get("config_path", "")))
         if str(config_path) != profiles.CONFIG_PATHS[name]:
             raise ValueError(f"implementation {name!r} does not use its canonical profile")
         if config_path.is_absolute() or ".." in config_path.parts:
             raise ValueError(f"implementation {name!r} config path is not repository-relative")
-        if _sha256(repo_root / config_path) != entry.get("config_sha256"):
+        if not _digest_matches(repo_root / config_path, entry.get("config_sha256")):
             raise ValueError(f"qualified implementation {name!r} config digest drifted")
         if entry.get("profile_files") != profiles.profile_records(repo_root, name):
             raise ValueError(f"qualified implementation {name!r} profile file set drifted")
@@ -12069,11 +12198,13 @@ def verify_probe_inputs(record: dict, repo_root: Path) -> None:
         config_path = Path(str(entry.get("config_path", "")))
         if str(config_path) != profiles.CONFIG_PATHS[name]:
             raise ValueError(f"candidate {name!r} does not use its canonical profile")
-        if not executable or _sha256(Path(executable)) != entry.get("artifact_sha256"):
+        if not executable or not _digest_matches(Path(executable), entry.get("artifact_sha256")):
             raise ValueError(f"candidate {name!r} executable is absent or not pinned")
-        if config_path.is_absolute() or ".." in config_path.parts or _sha256(
-            repo_root / config_path
-        ) != entry.get("config_sha256"):
+        if (
+            config_path.is_absolute()
+            or ".." in config_path.parts
+            or not _digest_matches(repo_root / config_path, entry.get("config_sha256"))
+        ):
             raise ValueError(f"candidate {name!r} explicit config is absent or not pinned")
         if entry.get("profile_files") != profiles.profile_records(repo_root, name):
             raise ValueError(f"candidate {name!r} profile file set is absent or not pinned")
@@ -12424,7 +12555,7 @@ def _read_public_response(response, limit: int = PUBLIC_ANCHOR_MAX_BYTES) -> byt
     # A declared length above the ceiling is refused before any read; a
     # missing or malformed header falls through to the bounded read below.
     length = response.headers.get("Content-Length")
-    if length is not None and length.strip().isdigit() and int(length) > limit:
+    if length is not None and length.strip().isascii() and length.strip().isdigit() and int(length) > limit:
         raise ValueError("public GitHub response exceeds the byte limit")
     data = response.read(limit + 1)
     if len(data) > limit:
@@ -13151,14 +13282,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         return run_session(
             prereg_record,
-            _sha256(prereg_path),
+            _sha256(prereg_path) or "unknown",
             launcher,
             results_dir,
             collectors.probe_all(),
             settle_seconds=args.settle_seconds,
             measure_seconds=args.measure_seconds,
             measured_blocks=args.measured_blocks,
-            runner_sha256=_sha256(Path(__file__)),
+            runner_sha256=_sha256(Path(__file__)) or "unknown",
             prereg_anchor_commit=prereg_anchor_commit,
         )
 

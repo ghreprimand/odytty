@@ -104,7 +104,7 @@ fn unset_font_file_value_is_empty_not_a_human_sentence() {
 
 #[test]
 fn advanced_font_row_stays_empty_after_a_family_pick() {
-    // FONT-PIPELINE-REWORK picking a `font_family` resolves a regular face
+    // Picking a `font_family` resolves a regular face
     // INTO `font_path`, but the advanced `font` row reflects only the RAW
     // explicit `font` key (`explicit_font_path`). A family pick leaves the
     // explicit key unset, so the row must stay empty - it must NOT show the

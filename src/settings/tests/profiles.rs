@@ -13,7 +13,7 @@ use crate::profiles::{
     profile_path_in_dir, quarantine_malformed_file, read_profile_file,
     reset_catalog_load_count_for_test, validate_profile_name, write_profile_file,
 };
-use crate::settings::{ConfigValues, DEFAULT_THEME, FONT_FAMILY_ENV, Settings, THEME_ENV};
+use crate::settings::{ConfigValues, DEFAULT_THEME, FONT_FAMILY_ENV, Settings};
 use crate::theme::Theme;
 use std::time::{SystemTime, UNIX_EPOCH};
 

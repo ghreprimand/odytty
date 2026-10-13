@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! FX-PAD pixel guard: the explicit zero-padding setting must be exactly the
+//! Window-padding pixel guard: the explicit zero-padding setting must be exactly the
 //! historical edge-to-edge geometry.
 
 use odytty::core::CursorStyle;

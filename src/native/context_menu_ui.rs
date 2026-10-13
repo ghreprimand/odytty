@@ -85,7 +85,7 @@ use crate::settings::BindableAction;
 /// Workspace sit in their own section after Split, followed by the conditional
 /// Bind-to-Host XOR Unbind row, then Save as Layout / Open Layout); multi-pane
 /// adds Close Pane for 24. The five
-/// ODP-2C connection-row actions (Open in New Tab / Open in New Workspace / Bind
+/// Connection-row actions (Open in New Tab / Open in New Workspace / Bind
 /// Current Workspace / Edit / Remove) show ONLY on the `ConnectionRow` surface.
 /// The six navigator-row actions (Focus / Attach / Rename / Duplicate / Move /
 /// Close) show ONLY on the `NavigatorRow` surface (the session-navigator
@@ -396,7 +396,7 @@ pub(super) struct ContextMenuSignature {
     /// static, so a bool fully describes the layout change.
     pub(super) has_path_target: bool,
     /// Whether the resolved path is an image file (drives the "Open in OdyTTY"
-    /// item's visibility, so its presence must repaint the menu). C4.
+    /// item's visibility, so its presence must repaint the menu).
     pub(super) is_image_target: bool,
     /// Whether the resolved path is a regular file (drives the "Open With…"
     /// item's visibility - file-only - so a file-vs-directory target repaints
@@ -497,7 +497,7 @@ pub(super) struct ContextMenuUi {
     /// snapshotted at open time on the `ConnectionRow` surface. `Some` gates
     /// Edit/Remove on its source (OdyTTY-owned only) and supplies the host to
     /// each connection-row outcome; `None` on every other surface, so the menu
-    /// is byte-identical to before ODP-2C off that surface.
+    /// is byte-identical to a menu without connection rows off that surface.
     connection_target: Option<Box<ConnectionHost>>,
     /// The right-clicked navigator row's stable target, snapshotted at open time
     /// on the `NavigatorRow` surface. `Some` selects the per-class action set and

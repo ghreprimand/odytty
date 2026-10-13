@@ -350,13 +350,12 @@ pub(in crate::native) struct Tab {
     /// arrangement only decides geometry, so switching modes never restarts a
     /// pane and switching back restores the tiled geometry exactly.
     pub(in crate::native) arrangement: crate::native::float_layout::Arrangement,
-    /// Unseen-activity latch for the rollup indicator (NF21-6 / ODP-6 v2). Set
-    /// when a bell rings in one of this tab's panes while the tab is NOT the
-    /// active-visible tab; cleared once the tab is viewed (it is the active tab
-    /// of the active workspace). Tab granularity is the finest useful rollup
-    /// unit; workspace-level activity is DERIVED from its tabs
-    /// ([`WorkspaceSet::workspace_has_activity`]) rather than stored twice. The
-    /// tab bar, rail and Session Navigator read it.
+    /// Unseen-activity latch for the rollup indicator. Set when a bell rings in one
+    /// of this tab's panes while the tab is NOT the active-visible tab; cleared
+    /// once the tab is viewed (it is the active tab of the active workspace). Tab
+    /// granularity is the finest useful rollup unit; workspace-level activity is
+    /// DERIVED from its tabs ([`WorkspaceSet::workspace_has_activity`]) rather than
+    /// stored twice. The tab bar, rail and Session Navigator read it.
     pub(in crate::native) activity: bool,
 }
 

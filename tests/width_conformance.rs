@@ -4,15 +4,16 @@
 //! Terminal ownership uses bounded script and recognized emoji extensions.
 //! The default policy is the narrow table (`UnicodeWidthChar::width`). Wide
 //! mode uses `UnicodeWidthChar::width_cjk` and is covered separately. This
-//! file records what the default produces for a representative sample, including cases that disagree with
-//! Unicode grapheme-cluster width (the preserved VS15 policy). Khmer scalar
-//! compatibility cases now assert their frozen one-cell expected widths.
+//! file records what the default produces for a representative sample,
+//! including cases that disagree with Unicode grapheme-cluster width (the
+//! preserved VS15 policy). Khmer scalar compatibility cases assert their frozen
+//! one-cell expected widths.
 //! Known-divergent rows assert the *current* occupancy so a future change
 //! cannot silently retcon the number; they also assert it is not the Unicode
 //! expected value, so a real fix has to promote the row rather than leave a
 //! green-but-wrong pass.
 //!
-//! Flag pairs (RI+RI) now occupy one two-cell source owner; lone RI remains
+//! Flag pairs (RI+RI) occupy one two-cell source owner; lone RI remains
 //! one cell as a deliberate compatibility policy.
 //!
 //! Windows: pure core `Terminal` storage. No PTY, no GPU, no platform branch.

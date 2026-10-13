@@ -422,19 +422,12 @@ pub fn build_cell_vertices_with_focus_dim_into(
     );
 }
 
-/// TRANSPARENCY (MENU-OPACITY): a rectangular span of grid cells whose
-/// background quads must stay **fully opaque** regardless of the frame's
-/// `cell_bg_opacity`. In the single-pane path an open overlay panel (context
-/// menu / settings / picker) is painted directly into the terminal snapshot, so
-/// when the window is translucent the whole snapshot - including the panel - is
-/// built at the window alpha. That resealed nothing but sank the panel to the
-/// window opacity, letting the desktop bleed through the menu. Marking the
-/// panel's cell span keeps the overlay SURFACE opaque (the ruled readability
-/// boundary) while the terminal cells outside it still scale with the window
-/// opacity. Coordinates are cell indices in the snapshot being built (i.e. after
-/// any tab-chrome decoration); `None` at the call site is the byte-identical
-/// path (multi-pane draws its overlay as a separate opaque layer, and the opaque
-/// window path never sets a region).
+/// TRANSPARENCY (MENU-OPACITY): force opaque backgrounds within this cell
+/// region. In the single-pane path an open overlay panel is painted into the
+/// snapshot, so marking its span keeps the panel surface opaque while other
+/// cells scale with `cell_bg_opacity`. Coordinates are snapshot cell indices
+/// after any tab-chrome decoration; `None` at the call site leaves every cell
+/// at `cell_bg_opacity`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CellRegion {
     pub left: usize,
@@ -485,18 +478,11 @@ fn vertex_reserve(snapshot: &Snapshot) -> Option<usize> {
         .checked_mul(INSTANCES_PER_QUAD * 2)
 }
 
-/// TAB-LABEL-CENTERING: the sub-row vertical offset (in cell-height units) that
-/// recenters a single label line placed at integer `label_row` within a
-/// `band_rows`-tall band onto the band's true geometric center. Multiply by the
-/// cell height for the pixel shift (see [`ChromePin::band_glyph_dy_rows`]).
-///
-/// Returns `0.0` for a one-row band and whenever the label already sits on the
-/// exact center (odd bands under either placement convention), so it is inert on
-/// the classic single-row chrome and every odd height. A row-snapped label can
-/// never be pixel-centered on an EVEN band (no integer row is the center), which
-/// is exactly the residual this offset removes: e.g. a 4-row top bar snaps its
-/// label to row 2 (center of {0,1,2,3} is 1.5), leaving it half a cell low; this
-/// returns `-0.5` to lift it back.
+/// TAB-LABEL-CENTERING: offset a label at integer `label_row` from its row
+/// center to the center of a `band_rows`-tall band, in cell-height units
+/// (multiply by the cell height for pixels; see
+/// [`ChromePin::band_glyph_dy_rows`]). Zero for one-row and odd bands; a
+/// 4-row band labelled at row 2 returns `-0.5`.
 pub fn band_label_center_dy_rows(band_rows: usize, label_row: usize) -> f32 {
     if band_rows <= 1 {
         return 0.0;
@@ -702,18 +688,11 @@ impl ChromePin {
     /// / odd-height) band, so the plain and single-row-chrome paths stay
     /// byte-identical.
     ///
-    /// PIXEL-SNAP: the composed shift is rounded to a whole physical pixel.
-    /// Even-height bands center their label by half a cell, so an ODD physical
-    /// cell height lands the shift on a half-pixel origin; texture sampling then
-    /// bleeds every label glyph's bottom ink row 50/50 into the row below, which
-    /// visibly thins baseline strokes (a digit's flat bottom) on the dim rail
-    /// band. Cell-height parity follows `font_size x monitor_scale`, so the
-    /// artifact was per-monitor: 20px cells (scale 1.0) and 34px cells (1.67)
-    /// were clean while 25px cells (scale 1.25) clipped. Rounding moves the
-    /// label by at most half a pixel, so at least 1.5px of the two-pixel
-    /// descender guard always survives; whole-pixel shifts (even cell heights,
-    /// single-row bands) round to themselves, so clean configurations render
-    /// identically. Content cells keep the exact `0.0` arm.
+    /// PIXEL-SNAP: the composed shift is rounded to a whole physical pixel, so
+    /// an odd cell height cannot put the label on a half-pixel origin and blur
+    /// its baseline. Rounding moves it by at most half a pixel, leaving at
+    /// least 1.5px of the two-pixel descender guard. Content cells keep the
+    /// exact `0.0` arm.
     #[inline]
     fn glyph_center_dy(&self, row: usize, col: usize, cell_h: f32) -> f32 {
         if self.rail_glyph_dy_rows != 0.0 && col >= self.rail_col_start && col < self.rail_col_end {
@@ -1025,9 +1004,8 @@ fn build_cells_core(
     let Some(needed) = vertex_reserve(snapshot) else {
         return;
     };
-    if out.capacity() < needed {
-        out.reserve(needed - out.capacity());
-    }
+    // `out` is empty here, so this guarantees `needed` capacity.
+    out.reserve(needed);
 
     // Effective foreground/background after inverse + dim, and the column span of
     // a wide lead cell. Computed identically in both passes. `row`/`col` are the
@@ -1085,8 +1063,8 @@ fn build_cells_core(
                 // saturates its alpha at 1.0); the selection COLOR is pushed
                 // further along the backdrop->fill vector so the highlight reads
                 // stronger. The text keeps its authored backdrop color -- the RV1
-                // floor below re-lifts it over the strengthened fill, so
-                // readability is preserved by construction. Parity with the themed
+                // floor below corrects it toward the configured ratio over the
+                // strengthened fill (best effort). Parity with the themed
                 // path, which boosts the same vector in `effective_selection_fill`.
                 let fill = [bg[0], bg[1], bg[2]];
                 let backdrop = [fg[0], fg[1], fg[2]];
@@ -1099,19 +1077,19 @@ fn build_cells_core(
             // ID2 focus dimming: while the window is unfocused, recede the whole
             // cell - both foreground and background - perceptually in OKLab so hue
             // is preserved and relative contrast stays roughly stable. Applied after
-            // the SGR-dim attribute and before the RV1 floor so legibility wins by
-            // construction (the floor sees the dimmed background and re-lifts text
-            // above the configured ratio). `focus_dim == 0.0` (focused, or the knob
+            // the SGR-dim attribute and before the RV1 floor, so the floor sees the
+            // dimmed background and corrects the text toward the configured ratio
+            // (best effort). `focus_dim == 0.0` (focused, or the knob
             // off) is skipped entirely, keeping focused frames byte-identical.
             if focus_dim > 0.0 {
                 fg = text::dim_linear_rgba(fg, focus_dim);
                 bg = text::dim_linear_rgba(bg, focus_dim);
             }
-            // ID3/U5 background treatment (gradient / vignette): modulate the cell
+            // Background treatment (gradient / vignette): modulate the cell
             // background by its grid position. Applied AFTER focus dimming and
             // BEFORE the RV1 floor, so the floor sees the treated per-cell
-            // background and re-lifts the foreground to keep contrast - readability
-            // is preserved by construction, per cell. `treatment.active() == false`
+            // background and corrects the foreground toward the configured ratio
+            // (best effort). `treatment.active() == false`
             // (kind None or zero strength, the default) skips this entirely, so the
             // plain/fast path stays byte-identical.
             if treatment.active() && !chrome_pin.is_chrome(row, col) {
@@ -1180,42 +1158,22 @@ fn build_cells_core(
             // untouched there), so `enforce_contrast_rgba` still floors against
             // the theme background `l_bg`; the readability scrim guarantees the
             // composited luminance stays on the safe side of `l_bg`.
-            // TRANSPARENCY (MENU-OPACITY): a cell inside `opaque_region`
-            // (an overlay panel painted into a translucent snapshot) forces its
-            // background fully opaque so the panel reads as a solid surface; every
-            // other cell scales by `cell_bg_opacity` exactly as before. `None`
-            // (the default) leaves `bg[3] * cell_bg_opacity` untouched.
             //
-            // SELECTION-OPACITY: a selected cell's background surface alpha is
-            // lerped from the surrounding content opacity up to fully opaque,
-            // driven by the knob:
-            //   A_sel = cell_bg_opacity + selection_opacity * (1 - cell_bg_opacity)
-            // so the selection PUNCHES THROUGH window transparency and stays
-            // visible against a translucent/busy backdrop. It is monotonic in the
-            // knob and `A_sel >= cell_bg_opacity` always, so the selection is
-            // NEVER weaker than its surround; the excess over the surround
-            // (`k * (1 - cell_bg_opacity)`) grows as the window gets more
-            // transparent and is zero at an opaque window (a plain solid
-            // highlight) - no inverse feel in either direction. At k == 1.0
-            // A_sel == 1.0 at EVERY window opacity, so the cell is byte-identical
-            // to the original fully-opaque selection. Applies to BOTH the inverse
-            // and themed paths (both carry the `selected()` marker). The color
-            // tint recedes in lockstep (see `resolve` for the inverse path and
-            // `themed_selection_style` for the themed path). An `opaque_region`
-            // overlay cell still forces fully opaque, unchanged.
-            //
-            // COLORED-BG-FLOOR: a cell whose resolved background differs from
-            // the theme default (classified in `resolve`, post-inverse) takes
-            // `colored_bg_opacity` instead - the floored alpha that keeps
-            // powerline segments, button chips, and app-painted blocks strong
-            // as window opacity drops, while default-background cells keep the
-            // glassy product. Precedence: a forced-opaque overlay cell and a
-            // selected cell (its own `selection_opacity` contract) both win
-            // over the floor; composited chrome cells (`is_chrome`) are
-            // exempt - chrome opacity is owned by `tab_panel_strength`, and
-            // the wash math tops up from the SAME content alpha these cells
-            // composite at. Equal alphas make every branch below identical, so
-            // the knob-off / opaque-window paths are byte-identical.
+            // Background alpha precedence:
+            // 1. TRANSPARENCY (MENU-OPACITY): a cell inside `opaque_region` is
+            //    fully opaque.
+            // 2. SELECTION-OPACITY: a selected cell (inverse or themed path)
+            //    lerps from the content opacity toward opaque,
+            //      A_sel = cell_bg_opacity + selection_opacity * (1 - cell_bg_opacity),
+            //    so it is never weaker than its surround and is 1.0 at full
+            //    strength; its color tint recedes with it (`resolve`,
+            //    `themed_selection_style`).
+            // 3. COLORED-BG-FLOOR: a non-default resolved background takes
+            //    `colored_bg_opacity` so app-painted blocks stay strong as
+            //    window opacity drops; chrome cells are exempt (their opacity
+            //    is owned by `tab_panel_strength`).
+            // Otherwise `cell_bg_opacity`. Equal alphas make every branch
+            // identical, so the knob-off and opaque-window paths are unchanged.
             let cell_opacity = if opaque_region.is_some_and(|r| r.contains(row, col)) {
                 1.0
             } else if cell.attrs.selected() {

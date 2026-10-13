@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Provider-neutral external palette following (v0.14 Phase B).
+//! Follow complete local palettes through ThemeSpec without mixing defaults.
 //!
-//! Public feature name: **External palette following**. Third-party formats
-//! (Omarchy-compatible `colors.toml`, pywal-compatible `colors.json`, and
-//! Base16 key aliases) appear only as independent compatibility details.
-//! Support is independent: no endorsement, partnership, official integration,
-//! or upstream modification is implied or required.
+//! Public feature name: **External palette following**. Compatibility formats
+//! (`colors.toml`, `colors.json` and Base16 key aliases) are named only where
+//! a format has to be identified; no endorsement, partnership or integration is
+//! implied.
 //!
 //! Contract version 1: a complete, validated color payload projects into the
 //! existing [`Theme`] / [`ThemeSpec`] seam. Partial, malformed, oversized, or

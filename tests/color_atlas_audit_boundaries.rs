@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Project-authored tiny pixels exercise public atlas admission, without a GPU.
 use odytty::atlas::CellSize;
-use odytty::emoji::{ColorGlyphAtlas, ColorGlyphId, ColorGlyphKey};
+use odytty::emoji::{ColorGlyphAtlas, ColorGlyphAtlasError, ColorGlyphId, ColorGlyphKey};
 
 fn key(width: u8) -> ColorGlyphKey {
     ColorGlyphKey::new(1, ColorGlyphId::Glyph(1), 1.0, 1.0, width)
@@ -23,7 +23,10 @@ fn atlas_rejects_a_device_limit_below_initial_height() {
     });
     assert_eq!((atlas.width, atlas.height), (32, 64));
     atlas.set_texture_dimension_limit(32);
-    assert!(atlas.insert_premultiplied(key(1), 1, &[255; 64]).is_err());
+    assert_eq!(
+        atlas.insert_premultiplied(key(1), 1, &[255; 64]).err(),
+        Some(ColorGlyphAtlasError::Full)
+    );
     assert!(atlas.lookup(key(1)).is_none());
     assert_eq!(atlas.revision(), 0);
 }
@@ -32,7 +35,10 @@ fn atlas_rejects_a_device_limit_below_initial_height() {
 fn atlas_rejects_a_device_limit_below_initial_width() {
     let mut atlas = atlas();
     atlas.set_texture_dimension_limit(16);
-    assert!(atlas.insert_premultiplied(key(1), 1, &[255; 4]).is_err());
+    assert_eq!(
+        atlas.insert_premultiplied(key(1), 1, &[255; 4]).err(),
+        Some(ColorGlyphAtlasError::Full)
+    );
     assert!(atlas.lookup(key(1)).is_none());
     assert_eq!(atlas.revision(), 0);
 }
@@ -40,7 +46,10 @@ fn atlas_rejects_a_device_limit_below_initial_width() {
 #[test]
 fn atlas_rejects_width_identity_disagreement_before_insertion() {
     let mut atlas = atlas();
-    assert!(atlas.insert_premultiplied(key(1), 2, &[255; 8]).is_err());
+    assert_eq!(
+        atlas.insert_premultiplied(key(1), 2, &[255; 8]).err(),
+        Some(ColorGlyphAtlasError::WidthMismatch { key: 1, bitmap: 2 })
+    );
     assert!(atlas.lookup(key(1)).is_none());
     assert_eq!(atlas.revision(), 0);
     assert!(!atlas.take_dirty());
@@ -52,7 +61,10 @@ fn atlas_rejects_width_identity_disagreement_on_a_resident_key() {
     let expected = atlas.insert_premultiplied(key(1), 1, &[255; 4]).unwrap();
     let revision = atlas.revision();
     atlas.take_dirty();
-    assert!(atlas.insert_premultiplied(key(1), 2, &[255; 8]).is_err());
+    assert_eq!(
+        atlas.insert_premultiplied(key(1), 2, &[255; 8]).err(),
+        Some(ColorGlyphAtlasError::WidthMismatch { key: 1, bitmap: 2 })
+    );
     assert_eq!(atlas.lookup(key(1)), Some(expected));
     assert_eq!(atlas.revision(), revision);
     assert!(!atlas.take_dirty());
@@ -81,7 +93,10 @@ fn shrinking_device_limit_hides_resident_slots_without_mutation() {
     atlas.take_dirty();
     atlas.set_texture_dimension_limit(16);
     assert!(atlas.lookup(key(1)).is_none());
-    assert!(atlas.insert_premultiplied(key(1), 1, &[255; 4]).is_err());
+    assert_eq!(
+        atlas.insert_premultiplied(key(1), 1, &[255; 4]).err(),
+        Some(ColorGlyphAtlasError::Full)
+    );
     assert_eq!(atlas.data, pixels);
     assert_eq!(atlas.revision(), revision);
     assert!(!atlas.take_dirty());
@@ -105,7 +120,10 @@ fn complete_growth_pages_stop_at_device_height_and_preserve_resident_hits() {
     let revision = atlas.revision();
     atlas.take_dirty();
     let overflow = ColorGlyphKey::new(1, ColorGlyphId::Glyph(64), 1.0, 1.0, 1);
-    assert!(atlas.insert_premultiplied(overflow, 1, &[255; 20]).is_err());
+    assert_eq!(
+        atlas.insert_premultiplied(overflow, 1, &[255; 20]).err(),
+        Some(ColorGlyphAtlasError::Full)
+    );
     assert_eq!(atlas.height, 20);
     assert!(atlas.insert_premultiplied(resident, 1, &[255; 20]).is_ok());
     assert_eq!(atlas.revision(), revision);

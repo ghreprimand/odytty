@@ -413,11 +413,8 @@ fn reflow_keeps_cursor_clear_compatible_for_live_line() {
 /// visible position.
 #[test]
 fn reflow_maps_cursor_on_wide_continuation_to_lead() {
-    // The content-accurate mapping governs when the repaint-anchor override
-    // does not apply - i.e. a resize with NO shell output since the previous
-    // one (the back-to-back ConPTY case the override deliberately skips), so
-    // each scenario resizes twice: the first consumes the anchor override,
-    // the second exercises the content path under test.
+    // The second resize exercises content mapping without an intervening
+    // repaint: the first resize consumes the anchor override.
 
     // Rejoin case: three wide glyphs; cursor on the continuation cell of the
     // SECOND glyph (col 3; the pair occupies cols 2-3 after rejoin).
@@ -446,16 +443,11 @@ fn reflow_maps_cursor_on_wide_continuation_to_lead() {
 
 #[test]
 fn shell_owns_cursor_setter_getter_behavior_tie() {
-    // Ties the `shell_owns_cursor_on_resize` getter to REAL resize behavior so
-    // the flag (and its wiring) can't rot to a no-op. This is the cross-platform
-    // guard that catches a missing/incorrect wire on Windows CI, where the
-    // correct value (true) differs from the model default (false) - on Linux the
-    // two are byte-identical, so only an explicit true-path test exposes a drift.
-    //
-    // Both cases print the same wrapped line, then do the same width-changing
-    // resize. The DEFAULT path (false) TRANSLATES the cursor to end-of-content;
-    // the shell-owns path (true) DEFERS - keeps the incoming cursor clamped to
-    // the new dims for the shell's absolute repaint to own.
+    // ConPTY cursor ownership preserves the incoming physical cursor; the model
+    // default translates it. Both cases print the same wrapped line and do the
+    // same width-changing resize: the default (false) moves the cursor to the
+    // end of content, the shell-owns path (true) keeps it clamped to the new
+    // dimensions for the shell's repaint.
     let line = b"$ hello"; // 7 cols; at width 4 wraps to "$ he" / "llo"
 
     // false (default): getter false, resize translates to end-of-content.
@@ -501,20 +493,10 @@ fn shell_owns_cursor_setter_getter_behavior_tie() {
 
 #[test]
 fn repeated_split_close_without_typing_does_not_ratchet_cursor_into_prompt() {
-    // End-to-end (Terminal-level) guard for the multi-cycle cursor RATCHET seen
-    // on Windows/PowerShell: open and close pane splits repeatedly WITHOUT
-    // typing between them, and the cursor must NOT walk backward into the path.
-    //
-    // The model stores the cursor only as physical (row, column) and re-derives
-    // the prompt's logical offset from it on every resize. The
-    // `preserve_cursor_physical_line` override clamps the cursor column to each
-    // narrow width; with no shell repaint to heal it (ConPTY/PSReadLine does not
-    // repaint on a bare resize), that clamp would feed back as the next resize's
-    // offset and ratchet the column toward 0. The `output_since_last_resize`
-    // discriminator (set in `print_char`, cleared at the end of `resize`) makes
-    // the override fire only when a repaint is actually in the loop - true for
-    // the first resize after the prompt print, false for the back-to-back
-    // resizes here - so the column never ratchets.
+    // Repeated resize without output preserves the logical cursor offset: with
+    // no shell repaint between resizes, the cursor column must not walk
+    // backward into the prompt. The `output_since_last_resize` flag makes the
+    // physical-line override fire only for the first resize after output.
     let prompt = b"PS C:\\Users\\foo>"; // 16 printable cols, empty input
     let mut terminal = Terminal::new(80, 12);
     terminal.advance(prompt);

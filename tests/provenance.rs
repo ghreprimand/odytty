@@ -27,6 +27,27 @@ use std::process::Command;
 // because the source is a shared build-support fragment, not a crate module.
 include!("../build_support/provenance.rs");
 
+// ---- dot_git_pointer ---------------------------------------------------------
+
+#[test]
+fn a_gitdir_pointer_file_names_the_worktree_git_directory() {
+    assert_eq!(
+        dot_git_pointer("gitdir: /repo/.git/worktrees/wt\n"),
+        Some("/repo/.git/worktrees/wt")
+    );
+    assert_eq!(
+        dot_git_pointer("gitdir:../.git/modules/sub"),
+        Some("../.git/modules/sub")
+    );
+}
+
+#[test]
+fn contents_that_are_not_a_gitdir_pointer_name_nothing() {
+    assert_eq!(dot_git_pointer(""), None);
+    assert_eq!(dot_git_pointer("ref: refs/heads/main\n"), None);
+    assert_eq!(dot_git_pointer("gitdir:   \n"), None);
+}
+
 // ---- validate_override_sha -------------------------------------------------
 
 #[test]

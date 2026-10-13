@@ -58,7 +58,7 @@ pub(in crate::native) struct OverlayCtx {
 }
 
 /// The currently-active keyboard modal, if any. Extended as new modals land;
-/// overlay/search are deliberately NOT modals here (D-INFRA-3) — they keep
+/// overlay/search are deliberately NOT modals here (D-INFRA-3) - they keep
 /// their own `open()` semantics and the gate sits beneath them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::native) enum ActiveModal {
@@ -72,7 +72,7 @@ pub(in crate::native) enum ActiveModal {
 impl App {
     /// Build the per-frame overlay context. `cell` is the already-resolved GPU
     /// cell size; the window padding is read from the live GPU state (which is
-    /// always present at the frame-composition call site — the caller has
+    /// always present at the frame-composition call site - the caller has
     /// already early-returned when it is absent), defaulting to zero so the
     /// builder is total.
     pub(in crate::native) fn overlay_ctx(
@@ -173,7 +173,7 @@ impl App {
     /// Unlike the earlier focused-only painter, the selection + search state are
     /// passed BY REF (read from that specific pane's [`Session`]) rather than
     /// `Deref`-ing to the focused pane, so a NON-focused pane paints its own
-    /// overlays — a selection or a search match now shows in the correct pane
+    /// overlays - a selection or a search match now shows in the correct pane
     /// regardless of which pane holds keyboard focus. The geometry
     /// (`pane_grid` / `viewport_offset` / `scrollback_len`) is this pane's, so
     /// `apply_selection_highlight` / `apply_search_matches` map onto the correct
@@ -187,7 +187,7 @@ impl App {
     /// search keystrokes, so a background pane shows its matches but not a stale
     /// bar stamped over its last content row.
     ///
-    /// Windows: pure cell-grid painting over the pane's own snapshot — no PTY,
+    /// Windows: pure cell-grid painting over the pane's own snapshot - no PTY,
     /// path, env, or shell surface, so behavior is identical across platforms.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::native) fn paint_pane_overlays(
@@ -330,7 +330,7 @@ impl App {
         apply_overlay(snapshot, &mut self.overlay);
     }
 
-    /// Hovered links are signalled by the pointer shape (hand) only — OdyTTY does
+    /// Hovered links are signalled by the pointer shape (hand) only - OdyTTY does
     /// not draw a hover underline. A render-time underline keyed on the hovered
     /// `LinkId` smeared across unrelated cells: `hovered_hyperlink` is not
     /// recomputed while live output streams under a stationary pointer, and
@@ -473,7 +473,7 @@ impl App {
         ActiveModal::None
     }
 
-    /// Route a key to the active modal's handler — each in its own submodule.
+    /// Route a key to the active modal's handler - each in its own submodule.
     /// The `None` arm is unreachable from the key ladder (the caller only routes
     /// when `active_modal() != None`) but is handled for totality.
     pub(in crate::native) fn route_modal_key(&mut self, modal: ActiveModal, key: &WinitKey) {
@@ -692,7 +692,7 @@ impl App {
     }
 
     /// Commit the in-progress rename / layout-save prompt (Enter). Takes the
-    /// prompt state by value so the commit has full `&mut self` — a layout save
+    /// prompt state by value so the commit has full `&mut self` - a layout save
     /// reaches beyond the disjoint `sessions` field the tab/workspace renames
     /// touch. A no-op when no prompt is open.
     fn commit_rename(&mut self) {
@@ -935,7 +935,7 @@ impl App {
     /// terminal schedules zero extra wakes.
     ///
     /// Consumed on BOTH sides of the event loop: `next_wake_deadline` sources it
-    /// (single-pane gated — that render path is the only consumer that advances
+    /// (single-pane gated - that render path is the only consumer that advances
     /// these timers; NF21-1/7 owns the multipane path) so a wake is scheduled,
     /// and the about-to-wait maintenance pass requests a frame only once the
     /// soonest stored deadline is due. Frame-paced contributors advance their
@@ -955,13 +955,13 @@ impl App {
             // unrelated redraw. Suppressed under a synchronized-output hold.
             self.cursor_streak_wake_deadline(),
             self.new_row_fade_deadline(),
-            // BELL visual flash — `None` on the off / urgent-only path.
+            // BELL visual flash - `None` on the off / urgent-only path.
             self.bell_flash_deadline(),
-            // OPEN-NOTICE (P0-2) auto-expiry — `None` when no notice is in flight.
+            // OPEN-NOTICE (P0-2) auto-expiry - `None` when no notice is in flight.
             self.open_notice_deadline(),
-            // UX-A (Phase 11) click-hint auto-expiry — `None` when no hint shown.
+            // UX-A (Phase 11) click-hint auto-expiry - `None` when no hint shown.
             self.click_hint_deadline(),
-            // SCROLL-GLIDE follower — `None` at rest / on the off path.
+            // SCROLL-GLIDE follower - `None` at rest / on the off path.
             self.scroll_glide_deadline(),
         ]
         .into_iter()
@@ -1019,7 +1019,7 @@ struct RenameLayout {
 }
 
 /// Replicate the box math in [`App::paint_rename_tab_cells`] exactly, returning
-/// the editable-input geometry — or `None` when the grid is too small for the
+/// the editable-input geometry - or `None` when the grid is too small for the
 /// modal (the painter bails on the same conditions). `prompt` is the label the
 /// painter prints before the input, so its width (which differs between tab and
 /// workspace renames) shifts the input start identically here. A unit test pins
@@ -1150,8 +1150,8 @@ fn rename_cursor_attrs() -> Attrs {
 /// F4-RENAME-MOUSE: styling for selected characters in the rename field. The
 /// modal paints into the indexed-palette cell snapshot (like the cursor and
 /// border above), where the theme's `selection` role isn't addressable, so this
-/// uses the conventional blue-highlight palette pair — bright text on a blue
-/// field — the closest faithful analog in this cell-modal path.
+/// uses the conventional blue-highlight palette pair - bright text on a blue
+/// field - the closest faithful analog in this cell-modal path.
 fn rename_selection_attrs() -> Attrs {
     let mut attrs = Attrs::default();
     attrs.foreground = Color::Indexed(15);
@@ -1236,43 +1236,40 @@ mod workspace_prompt_identity_tests {
     use crate::native::session::HeadlessSession;
     use crate::native::test_support::headless_writer;
 
-    fn session(id: u64, dimensions: Dimensions) -> Option<Session> {
+    fn session(id: u64, dimensions: Dimensions) -> Session {
         let writer: PtyWriter = headless_writer();
         let terminal = Arc::new(Mutex::new(Terminal::new(
             dimensions.columns,
             dimensions.rows,
         )));
-        Some(Session::new_headless(
+        Session::new_headless(
             SessionToken(id),
             terminal,
             writer,
             Arc::new(HeadlessSession::new(dimensions)),
-        ))
+        )
     }
 
-    fn app_with_three_workspaces() -> Option<App> {
+    fn app_with_three_workspaces() -> App {
         let dimensions = Dimensions::new(80, 24);
-        let sessions = WorkspaceSet::new(session(0, dimensions)?, None);
+        let sessions = WorkspaceSet::new(session(0, dimensions), None);
         let mut app = App::new_with_sessions(
             NativeOptions::default(),
             sessions,
             Settings::default(),
             crate::settings::SettingsReloader::for_current_process(Instant::now()),
         );
-        app.sessions.push_workspace(session(1, dimensions)?);
-        app.sessions.push_workspace(session(2, dimensions)?);
+        app.sessions.push_workspace(session(1, dimensions));
+        app.sessions.push_workspace(session(2, dimensions));
         app.sessions.rename_workspace(0, "first".to_owned());
         app.sessions.rename_workspace(1, "middle".to_owned());
         app.sessions.rename_workspace(2, "target".to_owned());
-        Some(app)
+        app
     }
 
     #[test]
     fn workspace_rename_commit_follows_identity_after_an_earlier_reap() {
-        let Some(mut app) = app_with_three_workspaces() else {
-            eprintln!("skipping: no PTY available");
-            return;
-        };
+        let mut app = app_with_three_workspaces();
         app.enter_rename_workspace(2);
 
         let first = app
@@ -1299,10 +1296,7 @@ mod workspace_prompt_identity_tests {
 
     #[test]
     fn workspace_prompt_commit_is_a_noop_after_its_target_is_reaped() {
-        let Some(mut app) = app_with_three_workspaces() else {
-            eprintln!("skipping: no PTY available");
-            return;
-        };
+        let mut app = app_with_three_workspaces();
         app.enter_rename_workspace(1);
         assert!(app.sessions.switch_workspace(1));
         let target = app
@@ -1324,10 +1318,7 @@ mod workspace_prompt_identity_tests {
 
     #[test]
     fn save_layout_prompt_re_resolves_the_same_workspace_after_a_rail_shift() {
-        let Some(mut app) = app_with_three_workspaces() else {
-            eprintln!("skipping: no PTY available");
-            return;
-        };
+        let mut app = app_with_three_workspaces();
         app.enter_save_layout_prompt(2);
         let anchor = match app.rename_state.as_ref().map(|state| state.target) {
             Some(RenameTarget::SaveLayout(anchor)) => anchor,
@@ -1355,13 +1346,9 @@ mod workspace_prompt_identity_tests {
 
     #[test]
     fn workspace_rename_survives_its_first_tab_closing() {
-        let Some(mut app) = app_with_three_workspaces() else {
-            eprintln!("skipping: no PTY available");
-            return;
-        };
+        let mut app = app_with_three_workspaces();
         assert!(app.sessions.switch_workspace(2));
-        app.sessions
-            .push(session(3, Dimensions::new(80, 24)).expect("second tab"));
+        app.sessions.push(session(3, Dimensions::new(80, 24)));
         app.enter_rename_workspace(2);
         // The workspace's first tab closes; its second tab keeps it alive.
         assert!(!app.sessions.close_shell_exited(SessionToken(2)));
@@ -1376,13 +1363,9 @@ mod workspace_prompt_identity_tests {
 
     #[test]
     fn workspace_rename_stays_with_the_workspace_when_its_first_tab_moves() {
-        let Some(mut app) = app_with_three_workspaces() else {
-            eprintln!("skipping: no PTY available");
-            return;
-        };
+        let mut app = app_with_three_workspaces();
         assert!(app.sessions.switch_workspace(2));
-        app.sessions
-            .push(session(3, Dimensions::new(80, 24)).expect("second tab"));
+        app.sessions.push(session(3, Dimensions::new(80, 24)));
         app.enter_rename_workspace(2);
         // The first tab moves to "first"; the prompt must not follow it.
         assert_eq!(
@@ -1399,10 +1382,7 @@ mod workspace_prompt_identity_tests {
 
     #[test]
     fn save_layout_prompt_survives_a_rail_reorder() {
-        let Some(mut app) = app_with_three_workspaces() else {
-            eprintln!("skipping: no PTY available");
-            return;
-        };
+        let mut app = app_with_three_workspaces();
         app.enter_save_layout_prompt(2);
         let anchor = match app.rename_state.as_ref().map(|state| state.target) {
             Some(RenameTarget::SaveLayout(anchor)) => anchor,
@@ -1419,7 +1399,7 @@ mod workspace_prompt_identity_tests {
 #[cfg(test)]
 mod rename_mouse_tests {
     //! F4-RENAME-MOUSE: pure hit-test / caret-mapping / selection-edit seam
-    //! tests. These need no `App` or PTY — they exercise the free functions the
+    //! tests. These need no `App` or PTY - they exercise the free functions the
     //! render and pointer paths both go through, so a click maps to exactly the
     //! character the painter drew.
     use super::*;
@@ -1428,7 +1408,7 @@ mod rename_mouse_tests {
     /// below (they exercise the tab modal geometry).
     const TAB_PROMPT: &str = "Tab name: ";
 
-    /// A `RenameState` with no live session — fine for the edit/selection
+    /// A `RenameState` with no live session - fine for the edit/selection
     /// helpers, which never touch the target token.
     fn state(text: &str, cursor: usize) -> RenameState {
         RenameState {
@@ -1442,7 +1422,7 @@ mod rename_mouse_tests {
     #[test]
     fn prompt_label_matches_the_rename_target() {
         // RENAME-LABEL: a tab rename says "Tab name: "; a workspace rename says
-        // "Workspace name: " — the shared modal must not mislabel a workspace as
+        // "Workspace name: " - the shared modal must not mislabel a workspace as
         // a tab.
         assert_eq!(
             rename_prompt(RenameTarget::Tab(SessionToken(1))),
@@ -1466,7 +1446,7 @@ mod rename_mouse_tests {
     #[test]
     fn layout_input_start_follows_the_prompt_width() {
         // The longer workspace prompt shifts the editable input right by exactly
-        // the extra prompt columns, and the input is that much narrower — so the
+        // the extra prompt columns, and the input is that much narrower - so the
         // width math derives from the actual prompt, never a hard-coded literal.
         let columns = 80;
         let rows = 24;
@@ -1475,7 +1455,7 @@ mod rename_mouse_tests {
         let delta = "Workspace name: ".chars().count() - "Tab name: ".chars().count();
         assert_eq!(ws.input_left, tab.input_left + delta);
         assert_eq!(ws.input_width, tab.input_width - delta);
-        // The box itself is unchanged — only the prompt/input split moves.
+        // The box itself is unchanged - only the prompt/input split moves.
         assert_eq!(ws.box_left, tab.box_left);
         assert_eq!(ws.box_right, tab.box_right);
     }
@@ -1697,7 +1677,7 @@ mod rename_mouse_tests {
 
     #[test]
     fn delete_selection_handles_multibyte_text() {
-        // "café» " — non-ASCII so byte and char indices diverge; the delete must
+        // "café» " - non-ASCII so byte and char indices diverge; the delete must
         // map through char→byte or it would slice mid-codepoint / mispositioned.
         let mut s = state("café☺x", 4); // chars: c a f é ☺ x
         s.anchor = Some(3); // select "é☺" (chars 3..4? actually 3..cursor)

@@ -7,8 +7,8 @@
 //! GL presentation shares its device and queue across sibling windows.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use crate::text::FontHandle;
 use wgpu::util::DeviceExt;
@@ -37,7 +37,7 @@ use super::fonts::{
 };
 use super::image::BgImageGpu;
 use super::pipeline_policy::{
-    adapter_is_software, bring_up_adapter, choose_surface_format, effect_params,
+    GpuErrorRepeats, adapter_is_software, bring_up_adapter, choose_surface_format, effect_params,
     effective_subpixel_mode, required_limits_for_adapter, scene_target_format, select_alpha_mode,
     text_params, theme_clear_color,
 };
@@ -56,10 +56,16 @@ use super::types::{
 };
 
 fn report_uncaptured_gpu_error(error: wgpu::Error) {
-    tracing::error!("uncaptured GPU error: {error}");
+    static REPEATS: Mutex<GpuErrorRepeats> = Mutex::new(GpuErrorRepeats::new());
+    let message = error.to_string();
+    match crate::native::lock_recover(&REPEATS).record(&message) {
+        Some(1) => tracing::error!("uncaptured GPU error: {message}"),
+        Some(count) => tracing::error!("uncaptured GPU error (repeated {count} times): {message}"),
+        None => {}
+    }
 }
 
-fn uncaptured_error_handler() -> Arc<dyn wgpu::UncapturedErrorHandler> {
+pub(super) fn uncaptured_error_handler() -> Arc<dyn wgpu::UncapturedErrorHandler> {
     Arc::new(report_uncaptured_gpu_error)
 }
 
@@ -97,8 +103,8 @@ mod availability_tests {
 }
 
 /// Viewport uniform mirroring `Viewport` in `cell.wgsl`: physical surface size
-/// in pixels plus presentation-only params. `effect` is `[0.0, _]` when the
-/// visual treatment is off, which makes the shader a no-op. `text.x` is glyph
+/// in pixels plus presentation-only params. `effect` is a vestigial slot kept
+/// for uniform layout stability; the cell shaders never read it. `text.x` is glyph
 /// coverage gamma; `1.0` preserves the legacy linear blend exactly.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -392,12 +398,12 @@ pub(in crate::native) struct GpuState {
     pub(super) background_vertex_count: u32,
     pub(super) color_glyph_vertex_count: u32,
     pub(super) image_layer: ImageLayer,
-    /// ID3/U5 background-image pass: a full-window textured quad drawn behind
+    /// Background-image pass: a full-window textured quad drawn behind
     /// the grid with a readability scrim. `None` (the default and the off path)
     /// skips the draw entirely, so the rendered frame is byte-identical to the
     /// no-image path. Built/refreshed via [`Self::set_background_image`].
     pub(super) bg_image: Option<BgImageGpu>,
-    /// ID3/U5 cell background opacity multiplier fed to the cell-vertex builder.
+    /// Cell background opacity multiplier fed to the cell-vertex builder.
     /// `1.0` (the default) keeps cells fully opaque - byte-identical output.
     pub(super) cell_bg_opacity: f32,
     /// The `colored_bg_opacity` knob - minimum window-alpha
@@ -417,7 +423,7 @@ pub(in crate::native) struct GpuState {
     /// byte-identical vertex output. Applied uniformly to all mono-glyph ink
     /// (content and chrome labels alike); color emoji are exempt by pipeline.
     pub(super) text_brightness: f32,
-    /// TRANSPARENCY: effective window background alpha this frame. `1.0`
+    /// Effective window background alpha this frame. `1.0`
     /// (the default, and whenever the window-transparency setting is off or the
     /// compositor offers no alpha mode) keeps the opaque render path
     /// byte-identical. Below `1.0` the scene clears to fully transparent and the
@@ -426,7 +432,7 @@ pub(in crate::native) struct GpuState {
     /// this to `1.0` - the window stays translucent and only the panel's own
     /// cell span is held opaque (see `overlay_opaque_region`).
     pub(super) window_bg_alpha: f32,
-    /// TRANSPARENCY: while content cells draw below full
+    /// While content cells draw below full
     /// opacity AND an overlay panel, rename band, or HUD chip is merged into the
     /// single-pane snapshot, that surface's cell span (in the built snapshot's
     /// coordinates, after tab-chrome decoration). The cell-vertex builder forces
@@ -435,7 +441,7 @@ pub(in crate::native) struct GpuState {
     /// fully opaque content path, and every multi-pane frame, where these
     /// surfaces are separate opaque layers) is the byte-identical path.
     pub(super) overlay_opaque_region: Option<grid::CellRegion>,
-    /// VE4 new-output fade: per-content-row FOREGROUND alpha multipliers plus
+    /// New-output fade: per-content-row FOREGROUND alpha multipliers plus
     /// the decorated-snapshot chrome offsets, set by the single-pane render
     /// dispatch each frame (`None` = inert, the off path and every settled
     /// frame). Consumed by the single-pane cell + color-glyph builds only; the
@@ -549,7 +555,7 @@ pub(in crate::native) struct GpuState {
     /// detection. Empty (the default) keeps the regular-face load path, so the
     /// stored value stays `""` and never triggers a weight-driven rebuild.
     pub(super) font_weight: String,
-    /// RV4 smooth-scroll sub-row vertical offset (pixels) added to
+    /// Smooth-scroll sub-row vertical offset (pixels) added to
     /// [`Self::content_origin`]. `0.0` at rest / on the off path keeps the
     /// origin byte-identical. Updated each animating frame via
     /// [`Self::set_scroll_frac_offset`].
@@ -1052,7 +1058,7 @@ impl GpuState {
             // Initial buffer is the blank snapshot; cells stay fully opaque until
             // a live `set_cell_bg_opacity` arrives (identity / byte-identical).
             crate::settings::DEFAULT_CELL_BG_OPACITY,
-            // TEXT-BRIGHTNESS identity for the blank initial snapshot; live
+            // Text-brightness identity for the blank initial snapshot; live
             // values arrive with the first real frame's `set_text_brightness`.
             crate::settings::DEFAULT_TEXT_BRIGHTNESS,
             // No overlay panel is merged into the initial snapshot.
@@ -1287,7 +1293,7 @@ impl GpuState {
     }
 
     /// The active theme background clear color in linear RGB with alpha `1.0`,
-    /// matching the [`SolidQuad`] color basis (VE4 new-output fade paints a
+    /// matching the [`SolidQuad`] color basis (new-output fade paints a
     /// quad of this color over each fading row). Sourced from the same
     /// `clear_color` used for the frame clear, so an opaque fade quad is
     /// pixel-seamless against the surrounding background.
@@ -1300,7 +1306,7 @@ impl GpuState {
         ]
     }
 
-    /// TRANSPARENCY: set the effective window background alpha for upcoming
+    /// Set the effective window background alpha for upcoming
     /// frames. `1.0` restores the fully-opaque path; values below `1.0` (only
     /// meaningful when the compositor offers a transparent alpha mode) draw the
     /// terminal background translucent. The App recomputes this each frame from
@@ -1308,7 +1314,7 @@ impl GpuState {
     /// it on the next update.
     pub(in crate::native) fn set_window_bg_alpha(&mut self, alpha: f32) {
         self.window_bg_alpha = alpha.clamp(0.0, 1.0);
-        // TRANSPARENCY: the wallpaper pass is a separate GPU layer, so the
+        // The wallpaper pass is a separate GPU layer, so the
         // window alpha must reach its uniform too - otherwise the image draws
         // fully opaque over the transparent clear and no desktop shows through.
         // `set_window_alpha` is a no-op when the value is unchanged, so the
@@ -1318,7 +1324,7 @@ impl GpuState {
         }
     }
 
-    /// TRANSPARENCY: set the single-pane surface's opaque cell
+    /// Set the single-pane surface's opaque cell
     /// span for the upcoming frame, or `None` to force no cells. Only meaningful
     /// while content cells draw below full opacity and a surface is merged into
     /// the snapshot; the App passes `None` on the fully opaque path and on every
@@ -1332,7 +1338,7 @@ impl GpuState {
         self.overlay_opaque_region = region;
     }
 
-    /// VE4 new-output fade: set the per-row foreground alpha ramp for the
+    /// New-output fade: set the per-row foreground alpha ramp for the
     /// upcoming single-pane frame, or `None` when no row is mid-fade (the off
     /// path and every settled frame - the builders then take the exact inert
     /// `RowFade::NONE` path). A cheap store - read on the next update.
@@ -1346,7 +1352,7 @@ impl GpuState {
         self.bidi_display = map;
     }
 
-    /// TRANSPARENCY: whether the configured swapchain can present a transparent
+    /// Whether the configured swapchain can present a transparent
     /// window at all. `Opaque` composite-alpha means the display server offers
     /// no alpha blending, so the setting has no visible effect and the App
     /// keeps the opaque path.
@@ -1649,7 +1655,7 @@ impl GpuState {
         } else if let Some(bg) = self.bg_image.as_mut() {
             bg.refresh_scrim(&self.queue, &theme, cell_bg_opacity, scrim_override);
         }
-        // TRANSPARENCY: a freshly-loaded image starts opaque, so re-seed the
+        // A freshly-loaded image starts opaque, so re-seed the
         // live window alpha (a no-op when already opaque) - the wallpaper must
         // pick up an in-effect translucent window on load, not only on the next
         // opacity change.
@@ -1657,16 +1663,6 @@ impl GpuState {
             bg.set_window_alpha(&self.queue, self.window_bg_alpha);
         }
     }
-
-    /// Retired: the legacy ambient scanline path is folded into the
-    /// unified CRT post-process, so the cell shader no longer reads a scanline
-    /// term from the `effect` uniform. `visual=ambient` now aliases to `crt=on`
-    /// in settings and the scanline look is produced by the CRT post-process.
-    /// This shell remains so the settings-apply path keeps a stable call site;
-    /// the `effect` uniform stays at its (now vestigial but valid) init value,
-    /// so the uniform layout is unchanged and nothing is left in an invalid
-    /// state. It intentionally does nothing.
-    pub(in crate::native) fn set_visual(&mut self, _visual: VisualEffect) {}
 
     pub(in crate::native) fn set_text_gamma(&mut self, text_gamma: f32) {
         self.text = text_params(text_gamma);

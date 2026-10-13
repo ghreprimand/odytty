@@ -73,9 +73,7 @@ fn directory_discovery_finds_noto_color_emoji_by_filename() {
 
 #[test]
 fn directory_discovery_finds_apple_color_emoji_ttc() {
-    // macOS ships Apple Color Emoji as a .ttc (sbix). Discovery must find it by
-    // filename just like Noto, so emoji render on macOS out of the box. The
-    // `.ttc` extension is part of the gap: it must be collected as a font file.
+    // Collect .ttc color faces as well as .ttf fonts.
     let scratch = crate::test_dirs::ScratchDir::new("odytty-emoji-apple");
     let root = scratch.path().to_path_buf();
     let nested = root.join("System/Library/Fonts");
@@ -251,10 +249,7 @@ fn emoji_presentation_gate_covers_misctech_and_squares_but_not_playback_triangle
     assert_eq!(emoji_presentation("\u{23F8}"), EmojiPresentation::Color); // pause
     assert_eq!(emoji_presentation("\u{2B1B}"), EmojiPresentation::Color); // black square
     assert_eq!(emoji_presentation("\u{2B1C}"), EmojiPresentation::Color); // white square
-    // Critical exclusion: the text-default playback triangles U+23F4..U+23F7
-    // (U+23F5 PLAY is Claude Code's "bypass permissions" glyph) must stay TEXT
-    // so they use the mono symbol fallback -- no color face covers them, so
-    // color-routing would tofu.
+    // Keep text-default playback triangles on the monochrome route.
     assert_eq!(emoji_presentation("\u{23F5}"), EmojiPresentation::Text);
     assert_eq!(emoji_presentation("\u{23F4}"), EmojiPresentation::Text);
     assert_eq!(emoji_presentation("\u{23F6}"), EmojiPresentation::Text);

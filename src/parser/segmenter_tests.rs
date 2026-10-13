@@ -207,3 +207,52 @@ fn consecutive_invalid_subparts_without_esc_drain() {
         vec!['\u{FFFD}', '\u{FFFD}', '\u{FFFD}', 'x', '\u{FFFD}']
     );
 }
+
+#[test]
+fn a_truncated_codepoint_interrupted_by_esc_emits_the_replacement_and_stops_at_the_esc() {
+    let (r, result, consumed) = run(b"\xE2\x82\x1b[");
+    assert_eq!(r.prints, vec!['\u{FFFD}']);
+    assert_eq!(result, GroundResult::SawEsc);
+    assert_eq!(
+        consumed, 3,
+        "the two partial bytes and the ESC are consumed"
+    );
+}
+
+#[test]
+fn a_carried_partial_completed_by_a_chunk_with_an_esc_is_replaced_and_hands_over_the_esc() {
+    let mut segmenter = Segmenter::new();
+    let mut r = Rec::default();
+    assert_eq!(
+        segmenter.run_ground(&mut r, b"\xF0\x9F"),
+        (GroundResult::Drained, 2)
+    );
+    assert_eq!(
+        segmenter.run_ground(&mut r, b"\x98\x1b["),
+        (GroundResult::SawEsc, 2)
+    );
+    assert_eq!(r.prints, vec!['\u{FFFD}']);
+}
+
+#[test]
+fn an_invalid_continuation_after_a_carried_lead_consumes_one_new_byte() {
+    let mut segmenter = Segmenter::new();
+    let mut r = Rec::default();
+    assert_eq!(
+        segmenter.run_ground(&mut r, b"\xF0"),
+        (GroundResult::Drained, 1)
+    );
+    assert_eq!(
+        segmenter.run_ground(&mut r, b"\x9F\x41"),
+        (GroundResult::Drained, 2)
+    );
+    assert_eq!(r.prints, vec!['\u{FFFD}', 'A']);
+}
+
+#[test]
+fn del_in_ground_is_printed_not_ignored() {
+    let (r, result, consumed) = run(b"a\x7fb");
+    assert_eq!(result, GroundResult::Drained);
+    assert_eq!(consumed, 3);
+    assert_eq!(r.prints, vec!['a', '\u{7f}', 'b']);
+}

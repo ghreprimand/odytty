@@ -138,7 +138,7 @@ fn c1_from_utf8_whole_executes() {
 
 #[test]
 fn c1_from_utf8_split_executes_uniform() {
-    // PA2-r uniform-execute policy: a C1 scalar arriving SPLIT across advance()
+    // Uniform-execute policy: a C1 scalar arriving SPLIT across advance()
     // calls also executes (not prints), making chunking irrelevant.
     let mut rec = Recorder::default();
     let mut parser = OdyParser::new();

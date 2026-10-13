@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! DCS/APC graphics routing: captures DCS sixel payloads, decodes them via
-//! the SX1 Sixel decoder, and wires decoded images into the graphics scene
-//! as cell-anchored placements.
-//!
-//! Extracted from [`super::screen`]. The DCS state machine (hook/put/unhook)
-//! and sixel decode→place pipeline live here; `screen/mod.rs` retains thin
-//! forwarding methods.
+//! DCS Sixel capture and decode/place routing, plus APC Kitty dispatch.
+//! `Screen` keeps thin forwarding methods and owns cursor updates and
+//! dirty-state propagation.
 //!
 //! # Cursor-below-image policy
 //!

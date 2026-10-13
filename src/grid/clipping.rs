@@ -269,8 +269,8 @@ pub(crate) fn subtract_rects_from_quads<V: ClipQuadInstance>(
 ///
 /// `bg_instances` is the background segment only (glyphs excluded); `row0_quads` is
 /// the count of non-continuation cells in the snapshot's first row (its
-/// background quads lead the segment in row-major order). Only the top edge is
-/// moved (indices 0/2/3), and only upward, so a quad already at or above `top_y`
+/// background quads lead the segment in row-major order). Only the top-left y
+/// (`pos[1]`) is moved, and only upward, so a quad already at or above `top_y`
 /// is untouched and the at-rest / single-pane path (never called) is unaffected.
 pub(crate) fn extend_first_row_bg_to_top(
     bg_instances: &mut [Vertex],

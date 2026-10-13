@@ -11,7 +11,6 @@ use super::*;
 
 use std::io::Write;
 use std::time::{Duration, Instant};
-use winit::event::MouseButton as WinitMouseButton;
 
 use crate::core::Position;
 use crate::grid::BidiDisplayMap;
@@ -312,14 +311,6 @@ fn path_app() -> (App, Arc<Mutex<crate::core::Terminal>>) {
         crate::paths::FsKind::File,
     )]));
     (app, terminal)
-}
-
-fn hold_open_modifier(app: &mut App, held: bool) {
-    if cfg!(target_os = "macos") {
-        app.set_super_key_for_test(held);
-    } else {
-        app.set_ctrl_modifier_for_test(held);
-    }
 }
 
 fn hover_screen_cell(app: &mut App, row: usize, column: usize) {

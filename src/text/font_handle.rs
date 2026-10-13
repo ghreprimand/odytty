@@ -18,20 +18,21 @@ use skrifa::outline::pen::PathStyle;
 use skrifa::outline::{DrawSettings, OutlinePen};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Immutable face generations distinguish replacements even when allocators
-/// reuse the same address. Clones retain their generation.
+/// Face generations distinguish replacements even when allocators reuse the
+/// same address. Clones retain their generation, including a clone whose `'0'`
+/// mapping [`FontHandle::with_zero_feature`] changed: the generation names the
+/// face bytes, and shaping compares the zero setting separately.
 static NEXT_FACE_GENERATION: AtomicU64 = AtomicU64::new(1);
 
+/// Largest coverage raster accepted per axis. The bound is per axis: a
+/// 4,096 by 4,096 raster needs about 64 MiB of transient `f32` scan-converter
+/// cells while one glyph is drawn.
 const MAX_COVERAGE_AXIS: f32 = 4096.0;
 
 /// A loaded, single-face font: the owned bytes plus the face index within them.
 ///
-/// Mirrors the surface the renderer used on `ab_glyph::FontVec`
-/// (`glyph_id`, `as_scaled`, `outline`, `outline_glyph`, `as_slice`) so call
-/// sites are unchanged apart from the type name. Like the previous `FontVec`
-/// construction (`try_from_vec`, always face 0 of already-extracted bytes), the
-/// public constructor fixes the face index at 0; collection faces are extracted
-/// to standalone single-face bytes before they reach here.
+/// The public constructor takes face 0; collection faces are extracted to
+/// standalone single-face bytes before they reach here.
 #[derive(Clone)]
 pub struct FontHandle {
     bytes: Vec<u8>,
@@ -40,7 +41,7 @@ pub struct FontHandle {
     /// The glyph the face's OpenType `zero` feature substitutes for `'0'`,
     /// when the alternate-zero legibility control is on and the face carries
     /// such a lookup (see [`Self::with_zero_feature`]). `None` maps `'0'`
-    /// through the cmap exactly as before.
+    /// through the cmap.
     zero_glyph: Option<GlyphId>,
 }
 
@@ -58,9 +59,8 @@ impl FontHandle {
     /// Parse and validate a single-face font from owned bytes, taking face 0.
     ///
     /// Returns [`FontParseError`] on unparseable input, preserving the error
-    /// type carried by [`crate::text::TextError::Parse`]. Note that the
-    /// accept/reject boundary for malformed input is now skrifa's rather than
-    /// the previous parser's; the malformed-font suite exercises this seam.
+    /// type carried by [`crate::text::TextError::Parse`]. skrifa decides what
+    /// malformed input is refused; the malformed-font suite exercises this seam.
     pub fn try_from_vec(bytes: Vec<u8>) -> Result<Self, FontParseError> {
         Self::from_vec_and_index(bytes, 0)
     }
@@ -95,6 +95,7 @@ impl FontHandle {
     /// its cmap glyph, so it renders exactly as with the control off. Cell
     /// metrics never read `'0'` (width comes from `'M'`, height and baseline
     /// from the face's ascent and descent), so they are unchanged either way.
+    /// The face generation is kept (see `NEXT_FACE_GENERATION`).
     #[must_use]
     pub fn with_zero_feature(mut self, enabled: bool) -> Self {
         self.zero_glyph = if enabled {
@@ -136,6 +137,7 @@ impl FontHandle {
 
     /// The glyph id `ch` maps to, or `GlyphId(0)` (`.notdef`) when the face does
     /// not cover it, matching `ab_glyph::Font::glyph_id`.
+    ///
     /// While the `zero` control is on and the face has an alternate, `'0'`
     /// maps to that alternate instead (see [`Self::with_zero_feature`]).
     pub fn glyph_id(&self, ch: char) -> GlyphId {
@@ -245,7 +247,7 @@ impl FontHandle {
     }
 
     /// Decompose the glyph outline into font-unit curves plus control-point
-    /// (legacy) bounds, applying the comparator-proven shims.
+    /// bounds.
     fn raw_outline(&self, id: GlyphId) -> Option<RawOutline> {
         let font = self.font_ref();
         let gid = skrifa::GlyphId::from(id.0);
@@ -439,11 +441,10 @@ struct RawOutline {
     bounds: Option<[f32; 4]>,
 }
 
-/// Convert font-unit control-point bounds into whole-number pixel bounds,
-/// reproducing `ab_glyph::Outline::px_bounds` verbatim: subpixel-fraction
-/// floor/ceil with the vertical axis negated. `legacy` is `[min_x, min_y,
-/// max_x, max_y]` in font units (y up), so the pixel top comes from `max_y` and
-/// the pixel bottom from `min_y`.
+/// Convert font-unit control-point bounds into whole-number pixel bounds:
+/// subpixel-fraction floor/ceil with the vertical axis negated. `legacy` is
+/// `[min_x, min_y, max_x, max_y]` in font units (y up), so the pixel top comes
+/// from `max_y` and the pixel bottom from `min_y`.
 fn px_bounds(legacy: [f32; 4], sf_h: f32, sf_v: f32, position: Point) -> Rect {
     let [min_x, min_y, max_x, max_y] = legacy;
     let (x_trunc, x_fract) = (position.x.trunc(), position.x.fract());
@@ -460,10 +461,9 @@ fn px_bounds(legacy: [f32; 4], sf_h: f32, sf_v: f32, position: Point) -> Rect {
     }
 }
 
-/// Reproduces `ab_glyph` 0.2.32's `OutlineCurveBuilder` bookkeeping over a
-/// `skrifa` `OutlinePen`: the same `last`/`last_move` tracking, the same
-/// close-emits-a-line rule, and the same control-point bounds accumulation, so
-/// the emitted curve sequence and bounds match the previous parser's.
+/// Collects a `skrifa` `OutlinePen` stream into outline curves, tracking the
+/// last point and subpath start (a close emits a line back to the start) and
+/// accumulating control-point bounds.
 #[derive(Default)]
 struct CurveBuilder {
     last: Point,
@@ -474,7 +474,7 @@ struct CurveBuilder {
 
 impl CurveBuilder {
     /// Restore the glyf phantom-point x shift skrifa subtracts, so the emitted
-    /// coordinates match the previous parser's original font coordinates.
+    /// coordinates are in original font units.
     fn restore_unscaled_origin(&mut self, shift: f32) {
         if shift == 0.0 {
             return;
@@ -516,9 +516,8 @@ impl CurveBuilder {
         }
     }
 
-    /// Control-point bounds truncated to i16, matching the previous parser's
-    /// outline path (it recomputes bounds from control points even for glyf,
-    /// then converts to i16 coordinates). `None` for a degenerate box.
+    /// Control-point bounds (recomputed from control points even for glyf)
+    /// truncated to i16 coordinates. `None` for a degenerate box.
     fn legacy_bounds(&self) -> Option<[f32; 4]> {
         let mut b = self.control_bounds?;
         for v in &mut b {

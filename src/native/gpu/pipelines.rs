@@ -216,7 +216,7 @@ pub(in crate::native) fn create_color_glyph_pipeline(
         1 => Float32x2, // end_pos_px
         2 => Float32x2, // uv
         3 => Float32x2, // end_uv
-        4 => Float32,   // fade alpha (VE4 new-output fade; 1.0 off-path)
+        4 => Float32,   // fade alpha (new-output fade; 1.0 off-path)
     ];
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("odytty-color-glyph-pipeline"),
@@ -302,7 +302,7 @@ fn vs_main(input: VsIn, @builtin(vertex_index) vertex_index: u32) -> VsOut {
 
 @fragment
 fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
-    // VE4 new-output fade: the texel is premultiplied RGBA, so one uniform
+    // New-output fade: the texel is premultiplied RGBA, so one uniform
     // multiply on all four channels fades the glyph without fringing.
     // alpha = 1.0 (everywhere off the fade path) is the exact identity.
     return textureSample(color_glyph_tex, color_glyph_sampler, input.uv) * input.alpha;
@@ -328,7 +328,7 @@ impl GpuState {
         );
         self.image_layer
             .rebuild_pipeline(&self.device, target_format);
-        // C1: the background-image pipeline also draws inside the scene pass,
+        // The background-image pipeline also draws inside the scene pass,
         // so it must retarget with the rest - `set_background_image` skips the
         // rebuild when path/blur are unchanged (needs_reload == false), which
         // is exactly the live CRT/bloom-toggle path.

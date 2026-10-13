@@ -69,6 +69,62 @@ class UpdateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "one .upd_info"):
             self.verify()
 
+    def mutated(self, offset, fmt, value):
+        data = bytearray(self.payload)
+        struct.pack_into(fmt, data, offset, value)
+        self.image.write_bytes(bytes(data))
+
+    def test_every_guarded_elf_field_is_refused(self):
+        # Offsets: header e_shoff 40, e_shentsize 58, e_shnum 60, e_shstrndx 62;
+        # the section table starts at 64 and each entry is 64 bytes, with
+        # sh_name at +0, sh_offset at +24 and sh_size at +32.
+        names_entry, upd_entry = 64 + 64, 64 + 128
+        cases = {
+            "entry size": (58, "<H", 63, "section table"),
+            "zero sections": (60, "<H", 0, "section table"),
+            "too many sections": (60, "<H", 4097, "section table"),
+            "names index past the table": (62, "<H", 3, "section table"),
+            "table past the image": (40, "<Q", 1 << 40, "outside the image"),
+            "names section too large": (names_entry + 32, "<Q", 65537, "section names"),
+            "names section past the image": (names_entry + 32, "<Q", 60000, "section names"),
+            "two update sections": (names_entry, "<I", 11, "exactly one"),
+            "empty update section": (upd_entry + 32, "<Q", 0, "update information section"),
+            "oversized update section": (upd_entry + 32, "<Q", 4097, "update information section"),
+            "update section past the image": (upd_entry + 24, "<Q", 1 << 20, "update information section"),
+        }
+        for name, (offset, fmt, value, message) in cases.items():
+            with self.subTest(name=name):
+                self.mutated(offset, fmt, value)
+                with self.assertRaisesRegex(ValueError, message):
+                    self.verify()
+
+    def test_malformed_control_fields_are_refused(self):
+        for name, fields in (
+            ("negative length", {"Length": "-1"}),
+            ("non-integer length", {"Length": "many"}),
+            ("negative block size", {"Blocksize": "-2048"}),
+            ("non-integer block size", {"Blocksize": "big"}),
+            ("non-integer hash length", {"Hash-Lengths": "2,x,4"}),
+        ):
+            with self.subTest(name=name):
+                self.control.write_bytes(control_bytes(self.payload, **fields))
+                with self.assertRaises(ValueError):
+                    self.verify()
+
+    def test_missing_length_and_hash_length_keys_raise_key_error(self):
+        # `main` reports the KeyError as a failed verification.
+        for field in ("Length", "Hash-Lengths", "Blocksize"):
+            text = control_bytes(self.payload).decode().splitlines()
+            kept = "\n".join(line for line in text if not line.startswith(field + ":"))
+            self.control.write_bytes(kept.encode() + b"\n")
+            with self.subTest(field=field), self.assertRaises(KeyError):
+                self.verify()
+
+    def test_oversized_zsync_header_is_refused(self):
+        self.control.write_bytes(control_bytes(self.payload, Padding="x" * 70000))
+        with self.assertRaisesRegex(ValueError, "oversized zsync header"):
+            self.verify()
+
     def test_missing_control_file_fails(self):
         self.control.unlink()
         with self.assertRaises(OSError):

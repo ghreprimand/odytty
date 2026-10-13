@@ -36,6 +36,9 @@ KILLED = {"CaughtMutant"}
 SURVIVED = {"MissedMutant"}
 INCONCLUSIVE = {"Timeout", "Unviable"}
 MAX_BATCH_REGEX_CHARS = 1024
+# Most characters of the stage-2 survivor selection passed as one argument: the
+# kernel limit on a single argument string is 128 KiB, and an exec past it fails.
+MAX_SURVIVOR_REGEX_CHARS = 100_000
 
 
 class ResultError(Exception):
@@ -318,6 +321,19 @@ def verify_partition(defs: list[dict], listings: dict[str, list[str]], census: l
     return {"per_batch": per_batch, "census": len(census), "filter_bypass": bypass}
 
 
+def stage2_run_dirs(root: Path, batch: str) -> list[Path]:
+    """The stage-2 run directories of one batch that hold outcomes.
+
+    The glob is anchored on the separator: a batch named `input` must not
+    collect the runs of a batch named `input-win32`.
+    """
+    return sorted(
+        d
+        for d in (*root.glob(f"stage2-{batch}"), *root.glob(f"stage2-{batch}-shard*"))
+        if (d / "mutants.out" / "outcomes.json").is_file()
+    )
+
+
 def survivor_regex(missed_file: Path, exclusions: list[dict] | None = None) -> str:
     """Build the stage-2 selection regex from a stage-1 survivor list.
 
@@ -333,7 +349,13 @@ def survivor_regex(missed_file: Path, exclusions: list[dict] | None = None) -> s
         raise ResultError("survivor list is empty; stage 2 must not be run with an empty selection")
     if exclusions:
         names = [n for n in names if excluded_by(n, exclusions) is None]
-    return "|".join(re.escape(n) for n in names)
+    selection = "|".join(re.escape(n) for n in names)
+    if len(selection) > MAX_SURVIVOR_REGEX_CHARS:
+        raise ResultError(
+            f"the survivor selection is {len(selection)} characters, over the "
+            f"{MAX_SURVIVOR_REGEX_CHARS} one argument can carry; split the batch"
+        )
+    return selection
 
 
 # --- Provenance -----------------------------------------------------------
@@ -603,8 +625,7 @@ def build_report(root: Path, defs: list[dict], owned: dict[str, set[str]] | None
         # does not fit the campaign budget. Every shard present is merged; the
         # survivors no shard re-ran stay reported as stage-1 results.
         stage2 = None
-        shard_dirs = sorted(d for d in root.glob(f"stage2-{batch}*")
-                            if (d / "mutants.out" / "outcomes.json").is_file())
+        shard_dirs = stage2_run_dirs(root, batch)
         for d in shard_dirs:
             part = load_batch(d / "mutants.out" / "outcomes.json")
             if stage2 is None:
@@ -883,6 +904,18 @@ def self_test() -> int:
         merged = combine(s1, load_batch(write("s2ok.json", s2_ok)), "b")
         if merged["b:2:2: y"]["summary"] != "CaughtMutant" or merged["b:2:2: y"]["stage"] != "2":
             failures.append("stage2 confirmation: survivor was not folded in")
+
+        # Batches whose names share a prefix keep their stage-2 shards apart.
+        for shard in ("stage1-input", "stage2-input", "stage2-input-shard1of2", "stage2-input-win32"):
+            (tmp / shard / "mutants.out").mkdir(parents=True, exist_ok=True)
+            (tmp / shard / "mutants.out" / "outcomes.json").write_text("{}")
+        matched = [d.name for d in stage2_run_dirs(tmp, "input")]
+        if matched != ["stage2-input", "stage2-input-shard1of2"]:
+            failures.append(f"stage 2 shard selection matched a neighbouring batch: {matched!r}")
+
+        big = tmp / "big-missed.txt"
+        big.write_text("".join(f"src/a.rs:{n}:1: replace f with {'x' * 90}\n" for n in range(1200)))
+        check("oversized survivor selection", lambda: survivor_regex(big), "split the batch")
 
         empty = tmp / "empty.txt"; empty.write_text("")
         check("empty survivor list", lambda: survivor_regex(empty), "survivor list is empty")

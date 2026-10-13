@@ -48,11 +48,6 @@ use crate::cvd::{self, CvdType};
 use crate::settings::CvdMode;
 use crate::theme::{Appearance, Srgb, Theme, ThemeSpec, relative_luminance};
 
-/// Background luminance above which a theme is treated as light. Mirrors the
-/// theme builder's own appearance inference (`> 0.18`) so the colour modules
-/// agree on where the dark/light boundary sits.
-const LIGHT_APPEARANCE_THRESHOLD: f64 = 0.18;
-
 /// Map a settings [`CvdMode`] to the pure-core [`CvdType`]. `Off` has no model
 /// (the caller short-circuits to the authored theme).
 fn cvd_type(mode: CvdMode) -> Option<CvdType> {
@@ -68,7 +63,7 @@ fn cvd_type(mode: CvdMode) -> Option<CvdType> {
 /// trust [`ThemeSpec::from_theme`]'s `Dark` default, which would mis-exempt a
 /// light theme's neutrals during the re-floor.
 fn appearance_from_background(background: Srgb) -> Appearance {
-    if relative_luminance(background) > LIGHT_APPEARANCE_THRESHOLD {
+    if relative_luminance(background) > crate::theme::LIGHT_BACKGROUND_LUMINANCE {
         Appearance::Light
     } else {
         Appearance::Dark

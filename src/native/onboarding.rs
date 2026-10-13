@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! First-run onboarding overlay (ONBOARD). A static welcome card shown once on
+//! First-run onboarding overlay. A static welcome card shown once on
 //! the very first launch - when no `odytty.conf` exists yet - to surface the
 //! settings/theme overlay and a few key shortcuts, then get out of the way.
 //!
@@ -10,7 +10,7 @@
 //! `ODYTTY_ONBOARDING` env override is set); see `App::new`.
 //!
 //! The shortcut hints read the *live* bindings (`KeyBindings::chord_for_action`)
-//! rather than hardcoded strings, so the card stays truthful after a KB-REMAP
+//! rather than hardcoded strings, so the card stays truthful after a key remap
 //! rebind and reflects the user's actual config.
 //!
 //! Like every other [`super::overlay::OverlayMode`], this panel never blocks the

@@ -228,25 +228,11 @@ mod alt_scroll;
 #[cfg(unix)]
 mod attach_e2e;
 mod attach_launch_notice;
+mod audit_input_safety;
+mod audit_restore_references;
+mod audit_snapshot_ownership;
+mod audit_ui_liveness;
 mod background_model_sync;
-mod button_click;
-mod chrome_seam_basis;
-mod click_hint;
-mod clipboard_paste;
-mod close_confirm;
-mod command_output_actions;
-mod command_palette;
-mod consumed_chord_release;
-mod context_menu;
-mod context_menu_presentation;
-mod copy_mode_wide_offscreen;
-mod ctrl_click_open;
-mod cursor_icon;
-mod cvd_wiring;
-mod workspace_host_bind;
-// App-route file-drop tests use Unix paths and Unix shell quoting. Windows
-// refuses insertion at PtySession::file_drop_shell (src/pty/windows.rs); its
-// quoting coverage is the platform-neutral unit suite in native::tests::file_drop.
 mod bidi_autoscroll;
 mod bidi_effects;
 mod bidi_input;
@@ -254,7 +240,24 @@ mod bidi_lifecycle;
 mod bidi_pointer;
 mod bidi_setting;
 mod broadcast_input;
+mod button_click;
+mod chrome_seam_basis;
+mod click_hint;
+mod clipboard_paste;
+mod close_confirm;
+mod command_output_actions;
+mod command_palette;
 pub(in crate::native) mod config_env;
+mod consumed_chord_release;
+mod context_menu;
+mod context_menu_presentation;
+mod copy_mode_wide_offscreen;
+mod ctrl_click_open;
+mod cursor_icon;
+mod cvd_wiring;
+// App-route file-drop tests use Unix paths and Unix shell quoting. Windows
+// refuses insertion at PtySession::file_drop_shell (src/pty/windows.rs); its
+// quoting coverage is the platform-neutral unit suite in native::tests::file_drop.
 #[cfg(unix)]
 mod file_drop_app;
 mod floating_layout;
@@ -270,6 +273,7 @@ mod ime_candidate_follow;
 mod ime_ownership;
 mod input_keys;
 mod input_latch_lifecycle;
+mod interaction_delta;
 mod interactive_urls;
 mod key_remap_wiring;
 mod layout_overwrite_identity;
@@ -289,6 +293,7 @@ mod overlay_registry;
 mod overlay_release_ownership;
 mod overlay_rendered_rows;
 mod overlay_small_window;
+mod owner_text_chrome;
 mod palette_follow_recovery;
 mod palette_status_redraw;
 mod palette_targets;
@@ -298,6 +303,7 @@ mod poison_app_paths;
 mod poison_recovery;
 mod profile_acceptance_e2e;
 mod profile_auto_switch;
+mod profile_catalog_wheel;
 mod profile_cwd_precedence;
 mod profile_launch_startup;
 mod profile_manager_ui;
@@ -307,6 +313,7 @@ mod read_only_pane;
 mod replay_isolation;
 mod resize_retry_app;
 mod restore_theme;
+mod script_shaping;
 mod scrollback_export;
 mod scrollback_export_app;
 mod scrollbar;
@@ -314,6 +321,7 @@ mod secure_input;
 mod selection_copy_span;
 mod selection_extend;
 mod session_navigator;
+mod session_seam_identity;
 mod sh2_native;
 mod sh_click;
 mod smart_ctrl_c;
@@ -322,12 +330,14 @@ mod split_pane_pointer;
 mod split_pane_reports;
 mod split_selection_drag;
 mod synchronized_output;
+mod tab_tear_out;
 mod tabs_sessions;
 mod theme_capture;
 mod ui_state_sync;
 mod viewport;
 mod wheel_zoom;
 mod window_menu_rows;
+mod workspace_host_bind;
 mod workspaces;
 
 pub(super) fn snapshot(lines: &[&str], columns: usize) -> Snapshot {
@@ -350,6 +360,16 @@ pub(super) fn snapshot(lines: &[&str], columns: usize) -> Snapshot {
         cursor_visible: true,
         colors: crate::core::DynamicColors::default(),
         cells,
+    }
+}
+
+/// Hold or release the host's open modifier: Cmd (super) on macOS, Ctrl on Linux
+/// and Windows, the chord the live press route resolves from the host OS.
+pub(super) fn hold_open_modifier(app: &mut App, held: bool) {
+    if cfg!(target_os = "macos") {
+        app.set_super_key_for_test(held);
+    } else {
+        app.set_ctrl_modifier_for_test(held);
     }
 }
 
@@ -397,19 +417,27 @@ fn event_loop_dependent_tests_all_execute_in_one_process() {
         return;
     }
 
+    // Name filters for the modules that start sessions. Each one must select at
+    // least one case below, so a renamed module cannot silently leave the guard
+    // checking nothing.
+    const FILTERS: [&str; 9] = [
+        "native::tests::workspaces::",
+        "native::tests::background_model_sync::",
+        "native::tests::image_paste::",
+        "native::tests::input_latch_lifecycle::",
+        "native::tests::context_menu::clicking_new_tab_spawns_session_and_closes_menu",
+        "native::tests::profile_acceptance_e2e::",
+        "native::tests::audit_snapshot_ownership::",
+        "native::session::tests::transport::",
+        "native::session::tests::lifecycle::",
+    ];
+    // Well below the current population, so ordinary edits do not trip it, and
+    // far above the one-case state the guard exists to rule out.
+    const MIN_CASES: usize = 30;
+
     let exe = std::env::current_exe().expect("resolve test executable");
     let output = std::process::Command::new(exe)
-        .args([
-            "native::tests::workspaces::",
-            "native::tests::background_model_sync::",
-            "native::tests::image_paste::",
-            "native::tests::input_latch_lifecycle::",
-            "native::tests::context_menu::clicking_new_tab_spawns_session_and_closes_menu",
-            "native::tests::profile_acceptance_e2e::",
-            "native::tests::audit_snapshot_ownership::",
-            "native::session::tests::transport::",
-            "native::session::tests::lifecycle::",
-        ])
+        .args(FILTERS)
         .arg("--test-threads=1")
         .arg("--nocapture")
         .env(EVENT_LOOP_PROOF_ENV, "1")
@@ -448,25 +476,20 @@ fn event_loop_dependent_tests_all_execute_in_one_process() {
          {detail}",
         output.status
     );
+    for filter in FILTERS {
+        assert!(
+            stdout.contains(&format!("test {filter}")),
+            "the filter {filter} selected no case; a module was renamed or removed"
+        );
+    }
+    assert!(
+        executed + unavailable >= MIN_CASES,
+        "only {executed} executed and {unavailable} unavailable cases reported, below the \
+         floor of {MIN_CASES}; the filters or the markers no longer cover the population"
+    );
     assert!(
         executed == 0 || unavailable == 0,
         "event-loop-dependent cases split into {executed} that asserted and {unavailable} that \
          returned early in a single process; one shared loop must serve all of them or none"
     );
 }
-
-mod audit_input_safety;
-mod audit_restore_references;
-mod audit_snapshot_ownership;
-mod audit_ui_liveness;
-
-mod script_shaping;
-
-mod tab_tear_out;
-
-mod interaction_delta;
-mod profile_catalog_wheel;
-
-mod session_seam_identity;
-
-mod owner_text_chrome;

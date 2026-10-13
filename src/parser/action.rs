@@ -8,14 +8,11 @@
 //! component-level tests, fuzzers, and golden fixtures - and confines the I/O
 //! contract to one module.
 //!
-//! ## Originality note
+//! ## Vocabulary
 //!
-//! This is OdyTTY's chosen action vocabulary, designed from the dispatch
-//! callbacks the canonical DEC ANSI parser surfaces (`print`, `execute`,
-//! `csi_dispatch`, `esc_dispatch`, OSC start/put/end, DCS hook/put/unhook, APC
-//! string). The vocabulary differs from the inline-callback designs that wire
-//! the sink directly into the state machine: we keep the machine sink-agnostic
-//! and the adapter thin. The compound variants ([`Action::DcsCancelExecute`],
+//! The actions mirror the dispatch callbacks of the DEC ANSI parser model
+//! (`print`, `execute`, `csi_dispatch`, `esc_dispatch`, OSC start/put/end, DCS
+//! hook/put/unhook, APC string). The compound variants ([`Action::DcsCancelExecute`],
 //! [`Action::OscCancelExecute`]) encode the canonical "two-effect" transitions
 //! (a DCS/OSC string cancelled by CAN or SUB, which is discarded while the
 //! cancel byte itself still executes) as one action so `step` returns exactly

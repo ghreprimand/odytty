@@ -383,8 +383,10 @@ fn cookie_header_prefix(word: &str) -> Option<&str> {
 
 /// Redact what follows a sensitive label or a valueless `key:` (`following`
 /// starts at the next word) and return how many words were consumed.
-/// `Authorization:` keeps an alphabetic scheme word (`Bearer`, `Basic`,
-/// `Digest`) and redacts the credential after it; `Cookie:` and
+/// `Authorization:` keeps a scheme word (`Bearer`, `Basic`, `Digest`,
+/// `AWS4-HMAC-SHA256`) and redacts the credential after it, continuing through
+/// a comma-separated parameter list (`Digest` and `AWS4` credentials);
+/// `Cookie:` and
 /// `Set-Cookie:` redact the rest of the row, since every pair is a secret;
 /// any other label redacts one word.
 fn redact_label_value(label: &str, following: &[&str], redacted: &mut Vec<String>) -> usize {
@@ -396,16 +398,29 @@ fn redact_label_value(label: &str, following: &[&str], redacted: &mut Vec<String
         redacted.push("[redacted]".to_owned());
         return following.len();
     }
-    if label == "authorization"
-        && following.len() >= 2
-        && following[0].chars().all(|ch| ch.is_ascii_alphabetic())
-    {
+    if label == "authorization" && following.len() >= 2 && is_auth_scheme(following[0]) {
         redacted.push(following[0].to_owned());
         redacted.push("[redacted]".to_owned());
-        return 2;
+        // A parameter list continues while the last word taken ends in a comma.
+        let mut consumed = 2;
+        while consumed < following.len() && following[consumed - 1].ends_with(',') {
+            consumed += 1;
+        }
+        return consumed;
     }
     redacted.push("[redacted]".to_owned());
     1
+}
+
+/// An HTTP authentication scheme word: a letter followed by letters, digits or
+/// hyphens.
+fn is_auth_scheme(word: &str) -> bool {
+    word.chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphabetic())
+        && word
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
 }
 
 /// Whether `flag` is a command-line option whose value, given as the next
@@ -615,6 +630,27 @@ mod tests {
             "Authorization: Bearer [redacted]"
         );
         assert_eq!(redact_preview("Bearer hidden"), "Bearer [redacted]");
+    }
+
+    #[test]
+    fn preview_redacts_a_whole_authorization_parameter_list() {
+        assert_eq!(
+            redact_preview(
+                r#"Authorization: Digest username="alice", realm="r", nonce="n0nce", response="0123456789abcdef""#
+            ),
+            "Authorization: Digest [redacted]"
+        );
+        assert_eq!(
+            redact_preview(
+                "Authorization: AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260101/r/s/aws4_request, SignedHeaders=host;x-date, Signature=abc123"
+            ),
+            "Authorization: AWS4-HMAC-SHA256 [redacted]"
+        );
+        // The list ends where the commas end: the next word is not part of it.
+        assert_eq!(
+            redact_preview("Authorization: Bearer hidden https://example.invalid/x"),
+            "Authorization: Bearer [redacted] https://example.invalid/x"
+        );
     }
 
     #[test]

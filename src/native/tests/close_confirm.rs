@@ -7,7 +7,6 @@
 //! without a surface.
 
 use super::*;
-use winit::keyboard::Key as WinitKey;
 
 const COLS: usize = 60;
 const ROWS: usize = 12;

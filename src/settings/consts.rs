@@ -480,7 +480,7 @@ pub const MAX_COLORED_BG_OPACITY: f32 = 1.0;
 /// (up to `1.5`) the surface stays fully opaque and the fill colour is pushed
 /// further along the backdrop-to-selection vector, clamped in gamut, so the
 /// highlight reads stronger without the surface alpha ever exceeding `1.0`. The
-/// RV1 min-contrast floor still holds foreground legibility over the effective
+/// min-contrast floor still holds foreground legibility over the effective
 /// fill at every setting.
 pub const DEFAULT_SELECTION_OPACITY: f32 = 1.0;
 pub const MIN_SELECTION_OPACITY: f32 = 0.0;
@@ -491,7 +491,7 @@ pub const MAX_SELECTION_OPACITY: f32 = 1.5;
 /// backdrop at low window opacity. Per channel `c' = 1 - (1 - c)^b`, so
 /// near-white ink cannot clip flat, colors never fully desaturate, and the
 /// lift is monotonic in the knob. `1.0` (default) is exact identity -
-/// byte-identical vertex output. Applied AFTER the RV1 min-contrast floor (it
+/// byte-identical vertex output. Applied AFTER the min-contrast floor (it
 /// cannot undo a contrast fix) and independent of the new-output fade, which
 /// ramps alpha while this shifts color. Color emoji keep their intrinsic
 /// palette (exempt by design). The mechanism clamps to `[1.0, 1.5]`.
@@ -542,7 +542,7 @@ pub const MAX_BACKGROUND_IMAGE_SCRIM: f32 = 1.0;
 /// floor-safe scrim, or any value in [`MIN_BACKGROUND_IMAGE_SCRIM`]..=[`MAX_BACKGROUND_IMAGE_SCRIM`].
 pub const DEFAULT_BACKGROUND_IMAGE_SCRIM: f32 = 0.5;
 
-/// Line-height multiplier (`ODYTTY_LINE_HEIGHT`, LINEHEIGHT): extra vertical
+/// Line-height multiplier (`ODYTTY_LINE_HEIGHT`): extra vertical
 /// leading baked into each glyph cell, expressed as a multiple of the natural
 /// font cell height. `1.0` (default) adds zero leading and is byte-identical to
 /// the pre-feature atlas: cell height, baseline and glyph coverage are all
@@ -554,7 +554,7 @@ pub const DEFAULT_LINE_HEIGHT: f32 = 1.0;
 pub const MIN_LINE_HEIGHT: f32 = 1.0;
 pub const MAX_LINE_HEIGHT: f32 = 2.0;
 
-/// Box-drawing stroke-thickness multiplier (`ODYTTY_BOX_THICKNESS`, BOXTHICK):
+/// Box-drawing stroke-thickness multiplier (`ODYTTY_BOX_THICKNESS`):
 /// scales the geometric box-drawing / Powerline line weight relative to the
 /// DPI-derived default. `1.0` (default) reproduces the historical stroke widths
 /// byte-identically (multiplying the light weight by `1.0` is exact in `f32`);
@@ -565,7 +565,7 @@ pub const DEFAULT_BOX_THICKNESS: f32 = 1.0;
 pub const MIN_BOX_THICKNESS: f32 = 0.5;
 pub const MAX_BOX_THICKNESS: f32 = 3.0;
 
-/// Mouse-wheel scroll multiplier (`ODYTTY_SCROLL_WHEEL_LINES`, MOUSE-WHEEL-SPEED):
+/// Mouse-wheel scroll multiplier (`ODYTTY_SCROLL_WHEEL_LINES`):
 /// rows advanced per wheel notch. The default `6.0` rows per notch is chosen
 /// for interactive feel. Applies to BOTH local scrollback and alternate-scroll
 /// (DECSET 1007) arrow emulation, so classic pagers (`less`, `man`, `git log`)
@@ -605,7 +605,7 @@ pub const MAX_AUTOSCROLL_ROWS: usize = 8;
 /// already work regardless, so the off path is byte-identical to before.
 pub const DEFAULT_COPY_ON_SELECT: bool = false;
 
-/// Cursor blink-fade easing (`ODYTTY_CURSOR_EASING`, ID1): when on, the cursor
+/// Cursor blink-fade easing (`ODYTTY_CURSOR_EASING`): when on, the cursor
 /// eases its opacity in and out across the blink toggle instead of hard
 /// on/off-switching. On by default; while disabled or under reduced motion, the
 /// cursor renders its alpha at a constant `1.0` and the blink off-phase hides
@@ -613,7 +613,7 @@ pub const DEFAULT_COPY_ON_SELECT: bool = false;
 /// the logical cursor position.
 pub const DEFAULT_CURSOR_EASING: bool = true;
 
-/// Cursor slide motion (`ODYTTY_CURSOR_MOTION`, VE4): when on, the cursor glides
+/// Cursor slide motion (`ODYTTY_CURSOR_MOTION`): when on, the cursor glides
 /// a short sub-cell interpolation between adjacent steady-state positions
 /// instead of teleporting. On by default; while at rest or explicitly disabled,
 /// the cursor sits at its exact cell origin with zero animation wake. The
@@ -624,7 +624,7 @@ pub const DEFAULT_CURSOR_EASING: bool = true;
 /// unaffected.
 pub const DEFAULT_CURSOR_MOTION: bool = true;
 
-/// Soft cursor glow (`ODYTTY_CURSOR_GLOW`, ID1): when on, one shape-aware
+/// Soft cursor glow (`ODYTTY_CURSOR_GLOW`): when on, one shape-aware
 /// analytic aura is drawn behind the cursor glyph, matching Block, Bar, or
 /// Underline geometry in the resolved cursor color. On by default; while off
 /// no aura geometry is emitted. Purely presentational; never affects cell
@@ -632,7 +632,7 @@ pub const DEFAULT_CURSOR_MOTION: bool = true;
 /// enough that adjacent-cell text contrast stays within the minimum-contrast floor.
 pub const DEFAULT_CURSOR_GLOW: bool = true;
 
-/// Cursor glow strength (`ODYTTY_CURSOR_GLOW_INTENSITY`, ID1): a user-facing
+/// Cursor glow strength (`ODYTTY_CURSOR_GLOW_INTENSITY`): a user-facing
 /// normalized `0.0..=1.0` scale for the aura peak alpha, independent of the
 /// whole-scene HDR `bloom_intensity`. `0.0` emits no aura even while
 /// `cursor_glow` is on; the default reproduces the calibrated restrained peak
@@ -645,7 +645,7 @@ pub const DEFAULT_CURSOR_GLOW_INTENSITY: f32 = 0.5;
 pub const MIN_CURSOR_GLOW_INTENSITY: f32 = 0.0;
 pub const MAX_CURSOR_GLOW_INTENSITY: f32 = 1.0;
 
-/// Cursor motion trail (`ODYTTY_CURSOR_TRAIL`, VE4): when on, a short fading
+/// Cursor motion trail (`ODYTTY_CURSOR_TRAIL`): when on, a short fading
 /// after-image of decaying ghost quads trails the cursor along its slide path
 /// while it glides between cells. Rides the existing cursor-slide animation
 /// (`cursor_motion`): the trail only appears while a slide is in flight and
@@ -728,7 +728,7 @@ pub const DEFAULT_QUICK_TERMINAL_HIDE_ON_FOCUS_LOSS: bool = false;
 /// work.
 pub const DEFAULT_QUICK_TERMINAL_PROFILE: &str = "";
 
-/// New-output fade-in (`ODYTTY_NEW_OUTPUT_FADE`, VE4): when on, the TEXT of
+/// New-output fade-in (`ODYTTY_NEW_OUTPUT_FADE`): when on, the TEXT of
 /// freshly arrived output rows at the live tail fades in over a short ease-out
 /// ramp instead of appearing instantly. Implemented as a per-row foreground
 /// alpha ramp - glyphs, decorations, and emoji rise from a visible floor to
@@ -742,7 +742,7 @@ pub const DEFAULT_QUICK_TERMINAL_PROFILE: &str = "";
 /// `reduced_motion` suppresses it. Purely presentational.
 pub const DEFAULT_NEW_OUTPUT_FADE: bool = true;
 
-/// New-output fade ramp length (`ODYTTY_NEW_OUTPUT_FADE_MS`, VE4): how long a
+/// New-output fade ramp length (`ODYTTY_NEW_OUTPUT_FADE_MS`): how long a
 /// freshly arrived row's text takes to rise from the fade floor to full
 /// strength, in milliseconds. Only acts while `new_output_fade` is on; while
 /// the toggle is off this value is inert. The default is chosen so the ramp is
@@ -810,7 +810,7 @@ pub const DEFAULT_FONT_ZERO: bool = false;
 /// stay logical. Off by default.
 pub const DEFAULT_BIDI_REORDER: bool = false;
 
-/// Themed window border (`ODYTTY_WINDOW_BORDER`, ID4): when on, a thin border in
+/// Themed window border (`ODYTTY_WINDOW_BORDER`): when on, a thin border in
 /// the theme `border` role color is drawn around the grid, framing the terminal
 /// content. The border is painted as overlay quads within the existing window
 /// padding band, so it never eats cell area; its thickness is specified in
@@ -909,8 +909,8 @@ pub const DEFAULT_OS_THEME_DARK: &str = "odyssey-classic";
 /// active and the user has not set an explicit `os_theme_light` override.
 pub const DEFAULT_OS_THEME_LIGHT: &str = "odyssey-light";
 
-/// Confirm before closing while a foreground job is running (`ODYTTY_CONFIRM_CLOSE`,
-/// CLOSE-CONFIRM): when on, a close request (window close button / WM close)
+/// Confirm before closing while a foreground job is running
+/// (`ODYTTY_CONFIRM_CLOSE`): when on, a close request (window close button / WM close)
 /// while a program is actively running in the terminal opens a confirmation
 /// dialog instead of exiting immediately. On by default - the dialog only ever
 /// appears when data would actually be lost: an idle shell (no foreground job)
@@ -959,7 +959,7 @@ pub const DEFAULT_WHEEL_ZOOM: bool = true;
 /// regardless of the setting.
 pub const DEFAULT_COMMAND_STATUS_GUTTER: bool = true;
 
-/// Always show the tab bar (`ODYTTY_ALWAYS_SHOW_TAB_BAR`, F4 ODP-7): when on,
+/// Always show the tab bar (`ODYTTY_ALWAYS_SHOW_TAB_BAR`): when on,
 /// the tab strip renders even with a single tab. Off by default - with one
 /// unnamed tab the bar stays hidden and the render path is byte-identical to
 /// today. Independent of this setting, a lone tab that carries a custom name
@@ -979,13 +979,13 @@ pub const DEFAULT_TAB_BAR_ROWS: f32 = 1.0;
 pub const MIN_TAB_BAR_ROWS: f32 = 1.0;
 pub const MAX_TAB_BAR_ROWS: f32 = 5.0;
 
-/// Vertical tab-rail band width in cells (`ODYTTY_TAB_RAIL_WIDTH`, F4-P1/P4).
+/// Vertical tab-rail band width in cells (`ODYTTY_TAB_RAIL_WIDTH`).
 /// The rail widget's VISUAL width (the rail↔content wallpaper gap is reserved
 /// separately). Hot-reloadable so the user can tune it live. Only affects
 /// the `left`/`right` rail placements; the top bar ignores it.
 ///
-/// F4-P4 turned this into an `auto | <cols>` mode ([`super::TabRailWidth`]):
-/// `auto` (the new default) sizes the rail to the longest tab title (clamped to
+/// It is an `auto | <cols>` mode ([`super::TabRailWidth`]):
+/// `auto` (the default) sizes the rail to the longest tab title (clamped to
 /// `[MIN_TAB_RAIL_WIDTH, tab_rail_max_width]`); a plain integer pins a manual
 /// width (clamped to `[MIN_TAB_RAIL_WIDTH, MAX_TAB_RAIL_WIDTH]`), which the seam
 /// drag / double-click-reset also write. Old numeric configs parse as `Manual`,
@@ -996,7 +996,7 @@ pub const DEFAULT_TAB_RAIL_WIDTH: f32 = 16.0;
 pub const MIN_TAB_RAIL_WIDTH: f32 = 8.0;
 pub const MAX_TAB_RAIL_WIDTH: f32 = 32.0;
 
-/// Upper clamp for the `auto` rail width (`ODYTTY_TAB_RAIL_MAX_WIDTH`, F4-P4):
+/// Upper clamp for the `auto` rail width (`ODYTTY_TAB_RAIL_MAX_WIDTH`):
 /// the widest the rail will auto-grow to fit long tab titles before switching
 /// to single-line ellipsis truncation. Only consulted in `auto` mode; a manual
 /// width can still be dragged up to `MAX_TAB_RAIL_WIDTH`. Bounded by the same
@@ -1008,14 +1008,14 @@ pub const DEFAULT_TAB_RAIL_MAX_WIDTH: f32 = 24.0;
 pub const MIN_TAB_RAIL_MAX_WIDTH: f32 = MIN_TAB_RAIL_WIDTH;
 pub const MAX_TAB_RAIL_MAX_WIDTH: f32 = MAX_TAB_RAIL_WIDTH;
 
-/// Rows of band-fill gap between adjacent rail slots (`ODYTTY_TAB_RAIL_GAP`,
-/// F4-P1). The top margin before the first slot follows it. Rail-only,
+/// Rows of band-fill gap between adjacent rail slots (`ODYTTY_TAB_RAIL_GAP`).
+/// The top margin before the first slot follows it. Rail-only,
 /// hot-reloadable. Stored as `f32`; rounded to a `usize` in `[MIN, MAX]`.
 pub const DEFAULT_TAB_RAIL_GAP: f32 = 1.0;
 pub const MIN_TAB_RAIL_GAP: f32 = 0.0;
 pub const MAX_TAB_RAIL_GAP: f32 = 3.0;
 
-/// Rows each rail slot occupies (`ODYTTY_TAB_RAIL_SLOT_ROWS`, F4-P1): `1` = a
+/// Rows each rail slot occupies (`ODYTTY_TAB_RAIL_SLOT_ROWS`): `1` = a
 /// compact single-row list (labels truncate, never wrap), `2` = the padded /
 /// wrapping default. Rail-only, hot-reloadable. Stored as `f32`; rounded and
 /// clamped to `{1, 2}`.
@@ -1023,7 +1023,7 @@ pub const DEFAULT_TAB_RAIL_SLOT_ROWS: f32 = 2.0;
 pub const MIN_TAB_RAIL_SLOT_ROWS: f32 = 1.0;
 pub const MAX_TAB_RAIL_SLOT_ROWS: f32 = 2.0;
 
-/// Tab-panel strength (`ODYTTY_TAB_PANEL_STRENGTH`, F4-P1): sets the opacity
+/// Tab-panel strength (`ODYTTY_TAB_PANEL_STRENGTH`): sets the opacity
 /// of the unified panel behind the rail/bar DIRECTLY. `0.0` = panel fully off
 /// (the pre-panel bare-labels look); `1.0` = the band composes nearly fully
 /// opaque at ANY window opacity (the strength → coverage ramp is linear in
@@ -1038,19 +1038,19 @@ pub const DEFAULT_TAB_PANEL_STRENGTH: f32 = 0.8;
 pub const MIN_TAB_PANEL_STRENGTH: f32 = 0.0;
 pub const MAX_TAB_PANEL_STRENGTH: f32 = 1.0;
 
-/// Tab-panel seam line (`ODYTTY_TAB_SEAM`, F4-P1): when on, one hairline
+/// Tab-panel seam line (`ODYTTY_TAB_SEAM`): when on, one hairline
 /// separates the panel from the content on both axes, derived from the inactive
 /// TEXT role at α0.45 and luma-capped so it can never bloom. Off by default; on
 /// adds the line only (the panel stays regardless). Both axes, hot-reloadable.
 pub const DEFAULT_TAB_SEAM: bool = false;
 
-/// Rail auto-hide (`ODYTTY_TAB_RAIL_AUTOHIDE`, F4-P1/P3): the reveal/hide
+/// Rail auto-hide (`ODYTTY_TAB_RAIL_AUTOHIDE`): the reveal/hide
 /// behavior is provided by rail autohide. Off by default,
 /// rail-only.
 pub const DEFAULT_TAB_RAIL_AUTOHIDE: bool = false;
 
-/// Rail auto-hide reveal-zone width in **logical** px (`ODYTTY_TAB_RAIL_REVEAL_PX`,
-/// F4-P3): how close to the rail's window edge the pointer must come to summon
+/// Rail auto-hide reveal-zone width in **logical** px (`ODYTTY_TAB_RAIL_REVEAL_PX`):
+/// how close to the rail's window edge the pointer must come to summon
 /// an auto-hidden rail. Logical (scaled by the display scale factor at the
 /// comparison site) so the zone is a consistent physical size across displays -
 /// a physical-px zone shrinks under fractional/HiDPI scaling and the rail
@@ -1243,7 +1243,7 @@ pub const DEFAULT_CRT_CURVATURE: f32 = 0.0;
 pub const MIN_CRT_CURVATURE: f32 = 0.0;
 pub const MAX_CRT_CURVATURE: f32 = 0.12;
 
-/// Colour-vision-deficiency adaptation strength (`ODYTTY_CVD_STRENGTH`, U4): how
+/// Colour-vision-deficiency adaptation strength (`ODYTTY_CVD_STRENGTH`): how
 /// strongly the palette is daltonised toward separability for the selected
 /// [`crate::settings::CvdMode`]. `1.0` (default) is the full correction; `0.0`
 /// is an exact passthrough. Inert while the mode is `off` - the off mode is the

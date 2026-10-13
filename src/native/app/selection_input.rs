@@ -17,12 +17,12 @@ pub(super) struct EditableInputSelection {
 /// current selection; see [`App::selection_delete_outcome`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum SelectionDeleteOutcome {
-    /// R4: exact geometry, real buffer edit — send these bytes.
+    /// R4: exact geometry, real buffer edit - send these bytes.
     Synthesize(EditableInputSelection),
-    /// R2/R3/default: on the input region, but no certain geometry — consume
+    /// R2/R3/default: on the input region, but no certain geometry - consume
     /// the key, clear the selection, show the shell-integration hint.
     NoOpWithHint,
-    /// R0 fail or selection not on the input region — normal key encode.
+    /// R0 fail or selection not on the input region - normal key encode.
     FallThrough,
 }
 
@@ -103,7 +103,7 @@ impl App {
     /// MOUSE-RECT: begin a rectangular/column (block) selection at `point`. The
     /// press cell is the anchor; the column band then grows as the pointer
     /// drags, reusing the existing Char-granularity `extend_drag_to` arm (a
-    /// block drag follows the pointer exactly like a normal drag — only how the
+    /// block drag follows the pointer exactly like a normal drag - only how the
     /// range renders and copies differs). `self.selection_block` is already set
     /// by the caller, so the render/copy paths treat the live selection as a
     /// block. Constructs the reserved `PointerDrag::Select { block: true }`.
@@ -246,7 +246,7 @@ impl App {
     }
 
     fn selection_snapshot(&self) -> (Snapshot, usize) {
-        // P0-3: drag-autoscroll selection path — poison-recover, never abort.
+        // P0-3: drag-autoscroll selection path - poison-recover, never abort.
         let terminal = crate::native::lock_recover(&self.terminal);
         (
             terminal.snapshot_with_scrollback(self.viewport.offset()),
@@ -263,7 +263,7 @@ impl App {
     ) -> bool {
         // MOUSE-AUTOSCROLL-VEL: the step magnitude ramps with how far the pointer
         // is dragged past the edge band, up to the configured cap. `legacy` mode
-        // returns a cap of 1, which makes the helper yield exactly ±1/0 —
+        // returns a cap of 1, which makes the helper yield exactly ±1/0  -
         // byte-identical to the historical fixed one-row-per-tick autoscroll.
         let max_rows = self.settings.autoscroll_max_rows();
         // A split pane scrolls when the pointer reaches its own first or last
@@ -306,7 +306,7 @@ impl App {
         if !self.pointer_drag.is_selecting() {
             return;
         }
-        // SH-CLICK: a bare left click (no drag, so the selection stayed empty —
+        // SH-CLICK: a bare left click (no drag, so the selection stayed empty  -
         // `range()` is `None` for a zero-width selection) on the live shell
         // prompt repositions the input cursor. Decided here at release, NOT at
         // press, so a real drag (a non-empty selection) always wins: drag-select
@@ -314,7 +314,7 @@ impl App {
         // `try_click_to_position` returns `false` whenever it does not fire
         // (feature off, shell not advertising, wrong row, same-cell, modified
         // click), so the off path falls straight through to the historical
-        // finalize below — byte-identical to today (T1).
+        // finalize below - byte-identical to today (T1).
         if self.selection.range().is_none() && self.try_click_to_position() {
             // The click positioned the cursor; nothing was selected to copy.
         } else if self.drag_selection_should_write_primary() {
@@ -341,7 +341,7 @@ impl App {
     /// `current_selection_text`, so a plain single click stays a no-op too).
     /// Word/Line drags write only when the selection grew beyond the anchored
     /// click unit, so a plain double/triple-click without a drag stays no-write
-    /// — byte-identical to the historical finalize.
+    /// - byte-identical to the historical finalize.
     pub(super) fn drag_selection_should_write_primary(&self) -> bool {
         match self.pointer_drag {
             PointerDrag::Select {
@@ -373,15 +373,15 @@ impl App {
     /// byte-identical to today) in every case but the narrow one the feature
     /// targets:
     /// - the feature is off or the shell has not advertised click-events (T1);
-    /// - the click carries any modifier — Shift is the selection/passthrough
+    /// - the click carries any modifier - Shift is the selection/passthrough
     ///   seam, Alt is block-select, Ctrl is hyperlink-open, so only a *plain*
-    ///   click repositions (T2 — Shift seam preserved);
+    ///   click repositions (T2 - Shift seam preserved);
     /// - the viewport is scrolled off the live tail (a click in scrollback is
     ///   never a prompt edit);
-    /// - the alternate screen is active — a full-screen app owns its layout, so
+    /// - the alternate screen is active - a full-screen app owns its layout, so
     ///   click-to-position never fires there (defense-in-depth; the live-prompt
     ///   gate below already excludes it in practice);
-    /// - the live command block is not awaiting input — i.e. there is no live
+    /// - the live command block is not awaiting input - i.e. there is no live
     ///   prompt because the command already executed (an `OutputStart` exists)
     ///   or there are no marks at all. This is the real prompt-context gate
     ///   (T4): the click-events flag alone can linger across a running command,
@@ -391,17 +391,17 @@ impl App {
     ///   input-start mark, or nothing typed): with no modeled input there is
     ///   nothing to click into (F2 G1);
     /// - the click resolves to no travel under the certainty ladder in
-    ///   [`click_travel_delta`] — off the region's rows, on the prompt side of
+    ///   [`click_travel_delta`] - off the region's rows, on the prompt side of
     ///   the input start, on a hard-newline (multi-logical-line) buffer, or on
     ///   the cursor's own position (F2 G2/R-None/same-cell).
     ///
     /// When it does fire, the glyph delta from [`click_travel_delta`] is encoded
     /// as `|delta|` Left/Right cursor keys through the live key modes
-    /// ([`click_position_bytes`]) — honoring DECCKM application-cursor mode, the
-    /// load-bearing encoding trap — and written through the same PTY writer a
+    /// ([`click_position_bytes`]) - honoring DECCKM application-cursor mode, the
+    /// load-bearing encoding trap - and written through the same PTY writer a
     /// real arrow keypress uses (T5), after returning to the live tail. Only
     /// Left/Right are ever synthesized, never Up/Down (which carry
-    /// history-recall semantics in every shell — a synthesized Up could replace
+    /// history-recall semantics in every shell - a synthesized Up could replace
     /// the user's buffer with a history entry).
     ///
     /// TUI mouse reporting (DECSET 1000/1002/1003/1006…) never reaches here: the
@@ -480,8 +480,8 @@ impl App {
 
     /// HALF-CELL (nearest-boundary) click-to-position targeting: whether the
     /// live pointer fell in the RIGHT half of its resolved cell. Click-to-place
-    /// snaps the caret target to the nearest column BOUNDARY — before a
-    /// left-half click, after a right-half click — instead of flooring to the
+    /// snaps the caret target to the nearest column BOUNDARY - before a
+    /// left-half click, after a right-half click - instead of flooring to the
     /// cell's left edge, matching universal text-editor caret hit-testing. (A
     /// floor target lands the caret one cell left of a click that fell a hair
     /// right of a cell boundary, the reported "clicking between two characters
@@ -493,7 +493,7 @@ impl App {
     /// single-pane subtracts the tab-chrome dx (a left rail shifts X; the top
     /// bar does not) and the window padding; multi-pane uses the focused pane's
     /// content-rect x origin (which already folds in the chrome/rail offset).
-    /// Returns `false` — floor targeting, the shipped behaviour — when the
+    /// Returns `false` - floor targeting, the shipped behaviour - when the
     /// pointer pixel or cell metrics are unavailable, so a synthesized press
     /// with no live coordinates stays byte-identical.
     ///
@@ -669,7 +669,7 @@ impl App {
     }
 
     pub(super) fn on_viewport_changed_of(&mut self, token: SessionToken) {
-        // Snap by default — clear any sub-row scroll remainder the continuous
+        // Snap by default - clear any sub-row scroll remainder the continuous
         // (pixel) lane left, so every viewport change (return-to-live, search
         // nav, scrollbar-thumb drag, resize) lands exactly on the integer
         // offset. The continuous lane re-writes the remainder after this call.
@@ -821,7 +821,7 @@ pub(super) fn flattened_selection_delete_outcome(
     }
     // Cursor → flattened offset. The Exact walk validated the cursor against
     // the shell's report, so a cursor outside the region here means the
-    // region and grid raced — degrade rather than guess.
+    // region and grid raced - degrade rather than guess.
     let Some(cursor_rel) = cursor.row.checked_sub(base_visible) else {
         return SelectionDeleteOutcome::NoOpWithHint;
     };

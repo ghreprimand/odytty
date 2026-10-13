@@ -110,9 +110,10 @@ jobs:
         run: cargo clippy --all-targets --locked -- -D warnings
 
       # The coverage-guided fuzz crate is a separate workspace, so the root
-      # build and clippy steps do not compile its targets. Check on the pinned
-      # toolchain in the Linux leg so public-API drift fails on each push instead of waiting
-      # for the scheduled nightly-toolchain fuzz campaign.
+      # build and clippy steps do not compile its targets. Check it on the
+      # pinned toolchain in the Linux leg, so public-API drift fails on each
+      # push instead of waiting for the scheduled nightly-toolchain fuzz
+      # campaign.
       - name: Coverage-guided fuzz target API check
         if: runner.os == 'Linux'
         run: >-
@@ -146,14 +147,22 @@ jobs:
         if: runner.os == 'Linux'
         run: python3 scripts/ci-display-test.py
 
+      # These platforms skip when no adapter exists, so the step cannot fail on
+      # a missing one. It reports how many of its tests executed and how many
+      # skipped, so a log shows whether the adapter test ran at all.
       - name: GPU validation availability (macOS/Windows)
         if: runner.os != 'Linux'
         timeout-minutes: 5
-        run: >-
-          cargo test --locked --lib -- --test-threads=1 --show-output
-          cursor_glow_shader_and_pipeline_validate
-          cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws
-          programming_ligature_vertices_submit_through_the_real_cell_pipeline
+        shell: bash
+        run: |
+          cargo test --locked --lib -- --test-threads=1 --show-output \
+            cursor_glow_shader_and_pipeline_validate \
+            cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws \
+            programming_ligature_vertices_submit_through_the_real_cell_pipeline \
+            | tee "$RUNNER_TEMP/gpu-availability.log"
+          printf 'GPU availability smoke: executed=%s skipped=%s\n' \
+            "$(grep -c '^VALIDATION_EXECUTED' "$RUNNER_TEMP/gpu-availability.log" || true)" \
+            "$(grep -c '^VALIDATION_SKIP' "$RUNNER_TEMP/gpu-availability.log" || true)"
 
       # Linux/Windows: a single `cargo test --locked` attempt, parallel.
       # Step-level timeout: a wedged test must fail THIS step in ~15 min, not

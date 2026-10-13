@@ -5,10 +5,7 @@ use super::*;
 
 #[test]
 fn atlas_has_positive_metrics_and_glyph_coverage() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let atlas = GlyphAtlas::build(&font, 28.0);
     assert!(atlas.cell.width > 0 && atlas.cell.height > 0);
     assert!(atlas.cell.baseline <= atlas.cell.height);
@@ -30,10 +27,7 @@ fn line_height_default_is_byte_identical_to_legacy_build() {
     // LINEHEIGHT: build_with_options at the default 1.0 multiplier must produce
     // a cell, dimensions and coverage buffer byte-identical to the historical
     // build_with_subpixel path - the leading is exactly zero.
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let legacy = GlyphAtlas::build_with_subpixel(&font, 24.0, SubpixelMode::Off);
     let leaded = GlyphAtlas::build_with_options(&font, 24.0, SubpixelMode::Off, 1.0);
     assert_eq!(leaded.cell, legacy.cell, "cell geometry must be unchanged");
@@ -47,10 +41,7 @@ fn line_height_above_one_adds_symmetric_leading() {
     // A line_height > 1.0 grows the cell height and shifts the baseline down by
     // the top leading, while the cell width and the rasterized glyph shape are
     // unchanged (the glyph simply sits lower in a taller slot).
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let base = GlyphAtlas::build_with_options(&font, 24.0, SubpixelMode::Off, 1.0);
     let tall = GlyphAtlas::build_with_options(&font, 24.0, SubpixelMode::Off, 1.5);
     assert_eq!(
@@ -72,10 +63,7 @@ fn line_height_above_one_adds_symmetric_leading() {
 
 #[test]
 fn default_atlas_stays_single_channel() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let atlas = GlyphAtlas::build(&font, 24.0);
 
     assert_eq!(atlas.subpixel_mode(), SubpixelMode::Off);
@@ -85,10 +73,7 @@ fn default_atlas_stays_single_channel() {
 
 #[test]
 fn subpixel_atlas_stores_rgb_coverage_without_geometry_change() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let gray = GlyphAtlas::build(&font, 24.0);
     let rgb = GlyphAtlas::build_with_subpixel(&font, 24.0, SubpixelMode::Rgb);
 
@@ -112,10 +97,7 @@ fn subpixel_atlas_stores_rgb_coverage_without_geometry_change() {
 
 #[test]
 fn fallback_box_is_visible_but_hollow() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let atlas = GlyphAtlas::build(&font, 24.0);
     let ink = cell_ink(&atlas, atlas.slot_uv(FALLBACK_SLOT));
     // Has visible ink (the box border) ...
@@ -127,10 +109,7 @@ fn fallback_box_is_visible_but_hollow() {
 
 #[test]
 fn uv_rect_falls_back_for_unsupported_printable() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let atlas = GlyphAtlas::build(&font, 24.0);
     let fallback = atlas.slot_uv(FALLBACK_SLOT);
     // ASCII resolves to its own cell, never the fallback.
@@ -145,10 +124,7 @@ fn uv_rect_falls_back_for_unsupported_printable() {
 
 #[test]
 fn ensure_rasterizes_real_glyph_and_flags_dirty() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let Some(ch) = glyph_bearing_non_ascii(&font) else {
         eprintln!("skipping: font has no non-ASCII glyph");
         return;
@@ -175,10 +151,7 @@ fn ensure_rasterizes_real_glyph_and_flags_dirty() {
 
 #[test]
 fn device_height_limit_falls_back_before_atlas_growth() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let Some(ch) = glyph_bearing_non_ascii(&font) else {
         eprintln!("skipping: font has no non-ASCII glyph");
         return;
@@ -196,10 +169,7 @@ fn device_height_limit_falls_back_before_atlas_growth() {
 
 #[test]
 fn ensure_missing_glyph_uses_fallback_without_a_slot() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     let fallback = atlas.slot_uv(FALLBACK_SLOT);
     let count = atlas.slot_count();
@@ -221,10 +191,7 @@ fn ensure_grows_atlas_and_preserves_existing_glyphs() {
     // a gain change landing between them would diverge the buffers. Hold the
     // shared render-globals guard for the comparison.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let Some(first) = glyph_bearing_non_ascii(&font) else {
         eprintln!("skipping: font has no non-ASCII glyph");
         return;
@@ -273,10 +240,7 @@ fn ensure_grows_atlas_and_preserves_existing_glyphs() {
 
 #[test]
 fn rebuild_is_a_full_invalidation() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let Some(ch) = glyph_bearing_non_ascii(&font) else {
         eprintln!("skipping: font has no non-ASCII glyph");
         return;
@@ -307,10 +271,7 @@ fn rebuild_is_a_full_invalidation() {
 /// against bleed plus the room for overflow ink.
 #[test]
 fn slots_carry_a_padding_gutter() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let atlas = GlyphAtlas::build(&font, 24.0);
     let border = slot_border(atlas.cell);
     // The border is at least the bleed gutter and adds the overflow margin.

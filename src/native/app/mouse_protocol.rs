@@ -140,7 +140,7 @@ impl App {
         let protocol = self.mouse_protocol();
         // SGR-pixel (1016) reports true 1-based physical pixel coordinates; every
         // other encoding (legacy/UTF-8/SGR/urxvt) reports cells. Only 1016 takes
-        // the pixel seam — the cell path is untouched for all other modes.
+        // the pixel seam - the cell path is untouched for all other modes.
         let bytes = if protocol.encoding == MouseEncoding::SgrPixel {
             self.encode_pixel_mouse_report(protocol, button, kind)
         } else {
@@ -279,8 +279,8 @@ impl App {
         // WHEEL-SENS (T-overlay decision, TUI arm): coalesce the burst so a
         // high-resolution scroll emits one wheel report per physical notch
         // rather than one per sub-notch event (which would fly a TUI pager). The
-        // report protocol carries only a discrete up/down button — sign, not
-        // magnitude — so we emit a single report per accumulated notch and
+        // report protocol carries only a discrete up/down button - sign, not
+        // magnitude - so we emit a single report per accumulated notch and
         // deliberately do NOT apply the user's `scroll_wheel_lines` multiplier
         // (the app owns its own line count). A clean `LineDelta(_, ±1.0)` still
         // yields exactly one report, byte-identical to before.
@@ -296,7 +296,7 @@ impl App {
 }
 
 /// Resolve a plain click against the core-derived
-/// [`InputRegion`](crate::core::InputRegion) into a signed glyph delta —
+/// [`InputRegion`](crate::core::InputRegion) into a signed glyph delta  -
 /// how many Left (negative) or Right (positive) presses move the shell's
 /// line-editor caret from the cursor to the clicked position. `None` means
 /// no travel: the click was off the region, on the prompt side of the input
@@ -383,7 +383,7 @@ pub(super) fn click_travel_delta(
             .collect()
     };
     // Flattened glyph offset at each row's span start (soft wraps carry no
-    // newline, so the spans concatenate into one logical horizontal axis —
+    // newline, so the spans concatenate into one logical horizontal axis  -
     // same flatten as the R5 delete rung).
     let mut prefix = Vec::with_capacity(row_count);
     let mut total = 0usize;
@@ -416,7 +416,7 @@ pub(super) fn click_travel_delta(
     }
     // HALF-CELL (nearest-boundary) caret targeting: a click that fell in the
     // right half of its cell (`subcell_round_up`) targets the NEXT column
-    // boundary — the caret AFTER that glyph — while a left-half click targets
+    // boundary - the caret AFTER that glyph - while a left-half click targets
     // the current column (caret BEFORE it), matching universal text-editor
     // hit-testing. Flooring to the cell's left edge (still used when no sub-cell
     // fraction is available) lands the caret one cell left of a click that fell
@@ -432,7 +432,7 @@ pub(super) fn click_travel_delta(
     };
     let target = flat_at(click_rel, target_col);
     // The cursor sits on the region's rows whenever certainty != Unknown; a
-    // disagreement here means the region and grid raced — degrade to no-op.
+    // disagreement here means the region and grid raced - degrade to no-op.
     let cursor_rel = cursor.row.checked_sub(base_visible)?;
     if cursor_rel >= row_count {
         return None;
@@ -443,7 +443,7 @@ pub(super) fn click_travel_delta(
 }
 
 /// SH-CLICK: encode the cursor-positioning key burst for a click-to-position
-/// travel delta — `|delta|` repetitions of Left (negative delta) or Right
+/// travel delta - `|delta|` repetitions of Left (negative delta) or Right
 /// (positive delta), each encoded through the live [`KeyModes`] so a shell in
 /// DECCKM application-cursor mode receives the SS3 form (`\x1bOC`/`\x1bOD`), not
 /// the CSI form (`\x1b[C`/`\x1b[D`). This is the load-bearing encoding trap:

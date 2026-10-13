@@ -1,27 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Env-gated, event-driven resize trace for diagnosing cursor-placement
-//! behavior across `Screen::resize` (notably the Windows/ConPTY multi-cycle
-//! cursor-ratchet investigation).
-//!
-//! This is a passive diagnostic, OFF by default and zero-cost when off: a single
-//! atomic load on the resize path and nothing else (no allocation, no
-//! formatting, no file handle) unless `ODYTTY_REFLOW_TRACE` is set to `1` or
-//! `true`. It is purely event-driven - one line appended per `Screen::resize`
-//! call - never a poll or background loop.
+//! Opt-in resize geometry diagnostics. `ODYTTY_REFLOW_TRACE=1` or `true`
+//! appends one line per `Screen::resize`; when off the cost is one atomic
+//! load.
 //!
 //! When enabled it appends one line per resize to `odytty-reflow-trace.log`
-//! inside the same owner-private state directory the runtime log uses, opened
-//! through the no-follow, non-blocking, ownership-checked append helper. A
-//! fixed name in the shared system temp root would follow a planted symlink or
-//! block on a planted FIFO. A file (not stderr) because the Windows build is a
+//! in the state directory the runtime log uses. On Unix that directory is
+//! owner-private and the file is opened through the no-follow, non-blocking,
+//! owner-checked append helper, which refuses a planted symlink, FIFO, or
+//! foreign-owned file; on Windows it is an ordinary append open under the
+//! inherited ACLs. A file (not stderr) because the Windows build is a
 //! GUI-subsystem app with no visible stderr; the log is retrieved afterward.
 //!
-//! # Privacy / public-repo safety
-//! The trace records ONLY geometry and cursor coordinates, booleans, and a
-//! sequence counter - never cell contents, user-typed text, working-directory
-//! or other paths, or environment values. The log destination is resolved at
-//! runtime from the state directory (no developer path is baked into the
-//! source) and the env var name is generic. Nothing user-identifying can enter a trace line.
+//! # Privacy
+//! A line records only geometry, cursor coordinates, booleans, and a sequence
+//! counter: no terminal text, paths, or environment values.
 
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -106,9 +98,9 @@ pub(in crate::core) fn format_trace_line(seq: u64, t: &ResizeTrace) -> String {
 }
 
 /// Append one resize trace line to the state-directory log when tracing is
-/// enabled. No-op (single atomic load) when off. Any I/O error, including a
-/// rejected symlink, FIFO, foreign-owned file, or unusable state directory, is
-/// silently ignored: a diagnostic must never perturb or block terminal behavior.
+/// enabled. No-op (single atomic load) when off. Any I/O error, including (on
+/// Unix) a rejected symlink, FIFO, or foreign-owned file, or an unusable state
+/// directory, skips the line without affecting terminal behavior.
 pub(in crate::core) fn trace_resize(t: &ResizeTrace) {
     if !enabled() {
         return;

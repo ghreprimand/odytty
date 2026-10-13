@@ -517,14 +517,14 @@ fn profile_delete_clears_bindings_in_every_live_window() {
                 .workspace_set()
                 .active_workspace_launch_profile(),
             None,
-            "the initiating window clears the deleted binding"
+            "the sibling window clears the deleted binding"
         );
         assert_eq!(
             host.windows[1]
                 .workspace_set()
                 .active_workspace_launch_profile(),
             None,
-            "sibling windows must not retain the deleted binding"
+            "the initiating window must not retain the deleted binding"
         );
         assert_eq!(
             host.windows[0].autosave_saves_for_test(),
@@ -1346,10 +1346,10 @@ fn restaging_invalidates_an_earlier_registration_generation() {
     // The deferred worker and the outcome handler both gate on the
     // generation token: a worker captures it at dispatch and only stores
     // its grab / records its outcome while it still matches the host's
-    // current generation. Restaging (or any reconfigure/teardown, which all
-    // route through `take_live_adapter`) must bump the token so an in-flight
+    // current generation. Restaging must bump the token so an in-flight
     // worker's captured value no longer matches - the exact condition that
-    // makes a superseded outcome be dropped rather than stored/logged.
+    // makes a superseded outcome be dropped rather than stored/logged. Other
+    // teardown routes are not covered by this test.
     let mut host = host_of(vec![headless()]);
     let enabled = QuickTerminalSettings {
         enabled: true,

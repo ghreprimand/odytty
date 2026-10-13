@@ -6,9 +6,7 @@
 use std::io::{self, Write};
 
 use super::*;
-
-/// The notice typed keys raise when the PTY refuses input.
-const INPUT_NOT_DELIVERED_NOTICE: &str = "Input not delivered: the session is not accepting input";
+use crate::native::app::open_notice::INPUT_NOT_DELIVERED_NOTICE;
 
 /// Fails its write, its flush, or neither.
 struct ScriptedWriter {

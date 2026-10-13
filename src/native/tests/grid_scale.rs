@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Grid-dimension and HiDPI scale-matrix tests. (M6 mechanical split from native/tests.rs).
+//! Grid-dimension and HiDPI scale-matrix tests.
 
 use super::*;
 
@@ -204,10 +204,7 @@ const H3_FONT_SIZES: [f32; 2] = [DEFAULT_FONT_SIZE_PX, 18.0];
 /// atlas `ceil()` rounding contract.
 #[test]
 fn h3_cell_size_integral_and_positive_across_scale_matrix() {
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = text::load_font().expect("the bundled text face must load");
     for &font_px in &H3_FONT_SIZES {
         for &scale in &H3_SCALES {
             let phys = physical_font_px(font_px, scale);
@@ -229,10 +226,7 @@ fn h3_cell_size_integral_and_positive_across_scale_matrix() {
 /// fixed logical font size. A higher density never shrinks glyphs.
 #[test]
 fn h3_cell_size_monotonic_in_scale() {
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = text::load_font().expect("the bundled text face must load");
     for &font_px in &H3_FONT_SIZES {
         let mut prev: Option<CellSize> = None;
         for &scale in &H3_SCALES {
@@ -256,10 +250,7 @@ fn h3_cell_size_monotonic_in_scale() {
 /// dimensions that do not evenly divide the cell.
 #[test]
 fn h3_grid_dimensions_consistent_across_matrix() {
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = text::load_font().expect("the bundled text face must load");
     // Representative surface sizes: common, widescreen, odd pixels, minimal.
     let surfaces: [(u32, u32); 5] = [
         (800, 600),
@@ -302,13 +293,12 @@ fn h3_grid_dimensions_consistent_across_matrix() {
 /// A scale change that maps to a different physical font size produces a
 /// different `CellSize`; when mapped through `grid_dimensions_for` at the same
 /// surface size, the grid shrinks (higher scale → bigger cells → fewer cells)
-/// or stays the same. This pins the end-to-end resize path.
+/// or stays the same. This is a headless check of the scale-to-cell mapping
+/// and fresh atlas construction at two densities; the App's scale debounce and
+/// grid recompute are driven in `viewport.rs`.
 #[test]
 fn h3_scale_change_recomputes_grid() {
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = text::load_font().expect("the bundled text face must load");
     let font_px = DEFAULT_FONT_SIZE_PX;
     let surface = (1920u32, 1080u32);
     let one_x = {
@@ -358,13 +348,10 @@ fn h3_scale_noop_for_all_repeated_and_sub_unit_pairs() {
 /// scale, inserting a dynamic glyph, and rebuilding at a new scale, no stale
 /// slot from the old atlas survives (the dynamic region is empty, cell metrics
 /// differ, and the revision is reset). This is the headless R1 invalidation
-/// test for scale-driven rebuilds.
+/// check for scale-driven rebuilds.
 #[test]
 fn h3_rebuild_invalidation_no_stale_slots_across_scale() {
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = text::load_font().expect("the bundled text face must load");
     let font_px = DEFAULT_FONT_SIZE_PX;
     for pair in H3_SCALES.windows(2) {
         let px_a = physical_font_px(font_px, pair[0]);
@@ -455,10 +442,7 @@ fn h3_grid_dimensions_odd_pixels() {
 /// grid_dimensions_for's floor division.
 #[test]
 fn h3_font_size_18_scale_matrix() {
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = text::load_font().expect("the bundled text face must load");
     for &scale in &H3_SCALES {
         let phys = physical_font_px(18.0, scale);
         let atlas = GlyphAtlas::build(&font, phys);

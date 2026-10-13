@@ -507,8 +507,11 @@ fn newly_armed_completion_monitors_ignore_stale_edges_and_scan_new_statuses() {
 fn silence_bell_and_process_monitors_are_pane_owned_and_one_shot() {
     let (mut silence, _) = app_with(b"quiet");
     silence.arm_pane_monitor_for_test(crate::native::notifications::PaneMonitorKind::Silence);
-    let (_, notice) =
-        silence.drain_notifications_for_test(std::time::Instant::now() + Duration::from_secs(31));
+    let (_, notice) = silence.drain_notifications_for_test(
+        std::time::Instant::now()
+            + crate::native::notifications::SILENCE_INTERVAL
+            + Duration::from_secs(1),
+    );
     assert!(notice);
 
     let (mut bell, terminal) = app_with(b"");

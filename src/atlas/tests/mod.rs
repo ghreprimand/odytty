@@ -20,8 +20,10 @@ mod symbol_map;
 mod synthetic;
 mod zero;
 
-pub(super) fn test_font() -> Option<FontHandle> {
-    load_font().ok()
+/// The bundled text face. Its load is a precondition of every atlas test, so a
+/// failure here fails the suite instead of letting each test return early.
+pub(super) fn test_font() -> FontHandle {
+    load_font().expect("the bundled text face must load")
 }
 
 /// The inner top-left pixel `(x, y)` of the cell a UV rect points at. The
@@ -88,7 +90,7 @@ pub(super) fn scan_slot_ink(atlas: &GlyphAtlas, slot: u32) -> Option<(i32, i32, 
     (maxx >= minx).then_some((minx, miny, maxx, maxy))
 }
 
-// ----- W1: wide-glyph (East Asian width-2) atlas support -----
+// ----- Wide-glyph (East Asian width-2) atlas support -----
 
 /// A width-2 codepoint the loaded font actually has an outline for. `None`
 /// on hosts without a CJK/fullwidth-capable font (the common case here), so
@@ -107,7 +109,7 @@ pub(super) fn wide_glyph_supported(font: &FontHandle) -> Option<char> {
         .find(|&ch| glyph_cells(ch) == 2 && font_has_glyph(font, ch))
 }
 
-// ----- H3: fractional-scale UV/quad bookkeeping -----
+// ----- Fractional-scale UV/quad bookkeeping -----
 
 /// Inline replica of `gpu::physical_font_px` - the real function is
 /// `pub(super)` inside `native::gpu` and not re-exported. The atlas tests

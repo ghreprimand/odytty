@@ -5,20 +5,15 @@
 //! C1-via-UTF-8 executes out of the byte stream, what remains is a clean
 //! 8-bit-clean control automaton. This module is that automaton.
 //!
-//! ## Design (PA2-r originality)
+//! ## Design
 //!
 //! Each input byte is first mapped to one of the ~13 [`ByteClass`] values via
 //! the small [`classify`] table; the [`Machine`] then advances state and emits
-//! a single [`Action`] from one flat `match (state, class)` discriminator. This
-//! shape differs structurally from the canonical references:
+//! a single [`Action`] from one flat `match (state, class)` discriminator:
 //!
-//! - It is NOT the per-state-method decomposition of inline-callback parsers
-//!   (each state a separate `advance_<state>` function with its own per-byte
-//!   match) - the first-generation OdyTTY core followed that shape and the
-//!   considered too derivative. Here, transitions are one flat table.
-//! - It is NOT the Williams `[state][256]` data table either. Our match has
-//!   ~13 byte-class columns, not 256; the action vocabulary is OdyTTY-designed
-//!   ([`Action`]); and the state machine is byte-only - UTF-8 lives in Layer 1.
+//! - Transitions are one flat match over ~13 byte-class columns rather than a
+//!   function per state or a `[state][256]` table, and the machine is
+//!   byte-only: UTF-8 lives in Layer 1.
 //! - The "anywhere edges" (ECMA-48: a control byte that means the same thing
 //!   regardless of current state) are encoded inline at each state's
 //!   `Cancel` / `Esc` arms rather than as separate pre-match shortcuts; the
@@ -36,13 +31,13 @@
 //!
 //! ## C1-via-UTF-8 policy
 //!
-//! Per the accepted divergence ledger, a validly-decoded C1 scalar
+//! Per the policy ledger in `mod.rs`, a validly-decoded C1 scalar
 //! (`U+0080..=U+009F` via `0xC2 0x8x`) **executes uniformly**, regardless of
 //! how its bytes are split across `advance()` calls. This is enforced in Layer
 //! 1 (the segmenter), not here - by the time bytes reach this machine, they
 //! are already in a non-Ground control state, and raw `0x80..=0x9F` bytes here
 //! are NEVER C1 sequence introducers (8-bit C1 introduction is not supported;
-//! see [`super`] module docs and the divergence ledger in `mod.rs`).
+//! see the [`super`] module docs).
 
 use super::action::Action;
 use super::params::Params;

@@ -16,10 +16,7 @@ fn atlas_byte_len_survives_products_beyond_u32() {
 /// the vertical line U+2502 should ink the full cell height.
 #[test]
 fn box_drawing_strokes_reach_cell_edges() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     if !font_has_glyph(&font, '\u{2500}') || !font_has_glyph(&font, '\u{2502}') {
         eprintln!("skipping: font lacks box-drawing glyphs");
         return;
@@ -78,10 +75,7 @@ fn box_drawing_strokes_reach_cell_edges() {
 /// proving a single consistent baseline rather than per-glyph drift.
 #[test]
 fn glyphs_share_one_baseline() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let atlas = GlyphAtlas::build(&font, 26.0);
     let top_row = |ch: char| -> Option<u32> {
         let uv = atlas.uv_rect(ch)?;
@@ -106,10 +100,7 @@ fn glyphs_share_one_baseline() {
 /// the cell box - its ink extends below the baseline.
 #[test]
 fn descender_is_not_cropped() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let atlas = GlyphAtlas::build(&font, 28.0);
     let uv = atlas.uv_rect('g').expect("g uv");
     let (ix, iy) = inner_origin(&atlas, uv);
@@ -132,10 +123,7 @@ fn descender_is_not_cropped() {
 #[test]
 fn regular_style_matches_legacy_lookup() {
     assert_eq!(FontStyle::default(), FontStyle::Regular);
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let atlas = GlyphAtlas::build(&font, 24.0);
     // ASCII, fallback, and control behave identically through both entry points.
     assert_eq!(
@@ -156,10 +144,7 @@ fn regular_style_matches_legacy_lookup() {
 /// so styled variants never collide with the regular glyph.
 #[test]
 fn styled_glyph_gets_a_distinct_slot() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let Some(ch) = glyph_bearing_non_ascii(&font) else {
         eprintln!("skipping: font has no non-ASCII glyph");
         return;
@@ -188,10 +173,7 @@ fn styled_glyph_gets_a_distinct_slot() {
 /// rasterizes it, after which both resolve to the same real slot.
 #[test]
 fn styled_ascii_uses_dynamic_region() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     let fallback = atlas.slot_uv(FALLBACK_SLOT);
     // Bold 'A' is not prebuilt: immutable lookup is the fallback box.
@@ -217,10 +199,7 @@ fn styled_ascii_uses_dynamic_region() {
 /// atlas exhaustion - without burning slots or touching pixels.
 #[test]
 fn over_wide_shaped_span_falls_back_to_scalar() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     let slots_before = atlas.next_slot;
     let pixels_before = atlas.data.clone();
@@ -252,10 +231,7 @@ fn over_wide_shaped_span_falls_back_to_scalar() {
 /// wider than the atlas row, independent of the `ensure_shaped` screen.
 #[test]
 fn allocate_slots_rejects_span_wider_than_a_row() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     let slots_before = atlas.next_slot;
     assert_eq!(atlas.allocate_slots(ATLAS_COLS + 1), None);
@@ -267,10 +243,7 @@ fn allocate_slots_rejects_span_wider_than_a_row() {
 /// fresh atlas allocates a full-row span at column 0 with in-range UVs.
 #[test]
 fn full_row_shaped_span_allocates_within_row_bounds() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     assert_eq!(
         atlas.next_slot % atlas.cols,
@@ -308,10 +281,7 @@ fn full_row_shaped_span_allocates_within_row_bounds() {
 /// dense so existing UVs stay valid.
 #[test]
 fn midrow_multi_cell_span_advances_to_the_next_row_boundary() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     // Advance the allocator to column 14 of a row.
     while atlas.next_slot % atlas.cols != 14 {
@@ -351,10 +321,7 @@ fn midrow_multi_cell_span_advances_to_the_next_row_boundary() {
 /// fits the remaining columns of the current row allocates in place.
 #[test]
 fn multi_cell_span_exactly_fitting_the_row_allocates_in_place() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     while atlas.next_slot % atlas.cols != 13 {
         atlas.allocate_slots(1).expect("single-slot filler");
@@ -371,10 +338,7 @@ fn multi_cell_span_exactly_fitting_the_row_allocates_in_place() {
 /// corrupting the dense bookkeeping.
 #[test]
 fn filler_burn_hitting_the_slot_cap_fails_cleanly() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     while atlas.next_slot % atlas.cols != 15 {
         atlas.allocate_slots(1).expect("single-slot filler");

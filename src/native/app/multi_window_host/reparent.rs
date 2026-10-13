@@ -286,7 +286,7 @@ mod tests {
     use crate::native::session::{Session, SessionToken};
     use std::sync::{Arc, Mutex};
 
-    const SIBLING_BASE: u64 = 1 << 40;
+    const SIBLING_BASE: u64 = crate::native::window_owner::WINDOW_TOKEN_STRIDE;
 
     fn terminal() -> Arc<Mutex<Terminal>> {
         Arc::new(Mutex::new(Terminal::new(80, 24)))

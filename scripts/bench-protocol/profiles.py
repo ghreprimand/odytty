@@ -284,6 +284,12 @@ def valid_calibration(implementation: str, calibration: object) -> bool:
     )
     if set(calibration) != expected_keys:
         return False
+    # The record is a digest-bound public artifact, so its numbers are exact JSON
+    # floats: a boolean or an integer equal to a pinned value is not that value.
+    if type(size) is not float:
+        return False
+    if "line_height" in expected_keys and type(calibration["line_height"]) is not float:
+        return False
     if method == "canonical-profile":
         return size == DEFAULT_FONT_SIZE and (
             implementation != "odytty" or calibration["line_height"] == 1.0
@@ -491,6 +497,18 @@ def self_test(repo_root: Path | None = None) -> list[str]:
         failures.append("profiles: PROFILE_FILES and CONFIG_PATHS keys diverged")
     if set(LAUNCH_EXECUTABLES) != set(CONFIG_PATHS):
         failures.append("profiles: LAUNCH_EXECUTABLES and CONFIG_PATHS keys diverged")
+    exact = {"method": "canonical-profile", "font_size": 12.0, "line_height": 1.0}
+    if not valid_calibration("odytty", exact):
+        failures.append("profiles: the exact canonical calibration was rejected")
+    for broken in (
+        {**exact, "line_height": True},
+        {**exact, "font_size": 12},
+        {"method": "font-metrics-override", "font_size": 12.5, "line_height": True},
+    ):
+        if valid_calibration("odytty", broken):
+            failures.append(f"profiles: inexact calibration numbers were accepted: {broken!r}")
+    if valid_calibration("kitty", {"method": "font-size-override", "font_size": 13}):
+        failures.append("profiles: an integer calibration size was accepted")
     if not SHARED_FONT_FAMILY:
         failures.append("profiles: shared font family is empty")
     return failures

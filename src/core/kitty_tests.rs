@@ -186,11 +186,8 @@ fn named_transport_policy_does_not_change_direct_or_chunked_bytes() {
     assert_eq!(run(false), run(true));
 }
 
-/// C3 regression: real emitters (kitty's own `icat`, timg, term-image) split
-/// large images into MANY `m=1` chunks before the final `m=0` - not just one.
-/// The old accumulator errored with `malformed-control` on the SECOND `m=1`
-/// chunk (`pending.is_some()` was treated as a protocol violation), so any
-/// image over two chunks was rejected.
+/// Several intermediate `m=1` chunks assemble one image before the final
+/// `m=0` chunk.
 #[test]
 fn kitty_chunked_transmission_accepts_many_intermediate_chunks() {
     let mut t = Terminal::new(20, 4);

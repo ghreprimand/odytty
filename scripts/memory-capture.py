@@ -31,12 +31,13 @@
 #     or macOS. `partial` and `complete` are different records and are labelled
 #     as such, because a partial record silently presented as complete is worse
 #     than no record.
-#   * Mapping identity is recorded as a BASENAME, never a full path. A capture
-#     from a development checkout would otherwise embed the operator's home
-#     directory in a file destined for a public evidence tree. The basename is
-#     what carries the analytical content (`libnvidia-glcore.so.580`,
-#     `libLLVM.so.20.1`), and the directory is what carries the machine
-#     identity, so the split is exact rather than a compromise.
+#   * Mapping identity is recorded as a BASENAME, never a full path, and only
+#     for names with a recognised shape: the subject's own binary, shared
+#     objects (`libnvidia-glcore.so.580`, `libLLVM.so.20.1`) and the DRM and
+#     NVIDIA device nodes under `/dev/dri/` and `/dev/nvidia*`. Any other file
+#     is reported under one `other-file` entry without its name, because a
+#     basename still carries whatever its owner called the file (a font, an
+#     image, a memfd label). Kernel-defined names in brackets are kept.
 #   * Nothing here samples the subject's own terminal content, environment, or
 #     command line.
 #
@@ -112,7 +113,11 @@ DRIVER_RE = re.compile("|".join(DRIVER_PATTERNS))
 # Device nodes that carry graphics allocations. `/dev/nvidiactl` and
 # `/dev/dri/*` mappings are driver-side memory that lands in the process's
 # resident set, so they are classified as driver tax rather than as "other".
-DEVICE_DRIVER_RE = re.compile(r"^(nvidia|card\d+|renderD\d+)")
+DEVICE_NODE_PREFIXES = ("/dev/dri/", "/dev/nvidia")
+# Shared objects: `libfoo.so`, `libfoo.so.1.2.3`, `swrast_dri.so`.
+SHARED_OBJECT_RE = re.compile(r"^[\w.+-]+\.so(\.[0-9]+)*$")
+# What a mapping with an unrecognised file name is reported as.
+OTHER_FILE_NAME = "other-file"
 
 
 def _read_text(path: Path) -> str | None:
@@ -123,8 +128,12 @@ def _read_text(path: Path) -> str | None:
         return None
 
 
-def classify(name: str, subject_binary: str | None) -> str:
-    """Assign one mapping name to exactly one class from the closed set."""
+def classify(name: str, subject_binary: str | None, device_node: bool = False) -> str:
+    """Assign one mapping name to exactly one class from the closed set.
+
+    `device_node` is true for a mapping of a `/dev/dri/` or `/dev/nvidia` file,
+    which is decided from the directory before the name is reduced.
+    """
     if name == "[heap]":
         return CLASS_HEAP
     if name.startswith("[stack"):
@@ -135,13 +144,13 @@ def classify(name: str, subject_binary: str | None) -> str:
         return CLASS_OTHER
     if subject_binary is not None and name == subject_binary:
         return CLASS_BINARY
+    if device_node:
+        return CLASS_DRIVER
+    if not SHARED_OBJECT_RE.match(name):
+        return CLASS_OTHER
     if DRIVER_RE.search(name):
         return CLASS_DRIVER
-    if DEVICE_DRIVER_RE.match(name):
-        return CLASS_DRIVER
-    if name.startswith("lib") or ".so" in name:
-        return CLASS_LIBRARY
-    return CLASS_OTHER
+    return CLASS_LIBRARY
 
 
 def parse_smaps_rollup(text: str) -> dict[str, int]:
@@ -176,18 +185,23 @@ def parse_smaps(text: str, subject_binary: str | None) -> list[dict[str, object]
         match = header.match(line)
         if match:
             path = match.group(3).strip()
+            device_node = path.startswith(DEVICE_NODE_PREFIXES)
             if not path:
                 name = "[anon]"
             elif path.startswith("["):
                 name = path
             else:
                 name = os.path.basename(path) or path
+            file_class = classify(name, subject_binary, device_node)
+            if file_class == CLASS_OTHER and not name.startswith(("[", "anon_inode:")):
+                # An unrecognised file name stays out of the record.
+                name = OTHER_FILE_NAME
             current = name
             entry = groups.setdefault(
                 name,
                 {
                     "name": name,
-                    "class": classify(name, subject_binary),
+                    "class": file_class,
                     "rss_bytes": 0,
                     "pss_bytes": 0,
                     "mappings": 0,
@@ -699,6 +713,29 @@ def self_test() -> list[str]:
     # An unclassifiable name lands in `other`, never silently in `library`.
     if classify("some-data-file", None) != CLASS_OTHER:
         failures.append("memory-capture: a non-library mapping was misclassified")
+
+    # A file named by its owner never reaches the record, and a name that only
+    # looks like a driver or library is not classed as one.
+    private = parse_smaps(
+        "7f00-7f01 r--p 00000000 00:00 1 /home/someone/Some Personal Font.ttf\n"
+        "Rss: 4 kB\n"
+        "7f02-7f03 r--p 00000000 00:00 2 /tmp/card1.png\n"
+        "Rss: 8 kB\n"
+        "7f04-7f05 r--p 00000000 00:00 3 /srv/libre-notes.txt\n"
+        "Rss: 12 kB\n"
+        "7f06-7f07 rw-s 00000000 00:00 4 /dev/dri/card0\n"
+        "Rss: 16 kB\n"
+        "7f08-7f09 r-xp 00000000 00:00 5 /usr/lib/libLLVM.so.20.1\n"
+        "Rss: 20 kB\n",
+        None,
+    )
+    by_name = {str(record["name"]): record for record in private}
+    if set(by_name) != {OTHER_FILE_NAME, "card0", "libLLVM.so.20.1"}:
+        failures.append(f"memory-capture: unexpected mapping names {sorted(by_name)!r}")
+    elif by_name[OTHER_FILE_NAME]["rss_bytes"] != (4 + 8 + 12) * 1024:
+        failures.append("memory-capture: unrecognised files were not folded into one entry")
+    elif by_name["card0"]["class"] != CLASS_DRIVER or by_name["libLLVM.so.20.1"]["class"] != CLASS_DRIVER:
+        failures.append("memory-capture: a device node or driver library was misclassified")
 
     return failures
 

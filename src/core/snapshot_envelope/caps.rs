@@ -23,12 +23,10 @@ impl Default for SnapshotCaptureLimits {
     }
 }
 
-/// Default per-string byte cap shared by the decoder and the capture path. The
-/// decoder rejects any string longer than [`SnapshotEnvelopeCaps::max_string_bytes`];
-/// capture bounds `title`/`working_directory` to this same value so the encoder
-/// never emits a string its own default decoder would reject (a reattach that
-/// dropped the whole grid over an oversized title would be far worse than a
-/// truncated title). It also keeps each length within the `u16` on-wire prefix.
+/// Default per-string byte cap shared by capture and decode. Capture cuts
+/// `title` and `working_directory` to it at a UTF-8 boundary, so the default
+/// decoder ([`SnapshotEnvelopeCaps::max_string_bytes`]) never rejects them,
+/// and it fits the `u16` on-wire length prefix.
 pub const DEFAULT_MAX_STRING_BYTES: usize = 4096;
 
 /// Decode-side resource caps. These are separate from capture limits so an

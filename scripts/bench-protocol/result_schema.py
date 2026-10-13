@@ -66,6 +66,10 @@ _matches_target_grid = profiles.matches_target_grid
 # version, not reinterpreted under these different geometry semantics.
 SCHEMA_VERSION = "1.5.4"
 PROTOCOL_VERSION = "1.5.4"
+# Measured W6 blocks come from the workload definition, the source the runner
+# and the preregistration share, not from a count repeated in the validator.
+W6_MEASURED_BLOCKS = workloads.WORKLOADS["idle-visible-10m"]["sampling"]["measured_replicates"]
+W6_BLOCK_NUMBERS = range(1, W6_MEASURED_BLOCKS + 1)
 REHEARSAL_TIMING_TOLERANCE_SECONDS = 2.0
 ENVIRONMENT_SAMPLE_PERIOD_SECONDS = 1.0
 ENVIRONMENT_SAMPLE_MAX_GAP_SECONDS = 2.0
@@ -358,7 +362,7 @@ def canonical_w6_incomplete_reasons(
     missing_primary = [
         {"implementation": implementation, "block": block}
         for implementation in sorted(qualified)
-        for block in range(1, 6)
+        for block in W6_BLOCK_NUMBERS
         if (implementation, block, 1) not in identities
     ]
     if missing_primary:
@@ -366,7 +370,7 @@ def canonical_w6_incomplete_reasons(
     incomplete_primary = [
         {"implementation": implementation, "block": block}
         for implementation in sorted(qualified)
-        for block in range(1, 6)
+        for block in W6_BLOCK_NUMBERS
         if (implementation, block, 1) in identities
         and metrics_by_identity.get((implementation, block, 1)) != expected_metrics
     ]
@@ -438,7 +442,7 @@ def canonical_w6_incomplete_reasons(
     expected_timing = {
         (implementation, block)
         for implementation in separate_implementations
-        for block in range(1, 6)
+        for block in W6_BLOCK_NUMBERS
     }
     timing_identities = [
         (entry.get("implementation"), entry.get("block"))
@@ -460,7 +464,7 @@ def canonical_w6_incomplete_reasons(
     bad_timing = [
         {"implementation": implementation, "block": block}
         for implementation in sorted(separate_implementations)
-        for block in range(1, 6)
+        for block in W6_BLOCK_NUMBERS
         if timing_by_identity.get((implementation, block)) is not True
     ]
     if bad_timing:
@@ -617,7 +621,6 @@ FORBIDDEN_ENVIRONMENT_KEYS = frozenset(
 FORBIDDEN_PUBLIC_PATTERNS = (
     re.compile(r"(?:^|[\s\"'])/(?:home|Users)/[^/\s\"']+/"),
     re.compile(r"(?:^|[\s\"'])[A-Za-z]:\\"),
-    re.compile(r"\b(?:arc" r"hon|workspace|internal service)\b", re.IGNORECASE),
 )
 
 
@@ -685,7 +688,7 @@ def _validate_document(
         if pattern.search(serialized):
             errors.append(
                 ValidationError(
-                    "$", "public result contains an internal name or machine-local path"
+                    "$", "public result contains a machine-local path"
                 )
             )
 
@@ -1391,7 +1394,7 @@ def _validate_summary_structure(value: object) -> list[ValidationError]:
                 comparison = entry.get(field)
                 if comparison is not None and (
                     not isinstance(comparison, dict)
-                    or not isinstance(comparison.get("median"), (int, float))
+                    or not _finite_number(comparison.get("median"))
                     or _validate_ci(comparison.get("ci"))
                 ):
                     errors.append(
@@ -1457,13 +1460,13 @@ def _validate_ci(value: object) -> bool:
         and value.get("confidence") == 0.95
         and value.get("resamples") == summaries.BOOTSTRAP_RESAMPLES
         and isinstance(value.get("seed"), str)
-        and isinstance(value.get("low"), (int, float))
-        and isinstance(value.get("high"), (int, float))
+        and _finite_number(value.get("low"))
+        and _finite_number(value.get("high"))
     )
 
 
 def canonical_w6_summaries(samples: list[dict], seed: str) -> list[dict]:
-    """Recompute the exact protocol 1.4.0 W6 summaries from raw samples."""
+    """Recompute the exact W6 summaries from raw samples."""
     metric_specs = {
         metric["name"]: metric
         for metric in workloads.WORKLOADS["idle-visible-10m"]["metrics"]
@@ -1578,6 +1581,11 @@ def _hashable(value: object) -> bool:
 def _member(value: object, collection) -> bool:
     """`value in collection` for a set, false for an unhashable value."""
     return _hashable(value) and value in collection
+
+
+def _reject_constant(token: str):
+    """`json.loads` hook: NaN, Infinity and -Infinity are not JSON numbers."""
+    raise ValueError(f"{token} is not a JSON number")
 
 
 def _finite_number(value: object) -> bool:
@@ -1922,6 +1930,35 @@ def self_test() -> list[str]:
     if errors:
         failures.append(f"schema: minimal document failed to validate: {messages(errors)}")
 
+    # The privacy patterns catch machine-local paths and leave product words such
+    # as "workspace" to be written in a public limitation.
+    if not any(p.search("/home/someone/x") for p in FORBIDDEN_PUBLIC_PATTERNS):
+        failures.append("schema: a home-directory path was not forbidden")
+    if any(p.search("the workspace rail") for p in FORBIDDEN_PUBLIC_PATTERNS):
+        failures.append("schema: the product word workspace was forbidden")
+
+    # Non-finite numbers are not JSON numbers and never reach a CI or median.
+    good_ci = {
+        "method": "percentile-bootstrap",
+        "confidence": 0.95,
+        "resamples": summaries.BOOTSTRAP_RESAMPLES,
+        "seed": "s",
+        "low": 1.0,
+        "high": 2.0,
+    }
+    if _validate_ci(good_ci):
+        failures.append("schema: a well-formed CI was rejected")
+    for endpoint in ("low", "high"):
+        for bad in (float("nan"), float("inf")):
+            if not _validate_ci({**good_ci, endpoint: bad}):
+                failures.append(f"schema: a {bad} CI {endpoint} was accepted")
+    try:
+        json.loads('{"value": NaN}', parse_constant=_reject_constant)
+    except ValueError:
+        pass
+    else:
+        failures.append("schema: the NaN token was parsed as a number")
+
     # A passed sample validates and carries its value.
     document = _minimal_document()
     document["samples"] = [_sample()]
@@ -2144,7 +2181,7 @@ def self_test() -> list[str]:
             unit=metric["unit"],
             block=block,
         )
-        for block in range(1, 6)
+        for block in W6_BLOCK_NUMBERS
         for metric in workloads.WORKLOADS["idle-visible-10m"]["metrics"]
     ]
     w6_document["summary"] = canonical_w6_summaries(
@@ -2778,12 +2815,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 2
 
-    document = json.loads(Path(args.validate).read_text(encoding="utf-8"))
+    document = json.loads(
+        Path(args.validate).read_text(encoding="utf-8"), parse_constant=_reject_constant
+    )
     prereg = None
     prereg_sha256 = None
     if args.preregistration:
         prereg_bytes = Path(args.preregistration).read_bytes()
-        prereg = json.loads(prereg_bytes.decode("utf-8"))
+        prereg = json.loads(prereg_bytes.decode("utf-8"), parse_constant=_reject_constant)
         prereg_sha256 = hashlib.sha256(prereg_bytes).hexdigest()
 
     errors = validate(document, prereg, prereg_sha256)

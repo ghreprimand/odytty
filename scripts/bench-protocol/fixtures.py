@@ -63,6 +63,14 @@ PINNED_PREFIX_DIGESTS = {
     "w5": "3159e07836414b576757039c7cc74ec9286a0cbf04951ccd62a288cb86d82304",
 }
 
+# Full-fixture digests of the two fixtures the software-endpoint child writes.
+# They are the values in the README table (the self-test checks the two agree)
+# and are recomputed by `--digest`; the child compares what it wrote with them.
+CANONICAL_FIXTURE_DIGESTS = {
+    "w3": "6115e084c778270394b1111e75ae8d882b1e6e1a61ad7d832b96a9dc42dbf3d2",
+    "w4": "6f536f28c5ec3f965c3600fd1e93701a4557605e1567d0c20210bc27db05bfea",
+}
+
 LOWER = b"abcdefghijklmnopqrstuvwxyz"
 UPPER = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -355,6 +363,11 @@ def self_test() -> list[str]:
                 f"{actual}); the record rule moved, which invalidates every "
                 "run set measured against the previous fixture"
             )
+
+    readme = (Path(__file__).with_name("README.md")).read_text(encoding="utf-8")
+    for name, digest in CANONICAL_FIXTURE_DIGESTS.items():
+        if f"| `{name}` |" not in readme or digest not in readme:
+            failures.append(f"{name}: canonical digest is not the one in README.md")
 
     # --- Rejection of unknown fixtures ------------------------------------
     try:

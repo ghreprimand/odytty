@@ -564,7 +564,7 @@ fn the_autosave_fingerprint_tracks_the_mode_and_the_rectangles() {
 
 #[test]
 fn a_moved_pane_joins_a_floating_destination_tab_and_otherwise_becomes_a_tab() {
-    const SRC: u64 = 1 << 40;
+    const SRC: u64 = crate::native::window_owner::WINDOW_TOKEN_STRIDE;
     let source = || {
         let mut set = WorkspaceSet::new(build_session_with_id(SessionToken(SRC)), None);
         set.split_active_for_test(

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! ConPTY passthrough probe for the button protocol OSCs (Button Protocol B1).
+//! ConPTY passthrough probe for the button protocol OSCs.
 //!
 //! The single biggest Windows risk for program-defined buttons is upstream of
 //! OdyTTY: ConPTY historically re-encodes the VT stream and has been known to
@@ -130,8 +130,8 @@ fn run_bounded(session: &mut PtySession) -> ProbeRun {
 /// path. cmd writes through its standard output handle with no host layer in
 /// between, so this discriminates a general std-handle binding defect (this
 /// fails too) from behavior specific to PowerShell's console host (this
-/// passes while the PowerShell probe fails). Runs before the PowerShell
-/// probe (libtest executes tests in name order within a binary).
+/// passes while the PowerShell probe fails). The two are independent tests;
+/// compare their results, not their order.
 #[test]
 fn conpty_cmd_echo_reaches_the_pty_stream() {
     let dimensions = Dimensions::new(80, 24);

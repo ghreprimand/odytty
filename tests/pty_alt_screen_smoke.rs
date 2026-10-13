@@ -739,7 +739,7 @@ fn keyboard_encoder_findings_for_application_modes_and_ctrl_arrows() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// A1 expansion: nano, htop, pager-in-pager
+// Further full-screen programs: nano, htop, pager-in-pager
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]

@@ -284,7 +284,10 @@ def retention_record(
     return record
 
 
-def probe_wake_events() -> dict:
+def probe_wake_events(
+    tracing_root: Path = TRACING_ROOT,
+    paranoid_path: Path = Path("/proc/sys/kernel/perf_event_paranoid"),
+) -> dict:
     """Probe the scheduler wake-event collector.
 
     The protocol defines idle wake events as scheduler wake events targeting
@@ -297,20 +300,22 @@ def probe_wake_events() -> dict:
     the protocol names as a separate diagnostic, nor from system-wide counters,
     which are not attributable to a process tree.
     """
-    paranoid_text = _read_text(Path("/proc/sys/kernel/perf_event_paranoid"))
+    paranoid_text = _read_text(paranoid_path)
     try:
         paranoid = int(paranoid_text.strip()) if paranoid_text else None
     except ValueError:
         paranoid = None
 
-    wakeup_enable = TRACING_ROOT / "events" / "sched" / "sched_wakeup" / "enable"
-    tracefs_readable = os.access(wakeup_enable, os.R_OK)
+    # Enabling the event writes its `enable` file, so write access is the test;
+    # a file that can only be read lets nothing be collected.
+    wakeup_enable = tracing_root / "events" / "sched" / "sched_wakeup" / "enable"
+    tracefs_writable = os.access(wakeup_enable, os.W_OK)
 
     # perf_event_paranoid <= -1 permits unprivileged tracepoint access; at 0
     # and above, tracepoint collection for other processes needs privilege.
     perf_permitted = paranoid is not None and paranoid <= -1
 
-    if tracefs_readable or perf_permitted:
+    if tracefs_writable or perf_permitted:
         return {
             "collector": "sched-wakeup",
             "status": AVAILABLE,
@@ -324,9 +329,9 @@ def probe_wake_events() -> dict:
         }
 
     reasons = []
-    if not tracefs_readable:
+    if not tracefs_writable:
         reasons.append(
-            f"{wakeup_enable} is not readable by this user (tracefs is "
+            f"{wakeup_enable} is not writable by this user (tracefs is "
             "root-restricted on a default install)"
         )
     if paranoid is None:
@@ -531,6 +536,26 @@ def self_test() -> list[str]:
     the machine running the test.
     """
     failures: list[str] = []
+
+    # A readable but read-only `enable` file does not make wake events
+    # available: enabling the event needs write access.
+    # (root may write a mode 0444 file, so the check cannot hold there.)
+    if not (hasattr(os, "geteuid") and os.geteuid() == 0):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tracing_tmp:
+            enable = Path(tracing_tmp) / "events" / "sched" / "sched_wakeup" / "enable"
+            enable.parent.mkdir(parents=True)
+            enable.write_text("0\n")
+            enable.chmod(0o444)
+            missing = Path(tracing_tmp) / "no-paranoid"
+            read_only = probe_wake_events(Path(tracing_tmp), missing)
+            if read_only["status"] != UNSUPPORTED:
+                failures.append("collectors: a read-only tracefs enable file reported available")
+            enable.chmod(0o644)
+            writable = probe_wake_events(Path(tracing_tmp), missing)
+            if writable["status"] != AVAILABLE:
+                failures.append("collectors: a writable tracefs enable file reported unavailable")
 
     # Every probe returns a well-formed record with a decided status.
     for probe in (

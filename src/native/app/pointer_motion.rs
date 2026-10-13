@@ -77,7 +77,7 @@ impl App {
     /// only `Focused(true)` / `Occluded(false)`). While `window_minimized`
     /// stays set, the first surface acquire after restore returns `Skipped` and
     /// [`should_schedule_skipped_retry`] vetoes the retry-wake, so no frame
-    /// paints until an unrelated input event — the window is black until a
+    /// paints until an unrelated input event - the window is black until a
     /// click. Clearing the flag + resetting the budget lets the bounded retry
     /// schedule, and a repaint is requested so the recovered surface paints.
     ///
@@ -172,6 +172,10 @@ impl App {
             // The release of a window-owned press may be delivered elsewhere;
             // a later release here is a new gesture's, never consumed.
             self.owned_releases = 0;
+            // A release delivered elsewhere would leave its key recorded as
+            // locally consumed, and a later repeat of that key would be
+            // dropped though no local UI took it.
+            self.locally_consumed_keys.clear();
             // Same NF21-8 class for the rename/save-layout text field: a
             // press-drag interrupted by an alt-tab never sees its release, so
             // `rename_dragging` would otherwise stay armed and a later bare
@@ -207,7 +211,7 @@ impl App {
         // ID2 focus dimming: a focus transition changes the effective
         // focus-dim amount applied to every cell, so the cell geometry
         // (not just the cursor) must be rebuilt. Bump the presentation
-        // epoch — folded into the content render signature — so this
+        // epoch - folded into the content render signature - so this
         // frame resolves to a Full geometry update rather than a
         // CursorOnly/Retained one. Harmless when focus_dim is off (the
         // rebuilt vertices are byte-identical).
@@ -226,9 +230,9 @@ impl App {
     /// acted on: on some platforms a Windows restore surfaces as
     /// `Occluded(false)` without a non-zero `Resized`, leaving the window black
     /// until a click. The occlude (`true`) direction is deliberately NOT treated
-    /// as a minimize — occlusion (another window covering ours) is not minimize
+    /// as a minimize - occlusion (another window covering ours) is not minimize
     /// on every platform, and true minimize is already tracked via the 0x0
-    /// `Resized` path — so setting the flag here could wrongly suppress repaints
+    /// `Resized` path - so setting the flag here could wrongly suppress repaints
     /// of a merely-covered window. `restore_from_minimized` is a no-op unless a
     /// minimized state is actually pending, so this is harmless on Linux/macOS
     /// where un-minimize goes through `Resized`.
@@ -253,7 +257,7 @@ impl App {
     }
 
     /// Push a mouse-cursor shape to the window, but only when it actually
-    /// changes — winit issues a platform request on every `set_cursor` call, so
+    /// changes - winit issues a platform request on every `set_cursor` call, so
     /// the dedupe keeps `CursorMoved` (which fires on every pixel of motion)
     /// from spamming the windowing system. The terminal grid shows an I-beam
     /// (`Text`), a hovered hyperlink shows a hand (`Pointer`), and window chrome
@@ -283,7 +287,7 @@ impl App {
     }
 
     /// True when, in a multi-pane tab, the pointer is over a pane OTHER than the
-    /// focused one — or in a divider gap with no pane content beneath it. This is
+    /// focused one - or in a divider gap with no pane content beneath it. This is
     /// the case where hover resolution must be suppressed: `self.terminal`
     /// belongs to the focused pane, so mapping an off-pane pointer
     /// into them resolves a false link/path/URL. Always `false` on a single-pane
@@ -402,7 +406,7 @@ impl App {
         self.pointer_px = Some((x_px, y_px));
         // RAIL-DRAG: while a workspace-rail drag gesture is live, pointer motion
         // arms it past the threshold and tracks the drop target, and nothing else
-        // — a drag owns the pointer for its lifetime. Placed before the auto-hide
+        // - a drag owns the pointer for its lifetime. Placed before the auto-hide
         // reveal feed and every hover/selection path so the gesture is not
         // disturbed by them. Inert when no rail drag is in flight.
         if self.pointer_left_held && self.rail_ws_drag.is_some() {
@@ -423,7 +427,7 @@ impl App {
         }
         // F4-P3 rail auto-hide: feed the live pointer to the reveal machine
         // (arms/holds/hides the floating overlay). While the rail is revealed and
-        // the pointer is over its band, the overlay owns the pointer — do rail
+        // the pointer is over its band, the overlay owns the pointer - do rail
         // hover and nothing else, so a click there hits the rail, not the
         // terminal beneath it. Inert unless autohide is active.
         let window_modal = self.window_modal_owns_pointer();
@@ -454,7 +458,7 @@ impl App {
             return;
         }
         // While a divider is grabbed, pointer motion reflows the split and
-        // nothing else — no selection or hover work. `divider_drag` is only ever
+        // nothing else - no selection or hover work. `divider_drag` is only ever
         // `Some` in a multi-pane tab, so the single-pane motion path below is
         // byte-identical. Keep the matching resize cursor (`↔`/`↕`) for the
         // dragged divider's axis even as the pointer strays off the hairline, so
@@ -493,7 +497,7 @@ impl App {
             }
             return;
         }
-        // Tab-bar bottom-seam hover — a row-resize cursor over the seam grab band
+        // Tab-bar bottom-seam hover - a row-resize cursor over the seam grab band
         // so drag-to-resize the bar height is discoverable (the press path grabs
         // the same band). Wins at the rail junction because the horizontal seam
         // is visibly drawn there; skipped while a selection is in progress.
@@ -509,7 +513,7 @@ impl App {
             self.apply_cursor_icon(CursorIcon::RowResize);
             return;
         }
-        // F4-P4: rail seam hover — a column-resize cursor over the remaining
+        // F4-P4: rail seam hover - a column-resize cursor over the remaining
         // vertical seam grab band. Yields to the top seam at their junction and
         // to the scroll thumb inside `pointer_over_rail_seam`.
         if !self.pointer_drag.is_selecting() && self.pointer_over_rail_seam(x_px, cell) {
@@ -646,7 +650,7 @@ impl App {
             self.apply_cursor_icon(icon);
             return;
         };
-        // MOUSE-SCROLLBAR: a scroll-thumb drag owns the pointer move — scrub the
+        // MOUSE-SCROLLBAR: a scroll-thumb drag owns the pointer move - scrub the
         // viewport to the offset the thumb-top maps to and stop. Placed before
         // hover/selection/PTY-report so a scrollbar drag does not update link
         // hover, extend a selection, or emit PTY motion. Mutually exclusive with
@@ -664,7 +668,7 @@ impl App {
         // Divider hover (multi-pane): show a resize cursor over a divider grab
         // zone so drag-to-resize is discoverable (the press path already grabs
         // the same band). Absolute pointer coords (`self.pointer_px`) match the
-        // press-time hit-test basis — `content.y` already includes the tab-bar
+        // press-time hit-test basis - `content.y` already includes the tab-bar
         // offset, unlike the tab-bar-relative `y_px` shadowed above. Skipped
         // while a text selection is in progress (the gesture owns the pointer)
         // and never reached on a single-pane tab (`multipane_geometry` is
@@ -702,7 +706,7 @@ impl App {
             // INTERACTIVE-PATHS (Phase 7): recompute the hovered path span. Gated
             // on the `interactive_paths` setting inside `update_hover_path`, so
             // with the feature off (the default) it returns before scanning and
-            // this call is a single bool test — the hover path stays byte-identical.
+            // this call is a single bool test - the hover path stays byte-identical.
             self.update_hover_path();
             // INTERACTIVE-URLS: recompute the hovered bare-URL span. Gated on the
             // `interactive_urls` setting inside `update_hover_url`; off makes this
@@ -712,7 +716,7 @@ impl App {
         // Cursor shape over the terminal grid: a hand on a hovered hyperlink OR a
         // resolved interactive path OR a bare URL, the arrow while a TUI has mouse
         // reporting enabled (it owns clicks, so an I-beam would mislead), and the
-        // I-beam over plain selectable text — the standard terminal affordance
+        // I-beam over plain selectable text - the standard terminal affordance
         // OdyTTY previously never set. The hovered spans are permanently `None`
         // while their features are off, so the default decision is unchanged. OSC
         // 8 wins ties (cosmetically identical icon; precedence matters for click).
@@ -721,8 +725,8 @@ impl App {
         if self.pointer_drag.is_selecting() {
             // NF21-8 button-held guard (grid analogue of SLIDER-GUARD): only
             // extend the selection while the left button is physically down. A
-            // `Selecting` latch whose release was lost — a mid-drag tab/workspace
-            // switch, or an alt-tab that delivered the release elsewhere — would
+            // `Selecting` latch whose release was lost - a mid-drag tab/workspace
+            // switch, or an alt-tab that delivered the release elsewhere - would
             // otherwise resume a buttonless drag on the next bare `CursorMoved`,
             // and its eventual unmatched release could reach PTY mouse reporting.
             if self.grid_left_held {

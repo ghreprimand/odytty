@@ -45,7 +45,7 @@ fn navigator_workspace_identity_does_not_follow_its_first_tab_when_moved() {
 #[test]
 fn navigator_merge_preserves_ids_after_the_origin_pane_has_closed() {
     let mut dest = WorkspaceSet::new(build_session(), None);
-    let base = 1 << 40;
+    let base = crate::native::window_owner::WINDOW_TOKEN_STRIDE;
     let mut source = WorkspaceSet::new(build_session_with_id(SessionToken(base)), None);
     let tab = NavigatorTarget::Tab(SessionToken(base));
     let workspace = NavigatorTarget::Workspace(SessionToken(base));

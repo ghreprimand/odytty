@@ -86,32 +86,56 @@ fn main() {
 /// "unavailable". Paths use forward slashes, which cargo accepts on every
 /// platform.
 fn emit_git_rerun_triggers() {
-    let git_dir = std::path::Path::new(".git");
+    let Some((git_dir, common_dir)) = git_dirs() else {
+        // No repository metadata (release tarball): keep the unconditional HEAD
+        // trigger and watch nothing else.
+        println!("cargo:rerun-if-changed=.git/HEAD");
+        return;
+    };
 
     // Always watch HEAD: it moves on a branch switch and, for a detached HEAD,
     // holds the commit hash itself.
-    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed={}", git_dir.join("HEAD").display());
 
     // Watch the ref HEAD points at (loose ref), so a same-branch commit - which
-    // updates that file, not HEAD - retriggers the build script.
+    // updates that file, not HEAD - retriggers the build script. Refs live in
+    // the common directory, which differs from the per-worktree one in a linked
+    // worktree.
     if let Ok(head) = std::fs::read_to_string(git_dir.join("HEAD"))
         && let Some(ref_path) = head_ref_path(&head)
     {
-        let loose_ref = git_dir.join(&ref_path);
+        let loose_ref = common_dir.join(&ref_path);
         if loose_ref.exists() {
-            // `ref_path` is git's on-disk form (forward slashes); emit it as a
-            // relative `.git/` path so cargo hashes the right file.
-            println!("cargo:rerun-if-changed=.git/{ref_path}");
+            println!("cargo:rerun-if-changed={}", loose_ref.display());
         }
     }
 
-    // packed-refs (commit against a packed ref) and index (dirty flag) - watch
-    // only when present so a missing file can't force an unconditional rerun.
-    for rel in ["packed-refs", "index"] {
-        if git_dir.join(rel).exists() {
-            println!("cargo:rerun-if-changed=.git/{rel}");
+    // packed-refs (commit against a packed ref, common directory) and index
+    // (dirty flag, per-worktree) - watch only when present so a missing file
+    // can't force an unconditional rerun.
+    for path in [common_dir.join("packed-refs"), git_dir.join("index")] {
+        if path.exists() {
+            println!("cargo:rerun-if-changed={}", path.display());
         }
     }
+}
+
+/// The per-worktree git directory and the common one that holds refs, or `None`
+/// without a `.git` entry. A plain checkout has one `.git` directory for both; a
+/// linked worktree or submodule has a `.git` file pointing at its own directory,
+/// whose `commondir` file names the shared one.
+fn git_dirs() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let dot_git = std::path::Path::new(".git");
+    if dot_git.is_dir() {
+        return Some((dot_git.to_path_buf(), dot_git.to_path_buf()));
+    }
+    let contents = std::fs::read_to_string(dot_git).ok()?;
+    let git_dir = std::path::PathBuf::from(dot_git_pointer(&contents)?);
+    let common_dir = match std::fs::read_to_string(git_dir.join("commondir")) {
+        Ok(text) if !text.trim().is_empty() => git_dir.join(text.trim()),
+        _ => git_dir.clone(),
+    };
+    Some((git_dir, common_dir))
 }
 
 /// Parse the contents of `.git/HEAD` and return the ref path it points at,

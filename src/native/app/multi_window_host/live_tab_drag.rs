@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Reversible tab custody. A provisional surface never owns autosave and never
 //! resizes a live terminal. The source surface survives until commit, including
-//! the sole-tab source, whose normal maintenance is suspended while empty.
+//! the sole-tab source. While a drag is live the host skips the source's
+//! maintenance and presentation, whether or not it still holds sessions; PTY
+//! output keeps arriving in the terminals it owns.
 use super::*;
 use crate::native::app::chrome_geometry::{PxPoint, PxRect};
 use crate::native::app::reparent::MovedHold;

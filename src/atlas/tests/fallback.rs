@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! RV6 symbol / Nerd-font fallback behavior at the atlas seam.
+//! Symbol / Nerd-font fallback behavior at the atlas seam.
 //!
 //! The gate-critical guarantee is **default-safe**: with no fallback font
 //! installed, a printable codepoint the primary lacks renders the historical
@@ -191,10 +191,7 @@ fn excluded_categories_do_not_attempt_fallback() {
 
 #[test]
 fn pua_missing_glyph_without_fallback_uses_box() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let Some(absent) = pua_absent(&font) else {
         eprintln!("skipping: font covers all of the BMP PUA");
         return;
@@ -204,7 +201,7 @@ fn pua_missing_glyph_without_fallback_uses_box() {
     let box_uv = atlas.slot_uv(FALLBACK_SLOT);
     let count = atlas.slot_count();
     // No fallback installed: the missing PUA glyph must take the hollow box and
-    // consume no slot - identical to the pre-RV6 renderer.
+    // consume no slot - identical to a renderer without symbol fallback.
     let uv = atlas.ensure(&font, absent).expect("fallback uv");
     assert_eq!(uv, box_uv, "missing PUA glyph must use the hollow box");
     assert_eq!(
@@ -217,10 +214,7 @@ fn pua_missing_glyph_without_fallback_uses_box() {
 
 #[test]
 fn fallback_present_but_lacking_glyph_uses_box() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let Some(absent) = pua_absent(&font) else {
         eprintln!("skipping: font covers all of the BMP PUA");
         return;
@@ -229,10 +223,7 @@ fn fallback_present_but_lacking_glyph_uses_box() {
     // identity is distinct): it also lacks `absent`, so the fallback must decline
     // and the hollow box is used - proving the atlas verifies fallback coverage
     // rather than blindly drawing.
-    let Some(fb) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let fb = test_font();
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     atlas.set_fallback_fonts(vec![Arc::new(fb)]);
     let box_uv = atlas.slot_uv(FALLBACK_SLOT);
@@ -248,10 +239,7 @@ fn fallback_present_but_lacking_glyph_uses_box() {
 
 #[test]
 fn primary_covered_pua_glyph_renders_from_primary() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let Some(present) = pua_present(&font) else {
         eprintln!("skipping: font has no BMP PUA glyph");
         return;
@@ -273,16 +261,13 @@ fn primary_covered_pua_glyph_renders_from_primary() {
 
 #[test]
 fn fallback_renders_pua_glyph_when_a_symbol_font_is_available() {
-    let Some(primary) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let primary = test_font();
     let Some(symbol) = crate::text::resolve_symbol_font() else {
         eprintln!("skipping: no symbol / Nerd font on this host");
         return;
     };
     // A PUA codepoint the symbol font has but the primary lacks: the canonical
-    // RV6 case (a prompt icon the body font cannot draw).
+    // Symbol-fallback case (a prompt icon the body font cannot draw).
     let Some(icon) = (0xE000u32..=0xF8FF).filter_map(char::from_u32).find(|&ch| {
         is_symbol_codepoint(ch) && font_has_glyph(&symbol, ch) && !font_has_glyph(&primary, ch)
     }) else {
@@ -307,17 +292,11 @@ fn fallback_renders_pua_glyph_when_a_symbol_font_is_available() {
 
 #[test]
 fn chain_walk_resolves_from_a_later_face_when_the_first_lacks_the_glyph() {
-    let Some(primary) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let primary = test_font();
     // Two-face chain: the first face lacks `icon`, the second has it. The atlas
     // must skip the first and rasterize from the second (first-hit-wins), which
     // is exactly how the bundled v3→v2 chain covers v2-only codepoints.
-    let Some(first) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let first = test_font();
     let Some(second) = crate::text::resolve_symbol_font() else {
         eprintln!("skipping: no symbol / Nerd font on this host");
         return;
@@ -348,10 +327,7 @@ fn chain_walk_resolves_from_a_later_face_when_the_first_lacks_the_glyph() {
 
 #[test]
 fn empty_chain_keeps_the_hollow_box() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let Some(absent) = pua_absent(&font) else {
         eprintln!("skipping: font covers all of the BMP PUA");
         return;
@@ -364,7 +340,7 @@ fn empty_chain_keeps_the_hollow_box() {
     assert_eq!(uv, box_uv, "empty chain must keep the hollow-box path");
 }
 
-/// Runtime per-codepoint symbol fallback (RV6 Linux backfill): the resolver is
+/// Runtime per-codepoint symbol fallback on Linux: the resolver is
 /// consulted only on a static-chain miss, cached per-codepoint (so the
 /// subprocess never runs more than once per distinct missing codepoint), and never
 /// consulted when the static chain already covers the glyph (the byte-identity
@@ -420,10 +396,7 @@ mod runtime_resolver {
     /// same codepoint is served from the cache (resolver called exactly once).
     #[test]
     fn static_miss_resolves_at_runtime_and_caches() {
-        let Some(primary) = test_font() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let primary = test_font();
         let Some(symbol) = crate::text::resolve_symbol_font() else {
             eprintln!("skipping: no symbol / Nerd font on this host");
             return;
@@ -516,10 +489,7 @@ mod runtime_resolver {
     /// box and the resolver is not re-invoked on a repeat lookup.
     #[test]
     fn negative_runtime_result_is_cached() {
-        let Some(primary) = test_font() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let primary = test_font();
         let Some(absent) = pua_absent(&primary) else {
             eprintln!("skipping: font covers all of the BMP PUA");
             return;
@@ -544,10 +514,7 @@ mod runtime_resolver {
     /// as before the runtime query existed.
     #[test]
     fn static_hit_never_consults_runtime_resolver() {
-        let Some(primary) = test_font() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let primary = test_font();
         let Some(symbol) = crate::text::resolve_symbol_font() else {
             eprintln!("skipping: no symbol / Nerd font on this host");
             return;
@@ -577,10 +544,7 @@ mod runtime_resolver {
     /// result cannot pin a codepoint to tofu after the host font set changes.
     #[test]
     fn reinstalling_resolver_clears_the_cache() {
-        let Some(primary) = test_font() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
+        let primary = test_font();
         let Some(absent) = pua_absent(&primary) else {
             eprintln!("skipping: font covers all of the BMP PUA");
             return;

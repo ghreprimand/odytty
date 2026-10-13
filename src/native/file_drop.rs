@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::shell_integration::ShellKind;
 
 pub(super) const MAX_DROP_FILES: usize = 128;
-const MAX_DROP_BYTES: usize = 256 * 1024;
+pub(super) const MAX_DROP_BYTES: usize = 256 * 1024;
 const MAX_INSERTION_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,9 +153,11 @@ fn unsafe_insertion_scalar(ch: char) -> bool {
         || crate::native::display_text::is_bidi_override_or_isolate(ch)
 }
 
+/// Quote a Unix path for bash, zsh or fish. PowerShell never reaches here
+/// ([`quote_path`] sends it to [`quote_powershell`]) and is refused.
 #[cfg(any(unix, test))]
 fn quote_unix(bytes: &[u8], shell: ShellKind) -> Result<String, DropError> {
-    if bytes.contains(&0) {
+    if bytes.contains(&0) || shell == ShellKind::PowerShell {
         return Err(DropError::UnsupportedPath);
     }
     if let Ok(text) = std::str::from_utf8(bytes)
@@ -163,8 +165,9 @@ fn quote_unix(bytes: &[u8], shell: ShellKind) -> Result<String, DropError> {
     {
         return Ok(match shell {
             ShellKind::Fish => format!("'{}'", text.replace('\\', "\\\\").replace('\'', "\\'")),
-            ShellKind::Bash | ShellKind::Zsh => format!("'{}'", text.replace('\'', "'\\''")),
-            ShellKind::PowerShell => return quote_powershell(text),
+            ShellKind::Bash | ShellKind::Zsh | ShellKind::PowerShell => {
+                format!("'{}'", text.replace('\'', "'\\''"))
+            }
         });
     }
     // Byte escapes keep controls out of the terminal input stream while the
@@ -175,14 +178,12 @@ fn quote_unix(bytes: &[u8], shell: ShellKind) -> Result<String, DropError> {
         for byte in bytes {
             let _ = write!(result, "\\X{byte:02x}");
         }
-    } else if matches!(shell, ShellKind::Bash | ShellKind::Zsh) {
+    } else {
         result.push_str("$'");
         for byte in bytes {
             let _ = write!(result, "\\x{byte:02x}");
         }
         result.push('\'');
-    } else {
-        return Err(DropError::UnsupportedPath);
     }
     Ok(result)
 }

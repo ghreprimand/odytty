@@ -796,7 +796,10 @@ and image placements) while the other panes keep updating, and each pane's
 150 ms release deadline is registered with the event loop. A pane that has no
 frame from the immediately preceding split render at its current size draws
 live. A held split pane keeps its cursor as last presented; the blink and
-cursor effects resume when its hold ends.
+cursor effects resume when its hold ends. The previous frame includes the
+decorations drawn into it (focus treatment, selection, search highlights), so
+a focus, selection or palette change made while a pane is held shows on that
+pane when its hold ends, at most 150 ms later.
 
 ### Semantic Prompt Marking (OSC 133)
 
@@ -1047,21 +1050,21 @@ workspace viewing semantics.
 ### Scrollback Front Eviction
 
 When history reaches its cap, new output advances a scrolled pane's offset
-by the number of physical rows pushed, preserving the viewed text until it is
-evicted. The view then pins at the oldest retained row. Live views remain at
-the bottom. The saved search-return offset follows the same anchor, while an
-open search retains its query and options. Search matches are discarded and refreshed
-against the new row origin. A command-scoped search keeps its revision guard
-and cannot widen after eviction.
-Whole-row front eviction shifts surviving selection endpoints, drag anchors,
-hint matches and copy-mode coordinates to the new origin. Lost selection
-endpoints cancel that selection; a lost copy anchor clears its selection while
-retaining a surviving caret. Hint labels and the typed prefix stay stable for
-retained matches. Lost carets and hints with no surviving prefix candidates
-close their modes. Hover and
-button hits are resolved afresh. A grid change, complete clears, partial oversized-line cell
-truncation or an unprovable row delta keeps the full coordinate-reset fallback.
-Copy extraction refuses a range if another eviction occurred after reconciliation.
+by the number of physical rows pushed, preserving the viewed text until it
+is evicted. The view then pins at the oldest retained row. Live views remain
+at the bottom. The saved search-return offset follows the same anchor, while
+an open search retains its query and options. Search matches are discarded
+and refreshed against the new row origin. A command-scoped search keeps its
+revision guard and cannot widen after eviction. Whole-row front eviction
+shifts surviving selection endpoints, drag anchors, hint matches and
+copy-mode coordinates to the new origin. Lost selection endpoints cancel
+that selection; a lost copy anchor clears its selection while retaining a
+surviving caret. Hint labels and the typed prefix stay stable for retained
+matches. Lost carets and hints with no surviving prefix candidates close
+their modes. Hover and button hits are resolved afresh. A grid change,
+complete clears, partial oversized-line cell truncation or an unprovable row
+delta keeps the full coordinate-reset fallback. Copy extraction refuses a
+range if another eviction occurred after reconciliation.
 
 Alternate-screen frames preserve the primary push baseline and saved
 search-return offset; returning to the primary screen does not count its
@@ -1199,38 +1202,38 @@ source packaging, not the Rust 1.96 MSRV floor. Per-cell color-resolution
 consolidation and scrollback-search rescan frequency remain deferred efficiency
 work, not completed v0.14.0 changes.
 
-Version 0.15.0 adds stable tab and workspace identities,
-same-process window ownership and merge routing, quick-terminal settings and
-platform shortcut backends, and an opt-in bounded structural-control endpoint
-with an explicit local CLI. Device acceptance was performed on Linux, Windows,
-and macOS. Native Wayland quick-terminal hide releases
-presentation objects after focus-loss cleanup and recreates them on summon,
-retaining sessions and stable identities. Placement remains compositor-controlled.
-The endpoint remains off by default and binds
-after the first presented frame; live requests resolve through the existing
-native window owners. Windows uses an owner-DACL local named pipe,
-rejects remote clients at creation, and verifies client and server process-token
-SIDs before protocol I/O. Pending Windows control-pipe I/O cancellation is
-terminal to framing and does not retry after shutdown begins. Windows CI passes;
-second-account and second-machine refusal are owner-DACL guarantees not reproducible on the available hardware.
-Native path drops use confirm-first
-shell-aware insertion only when an eligible local Unix launch shell still owns
-the PTY foreground group, is its sole process, and has a matching current
-executable. ConPTY provides no equivalent authority, so Windows insertion is
-refused. On Wayland, winit emits no drop event, so a companion non-owning
-`wl_data_device` on winit's display supplies one. It requests the Copy action
-only. An answered request admits only an unambiguous Copy; an unanswered
-request (Hyprland ignores destination `set_actions` and never reports an
-action to the source) admits only a source that advertised Copy; Move-only or
-absent source actions refuse with an actionable notice. OdyTTY performs no
-file operation on any branch. The mechanism and residual are stated in the
-[v0.15.0 contracts](docs/v0.15.0-foundation.md#drag-action-negotiation-and-the-hyprland-admission-rule).
-A Wayland `text/uri-list` is one bounded
-collection: overflow refuses the whole gesture; a later uri-list may start a
-fresh transaction. Per-file `DroppedFile` on X11, macOS, and Windows has no OS
-transaction, so overflow stays refused until cancel or focus-loss. The
-[v0.15.0 ownership and platform contracts](docs/v0.15.0-foundation.md) record
-the exact implemented and remaining boundaries.
+Version 0.15.0 adds stable tab and workspace identities, same-process window
+ownership and merge routing, quick-terminal settings and platform shortcut
+backends, and an opt-in bounded structural-control endpoint with an explicit
+local CLI. Device acceptance was performed on Linux, Windows, and macOS. Native
+Wayland quick-terminal hide releases presentation objects after focus-loss
+cleanup and recreates them on summon, retaining sessions and stable identities.
+Placement remains compositor-controlled. The endpoint remains off by default
+and binds after the first presented frame; live requests resolve through the
+existing native window owners. Windows uses an owner-DACL local named pipe,
+rejects remote clients at creation, and verifies client and server
+process-token SIDs before protocol I/O. Pending Windows control-pipe I/O
+cancellation is terminal to framing and does not retry after shutdown begins.
+Windows CI passes; second-account and second-machine refusal are owner-DACL
+guarantees not reproducible on the available hardware. Native path drops use
+confirm-first shell-aware insertion only when an eligible local Unix launch
+shell still owns the PTY foreground group, is its sole process, and has a
+matching current executable. ConPTY provides no equivalent authority, so
+Windows insertion is refused. On Wayland, winit emits no drop event, so a
+companion non-owning `wl_data_device` on winit's display supplies one. It
+requests the Copy action only. An answered request admits only an unambiguous
+Copy; an unanswered request (Hyprland ignores destination `set_actions` and
+never reports an action to the source) admits only a source that advertised
+Copy; Move-only or absent source actions refuse with an actionable notice.
+OdyTTY performs no file operation on any branch. The mechanism and residual are
+stated in the [v0.15.0
+contracts](docs/v0.15.0-foundation.md#drag-action-negotiation-and-the-hyprland-admission-rule).
+A Wayland `text/uri-list` is one bounded collection: overflow refuses the whole
+gesture; a later uri-list may start a fresh transaction. Per-file `DroppedFile`
+on X11, macOS, and Windows has no OS transaction, so overflow stays refused
+until cancel or focus-loss. The [v0.15.0 ownership and platform
+contracts](docs/v0.15.0-foundation.md) record the exact implemented and
+remaining boundaries.
 
 Versions 0.15.5 through 0.16.1 are recorded in their notes under
 [`docs/releases`](docs/releases/README.md). In short, v0.15.5 moved text font
@@ -2329,9 +2332,9 @@ Saved-layout names preserve non-ASCII text on Linux, macOS and Windows, within
 96 UTF-8 bytes. ASCII letters, digits, spaces, hyphens and underscores remain;
 ZWJ, ZWNJ, VS15 and VS16 remain after visible text. Other ASCII punctuation,
 controls, Unicode line/paragraph separators and remaining default-ignorable
-Unicode scalars become underscores. Truncation ends before a
-complete scalar would exceed the byte limit. Existing underscore aliases stay
-usable and are not renamed automatically.
+Unicode scalars become underscores. Truncation ends before a complete scalar
+would exceed the byte limit. Existing underscore aliases stay usable and are
+not renamed automatically.
 
 Profile-form shell and command edits are mutually exclusive. Clearing a command
 program selects the default shell; choosing a shell replaces the command and
@@ -3050,7 +3053,7 @@ Shaping caches validate all four immutable style-face generations before
 reusing row plans or owner presentations. A changed face invalidates those
 plans and parsed-face entries; clones of an unchanged face keep their cache
 identity. Raw collection shaping uses the selected face index, which also
-participates in the atlas fingerprint. Zero-column public snapshots produce
+participates in the shaping-cache font fingerprint. Zero-column public snapshots produce
 no shaping runs. Terminal cells, logical copy and selection remain unchanged.
 
 ### Render Color Emoji

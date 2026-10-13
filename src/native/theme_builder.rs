@@ -634,11 +634,12 @@ impl ThemeBuilder {
     fn from_theme(theme: Theme) -> Self {
         let mut spec = ThemeSpec::from_theme(&theme);
         spec.name = suggested_name(theme.name);
-        spec.appearance = if relative_luminance(theme.background) > 0.18 {
-            Appearance::Light
-        } else {
-            Appearance::Dark
-        };
+        spec.appearance =
+            if relative_luminance(theme.background) > crate::theme::LIGHT_BACKGROUND_LUMINANCE {
+                Appearance::Light
+            } else {
+                Appearance::Dark
+            };
         Self {
             original: theme,
             baseline_spec: spec.clone(),
@@ -845,7 +846,9 @@ impl ThemeBuilder {
             return ThemeBuilderOutcome::Consumed;
         }
         self.spec.name = name.clone();
-        self.spec.appearance = if relative_luminance(self.spec.background) > 0.18 {
+        self.spec.appearance = if relative_luminance(self.spec.background)
+            > crate::theme::LIGHT_BACKGROUND_LUMINANCE
+        {
             Appearance::Light
         } else {
             Appearance::Dark

@@ -254,8 +254,7 @@ fn colors_toml_partial_current_fails_closed() {
 
 #[test]
 fn enabled_follow_performs_first_read_on_refresh() {
-    // Serialize with every other palette-reading test (crate::test_lock):
-    // the read counter is process-global and CI runs the suite in parallel.
+    // Serialize the process-global palette read counter.
     let _read_guard = crate::test_lock::palette_read_lock();
     reset_palette_read_count_for_test();
     let path = temp_path("launch-read");
@@ -279,8 +278,7 @@ fn enabled_follow_performs_first_read_on_refresh() {
 
 #[test]
 fn content_replacement_with_same_length_reloads() {
-    // Serialize with every other palette-reading test (crate::test_lock):
-    // the read counter is process-global and CI runs the suite in parallel.
+    // Serialize the process-global palette read counter.
     let _read_guard = crate::test_lock::palette_read_lock();
     reset_palette_read_count_for_test();
     let path = temp_path("same-len");
@@ -307,8 +305,7 @@ fn content_replacement_with_same_length_reloads() {
 
 #[test]
 fn malformed_retains_last_known_good() {
-    // Serialize with every other palette-reading test (crate::test_lock):
-    // the read counter is process-global and CI runs the suite in parallel.
+    // Serialize the process-global palette read counter.
     let _read_guard = crate::test_lock::palette_read_lock();
     let path = temp_path("lkg");
     std::fs::write(&path, complete_odytty()).expect("seed");
@@ -336,8 +333,7 @@ fn malformed_retains_last_known_good() {
 
 #[test]
 fn disabled_follower_never_reads() {
-    // Serialize with every other palette-reading test (crate::test_lock):
-    // the read counter is process-global and CI runs the suite in parallel.
+    // Serialize the process-global palette read counter.
     let _read_guard = crate::test_lock::palette_read_lock();
     reset_palette_read_count_for_test();
     let path = temp_path("disabled");
@@ -356,8 +352,7 @@ fn disabled_follower_never_reads() {
 
 #[test]
 fn default_construct_does_not_read() {
-    // Serialize with every other palette-reading test (crate::test_lock):
-    // the read counter is process-global and CI runs the suite in parallel.
+    // Serialize the process-global palette read counter.
     let _read_guard = crate::test_lock::palette_read_lock();
     reset_palette_read_count_for_test();
     let before = palette_read_count_for_test();
@@ -539,8 +534,7 @@ fn too_many_lines_is_bounded() {
 
 #[test]
 fn transient_disappearance_retains_last_known_good_then_reapplies_on_return() {
-    // Serialize with every other palette-reading test (crate::test_lock):
-    // the read counter is process-global and CI runs the suite in parallel.
+    // Serialize the process-global palette read counter.
     let _read_guard = crate::test_lock::palette_read_lock();
     reset_palette_read_count_for_test();
     let path = temp_path("transient");
@@ -588,8 +582,7 @@ fn transient_disappearance_retains_last_known_good_then_reapplies_on_return() {
 
 #[test]
 fn identical_content_rewrite_does_not_reapply() {
-    // Serialize with every other palette-reading test (crate::test_lock):
-    // the read counter is process-global and CI runs the suite in parallel.
+    // Serialize the process-global palette read counter.
     let _read_guard = crate::test_lock::palette_read_lock();
     let path = temp_path("no-thrash");
     std::fs::write(&path, complete_odytty()).expect("seed");
@@ -617,8 +610,7 @@ fn identical_content_rewrite_does_not_reapply() {
 
 #[test]
 fn a_bad_first_source_yields_no_theme_and_no_last_known_good() {
-    // Serialize with every other palette-reading test (crate::test_lock):
-    // the read counter is process-global and CI runs the suite in parallel.
+    // Serialize the process-global palette read counter.
     let _read_guard = crate::test_lock::palette_read_lock();
     // Fail-closed at the follow level: if the very first source is unusable,
     // nothing is applied and there is no last-known-good to fall back to.
@@ -670,8 +662,7 @@ fn provider_alias_parsing_maps_documented_names() {
 #[test]
 fn default_settings_startup_reads_zero_external_palette_files() {
     let _env_guard = crate::test_lock::test_env_lock();
-    // Serialize with every other palette-reading test (crate::test_lock):
-    // the read counter is process-global and CI runs the suite in parallel.
+    // Serialize the process-global palette read counter.
     let _read_guard = crate::test_lock::palette_read_lock();
     // Opt-in isolation: constructing settings from a clean environment and a
     // default follower performs no external-palette read at all.

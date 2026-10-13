@@ -7,7 +7,9 @@
 //! glyph. Fontations performs depth-bounded, cycle-checked Paint traversal;
 //! `colr1_budget` bounds the total work that traversal can expand to before it
 //! starts, and this module maps its callbacks to a small premultiplied-RGBA
-//! software canvas. Once a callback fails, later callbacks do no work.
+//! software canvas. Once a callback fails, later callbacks skip painting and
+//! buffer work; clip callbacks may still build their path and transform
+//! callbacks still track the transform stack.
 
 use skrifa::color::{
     Brush, ColorGlyphFormat, ColorPainter, ColorStop, CompositeMode, Extend, Transform,

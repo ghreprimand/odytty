@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! CPU-side text support: font loading and terminal color resolution.
+//! CPU-side text support: font discovery and loading, symbol fallback, and
+//! terminal color resolution.
 //!
 //! This module is deliberately GPU-agnostic so it can be unit-tested without a
 //! window or `wgpu` device. The monospace glyph atlas lives in [`crate::atlas`];
@@ -33,11 +34,14 @@
 //! | [`metrics`] | raster and advance probes on a loaded face |
 //! | [`color`] | default/ANSI palettes, runtime overrides, sRGB and linear math |
 //! | [`symbol_map`] | SYMMAP codepoint-range rules |
+//! | `runtime_fallback` | Unix except macOS: the per-codepoint fontconfig worker, its answer table, and the window waker set through `set_runtime_symbol_waker` |
 //!
 //! Dependencies run one way: `resolve` reads `discovery` and `face_meta`,
 //! `symbols` reads `discovery`, `bundled` and `metrics`, `bundled`/`metrics`
 //! build on `font_handle`, `font_handle` builds on `glyph_geom` (a leaf), and
-//! `color` and `symbol_map` depend on neither. Nothing depends on the facade.
+//! `color` and `symbol_map` depend on neither. `runtime_fallback` loads faces
+//! through `font_handle`, and `symbols` asks it for faces. Nothing depends on
+//! the facade.
 
 /// The glyph atlas and its cell metrics live in [`crate::atlas`]; re-exported
 /// here so `crate::text::{CellSize, GlyphAtlas}` call sites keep resolving.

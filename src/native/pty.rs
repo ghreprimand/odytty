@@ -248,9 +248,7 @@ pub(super) fn spawn_pty_pump(
                             // captured here under the lock we already hold and pushed
                             // into the session's bounded ring (presentation-only;
                             // the live terminal is untouched).
-                            if recorder.is_enabled() {
-                                recorder.record(term.snapshot());
-                            }
+                            recorder.record_if_enabled(|| term.snapshot());
                             term.take_host_output()
                         };
                         if !host_output.is_empty()

@@ -55,15 +55,26 @@ fn replay_overlay_never_mutates_live_terminal_state() {
 
 #[test]
 fn disabled_recorder_keeps_plain_path_state_free() {
-    // With recording disabled the pump-equivalent path records
-    // nothing, so the ring stays empty and opening replay shows no frames.
+    // With recording disabled the pump's gate records nothing and never builds
+    // a snapshot, so the ring stays empty and opening replay shows no frames.
     let mut term = Terminal::new(20, 4);
     let recorder = RecorderHandle::new();
-    // Mirror the pump's gate exactly: only record when enabled.
     term.advance(b"hello\r\n");
-    if recorder.is_enabled() {
-        recorder.record(term.snapshot());
-    }
+    let mut built = false;
+    recorder.record_if_enabled(|| {
+        built = true;
+        term.snapshot()
+    });
+    assert!(!built, "a disabled recorder must not build a snapshot");
+    assert_eq!(recorder.len(), 0);
+    recorder.set_enabled(true);
+    recorder.record_if_enabled(|| term.snapshot());
+    assert_eq!(
+        recorder.len(),
+        1,
+        "an enabled recorder records through the same gate"
+    );
+    recorder.set_enabled(false);
     assert_eq!(recorder.len(), 0);
 
     let mut overlay = ReplayOverlay::new();

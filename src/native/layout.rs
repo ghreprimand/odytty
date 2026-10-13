@@ -885,7 +885,7 @@ fn snap_into(
 
 /// The pane token whose rect contains the pixel point, or `None` when the point
 /// falls in a divider gap or outside the content. Focus-follows-click resolves
-/// the clicked pane through this (design doc §4.3, audit row #6). `rects` is in
+/// the clicked pane through this. `rects` is in
 /// paint order (back to front), so where floating panes overlap the topmost
 /// one wins; tiled rects never overlap, so order is irrelevant there.
 pub(super) fn pane_at_point(

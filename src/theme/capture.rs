@@ -45,8 +45,8 @@
 //! | `inactive` | The midpoint between foreground and background. Legible but clearly recessive, which is what inactive tab/workspace chrome needs. |
 //!
 //! Appearance (light or dark) is classified from the background's relative
-//! luminance against the same 0.18 threshold the theme editor already uses when
-//! cloning a theme, so a captured draft and a cloned draft agree.
+//! luminance against the shared `LIGHT_BACKGROUND_LUMINANCE` threshold the
+//! theme editor also uses when cloning a theme, so the two drafts agree.
 //!
 //! ## Platform surface
 //!
@@ -55,11 +55,6 @@
 //! state, and behaves identically on Linux, macOS, and Windows.
 
 use super::{Appearance, Srgb, ThemeSpec, VisualEffect, relative_luminance};
-
-/// Background relative-luminance above which a captured draft is classified as
-/// a light theme. Matches the theme editor's clone path so the two entry points
-/// agree on the same colors.
-const LIGHT_APPEARANCE_LUMINANCE: f64 = 0.18;
 
 /// How far `selection` moves from the background toward the foreground.
 const SELECTION_MIX: f32 = 0.22;
@@ -109,7 +104,7 @@ pub fn capture_spec(live: &LiveColors, name: &str) -> ThemeSpec {
 
     ThemeSpec {
         name: name.to_owned(),
-        appearance: if relative_luminance(background) > LIGHT_APPEARANCE_LUMINANCE {
+        appearance: if relative_luminance(background) > super::LIGHT_BACKGROUND_LUMINANCE {
             Appearance::Light
         } else {
             Appearance::Dark

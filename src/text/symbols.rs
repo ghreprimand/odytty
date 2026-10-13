@@ -10,8 +10,10 @@ use std::path::{Path, PathBuf};
 
 use super::FontHandle;
 
-use super::bundled::{load_font_at, resolve_bundled_symbol_font, resolve_bundled_symbol_fonts};
-use super::discovery::{FontFileInventory, file_stem, font_search_dirs, normalize_family};
+use super::bundled::{load_font_at, resolve_bundled_symbol_fonts};
+use super::discovery::{FontFileInventory, file_stem, normalize_family};
+#[cfg(test)]
+use super::{bundled::resolve_bundled_symbol_font, discovery::font_search_dirs};
 // The static symbol tails load a named face (macOS, Linux, Windows) and the
 // fontconfig-backed runtime fallback does too (non-macOS Unix).
 use super::bundled::load_font_face_at;
@@ -35,7 +37,7 @@ static RUNTIME_FONT_FACE_CACHE: std::sync::LazyLock<
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 /// Environment variable naming an explicit symbol / Nerd-font file for the
-/// RV6 PUA-icon fallback. When set to a readable `.ttf`/`.otf`, it takes
+/// PUA-icon fallback. When set to a readable `.ttf`/`.otf`, it takes
 /// precedence over the family search in [`resolve_symbol_font`].
 pub const SYMBOL_FONT_ENV: &str = "ODYTTY_SYMBOL_FONT";
 
@@ -47,22 +49,13 @@ pub const SYMBOL_FONT_ENV: &str = "ODYTTY_SYMBOL_FONT";
 /// accepted as a secondary match.
 const SYMBOL_FONT_HINTS: &[&str] = &["symbolsnerdfont", "nerdfont"];
 
-/// macOS system faces appended to the tail of the symbol-fallback chain. The
-/// bundled and host Nerd faces patch the Private Use Area but cover only a
-/// sparse subset of the *standard* Unicode symbol/dingbat/pictograph blocks, so
-/// glyphs TUIs emit outside the PUA - the teardrop-asterisk spinner `U+273B`,
-/// the `U+2733`/`U+2736`/`U+2737` star asterisks, the `U+2713`/`U+2717` check
-/// and ballot marks, the `U+23BF` result-branch - fall through to the hollow-box
-/// tofu slot. Menlo (the system monospace) covers the dingbats/marks; Apple
-/// Symbols covers Miscellaneous Technical glyphs like `U+23BF`. STIX Two Math
-/// backstops the rest - it is the only commonly-present face with *monochrome*
-/// (SGR-colorable, unlike the color-emoji face) glyphs for the record bullet
-/// `U+23FA` and the large squares `U+2B1B`/`U+2B1C` that drive a TUI's status
-/// markers and block grids. They sit *after* the Nerd faces so PUA icons still
-/// resolve from the pinned faces first, and their Latin glyphs never shadow the
-/// body font because glyph fallback is only consulted after the primary face
-/// misses a printable spacing codepoint. Broadest coverage first; each is
-/// skipped silently if absent.
+/// macOS system faces appended to the tail of the symbol-fallback chain, after
+/// the Nerd faces, for standard Unicode symbols the Nerd faces lack: Menlo
+/// (dingbats and marks), Apple Symbols (Miscellaneous Technical, such as
+/// `U+23BF`), and STIX Two Math (monochrome glyphs such as `U+23FA` and
+/// `U+2B1B`/`U+2B1C`). Broadest coverage first; each is skipped if absent.
+/// They never shadow the body font, because glyph fallback is consulted only
+/// after the primary face misses a printable spacing codepoint.
 ///
 /// Each entry names its face index inside the file: `Menlo.ttc` is a collection
 /// whose face 0 is Menlo Regular; the other files hold a single face.
@@ -119,24 +112,13 @@ fn linux_symbol_fallback_faces_in_inventory(
     hinted_fallback_faces(inventory, LINUX_SYMBOL_FALLBACK_HINTS)
 }
 
-/// Windows symbol-fallback tail: normalized **filename-stem** hints for the
-/// always-present system faces that cover the standard Unicode
-/// dingbats/symbols/Miscellaneous-Technical glyphs the bundled icon-only Nerd
-/// faces lack (e.g. the result-branch `U+23BF` and the check `U+2714` that
-/// Claude Code and other TUIs emit). Windows has no cheap per-codepoint runtime
-/// resolver analogous to Linux's `fc-match`, so - like the macOS arm - this
-/// static tail is the deterministic *floor*.
-///
-/// These are matched (like the Linux arm) against [`normalize_family`]-style
-/// stems of files under [`font_search_dirs`]' Windows roots (`WINDIR\Fonts` +
-/// per-user LOCALAPPDATA fonts), so the hints are the on-disk *filenames*, not
-/// the OpenType family names. `seguisym` (`seguisym.ttf`, Segoe UI Symbol,
-/// shipped since Windows 7) is broadest-first: it covers Arrows, Miscellaneous
-/// Technical, Geometric Shapes, Miscellaneous Symbols and Dingbats - including
-/// both reported codepoints. `segmdl2` (`segmdl2.ttf`, the MDL2 assets icon
-/// face) and `cambria` (`cambria.ttc`, loaded at face 1, Cambria Math: face 0 is
-/// the Cambria text face, which covers few symbols) backstop any Segoe UI
-/// Symbol gaps with monochrome outlines. Each is skipped silently if
+/// Windows symbol-fallback tail: normalized **filename-stem** hints (on-disk
+/// file names, not family names) matched under [`font_search_dirs`]' Windows
+/// roots, for always-present system faces covering standard Unicode symbols
+/// the Nerd faces lack. Windows has no per-codepoint runtime resolver, so this
+/// static tail is the floor. `seguisym` (Segoe UI Symbol) is broadest;
+/// `segmdl2` (MDL2 assets) and `cambria` at face 1 (Cambria Math; face 0 is
+/// the text face) backstop it with monochrome outlines. Each is skipped if
 /// absent, and none shadows the body font because glyph fallback is only
 /// consulted after the primary face misses a printable spacing codepoint.
 #[cfg(any(windows, test))]
@@ -209,7 +191,7 @@ fn hinted_fallback_faces_with(
     out
 }
 
-/// Resolve a symbol / Nerd-font face for the RV6 PUA-icon fallback, or `None`
+/// Resolve a symbol / Nerd-font face for the PUA-icon fallback, or `None`
 /// when neither the bundled asset nor the host can provide one.
 ///
 /// Resolution order (precedence: **explicit > bundled > host**):
@@ -225,6 +207,7 @@ fn hinted_fallback_faces_with(
 ///
 /// The font is only *loaded*; whether it is *used* is the caller's gate (the
 /// native layer reads its enable switch before installing it on the atlas).
+#[cfg(test)]
 pub fn resolve_symbol_font() -> Option<FontHandle> {
     let explicit = std::env::var_os(SYMBOL_FONT_ENV)
         .map(PathBuf::from)
@@ -232,7 +215,7 @@ pub fn resolve_symbol_font() -> Option<FontHandle> {
     resolve_symbol_font_with_source(explicit.as_deref(), &font_search_dirs()).1
 }
 
-/// Where the RV6 symbol / Nerd-font fallback face resolved from, for
+/// Where the symbol / Nerd-font fallback face resolved from, for
 /// diagnostics (`--show-config`). Carries the concrete path for the explicit
 /// and host cases so users can see exactly which file is in play.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -273,6 +256,7 @@ impl SymbolFontSource {
 /// `explicit_path` is the user's explicit override (`ODYTTY_SYMBOL_FONT` or the
 /// `symbol_font` setting); a path that fails to load is reported via `eprintln!`
 /// and resolution falls through to the bundled/host search rather than aborting.
+#[cfg(test)]
 pub fn resolve_symbol_font_with_source(
     explicit_path: Option<&Path>,
     dirs: &[PathBuf],
@@ -400,42 +384,17 @@ pub(crate) fn resolve_symbol_fonts_with_inventory(
     (sources, fonts)
 }
 
-/// Runtime per-codepoint glyph fallback via fontconfig (RV6 Linux backfill).
+/// Runtime per-codepoint glyph fallback through fontconfig (Linux backfill).
 ///
-/// Invoked by the glyph atlas **only** when a printable spacing codepoint misses
-/// the static fallback chain (and the result is cached per-codepoint by the
-/// atlas, so this shells out at most once per distinct missing codepoint --
-/// never on the hot path repeatedly). It asks fontconfig which host faces cover
-/// the codepoint, then loads them in preference order and rejects
-/// color/bitmap-only faces via [`font_provides_outline_glyph`] so only a
-/// monochrome outline face is installed. Read-only, local-only subprocess (no
-/// network, no user data), mirroring the emoji discovery path's use. Returns
-/// `None` when fontconfig is absent (e.g. headless CI), when no face covers the
-/// codepoint, or when every candidate is unusable -- all of which preserve the
-/// historical hollow-box behavior.
-///
-/// # Candidates, not a candidate
-///
-/// This used to take `fc-match`'s single best answer and give up if it failed
-/// to load. One unloadable face then meant tofu even when the host had other
-/// faces covering the codepoint. Candidates are now tried in order:
-/// `fc-match`'s preferred answer first, then everything `fc-list` reports for
-/// the same charset, so a face that fails to load or turns out to be
-/// bitmap-only costs a fallthrough rather than the glyph.
-///
-/// # Face index
-///
-/// Both queries report the face *index* within the file, and it is honored.
-/// A collection's face 0 is arbitrary with respect to the request: face 0 of
-/// Iosevka's 162-face collection is Iosevka Thin, while fontconfig's answer for
-/// a symbol charset is index 54, Regular. Loading face 0 would have rasterized
-/// symbols at Thin weight beside a Regular body font.
-///
-/// # Off the render path
-///
-/// The atlas calls this while preparing a frame, so it never runs fontconfig
-/// itself: [`super::runtime_fallback`] queues the codepoint for a worker
-/// thread and answers [`RuntimeSymbol::Pending`](crate::atlas::RuntimeSymbol)
+/// The atlas calls this when a printable spacing codepoint misses the static
+/// chain and caches the answer per codepoint. Candidates are `fc-match`'s
+/// answer first, then everything `fc-list` reports for the same charset, each
+/// loaded at the face index fontconfig reports and accepted only if it
+/// carries a monochrome outline glyph ([`font_provides_outline_glyph`]), so a
+/// failed candidate falls through. Absent fontconfig, no covering face, or no
+/// usable candidate leaves the hollow-box glyph. This never runs fontconfig
+/// on the render path: [`super::runtime_fallback`] queues the codepoint for a
+/// worker thread and answers [`RuntimeSymbol::Pending`](crate::atlas::RuntimeSymbol)
 /// until the worker has a result, then wakes the windows to rebuild.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn runtime_resolve_symbol_font(ch: char) -> crate::atlas::RuntimeSymbol {
@@ -625,17 +584,15 @@ const FC_RECORD_FORMAT_NL: &str = "%{file}\t%{index}\n";
 /// Upper bound on faces tried for one missing codepoint, for the host Nerd
 /// face, and per static-tail hint.
 ///
-/// A host can report a great many covering faces -- one 162-face collection does
-/// on the development workstation -- and each attempt parses a font. A single
-/// cache miss must cost a bounded number of parses, not one per installed face.
+/// A host can report many covering faces, and each attempt parses a font, so a
+/// cache miss costs a bounded number of parses, not one per installed face.
 const MAX_SYMBOL_FONT_CANDIDATES: usize = 8;
 
 /// First `max` distinct entries of `items`, preserving order.
 ///
-/// Pure, and deliberately separated from the subprocess queries: the bound and
-/// the de-duplication cannot be exercised through those queries on a host whose
-/// fontconfig happens never to report a duplicate, which is how a removed
-/// de-duplication passed its first test.
+/// Pure and separate from the subprocess queries so the bound and the
+/// de-duplication are testable on a host whose fontconfig never reports a
+/// duplicate.
 #[cfg(all(unix, not(target_os = "macos")))]
 fn bounded_unique(items: Vec<(PathBuf, u32)>, max: usize) -> Vec<(PathBuf, u32)> {
     let mut out: Vec<(PathBuf, u32)> = Vec::new();
@@ -669,19 +626,10 @@ fn parse_fc_record(line: &str) -> Option<(PathBuf, u32)> {
     Some((path, index))
 }
 
-/// Resolve only the **source** of the symbol-fallback face. Convenience wrapper
-/// over [`resolve_symbol_font_with_source`] for `--show-config`, which needs the
-/// label but not the rasterizable `FontHandle`.
-pub fn resolve_symbol_font_source(
-    explicit_path: Option<&Path>,
-    dirs: &[PathBuf],
-) -> SymbolFontSource {
-    resolve_symbol_font_with_source(explicit_path, dirs).0
-}
-
 /// Family-search half of [`resolve_symbol_font`], factored out so tests can
 /// pass a hermetic fixture directory. Prefers the dedicated "Symbols Nerd Font"
 /// face (hint index 0) over a general patched "* Nerd Font" face.
+#[cfg(test)]
 pub fn resolve_symbol_font_in(dirs: &[PathBuf]) -> Option<FontHandle> {
     let inventory = FontFileInventory::new(dirs.to_vec());
     load_host_symbol_font(&inventory).map(|(_, font)| font)
@@ -693,11 +641,13 @@ pub fn resolve_symbol_font_in(dirs: &[PathBuf]) -> Option<FontHandle> {
 /// "* Nerd Font" face. This is the preferred file whether or not it loads;
 /// the resolvers load candidates in this order and fall through past a file
 /// that fails.
+#[cfg(test)]
 pub fn resolve_symbol_font_path_in(dirs: &[PathBuf]) -> Option<PathBuf> {
     let inventory = FontFileInventory::new(dirs.to_vec());
     resolve_symbol_font_path_in_inventory(&inventory)
 }
 
+#[cfg(test)]
 fn resolve_symbol_font_path_in_inventory(inventory: &FontFileInventory) -> Option<PathBuf> {
     host_symbol_font_paths(inventory).into_iter().next()
 }

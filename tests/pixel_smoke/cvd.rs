@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! U4 colour-vision-deficiency palette adaptation at the pixel level.
+//! Colour-vision-deficiency palette adaptation at the pixel level.
 //!
 //! Proves the visual contract end-to-end through the real geometry/composite
 //! path: when a CVD mode is active the published palette visibly changes the

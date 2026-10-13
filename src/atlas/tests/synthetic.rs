@@ -77,10 +77,7 @@ fn synthetic_bold_inks_more_than_regular() {
     // can reorder or unbalance the sums. Hold the shared render-globals guard
     // across every pass this test compares.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 28.0);
     let plain_cell = atlas.cell;
     atlas.set_synthetic_styles(true, false, false);
@@ -118,10 +115,7 @@ fn no_synthetic_mask_leaves_bold_identical_to_regular() {
     // can reorder or unbalance the sums. Hold the shared render-globals guard
     // across every pass this test compares.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 28.0);
     // Mask defaults to 0; do NOT call set_synthetic_styles.
     atlas
@@ -143,10 +137,7 @@ fn no_synthetic_mask_leaves_bold_identical_to_regular() {
 /// same shape shows a far smaller top-vs-bottom delta.
 #[test]
 fn synthetic_italic_leans_right_above_baseline() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 32.0);
     atlas.set_synthetic_styles(false, true, false);
 
@@ -207,10 +198,7 @@ fn synthetic_bold_italic_combines_both() {
     // can reorder or unbalance the sums. Hold the shared render-globals guard
     // across every pass this test compares.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let mut atlas = GlyphAtlas::build(&font, 32.0);
     atlas.set_synthetic_styles(false, false, true);
 
@@ -260,10 +248,7 @@ fn clearing_mask_removes_synthesis() {
     // can reorder or unbalance the sums. Hold the shared render-globals guard
     // across every pass this test compares.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     // Atlas A: bold synthesized.
     let mut synth = GlyphAtlas::build(&font, 28.0);
     synth.set_synthetic_styles(true, false, false);
@@ -299,10 +284,7 @@ fn clearing_mask_removes_synthesis() {
 /// wide-capable font.
 #[test]
 fn synthetic_wide_glyph_stays_within_slot() {
-    let Some(font) = test_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = test_font();
     let Some(wide) = wide_glyph_supported(&font) else {
         eprintln!("skipping: no wide glyph in the loaded font");
         return;

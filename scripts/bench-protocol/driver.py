@@ -322,7 +322,6 @@ def wait_for_cursor_report(stream, timeout_seconds: float) -> tuple[int, int] | 
     if timeout_seconds < 0:
         raise ValueError("CPR wait timeout must not be negative")
     buf = bytearray()
-    parsed = parse_cursor_report(bytes(buf))
     # BytesIO and other fully-buffered streams: one read is enough.
     pending = getattr(stream, "read", None)
     if pending is None:
@@ -332,9 +331,7 @@ def wait_for_cursor_report(stream, timeout_seconds: float) -> tuple[int, int] | 
         parsed = parse_cursor_report(bytes(buf))
         if parsed is not None:
             return parsed
-        remaining = deadline - time.monotonic()
-        if remaining < 0:
-            break
+        remaining = max(deadline - time.monotonic(), 0.0)
         chunk = b""
         fileno = getattr(stream, "fileno", None)
         if callable(fileno):
@@ -528,11 +525,15 @@ def run_software_stream(
         if terminal_restore is not None:
             restore_cpr_input(terminal_restore)
     final_columns, final_rows = terminal_size_reader()
+    # The digest is checked against the canonical one, not against itself. The
+    # remaining flags are constants here: the child cannot observe whether its
+    # own completion patch painted or whether it is still alive, so the
+    # controller verifies those (and the pinned fixture digest) independently.
     verdict = evaluate_software_endpoint_oracle(
         fixture,
         digest,
         written,
-        digest,
+        fixtures.CANONICAL_FIXTURE_DIGESTS[fixture],
         report,
         True,
         True,
@@ -696,6 +697,15 @@ def run_idle(
     sys.stdout.buffer.flush()
     input_seen = threading.Event()
 
+    # A non-tty stdin raises `termios.error` as well as `OSError`; either ends
+    # the wait with the input event set rather than killing the thread.
+    guarded: tuple[type[BaseException], ...] = (OSError,)
+    if os.name != "nt":
+        import termios
+        import tty
+
+        guarded = (OSError, termios.error)
+
     def observe_input() -> None:
         try:
             if os.name == "nt":
@@ -703,15 +713,14 @@ def run_idle(
 
                 value = msvcrt.getwch()
             else:
-                import termios
-                import tty
-
                 descriptor = sys.stdin.fileno()
-                tty.setraw(descriptor, when=termios.TCSANOW)
+                # Cbreak, like the software-endpoint child: raw mode would also
+                # turn off output post-processing for the measured stream.
+                tty.setcbreak(descriptor, when=termios.TCSANOW)
                 value = os.read(descriptor, 1)
             if value:
                 input_seen.set()
-        except OSError:
+        except guarded:
             input_seen.set()
 
     threading.Thread(target=observe_input, daemon=True).start()
@@ -1081,9 +1090,8 @@ def self_test() -> list[str]:
                 failures.append(
                     "driver: software-endpoint payload did not follow its start edge"
                 )
-            payload = b"bounded-payload"
-            stream.write(payload)
-            return hashlib.sha256(payload).hexdigest(), fixtures.W3_TOTAL_BYTES
+            stream.write(b"bounded-payload")
+            return fixtures.CANONICAL_FIXTURE_DIGESTS["w3"], fixtures.W3_TOTAL_BYTES
 
         sink = OracleSink(path=oracle_path)
         record = run_software_stream(
@@ -1114,6 +1122,33 @@ def self_test() -> list[str]:
             failures.append(
                 f"driver: bounded software-endpoint handshake failed: {record!r}"
             )
+
+    # A payload whose digest is not the canonical one must fail the child oracle.
+    with tempfile.TemporaryDirectory() as wrong_tmp:
+        wrong_sink = OracleSink(path=os.path.join(wrong_tmp, "oracle.jsonl"))
+        try:
+            wrong = run_software_stream(
+                wrong_sink,
+                "w3",
+                os.path.join(wrong_tmp, "start"),
+                os.path.join(wrong_tmp, "release"),
+                stdin_stream=io.BytesIO(b"\x1b[24;1R"),
+                cpr_timeout_seconds=1.0,
+                wait_for_edge=lambda _path: None,
+                output_stream=io.BytesIO(),
+                payload_writer=lambda _stream, _fixture: (
+                    "0" * 64,
+                    fixtures.W3_TOTAL_BYTES,
+                ),
+                terminal_size_reader=lambda: (80, 24),
+                cpr_input_preparer=lambda: None,
+            )
+        finally:
+            wrong_sink.close()
+        if wrong.get("oracle") != "fail" or "fixture digest mismatch" not in wrong.get(
+            "oracle_reasons", []
+        ):
+            failures.append(f"driver: a wrong fixture digest did not fail: {wrong!r}")
 
     # CPR replies have no terminating newline. On a real PTY, cooked line
     # discipline holds them until newline; cbreak mode makes them readable

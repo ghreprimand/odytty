@@ -43,14 +43,9 @@ fn partial_scroll_region_does_not_feed_scrollback() {
 
 #[test]
 fn top_anchored_partial_region_feeds_scrollback_and_preserves_footer() {
-    // A TOP-ANCHORED partial region (top margin at row 0, a footer reserved
-    // below the bottom margin) is what a full-screen TUI sets when it keeps a
-    // bottom input composer, e.g. ratatui's `ESC[1;<rows-1>r`. The content
-    // above the margin is real history: linefeed-at-region-bottom must feed it
-    // into scrollback so wheel-up can reveal it, while the footer rows below
-    // the margin stay fixed. This is the Codex/ratatui "scroll-up is dead"
-    // regression: before the fix the scrolled-off rows were discarded and
-    // scrollback stayed empty.
+    // Top-anchored linefeeds retain history without moving footer rows: with the
+    // top margin at row 0 and a footer below the bottom margin (a TUI with a
+    // bottom composer), a linefeed at the region bottom feeds scrollback.
     let mut terminal = Terminal::new(6, 6);
     // Region rows 1..=4 (1-based) -> top row index 0, bottom row index 3.
     // Rows 4 and 5 (0-based) are the reserved footer.
@@ -703,10 +698,8 @@ fn insert_and_delete_lines_outside_region_are_noops() {
 
 #[test]
 fn invalid_scroll_region_is_a_full_no_op() {
-    // DECSTBM with top >= bottom is invalid; xterm ignores it entirely. It
-    // must not reset an existing region to the full screen and must not home
-    // the cursor - a malformed sequence cannot be allowed to destroy layout
-    // state a full-screen app set up deliberately.
+    // Invalid DECSTBM (top >= bottom) preserves margins and cursor, as xterm
+    // ignores it entirely.
     let mut terminal = Terminal::new(4, 4);
     // Valid partial region rows 2..=3 (1-based), then park the cursor away
     // from home.

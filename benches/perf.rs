@@ -18,7 +18,8 @@
 //! `ODYTTY_PERF_PROFILE=legacy` to run the original large P1/P2-sized workloads,
 //! or `ODYTTY_PERF_PROFILE=quick` for a short smoke. `ODYTTY_PERF_GEOMETRY_ONLY=1`
 //! skips feed/resize rows and uses the quick geometry profile.
-//! `ODYTTY_PERF_SE_ONLY=1` runs the exact protocol 1.5.4 SE1/SE2 isolation.
+//! `ODYTTY_PERF_SE_ONLY=1` runs the exact protocol 1.5.4 SE1/SE2 isolation; its
+//! rows are single-shot timings, not best-of.
 //!
 //! Each row reports wall-clock time for a fixed workload plus a derived rate
 //! (bytes/sec for feed workloads, ops/sec for snapshot/geometry workloads). The
@@ -531,11 +532,14 @@ fn run_se_isolation() {
 }
 
 fn main() {
-    println!("odytty perf - {COLS}x{ROWS} grid, best-of timings\n");
     if std::env::var_os("ODYTTY_PERF_SE_ONLY").is_some() {
+        // The 64 MB fixtures are timed once each, with no warm-up, unlike the
+        // best-of rows below.
+        println!("odytty perf - {COLS}x{ROWS} grid, single-shot timings\n");
         run_se_isolation();
         return;
     }
+    println!("odytty perf - {COLS}x{ROWS} grid, best-of timings\n");
     let font = load_font().ok();
     if font.is_none() {
         println!("(no font could be loaded: geometry benchmarks will be skipped)\n");

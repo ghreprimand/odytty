@@ -46,6 +46,7 @@ import argparse
 import datetime as _datetime
 import hashlib
 import hmac
+import http.client
 import io
 import json
 import os
@@ -352,7 +353,7 @@ def fetch_url(url: str, destination: Path, *, max_bytes: int, timeout: int) -> N
     except RunnerError:
         tmp.unlink(missing_ok=True)
         raise
-    except OSError as exc:
+    except (OSError, http.client.HTTPException) as exc:
         tmp.unlink(missing_ok=True)
         raise RunnerError("fetch", f"retrieval failed: {type(exc).__name__}") from exc
     tmp.replace(destination)
@@ -867,8 +868,11 @@ def classify_upstream_outcome(
 
 
 AT_SIGN_TOKEN = re.compile(r"\S+")
-HOME_PATH = re.compile(r"/(?:home|Users)/[^/\s]+")
-WIN_USER_PATH = re.compile(r"[A-Za-z]:\\\\?Users\\\\?[^\\\s]+", re.IGNORECASE)
+HOME_PATH = re.compile(r"(?<!:)(?:/var/home|/home|/Users)/[^/\s]+|(?<![\w/])/root(?=/|\s|$)")
+# Windows profile paths with either separator (`C:\Users\name`, `C:/Users/name`)
+# and UNC paths (`\\host\share`), the same shapes the corpus validator rejects.
+WIN_USER_PATH = re.compile(r"[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s]+", re.IGNORECASE)
+UNC_PATH = re.compile(r"\\\\[^\\\s]+\\[^\\\s]+")
 
 
 def sanitize(text: str) -> str:
@@ -888,6 +892,7 @@ def sanitize(text: str) -> str:
     )
     text = HOME_PATH.sub("/[redacted-home]", text)
     text = WIN_USER_PATH.sub("[redacted-home]", text)
+    text = UNC_PATH.sub("[redacted-share]", text)
     return text
 
 
@@ -1766,7 +1771,10 @@ def checked_work_dir(args: argparse.Namespace, phase: str) -> Path:
             or (parent / ".git").is_symlink()
             or (parent / "Cargo.toml").exists()
         ):
-            raise RunnerError(phase, "work directory must be outside a repository")
+            raise RunnerError(
+                phase,
+                f"work directory must be outside a repository (found one at {parent})",
+            )
     return destination
 
 
@@ -1818,29 +1826,28 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         max_bytes=int(limits["max_archive_bytes"]),
         timeout=int(limits["fetch_timeout_seconds"]),
     )
-    try:
-        fetch_url(
-            str(release["signature_url"]),
-            signature,
-            max_bytes=int(limits["max_archive_bytes"]),
-            timeout=int(limits["fetch_timeout_seconds"]),
-        )
-    except RunnerError:
-        # A missing signature is reported by `verify`, which is the phase that
-        # decides whether it is fatal. Fetch does not make trust decisions.
-        pass
-    try:
-        fetch_url(
-            str(upstream["trust"]["signer_key_url"]),
-            destination / "signer-key.asc",
-            max_bytes=int(limits["max_archive_bytes"]),
-            timeout=int(limits["fetch_timeout_seconds"]),
-        )
-    except RunnerError:
-        # Same rule as the signature: retrieval does not decide trust. The
-        # verify phase refuses to continue without a usable key.
-        pass
-    print(f"fetched into {destination}")
+    # A missing signature or key is not fatal here, because retrieval does not
+    # decide trust: `verify` refuses to continue without them. Each one is
+    # reported, so the summary line does not read as if everything arrived.
+    missing = []
+    for label, url, target in (
+        ("signature", str(release["signature_url"]), signature),
+        ("signer key", str(upstream["trust"]["signer_key_url"]), destination / "signer-key.asc"),
+    ):
+        try:
+            fetch_url(
+                url,
+                target,
+                max_bytes=int(limits["max_archive_bytes"]),
+                timeout=int(limits["fetch_timeout_seconds"]),
+            )
+        except RunnerError as exc:
+            missing.append(label)
+            print(f"{label}: not fetched ({exc.message})", file=sys.stderr)
+    if missing:
+        print(f"fetched the archive into {destination}; not fetched: {', '.join(missing)}")
+    else:
+        print(f"fetched into {destination}")
     return 0
 
 
@@ -1865,6 +1872,13 @@ def cmd_verify(args: argparse.Namespace) -> int:
         {"sha256": "verified", "signature": state, "trust_root": "isolated_pinned"},
     )
     print(f"digest: verified\ntrust root: isolated, pinned by fingerprint\nsignature: {state}")
+    if state == "mismatch":
+        # A signature that was checked and failed is never relaxed, whatever the
+        # pin says: the knob may only allow a signature that was not checked.
+        raise RunnerError(
+            "verify",
+            "the signature does not verify against the pinned key; refusing to continue",
+        )
     if integrity.get("signature_required_by_default", True) and state != "verified":
         raise RunnerError(
             "verify",
@@ -2223,6 +2237,19 @@ class SelfTest(unittest.TestCase):
     def test_sanitizer_redacts_windows_profile_paths(self) -> None:
         cleaned = sanitize(r"C:\Users\someone\AppData")
         self.assertNotIn("someone", cleaned)
+
+    def test_sanitizer_redacts_every_separator_and_home_shape(self) -> None:
+        for text, secret in (
+            ("C:/Users/someone/AppData", "someone"),
+            (r"C:\\Users\\someone\\x", "someone"),
+            (r"\\fileserver\share\x", "fileserver"),
+            ("/var/home/someone/x", "someone"),
+            ("/root/x and /root", "/root"),
+            ("/Users/someone/x", "someone"),
+        ):
+            with self.subTest(text=text):
+                self.assertNotIn(secret, sanitize(text))
+        self.assertEqual(sanitize("keep /rootless and /usr/root"), "keep /rootless and /usr/root")
 
     def extract_fixture(self, root: Path) -> argparse.Namespace:
         upstream = load_toml(UPSTREAM_MANIFEST)
@@ -2741,6 +2768,80 @@ class SelfTest(unittest.TestCase):
             with self.assertRaises(RunnerError):
                 verify_digest(path, "0" * 64)
 
+    def test_a_harness_fault_exits_two_with_a_message_not_a_traceback(self) -> None:
+        for fault in (
+            subprocess.TimeoutExpired("make", 1),
+            json.JSONDecodeError("bad", "{", 0),
+            PermissionError("read-only cache"),
+            http.client.IncompleteRead(b""),
+        ):
+            with self.subTest(fault=type(fault).__name__):
+                with mock.patch.dict(COMMANDS, {"list": mock.Mock(side_effect=fault)}):
+                    with mock.patch("sys.stderr", new=io.StringIO()) as err:
+                        self.assertEqual(main(["list"]), 2)
+                self.assertIn("runner fault", err.getvalue())
+
+    def test_fetch_reports_a_signature_or_key_that_did_not_arrive(self) -> None:
+        def flaky(url, destination, **_kwargs):
+            if "sig" in url.lower() or url.endswith(".asc") or "key" in url.lower():
+                raise RunnerError("fetch", "download failed")
+            destination.write_bytes(b"archive")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            args = argparse.Namespace(work_dir=tmp)
+            with mock.patch(f"{__name__}.fetch_url", side_effect=flaky), mock.patch(
+                f"{__name__}.checked_work_dir", return_value=Path(tmp)
+            ), mock.patch(f"{__name__}.check_platform_supported"), mock.patch(
+                "sys.stdout", new=io.StringIO()
+            ) as out, mock.patch("sys.stderr", new=io.StringIO()):
+                self.assertEqual(cmd_fetch(args), 0)
+        self.assertIn("not fetched: signature, signer key", out.getvalue())
+
+    def test_a_mismatched_signature_is_fatal_even_when_signatures_are_optional(self) -> None:
+        upstream = validate_upstream(load_toml(UPSTREAM_MANIFEST))
+        upstream["integrity"]["signature_required_by_default"] = False
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / str(upstream["release"]["archive_name"])).write_bytes(b"archive")
+            args = argparse.Namespace(work_dir=tmp)
+            with mock.patch(f"{__name__}.validate_upstream", return_value=upstream), mock.patch(
+                f"{__name__}.checked_work_dir", return_value=Path(tmp)
+            ), mock.patch(f"{__name__}.verify_digest"), mock.patch(
+                f"{__name__}.build_trust_root", return_value=Path(tmp) / "keyring"
+            ), mock.patch(f"{__name__}.verify_signature", return_value="mismatch"), mock.patch(
+                "sys.stdout", new=io.StringIO()
+            ):
+                with self.assertRaises(RunnerError):
+                    cmd_verify(args)
+            # An unchecked signature is still allowed by the same pin.
+            with mock.patch(f"{__name__}.validate_upstream", return_value=upstream), mock.patch(
+                f"{__name__}.checked_work_dir", return_value=Path(tmp)
+            ), mock.patch(f"{__name__}.verify_digest"), mock.patch(
+                f"{__name__}.build_trust_root", return_value=Path(tmp) / "keyring"
+            ), mock.patch(f"{__name__}.verify_signature", return_value="not_checked"), mock.patch(
+                "sys.stdout", new=io.StringIO()
+            ):
+                self.assertEqual(cmd_verify(args), 0)
+
+    def test_a_fetch_that_fails_midway_leaves_no_partial_file(self) -> None:
+        class _Response:
+            url = "https://example.invalid/x"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def read(self, _size):
+                raise http.client.IncompleteRead(b"")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "x.tgz"
+            with mock.patch("urllib.request.urlopen", return_value=_Response()):
+                with self.assertRaises(RunnerError):
+                    fetch_url("https://example.invalid/x", destination, max_bytes=10, timeout=1)
+            self.assertEqual(sorted(path.name for path in Path(tmp).iterdir()), [])
+
     def test_fetch_refuses_non_https(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(RunnerError):
@@ -3000,6 +3101,10 @@ class SelfTest(unittest.TestCase):
             self.assertNotIn(chr(64), raw, f"{path.name} carries an identity-shaped token")
             self.assertNotIn("/home/", raw, f"{path.name} carries a home directory")
             self.assertNotIn("/Users/", raw, f"{path.name} carries a home directory")
+            self.assertIsNone(
+                re.search(r"[A-Za-z]:[\\/]+Users[\\/]|\\\\[^\\\s]+\\[^\\\s]+", raw),
+                f"{path.name} carries a Windows profile or share path",
+            )
 
     def test_published_results_claim_no_unearned_pass(self) -> None:
         for path in sorted((COMPAT_DIR / "results").glob("*.json")):
@@ -3248,6 +3353,17 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     except RunnerError as exc:
         print(f"runner error ({exc.phase}): {exc.message}", file=sys.stderr)
+        return 2
+    except (
+        subprocess.SubprocessError,
+        json.JSONDecodeError,
+        http.client.HTTPException,
+        OSError,
+    ) as exc:
+        # A harness fault is not a conformance result: it exits 2 with a
+        # message, the same as a runner error, not through a traceback with
+        # the exit status a failed case uses.
+        print(f"runner fault ({type(exc).__name__}): {exc}", file=sys.stderr)
         return 2
 
 

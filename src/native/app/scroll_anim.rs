@@ -471,14 +471,14 @@ mod tests {
 
     // --- App-level integration (headless, synthetic cell height) ------------
 
-    fn build_app() -> Option<App> {
+    fn build_app() -> App {
         let d = Dimensions::new(40, 6);
         let (app, _terminal) = crate::native::test_support::headless_app_with(
             crate::native::options::NativeOptions::default(),
             d,
             Settings::default(),
         );
-        Some(app)
+        app
     }
 
     /// Feed enough line feeds to push rows into scrollback so the viewport has
@@ -496,9 +496,7 @@ mod tests {
 
     #[test]
     fn continuous_scroll_carries_whole_rows_and_keeps_the_fraction() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         let sb = seed_scrollback(&app);
         assert!(sb >= 4, "need scrollback to glide through: {sb}");
         let token = app.sessions.active_id();
@@ -531,9 +529,7 @@ mod tests {
 
     #[test]
     fn continuous_scroll_refuses_nonfinite_travel_and_recovers_a_bad_remainder() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         seed_scrollback(&app);
         let token = app.sessions.active_id();
         app.drive_continuous_scroll(token, 40.0, 16);
@@ -558,9 +554,7 @@ mod tests {
 
     #[test]
     fn continuous_scroll_deposits_nothing_past_the_live_bottom() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         seed_scrollback(&app);
         let token = app.sessions.active_id();
         // Already at the live bottom (offset 0). Scrolling toward live (negative
@@ -577,9 +571,7 @@ mod tests {
         // scroll can never schedule an animation wake (the old bounce came from
         // re-arming an 80 ms ease on every notch). An idle app driven by the
         // continuous lane still reports no animation deadline.
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         seed_scrollback(&app);
         let token = app.sessions.active_id();
         app.drive_continuous_scroll(token, 24.0, 16);
@@ -592,9 +584,7 @@ mod tests {
 
     #[test]
     fn clear_scroll_frac_snaps_immediately() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         seed_scrollback(&app);
         let token = app.sessions.active_id();
         app.drive_continuous_scroll(token, 40.0, 16);
@@ -614,9 +604,7 @@ mod tests {
 
     #[test]
     fn pixel_scroll_off_makes_the_continuous_lane_ineligible() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         assert!(app.settings.pixel_scroll, "on by default");
         assert!(
             app.continuous_scroll_eligible(),
@@ -676,9 +664,7 @@ mod tests {
 
     #[test]
     fn scroll_glide_off_is_byte_identical() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         let sb = seed_scrollback(&app);
         assert!(sb >= 5);
         // Exercise the OFF path explicitly (the default is now on).
@@ -701,9 +687,7 @@ mod tests {
 
     #[test]
     fn scroll_glide_on_arms_a_lagging_follower() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         let sb = seed_scrollback(&app);
         assert!(sb >= 5);
         app.settings.scroll_glide = true;
@@ -723,9 +707,7 @@ mod tests {
 
     #[test]
     fn scroll_glide_deadline_is_stable_until_the_glide_advances() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         let sb = seed_scrollback(&app);
         assert!(sb >= 5);
         app.settings.scroll_glide = true;
@@ -745,9 +727,7 @@ mod tests {
 
     #[test]
     fn glide_follower_eases_toward_logical_and_settles() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         let sb = seed_scrollback(&app);
         assert!(sb >= 5);
         app.settings.scroll_glide = true;
@@ -791,9 +771,7 @@ mod tests {
 
     #[test]
     fn viewport_change_snaps_the_glide() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         let sb = seed_scrollback(&app);
         assert!(sb >= 5);
         app.settings.scroll_glide = true;
@@ -810,9 +788,7 @@ mod tests {
 
     #[test]
     fn glide_lag_is_clamped_to_one_viewport_height() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         let sb = seed_scrollback(&app);
         assert!(sb >= 5);
         app.settings.scroll_glide = true;
@@ -837,8 +813,8 @@ mod tests {
     /// Build a headless two-pane split: pane A (the original, pre-split active)
     /// and pane B (the new focused pane), each seeded with its own scrollback.
     /// No real PTY: both panes are headless sessions.
-    fn build_split_app() -> Option<(App, SessionToken, SessionToken)> {
-        let mut app = build_app()?;
+    fn build_split_app() -> (App, SessionToken, SessionToken) {
+        let mut app = build_app();
         let a = app.sessions.active_id();
         // Give pane A history to glide through.
         seed_scrollback(&app);
@@ -854,14 +830,12 @@ mod tests {
         app.seed_headless_split_pane_for_test(false, terminal_b, writer, d);
         let b = app.sessions.active_id();
         assert_ne!(a, b, "split minted a distinct second pane");
-        Some((app, a, b))
+        (app, a, b)
     }
 
     #[test]
     fn split_lifts_the_single_pane_glide_gate() {
-        let Some((mut app, a, b)) = build_split_app() else {
-            return;
-        };
+        let (mut app, a, b) = build_split_app();
         app.settings.scroll_glide = true;
         assert!(
             !app.sessions.active_is_single_pane(),
@@ -884,9 +858,7 @@ mod tests {
 
     #[test]
     fn split_glide_is_per_pane_isolated() {
-        let Some((mut app, a, b)) = build_split_app() else {
-            return;
-        };
+        let (mut app, a, b) = build_split_app();
         app.settings.scroll_glide = true;
         assert!(!app.sessions.any_visible_pane_gliding(), "no glide at rest");
         assert_eq!(
@@ -932,9 +904,7 @@ mod tests {
 
     #[test]
     fn split_render_offset_follows_the_floored_glide_row() {
-        let Some((mut app, a, _b)) = build_split_app() else {
-            return;
-        };
+        let (mut app, a, _b) = build_split_app();
         app.settings.scroll_glide = true;
         app.scroll_viewport_of(a, 5);
         // The follower lags at the old row (0); the split render snapshots at the
@@ -949,9 +919,7 @@ mod tests {
 
     #[test]
     fn split_glide_wake_clears_once_the_follower_settles() {
-        let Some((mut app, a, _b)) = build_split_app() else {
-            return;
-        };
+        let (mut app, a, _b) = build_split_app();
         app.settings.scroll_glide = true;
         app.scroll_viewport_of(a, 5);
         assert!(
@@ -982,9 +950,7 @@ mod tests {
         // HARD INVARIANT: generalizing the gate must not touch the single-pane
         // sub-cell render. A lone pane mid-glide still carries a non-zero sub-row
         // pixel offset (the split path pins it to 0; single-pane does not).
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         let sb = seed_scrollback(&app);
         assert!(sb >= 5);
         app.settings.scroll_glide = true;

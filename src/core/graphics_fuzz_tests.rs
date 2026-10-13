@@ -1,55 +1,43 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! FZ1: graphics-surface fuzzing - never-panic + bounded-memory guarantees over
-//! the full Kitty/Sixel display surface that grew across G2.2→K3.
-//!
-//! The surface under test: APC `_G` key-value control parsing, base64 payloads,
-//! `m=` chunking, direct RGB/RGBA + PNG decode, zlib-compressed payloads
-//! (`o=z`), image-number addressing (`I=`), file/temp/shm transports,
-//! placement params (`c/r/z/X/Y/x/y/w/h`), deletes (`d=…`), queries, and the
-//! Sixel DCS decoder. This module feeds *adversarial* byte streams through the
-//! public `Terminal` boundary (and `decode_sixel` directly) and asserts a small
-//! set of durable invariants - never the exact pixels, which other suites own.
+//! Deterministic adversarial graphics streams check parser recovery, terminal
+//! coherence and image-store bounds over the Kitty and Sixel display surface:
+//! APC `_G` control parsing, base64 payloads, `m=` chunking, direct RGB/RGBA and
+//! PNG decode, zlib-compressed payloads (`o=z`), image-number addressing (`I=`),
+//! file, temporary-file and shared-memory transports, placement parameters,
+//! deletes, queries, and the Sixel DCS decoder. Streams go through the public
+//! `Terminal` boundary (and `decode_sixel` directly), and only durable
+//! invariants are asserted, never exact pixels, which other suites own.
 //!
 //! ## Invariants asserted
 //!
 //! 1. **Never panic / never abort.** Every generated stream is fed through
-//!    `Terminal::advance` (or `decode_sixel`); the test process surviving *is*
-//!    the assertion. A divergence panics carrying the exact `seed`, so any
-//!    failure reproduces deterministically.
+//!    `Terminal::advance` (or `decode_sixel`); a divergence panics carrying the
+//!    exact `seed`, so any failure reproduces deterministically.
 //! 2. **Bounded memory.** Under a deliberately tiny `ImageStoreLimits`, the
-//!    image store never exceeds its decoded-byte or image-count caps no matter
-//!    what the stream asks for.
+//!    image store never exceeds its decoded-byte or image-count caps.
 //! 3. **Parser never wedges.** After any garbage, a trailing known-good
 //!    sequence (origin reset, home, green SGR and a distinct printed glyph)
-//!    still takes effect, so
-//!    the parser returns to ground and keeps processing.
+//!    still takes effect.
 //! 4. **Text state stays coherent.** A control-only graphics stream never
 //!    corrupts the text grid: plain ASCII printed after it lands in the cells.
 //!
 //! ## Tiers and determinism
 //!
-//! A bounded smoke tier runs in the default `cargo test`. The deep tier
-//! (`#[ignore]`) mirrors the parser-oracle sweep budget. Iteration count is
-//! `ODYTTY_FUZZ_ITERS` (default [`DEFAULT_GFX_FUZZ_ITERS`]); seeds are
-//! `i * <odd multiplier> + <salt>`, so a reported seed reproduces exactly.
-//!
-//! Each fuzzer prints a `fuzz-budget` line under `--nocapture` recording the
-//! resolved iteration count, whether it came from the environment or the
-//! default, and the seed range swept, so a captured log documents its own
-//! budget instead of leaving it to be inferred.
-//!
-//! Deep run (executed once locally; see the DEVLOG for the result):
+//! Default tests use the smoke budget; ignored tests use the configured deep
+//! budget. The iteration count is `ODYTTY_FUZZ_ITERS` (default
+//! [`DEFAULT_GFX_FUZZ_ITERS`]); seeds are `i * <odd multiplier> + <salt>`, so a
+//! reported seed reproduces exactly. Each fuzzer prints a `fuzz-budget` line
+//! under `--nocapture` with the resolved iteration count, its source and the
+//! seed range, so a captured log documents its own budget.
 //!
 //!   ODYTTY_FUZZ_ITERS=40000 cargo test -p odytty graphics_fuzz -- --ignored --nocapture
 //!
 //! ## Safety
 //!
-//! Transport fuzzing uses **safe inputs only**: nonexistent paths, traversal
-//! soup, over-long names, and embedded NULs. The fuzzer never creates files
-//! outside a process-scoped name and never references real `/dev/shm` names
-//! other than ones it created and unlinks itself. The default tier creates
-//! one exclusively owned small shm fixture on Unix;
-//! the optional deep probe uses the same guarded round trip. Both clean up
+//! Transport fuzzing uses safe inputs only: nonexistent paths, traversal soup,
+//! over-long names, and embedded NULs. No test opens an unowned fixture: the
+//! default tier creates one exclusively owned small shm fixture on Unix, the
+//! optional deep probe uses the same guarded round trip, and both clean up
 //! through RAII even if an assertion fails.
 
 use crate::core::Terminal;
@@ -602,22 +590,12 @@ fn graphics_fuzz_sixel_decode_deep() {
     run_sixel_decode(fuzz_iters());
 }
 
-/// SX4 regression: a sixel body generator with **relaxed** (large) repeat counts
-/// and raster headers - the exact shapes that used to make `decode_sixel`
-/// re-layout O(N^2) on incremental width. After the lazy-canvas +
-/// geometric-growth fix these run fast, so the fuzzer can exercise them at
-/// volume. The FZ1 generator keeps its small bounds for the broad logic sweep;
-/// this dedicated case probes the formerly-pathological *width* path.
-///
-/// Raster headers here keep one axis small on purpose. A header that declares a
-/// large canvas in *both* axes (e.g. 6000x6000) and then paints a pixel is not a
-/// pathology - it is a legitimately large image, and honoring it allocates the
-/// declared size *once* at `finish` (the lazy path's correct behavior). Doing
-/// that 40k times would be slow by design, not a regression; the over-cap
-/// rejection and the header-only no-alloc paths are covered by
-/// `graphics_fuzz_sixel_canvas_cap_rejected` and the sixel unit tests. So this
-/// fuzzer stresses the wide-but-short geometry (large width, tiny height) plus
-/// large repeats, which is exactly the quadratic-growth path the fix targets.
+/// Stress wide but short Sixel rasters and large repeats while keeping routine
+/// allocations bounded. Raster headers keep one axis small: a canvas that is
+/// large in both axes is a legitimate large image, honored with one allocation
+/// at `finish`, and it has dedicated fixtures together with the over-cap
+/// rejection (`graphics_fuzz_sixel_canvas_cap_rejected` and the sixel unit
+/// tests).
 fn fuzz_sixel_body_relaxed(rng: &mut FuzzRng) -> Vec<u8> {
     let ntokens = rng.below(24);
     let mut out = Vec::with_capacity(ntokens * 4);

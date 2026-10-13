@@ -249,10 +249,12 @@ impl App {
     }
 }
 
-/// Crop pane-local solid effects to the pane's at-rest grid rectangle. Cursor
-/// glow and trail can extend beyond their cell; this keeps them from crossing a
-/// row or column divider while preserving their original color and stacking.
-fn clip_solid_quads_to_rect(quads: &mut Vec<SolidQuad>, clip: [f32; 4]) {
+/// Crop pane-local solid quads to the pane's at-rest grid rectangle and drop
+/// those left with no area. Cursor glow and trail can extend beyond their cell,
+/// and a status-gutter bar can cross a divider during sub-row scrolling; this
+/// keeps both inside the pane while preserving their original color and
+/// stacking.
+pub(super) fn clip_solid_quads_to_rect(quads: &mut Vec<SolidQuad>, clip: [f32; 4]) {
     for quad in quads.iter_mut() {
         quad.rect[0] = quad.rect[0].max(clip[0]);
         quad.rect[1] = quad.rect[1].max(clip[1]);

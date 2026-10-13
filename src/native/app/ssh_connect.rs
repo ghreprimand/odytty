@@ -175,7 +175,7 @@ impl App {
     }
 
     /// Scan `~/.ssh` for candidate SSH private keys to seed the IdentityFile
-    /// browser (FORM-UX). Filename heuristics ONLY — this reads directory-entry
+    /// browser (FORM-UX). Filename heuristics ONLY - this reads directory-entry
     /// NAMES and never opens a key file, so no key material ever enters memory.
     /// Returns full paths, sorted; a missing or unreadable `~/.ssh` yields an
     /// empty list and the browser shows a "type a path manually" hint. The scan
@@ -287,9 +287,9 @@ impl App {
                     host.alias.as_str()
                 };
                 let message = if error.kind() == std::io::ErrorKind::NotFound {
-                    format!("Couldn't connect to \"{label}\" — 'ssh' not found (is it installed?)")
+                    format!("Couldn't connect to \"{label}\" - 'ssh' not found (is it installed?)")
                 } else {
-                    format!("Couldn't connect to \"{label}\" — {error}")
+                    format!("Couldn't connect to \"{label}\" - {error}")
                 };
                 self.raise_open_notice(message);
                 None
@@ -301,7 +301,7 @@ impl App {
     /// Workspace"). Creates a plain workspace (which spawns a placeholder local
     /// first tab), sets its `default_profile` so future New Tabs there route
     /// through the SSH connect path, then connects the host as the workspace's
-    /// tab and drops the placeholder — connect-then-close, so a connect failure
+    /// tab and drops the placeholder - connect-then-close, so a connect failure
     /// leaves a usable local tab rather than an empty workspace, and a failed
     /// placeholder spawn stops with a notice before anything is bound. No bind toast:
     /// the connecting remote tab is the visible confirmation. Windows: the
@@ -354,7 +354,7 @@ impl App {
 
     /// Delete the OdyTTY-owned `hosts.conf` block for `host` (ODP-2C "Remove…",
     /// P1 byte-splice) and reopen the connection manager so the removed row
-    /// disappears — mirroring the Manage-Sessions kill-confirm reopen. Resolves
+    /// disappears - mirroring the Manage-Sessions kill-confirm reopen. Resolves
     /// the same config dir the manager loads from; a missing config dir, an
     /// already-gone alias, or a write error each surface a one-line notice and
     /// never panic. Only OdyTTY-owned rows reach here (the menu hides Remove for
@@ -406,8 +406,8 @@ impl App {
     }
 
     /// Open the shared host picker (ODP-1B) seeded for binding the active
-    /// workspace (ODP-6B). Reuses the connection-manager list — the same
-    /// OdyTTY-owned hosts plus any opt-in ssh-config names — with a tagged
+    /// workspace (ODP-6B). Reuses the connection-manager list - the same
+    /// OdyTTY-owned hosts plus any opt-in ssh-config names - with a tagged
     /// purpose so accepting a row binds instead of connecting. With no saved
     /// hosts the picker still opens and shows its empty-state hint.
     pub(in crate::native) fn open_bind_workspace_picker(&mut self) {
@@ -598,7 +598,7 @@ impl App {
     /// otherwise the global `remote_persist` knob. The global default (`10m`)
     /// resolves to `600`, so the emitted argv is byte-identical to the historical
     /// fixed window; an unparseable per-host override falls back to the global.
-    /// Platform-neutral resolution — the token is only ever emitted on Unix
+    /// Platform-neutral resolution - the token is only ever emitted on Unix
     /// (the reuse control options are compiled out on a Windows client).
     fn resolve_control_persist(
         host_persist: Option<&str>,
@@ -612,8 +612,8 @@ impl App {
     }
 
     /// Resolve the directory OdyTTY owns for `ControlMaster` sockets, creating it
-    /// with owner-only `0700` permissions. Returns `None` — disabling connection
-    /// reuse — when reuse is off, the state dir is unresolvable, or the directory
+    /// with owner-only `0700` permissions. Returns `None` - disabling connection
+    /// reuse - when reuse is off, the state dir is unresolvable, or the directory
     /// cannot be prepared. On a Windows client this is always `None`: OpenSSH
     /// there has no socket multiplexing, so no control options are ever emitted.
     #[cfg(unix)]
@@ -729,7 +729,7 @@ fn remote_display_destination(host: &ConnectionHost) -> String {
 }
 
 /// Everything the snapshot-restore spawn closure needs to reconnect a remote
-/// pane (RESTORE-REMOTE) without borrowing the `App` — owned settings plus the
+/// pane (RESTORE-REMOTE) without borrowing the `App` - owned settings plus the
 /// saved-host list, gathered once by [`App::remote_restore_context`].
 pub(super) struct RemoteRestoreContext {
     saved_hosts: Vec<ConnectionHost>,
@@ -743,7 +743,7 @@ impl RemoteRestoreContext {
     /// Resolve a stored remote identity back to a connectable host: first a
     /// currently-saved profile by alias (full per-host config preserved), else a
     /// parseable `[user@]host[:port]` ad-hoc destination. `None` when the
-    /// identity is neither — the caller then opens a local shell and counts it.
+    /// identity is neither - the caller then opens a local shell and counts it.
     fn resolve(&self, identity: &str) -> Option<ConnectionHost> {
         if let Some(host) = self.saved_hosts.iter().find(|h| h.alias == identity) {
             return Some(host.clone());
@@ -776,7 +776,7 @@ impl RemoteRestoreContext {
 
     /// Respawn a remote pane for `identity` in `set`, returning its token, or
     /// `None` when the identity is unresolvable or the argv cannot be built (the
-    /// restore falls back to a local shell). A fresh remote login shell — no
+    /// restore falls back to a local shell). A fresh remote login shell - no
     /// captured command is ever re-run (8i).
     pub(super) fn spawn(
         &self,
@@ -798,16 +798,16 @@ impl RemoteRestoreContext {
 }
 
 /// The one-line notice raised when a workspace is bound to a host (W5-BIND-TOAST).
-/// It confirms the binding AND spells out the behavior change — every new tab in
+/// It confirms the binding AND spells out the behavior change - every new tab in
 /// this workspace now spawns on the remote, and "New Local Tab" is the escape.
 fn workspace_bound_notice(alias: &str) -> String {
-    format!("Workspace bound to {alias} — new tabs open there; New Local Tab escapes")
+    format!("Workspace bound to {alias} - new tabs open there; New Local Tab escapes")
 }
 
 /// The notice raised when a workspace binding is cleared (W5-BIND-TOAST). Host-
 /// agnostic: it states the new behavior (new tabs are local again) rather than
 /// naming the host that was unbound.
-const WORKSPACE_UNBOUND_NOTICE: &str = "Workspace unbound — new tabs open locally";
+const WORKSPACE_UNBOUND_NOTICE: &str = "Workspace unbound - new tabs open locally";
 
 /// Directory entries the key scan inspects at most; later entries are not read.
 const IDENTITY_SCAN_ENTRIES: usize = 4096;
@@ -830,7 +830,7 @@ struct IdentityScan {
 
 /// Directory scan behind [`App::gather_identity_key_candidates`], split out so a
 /// test can drive it against a synthetic `~/.ssh` of obviously-fake key names
-/// (never real key material). Reads entry NAMES only — never file contents —
+/// (never real key material). Reads entry NAMES only - never file contents -
 /// and skips entries whose own file type is a directory (a symlink to a
 /// directory is not filtered). Returns full paths, sorted for a stable list,
 /// within the entry, name-length and candidate bounds above. Entry and file-type
@@ -887,7 +887,7 @@ fn scan_identity_entries(
                 continue;
             }
         };
-        // Skip subdirectories — a key is a file (or a symlink to one).
+        // Skip subdirectories - a key is a file (or a symlink to one).
         if is_dir {
             continue;
         }
@@ -1043,7 +1043,7 @@ mod identity_key_candidate_tests {
 
     #[test]
     fn scan_lists_private_keys_only_by_name_never_contents() {
-        // Synthetic ~/.ssh with obviously-fake names — NOT real key material.
+        // Synthetic ~/.ssh with obviously-fake names - NOT real key material.
         let scratch = temp_dir("odytty-ssh-keys");
         let dir = &scratch.0;
         for (name, body) in [
@@ -1144,6 +1144,17 @@ mod identity_key_candidate_tests {
     }
 }
 
+/// What a remote placeholder workspace is bound to once it exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::native) enum NewWorkspaceBinding<'a> {
+    /// Unbound: the global default launch profile chose the host.
+    None,
+    /// New tabs in the workspace connect to the opened host.
+    Host,
+    /// New tabs in the workspace use this named launch profile.
+    LaunchProfile(&'a str),
+}
+
 #[cfg(test)]
 mod bind_notice_tests {
     use super::{WORKSPACE_UNBOUND_NOTICE, workspace_bound_notice};
@@ -1172,15 +1183,4 @@ mod bind_notice_tests {
             "unbind toast states new tabs are local: {WORKSPACE_UNBOUND_NOTICE}"
         );
     }
-}
-
-/// What a remote placeholder workspace is bound to once it exists.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::native) enum NewWorkspaceBinding<'a> {
-    /// Unbound: the global default launch profile chose the host.
-    None,
-    /// New tabs in the workspace connect to the opened host.
-    Host,
-    /// New tabs in the workspace use this named launch profile.
-    LaunchProfile(&'a str),
 }

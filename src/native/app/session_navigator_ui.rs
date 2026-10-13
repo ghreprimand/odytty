@@ -27,9 +27,10 @@ impl App {
             self.close_search(true);
         }
         let mut entries = live_entries(&self.sessions, self.settings.navigator_preview);
-        // Listing is nonblocking (one handshake-free connect probe per
-        // socket), so it stays on the opening path. A registry failure is
-        // shown instead of reading as "no detached sessions".
+        // Listing makes one handshake-free connect probe per socket on the
+        // opening path, so a wedged socket could still delay the open; that
+        // delay is unmeasured. A registry failure is shown instead of reading
+        // as "no detached sessions".
         #[cfg(unix)]
         match crate::session_host::list_live_sessions(None) {
             Ok(detached) => append_detached(&mut entries, detached),

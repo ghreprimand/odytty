@@ -381,13 +381,10 @@ fn resize_without_marks_does_not_set_change_flag() {
     assert!(!terminal.take_prompt_marks_changed());
 }
 
-/// The consumer gate for prompt-aware select+Delete
-/// (`editable_input_selection_for_context_menu`) requires the cached input-start
-/// absolute row to equal the LIVE `scrollback_len + cursor.row`. A width-change
-/// resize rewraps scrollback to a different `physical_len`, so the cached row
-/// must be re-anchored through the resize or the gate silently fails (the
-/// after-a-side-by-side-split select+Delete regression). These pin that
-/// re-anchoring, the width-unchanged fast path, and the no-mark case.
+/// Resize reanchors live input metadata: prompt-aware select+Delete requires the
+/// cached input-start row to equal the live `scrollback_len + cursor.row`, and a
+/// width change rewraps scrollback. These pin the reanchoring, the
+/// width-unchanged fast path and the no-mark case.
 #[test]
 fn input_start_is_reanchored_through_a_width_change_resize() {
     let mut terminal = Terminal::new(20, 3);
@@ -469,11 +466,9 @@ fn resize_leaves_no_input_anchor_when_none_was_set() {
 
 #[test]
 fn input_anchor_fails_closed_across_scrollback_eviction() {
-    // A scrollback front-eviction between the `B` stamp and a read shifts every
-    // absolute-row address. Without an eviction-immune anchor the cached row
-    // resolves to different, more recent content, and synthesized cursor keys
-    // would aim at the wrong row. The anchor witnesses the scrollback trim epoch
-    // and fails closed (returns None) once eviction bumps it.
+    // Eviction invalidates the cached input anchor: a front-eviction between
+    // the `B` stamp and a read shifts every absolute row, so the anchor witnesses
+    // the trim epoch and returns None once it changes.
     let mut terminal = Terminal::new(20, 4);
     // Tiny scrollback so a trim is cheap to trigger.
     terminal.set_scrollback_limit(8);
@@ -892,12 +887,9 @@ fn snippet_prompt_start_bytes(snippet: &str) -> Vec<u8> {
         .into_bytes()
 }
 
-/// The bundled shell-integration snippets must advertise `click_events=1` on
-/// their prompt-start, so a terminal that parses the real snippet output through
-/// the production OSC 133 dispatch ends up with click-to-position enabled. Without
-/// the attribute the consumer-side feature (gated additionally on the `sh_click`
-/// setting) can never turn on - the producer gap this closes. Bound to all three
-/// snippets so each one's emission is checked.
+/// Bundled shell snippets advertise click_events=1 on their prompt start, and the
+/// production OSC 133 dispatch turns click-to-position on from it. All three
+/// snippets are checked.
 #[test]
 fn bundled_snippets_enable_click_events_through_dispatch() {
     use crate::shell_integration::{ShellKind, snippet};

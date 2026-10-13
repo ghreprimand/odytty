@@ -51,8 +51,8 @@ type CapturedBytes = Arc<Mutex<Vec<u8>>>;
 /// Build a headless App over a recording writer, optionally arm ALL THREE
 /// button gates (the fully-enabled configuration), and feed `content`.
 /// Returns the app, the terminal handle, and the captured-bytes handle.
-/// The harness seeds the terminal from `Settings` (all gates default-off), so
-/// the armed fixture flips them explicitly; per-gate behavior is pinned by the
+/// The harness seeds the terminal from `Settings`, so the fixture sets the
+/// button gates explicitly; per-gate behavior is pinned by the
 /// dedicated gate tests below and by the core suite.
 fn build_app(content: &[u8], buttons_enabled: bool) -> (App, TerminalHandle, CapturedBytes) {
     let dims = Dimensions::new(COLS, ROWS);
@@ -392,7 +392,7 @@ fn drag_off_the_span_cancels_without_writing() {
 
 #[test]
 fn gate_off_leaves_the_click_path_byte_identical() {
-    // Same stream, master gate off (default): the label prints as plain text
+    // Same stream, master gate off: the label prints as plain text
     // and a click is an ordinary selection gesture - nothing on the wire.
     let (mut app, _terminal, bytes) = build_app(T2_BUTTON, false);
     settle_focus_click(&mut app, &bytes);

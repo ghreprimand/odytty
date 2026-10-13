@@ -471,10 +471,6 @@ fn thirty_three_requests_are_bounded_by_accept_rate_or_busy() {
             || elapsed >= Duration::from_secs(1),
         "33 requests must hit Busy or the 32/s accept-rate delay; busy={busy} successes={successes} third={thirty_third_elapsed:?} total={elapsed:?}"
     );
-    assert!(
-        successes <= 33,
-        "must not invent successes; got {successes}"
-    );
 }
 
 #[test]

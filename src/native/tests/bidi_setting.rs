@@ -8,7 +8,6 @@
 
 use super::*;
 use std::time::Instant;
-use winit::event::MouseButton as WinitMouseButton;
 use winit::keyboard::{Key as WinitKey, NamedKey};
 
 const CELL: CellSize = CellSize {

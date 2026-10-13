@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Program-defined clickable buttons: OSC parsing, the interned button table,
-//! and the line-anchored span model (Button Protocol phase B1 - pure core).
+//! the line-anchored span model, hit results, and click report bytes.
 //!
 //! Two accepted spellings define buttons:
 //!
@@ -169,7 +169,7 @@ pub struct ButtonSpan {
 }
 
 /// A resolved button under a specific visible viewport cell - the pointer
-/// arm's hit-test result (Button Protocol B3). Carries the table entry's
+/// arm's hit-test result. Carries the table entry's
 /// payload plus the span occurrence's viewport geometry, so a press/release
 /// pair can require the *same span* (same row, same start column), not merely
 /// the same interned id: scrolling between press and release moves the span
@@ -259,15 +259,9 @@ pub fn point_chip_rect(
     Some((start, len))
 }
 
-/// Compose the click report envelope: `CSI ? 1337 ; code ~`.
-///
-/// This is the ONLY place report bytes are born, and its input is the parsed
-/// integer - type-enforced, so an emitter's raw bytes can never be echoed
-/// back into the PTY. The output alphabet is exactly `ESC [ ? 0-9 ; ~`: no
-/// newline, no CR, no control byte any shell or line editor interprets as
-/// "execute". A hostile emitter chooses *which* number arrives, never *what
-/// byte shape* arrives. Matches iTerm2's report for `type=custom` buttons
-/// (code 42 → `1b 5b 3f 31 33 33 37 3b 34 32 7e`).
+/// Compose `CSI ? 1337 ; code ~` from a parsed integer, the only source of
+/// click report bytes. The fixed envelope contains no CR or LF and never
+/// echoes emitter-supplied byte strings.
 pub fn click_report_bytes(code: u32) -> Vec<u8> {
     format!("\x1b[?1337;{code}~").into_bytes()
 }
@@ -493,10 +487,9 @@ impl ButtonTable {
         Some(id)
     }
 
-    /// Entry lookup. Un-gated in B2: the render path resolves each visible
-    /// span's `code`/`icon`/`state` through this to paint the chip (a live
-    /// button versus a grayed invalidated one) without reaching into the
-    /// private entry map. B3 reuses it for click hit-testing.
+    /// Entry lookup. The render path resolves each visible span's
+    /// `code`/`icon`/`state` through this to paint the chip (a live button
+    /// versus a grayed invalidated one), and click hit-testing uses it too.
     pub(in crate::core) fn get(&self, id: ButtonId) -> Option<&ButtonEntry> {
         self.entries.get(&id)
     }
@@ -828,7 +821,7 @@ mod tests {
         assert_eq!(line_content_end(&linked), 4);
     }
 
-    // --- click report envelope (B3) ---
+    // --- click report envelope ---
 
     #[test]
     fn click_report_matches_iterm2_example_exactly() {
@@ -1187,6 +1180,14 @@ mod tests {
             Some(ButtonState::Invalidated)
         );
         assert_eq!(table.get(b).map(|e| e.state), Some(ButtonState::Live));
+        // Freeing the invalidated entry must not unkey the newer live one.
+        table.release(a);
+        assert!(table.get(a).is_none());
+        assert_eq!(
+            table.define(5, ButtonIcon::Generic, ButtonScope::Sticky),
+            Some(b),
+            "the live entry keeps its intern key"
+        );
     }
 
     #[test]

@@ -8,6 +8,7 @@
 //! after remote/foreground checks; production Local/Attached paths are unchanged.
 
 use super::*;
+use crate::native::file_drop::{DropError, MAX_DROP_BYTES, MAX_DROP_FILES};
 use crate::pty::ForegroundJob;
 use crate::shell_integration::ShellKind;
 use std::io::Write;
@@ -269,8 +270,8 @@ fn file_drop_whole_collection_overflow_rejects_without_prefix_write() {
     let (mut app, bytes, _) = drop_app();
     ready_local_bash(&mut app);
 
-    // 128 is the collection cap; the next event rejects the entire collection.
-    for i in 0..128 {
+    // The collection cap; the next event rejects the entire collection.
+    for i in 0..MAX_DROP_FILES {
         app.queue_file_drop_for_test(PathBuf::from(format!("/tmp/n{i}")));
     }
     assert!(
@@ -279,7 +280,7 @@ fn file_drop_whole_collection_overflow_rejects_without_prefix_write() {
     );
     assert_eq!(
         app.pending_file_drop_len_for_test().map(|(_, n)| n),
-        Some(128)
+        Some(MAX_DROP_FILES)
     );
     assert!(bytes.lock().expect("pre-overflow").is_empty());
 
@@ -300,10 +301,7 @@ fn file_drop_whole_collection_overflow_rejects_without_prefix_write() {
     let notice = app
         .open_notice_message_for_test()
         .expect("overflow shows a size notice");
-    assert!(
-        notice.contains("128") || notice.to_ascii_lowercase().contains("fewer"),
-        "notice={notice}"
-    );
+    assert_eq!(notice, DropError::TooLarge.to_string());
     app.queue_file_drop_for_test(PathBuf::from("/tmp/f129.txt"));
     assert!(
         !app.risky_paste_pending_for_test(),
@@ -372,8 +370,8 @@ fn file_drop_byte_overflow_cancels_whole_batch_without_prefix_write() {
         app.pending_file_drop_len_for_test().map(|(_, n)| n),
         Some(1)
     );
-    // 256 KiB path-byte budget; a single oversized path rejects the collection.
-    let oversized = PathBuf::from(format!("/{}", "z".repeat(256 * 1024)));
+    // The path-byte budget; a single oversized path rejects the collection.
+    let oversized = PathBuf::from(format!("/{}", "z".repeat(MAX_DROP_BYTES)));
     app.queue_file_drop_for_test(oversized);
     assert!(!app.risky_paste_pending_for_test());
     assert!(app.file_drop_rejected_for_test());
@@ -385,12 +383,7 @@ fn file_drop_byte_overflow_cancels_whole_batch_without_prefix_write() {
     let notice = app
         .open_notice_message_for_test()
         .expect("byte overflow shows a size notice");
-    assert!(
-        notice.to_ascii_lowercase().contains("fewer")
-            || notice.contains("256")
-            || notice.contains("128"),
-        "notice={notice}"
-    );
+    assert_eq!(notice, DropError::TooLarge.to_string());
 }
 
 #[test]
@@ -401,8 +394,8 @@ fn file_drop_ten_thousand_events_never_write_and_never_exceed_cap() {
         app.queue_file_drop_for_test(PathBuf::from(format!("/tmp/n{i}")));
         if let Some((_, len)) = app.pending_file_drop_len_for_test() {
             assert!(
-                len <= 128,
-                "pending collection must stay within the 128-file cap; got {len} at event {i}"
+                len <= MAX_DROP_FILES,
+                "pending collection must stay within the file cap; got {len} at event {i}"
             );
         }
         assert!(
@@ -451,10 +444,7 @@ fn file_drop_atomic_batch_overflow_does_not_restart_with_remainder() {
     let notice = app
         .open_notice_message_for_test()
         .expect("overflow shows a size notice");
-    assert!(
-        notice.contains("128") || notice.to_ascii_lowercase().contains("fewer"),
-        "notice={notice}"
-    );
+    assert_eq!(notice, DropError::TooLarge.to_string());
     app.queue_file_drop_batch_for_test(vec![PathBuf::from("/tmp/next-gesture.txt")]);
     assert!(
         app.risky_paste_pending_for_test(),
@@ -473,7 +463,7 @@ fn file_drop_atomic_batch_byte_overflow_does_not_keep_prefix() {
     ready_local_bash(&mut app);
     let paths = vec![
         PathBuf::from("/tmp/kept-first"),
-        PathBuf::from(format!("/{}", "z".repeat(256 * 1024))),
+        PathBuf::from(format!("/{}", "z".repeat(MAX_DROP_BYTES))),
     ];
     app.queue_file_drop_batch_for_test(paths);
     assert!(!app.risky_paste_pending_for_test());
@@ -482,26 +472,21 @@ fn file_drop_atomic_batch_byte_overflow_does_not_keep_prefix() {
     let notice = app
         .open_notice_message_for_test()
         .expect("byte overflow shows a size notice");
-    assert!(
-        notice.to_ascii_lowercase().contains("fewer")
-            || notice.contains("256")
-            || notice.contains("128"),
-        "notice={notice}"
-    );
+    assert_eq!(notice, DropError::TooLarge.to_string());
 }
 
 #[test]
 fn file_drop_atomic_batch_at_cap_stays_under_preview() {
     let (mut app, bytes, _) = drop_app();
     ready_local_bash(&mut app);
-    let paths: Vec<PathBuf> = (0..128)
+    let paths: Vec<PathBuf> = (0..MAX_DROP_FILES)
         .map(|i| PathBuf::from(format!("/tmp/n{i}")))
         .collect();
     app.queue_file_drop_batch_for_test(paths);
     assert!(app.risky_paste_pending_for_test());
     assert_eq!(
         app.pending_file_drop_len_for_test().map(|(_, n)| n),
-        Some(128)
+        Some(MAX_DROP_FILES)
     );
     assert!(bytes.lock().expect("held").is_empty());
 }

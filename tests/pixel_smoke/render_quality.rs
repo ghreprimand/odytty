@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! VE5 plain-bypass pixel proof: `render_quality = plain` collapses to the
+//! Plain-bypass pixel proof: `render_quality = plain` collapses to the
 //! minimal renderer, proven BYTE-FOR-BYTE in the headless CPU compositor.
 //!
 //! The plain profile is a hard fast path: it derives neutralized *effective*
@@ -57,7 +57,7 @@ fn all_hot(quality: RenderQuality) -> Settings {
     }
 }
 
-/// VE5 plain bypass, proven in composited pixels.
+/// Plain bypass, proven in composited pixels.
 ///
 /// `render_quality = Plain` must render an all-extras-ON config pixel-identical
 /// to the minimal renderer. Driven through the live `effective_focus_dim()`

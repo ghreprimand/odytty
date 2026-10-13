@@ -88,24 +88,29 @@ echo "  modifyOtherKeys (XTQMODKEYS): $mok_level"
 # byte (0x71) ends the stage.
 echo_keys() {
   buf=""
+  hexed=""
   while :; do
     ch=""
     if IFS= read -rsn1 -t 1 ch; then
-      # `read` returns an empty string for both a NUL byte and a newline;
-      # either way keep a marker so the burst is visibly non-empty.
+      # `read` returns an empty string for a newline (its delimiter), so an
+      # empty read is shown as `<LF>` with hex 0a. Bash's `read` drops NUL
+      # bytes, so a key that sends NUL (Ctrl+Space in the legacy encoding)
+      # produces no output in this loop; compare it in the Kitty stages.
       if [ -z "$ch" ]; then
-        buf="$buf<0>"
+        buf="$buf<LF>"
+        hexed="$hexed 0a"
       else
         buf="$buf$ch"
+        hexed="$hexed $(printf '%s' "$ch" | od -An -tx1 | tr -d '\n' | tr -s ' ' | sed 's/^ //')"
       fi
       continue
     fi
     [ -z "$buf" ] && continue
     [ "$buf" = "q" ] && return 0
-    hexed=$(printf '%s' "$buf" | od -An -tx1 | tr -d '\n' | tr -s ' ')
     shown=${buf//"$esc"/^[}
     printf '  hex%s  |%s|\n' "$hexed" "$shown"
     buf=""
+    hexed=""
   done
 }
 

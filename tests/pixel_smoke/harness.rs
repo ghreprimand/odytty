@@ -92,7 +92,7 @@ pub(crate) fn composite(
     frame
 }
 
-/// Composite a frame driving the ID2 focus-dim amount through the real geometry
+/// Composite a frame driving the focus-dim amount through the real geometry
 /// path - the same `build_cell_vertices_with_color_glyph_runs_into` seam the
 /// native renderer uses for an unfocused window. `focus_dim == 0.0` reproduces
 /// the focused render byte-for-byte (the off-path gate).
@@ -187,7 +187,7 @@ pub(crate) fn composite_with_padding(
     frame
 }
 
-/// Composite a frame driving an ID3/U5 background treatment through the real
+/// Composite a frame driving a background treatment through the real
 /// geometry path - the same `build_cell_vertices_with_focus_dim_into` seam the
 /// native renderer uses. The default (inactive) `BackgroundTreatmentParams`
 /// reproduces the plain render byte-for-byte (the off-path gate).
@@ -222,7 +222,7 @@ pub(crate) fn composite_background_treatment(
     frame
 }
 
-/// ID3/U5 image-background compositor. Models the native draw order: the
+/// Image-background compositor. Models the native draw order: the
 /// scrimmed background image is drawn first (here, a uniform fill of
 /// `image_rgb`, standing in for the post-scrim image pass), then the cell
 /// background quads composite on top with their alpha scaled by

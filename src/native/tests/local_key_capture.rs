@@ -313,3 +313,26 @@ fn holding_a_read_only_toggle_flips_it_once() {
     }
     assert_eq!(take(&recorded), b"");
 }
+
+#[test]
+fn focus_loss_forgets_keys_recorded_as_taken_by_local_ui() {
+    // A release delivered to another window would leave the key recorded, and a
+    // later repeat of it would be dropped though no local UI took it.
+    let (mut app, _recorded) = recording_app(Settings::default(), b"");
+    open_search(&mut app);
+    char_event(
+        &mut app,
+        'a',
+        KeyCode::KeyA,
+        Modifiers::default(),
+        KeyEventType::Press,
+    );
+    assert_eq!(app.search_query_for_test(), "a");
+    assert_eq!(
+        app.locally_consumed_key_count_for_test(),
+        1,
+        "search took the press"
+    );
+    app.on_window_focus_changed_for_test(false);
+    assert_eq!(app.locally_consumed_key_count_for_test(), 0);
+}

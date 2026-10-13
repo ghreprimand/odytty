@@ -583,12 +583,13 @@ impl App {
             self.pending_exit = true;
             return;
         }
-        self.record_navigator_closed_workspace(idx);
         // Close-active-workspace acts on the active one; switch to the target
-        // first so a background slot's `×` closes THAT workspace.
+        // first so a background slot's `×` closes THAT workspace. A refused
+        // switch closes nothing, so nothing is recorded as closed.
         if idx != self.sessions.active_workspace_index() && !self.sessions.switch_workspace(idx) {
             return;
         }
+        self.record_navigator_closed_workspace(idx);
         let _ = self.sessions.close_active_workspace();
         self.flash_rail_autohide();
         if self.sessions.active_is_single_pane() {

@@ -97,7 +97,9 @@ while : ; do
   status=0
 
   if "$@" > "$runs_json" 2>"$fetch_error"; then
-    if [ -s "$runs_json" ]; then
+    # A body that is empty or only whitespace (a lone newline from a proxy or
+    # a truncated read) is a failed fetch to retry, not a malformed payload.
+    if grep -q '[^[:space:]]' "$runs_json"; then
       bash "$gate" "$sha" "$runs_json" || status=$?
     else
       status="$FETCH_FAILED"

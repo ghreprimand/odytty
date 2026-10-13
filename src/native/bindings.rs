@@ -361,7 +361,7 @@ fn default_prefix_bindings() -> Vec<(KeyChord, BindableAction)> {
 }
 
 /// A read-only view of the pane-action PREFIX table (tmux-prefix second keys)
-/// for the KB-REMAP modal.
+/// for the key remap modal.
 ///
 /// Pane actions live ONLY in the multiplexer prefix space ([`PrefixEngine`]),
 /// never in the flat [`KeyBindings`] table (`KeyBindings::from_overrides` skips
@@ -465,7 +465,7 @@ impl KeyBindings {
         self.action_for_chord(chord)
     }
 
-    /// Resolve the action a `KeyChord` triggers under these bindings (KB-REMAP
+    /// Resolve the action a `KeyChord` triggers under these bindings (key remap
     /// conflict detection). Scans newest-first so a working override shadows a
     /// default, matching [`Self::action_for`]'s precedence exactly.
     pub(in crate::native) fn action_for_chord(&self, chord: KeyChord) -> Option<BindableAction> {
@@ -475,7 +475,7 @@ impl KeyBindings {
             .find_map(|(candidate, action)| (*candidate == chord).then_some(*action))
     }
 
-    /// The effective chord currently bound to `action` (KB-REMAP row display),
+    /// The effective chord currently bound to `action` (key remap row display),
     /// or `None` if every default/override for it was removed. Scans newest-first
     /// so the active override wins over a default of the same action.
     pub(in crate::native) fn chord_for_action(&self, action: BindableAction) -> Option<KeyChord> {

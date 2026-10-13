@@ -588,6 +588,7 @@ mod tests {
         assert!(!limiter.accept("fresh", later));
         assert!(limiter.accept("fresh", now + RATE_WINDOW));
     }
+
     #[test]
     fn windows_notifications_preserve_each_fixed_kind_and_load_winrt_types() {
         for kind in [
@@ -605,27 +606,43 @@ mod tests {
         }
     }
 
+    /// When run with this variable set, the fixture test stands in for a
+    /// helper that stalls for two seconds.
+    const CHILD_FIXTURE_ENV: &str = "ODYTTY_NOTIFICATION_CHILD_FIXTURE";
+
     #[test]
     fn notification_helper_child_fixture() {
-        if std::env::var_os("ODYTTY_NOTIFICATION_CHILD_FIXTURE").is_some() {
+        if std::env::var_os(CHILD_FIXTURE_ENV).is_some() {
             std::thread::sleep(Duration::from_secs(2));
         }
     }
 
-    #[test]
-    fn notification_helper_deadline_kills_and_reaps_a_stalled_child() {
+    /// This test executable as a quiet helper process: no console window and
+    /// null standard streams, with the stall fixture on or off.
+    fn helper_process(args: &[&str], stall: bool) -> std::process::Child {
         let mut command = std::process::Command::new(std::env::current_exe().unwrap());
         command
-            .args([
-                "--exact",
-                "native::notifications::tests::notification_helper_child_fixture",
-            ])
-            .env("ODYTTY_NOTIFICATION_CHILD_FIXTURE", "1")
+            .args(args)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
+        if stall {
+            command.env(CHILD_FIXTURE_ENV, "1");
+        } else {
+            command.env_remove(CHILD_FIXTURE_ENV);
+        }
         crate::native::app::win_spawn::apply_no_console_window(&mut command);
-        let mut child = command.spawn().unwrap();
+        command.spawn().unwrap()
+    }
+
+    const FIXTURE_ARGS: [&str; 2] = [
+        "--exact",
+        "native::notifications::tests::notification_helper_child_fixture",
+    ];
+
+    #[test]
+    fn notification_helper_deadline_kills_and_reaps_a_stalled_child() {
+        let mut child = helper_process(&FIXTURE_ARGS, true);
         let result = wait_notification_child(&mut child, Duration::from_millis(30));
         assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
         assert!(
@@ -636,32 +653,14 @@ mod tests {
 
     #[test]
     fn notification_helper_preserves_unsuccessful_exit_status() {
-        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
-        command
-            .arg("--odytty-notification-invalid-option")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        crate::native::app::win_spawn::apply_no_console_window(&mut command);
-        let mut child = command.spawn().unwrap();
+        let mut child = helper_process(&["--odytty-notification-invalid-option"], false);
         let status = wait_notification_child(&mut child, Duration::from_secs(10)).unwrap();
         assert!(!status.success());
     }
 
     #[test]
     fn notification_helper_reports_an_already_exited_status() {
-        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
-        command
-            .args([
-                "--exact",
-                "native::notifications::tests::notification_helper_child_fixture",
-            ])
-            .env_remove("ODYTTY_NOTIFICATION_CHILD_FIXTURE")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        crate::native::app::win_spawn::apply_no_console_window(&mut command);
-        let mut child = command.spawn().unwrap();
+        let mut child = helper_process(&FIXTURE_ARGS, false);
         let status = child.wait().unwrap();
         assert_eq!(
             wait_notification_child(&mut child, Duration::ZERO).unwrap(),

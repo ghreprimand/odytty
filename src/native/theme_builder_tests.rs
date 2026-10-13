@@ -82,7 +82,10 @@ fn save_writes_to_injected_temp_dir() {
 
     assert_eq!(path, dir.join("test-theme.theme"));
     assert_eq!(reparsed, spec);
-    assert!(!contents.contains("/home/"));
+    assert!(
+        !crate::test_dirs::contains_absolute_path_token(&contents),
+        "a saved theme holds no absolute path"
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -783,7 +786,7 @@ fn capture_key_asks_the_app_for_live_colors() {
 
 #[test]
 fn capture_key_is_inert_while_typing_a_value() {
-    // `C` is a plain character inside the hex/name/seed editors; capturing
+    // `C` is a plain character inside the colour value editor; capturing
     // mid-entry would eat the keystroke.
     let mut builder = ThemeBuilder::new(&Settings::default());
     builder.handle_input(OverlayInput::Activate);

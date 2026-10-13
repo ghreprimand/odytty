@@ -673,7 +673,9 @@ impl App {
     /// filesystem while the row text and cwd are unchanged, so a file that was
     /// removed, created, or changed type since then is only seen here. A path
     /// that no longer resolves to the same target clears the hover and opens
-    /// nothing.
+    /// nothing, and the cursor shape is chosen again so the hand does not stay.
+    /// The probe runs the full resolution on the calling thread, once per
+    /// click, which the hover memo otherwise avoids.
     pub(super) fn revalidated_hovered_path(&mut self) -> Option<crate::paths::Resolved> {
         let hovered = self.hovered_path.clone()?;
         let fresh = self.resolved_hovered_path_with_cells();
@@ -684,6 +686,8 @@ impl App {
         self.hovered_path_cells = None;
         self.hover_path_probe_key = None;
         self.needs_rebuild = true;
+        let icon = self.grid_cursor_icon();
+        self.apply_cursor_icon(icon);
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }
@@ -824,12 +828,7 @@ impl App {
             upload_ms = upload_elapsed.as_millis(),
             "inline image viewer loaded"
         );
-        let caption = resolved
-            .abs
-            .rsplit('/')
-            .next()
-            .unwrap_or(resolved.abs.as_str())
-            .to_owned();
+        let caption = super::interactive_paths::file_name_caption(&resolved.abs, cfg!(windows));
         self.overlay.open_image_view(caption);
         self.image_overlay = Some(super::interactive_paths::ImageOverlayState {
             rgba,

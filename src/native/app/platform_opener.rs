@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! PLATFORM-OPENER — the per-OS file/URI open dispatch seam (P0-1).
+//! PLATFORM-OPENER - the per-OS file/URI open dispatch seam (P0-1).
 //!
 //! v0.4.0 hard-coded `xdg-open`/`xdg-mime`, neither of which exists on macOS, so
-//! every "open" silently failed there — the headline v0.4.0 breakage. The fix
+//! every "open" silently failed there - the headline v0.4.0 breakage. The fix
 //! routes EVERY opener through one pure dispatch keyed by an explicit
 //! [`OpenerOs`] ENUM rather than scattered `cfg!(target_os = …)` checks.
 //!
 //! Why an enum parameter and not raw `cfg!`: the root failure was that the macOS
-//! argv was never exercised — only the Linux `cfg` arm ran on the Linux CI/dev
+//! argv was never exercised - only the Linux `cfg` arm ran on the Linux CI/dev
 //! host. By threading the target OS as a *value*, production picks the host once
 //! at the boundary ([`OpenerOs::host`]) while unit tests assert BOTH the Linux
 //! and macOS argv on a single CI host. The macOS branch can never again go
 //! unexercised.
 //!
-//! Everything here is argv-only and pure — these functions build a `Vec<String>`
+//! Everything here is argv-only and pure - these functions build a `Vec<String>`
 //! and never spawn. The single spawn point stays
 //! [`super::interactive_paths::spawn_detached`].
 
@@ -40,7 +40,7 @@ pub(in crate::native) enum OpenerOs {
     Macos,
     /// Windows: `explorer <target>` for default-open, `explorer /select,`
     /// for reveal. Like [`OpenerOs::Macos`], this variant is always present (not
-    /// `cfg`-gated) so its argv branches are unit-tested on any CI host — the
+    /// `cfg`-gated) so its argv branches are unit-tested on any CI host - the
     /// v0.4.0 lesson that an unexercised platform branch silently rots.
     Windows,
 }
@@ -63,20 +63,20 @@ impl OpenerOs {
 }
 
 /// Build the argv that opens `target` (an absolute path, or a `file://`/allowed
-/// URI) with the system default handler on `os`. Pure — returns the vector; the
+/// URI) with the system default handler on `os`. Pure - returns the vector; the
 /// caller spawns it via [`super::interactive_paths::spawn_detached`].
 ///
 /// * Linux → `["xdg-open", target]`
 /// * macOS → `["open", target]`
 /// * Windows → `["explorer", target]`
 ///
-/// `target` is always a single inert argv element — a path/URI containing `;`,
+/// `target` is always a single inert argv element - a path/URI containing `;`,
 /// `$()`, backticks, or spaces is never shell-interpreted.
 ///
 /// Windows note: the launcher is `explorer.exe`, invoked with `target` as one
 /// argv element (`explorer <target>`). Explorer hands the argument to the shell
 /// open verb, launching a `file:`/`http`/`https`/`mailto` URI with its default
-/// handler and a filesystem path with its associated app — the same effect the
+/// handler and a filesystem path with its associated app - the same effect the
 /// old `cmd /C start "" <target>` had, WITHOUT a `cmd.exe` command line. That
 /// distinction is a security boundary: `cmd` splits its command line on `&`,
 /// `|`, `%VAR%` and other metacharacters, and Rust's argv quoting escapes none
@@ -98,13 +98,13 @@ pub(in crate::native) fn open_default_argv(os: OpenerOs, target: &str) -> Vec<St
 /// Build the argv that reveals `resolved` in the desktop file manager on `os`.
 /// Pure.
 ///
-/// * Linux → `["xdg-open", <parent dir of a file | the dir itself>]` — the file
+/// * Linux → `["xdg-open", <parent dir of a file | the dir itself>]` - the file
 ///   manager opens showing the containing folder (there is no portable
 ///   "select this file" verb in `xdg-open`).
-/// * macOS → `["open", "-R", <abs>]` — `open -R` takes the file ITSELF (not the
+/// * macOS → `["open", "-R", <abs>]` - `open -R` takes the file ITSELF (not the
 ///   parent) and reveals it selected in Finder; for a directory it selects the
 ///   directory in its parent.
-/// * Windows → `["explorer", "/select,", <abs with backslashes>]` — `explorer
+/// * Windows → `["explorer", "/select,", <abs with backslashes>]` - `explorer
 ///   /select,<path>` opens the containing folder with the entry selected (like
 ///   macOS `-R`, the entry ITSELF, not its parent). `/select,` is a SINGLE token
 ///   including its trailing comma, and Explorer only honors it when the path
@@ -210,9 +210,9 @@ pub(in crate::native) fn sniff_mime_path(abs: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     //! Pure argv-construction tests. EVERY case asserts BOTH the Linux and the
-    //! macOS argv on one host — that is the whole point of the enum parameter
+    //! macOS argv on one host - that is the whole point of the enum parameter
     //! (the macOS path that v0.4.0 never exercised is now covered on Linux CI).
-    //! Synthetic paths only — no real filesystem, no real home paths.
+    //! Synthetic paths only - no real filesystem, no real home paths.
     use super::*;
 
     fn file(abs: &str) -> Resolved {
@@ -258,7 +258,7 @@ mod tests {
             open_default_argv(OpenerOs::Macos, "/proj/a.png"),
             vec!["open".to_owned(), "/proj/a.png".to_owned()]
         );
-        // Windows: `explorer <target>` — no `cmd.exe` command line, so a URI
+        // Windows: `explorer <target>` - no `cmd.exe` command line, so a URI
         // with shell metacharacters can never be re-parsed as a command.
         assert_eq!(
             open_default_argv(OpenerOs::Windows, "C:\\proj\\a.png"),
@@ -283,7 +283,7 @@ mod tests {
         // chaining, `%VAR%` expansion) must never reach a `cmd.exe` command
         // line. The argv is `["explorer", <uri>]` with the URI kept as one
         // inert element, so there is no `cmd` program and no shell to split on
-        // `&` — `calc.exe` is never a separate token.
+        // `&` - `calc.exe` is never a separate token.
         let hostile = "http://x/&calc.exe&%USERPROFILE%";
         let argv = open_default_argv(OpenerOs::Windows, hostile);
         assert_eq!(argv, vec!["explorer".to_owned(), hostile.to_owned()]);
@@ -294,7 +294,7 @@ mod tests {
                 .any(|a| a.eq_ignore_ascii_case("cmd") || a.eq_ignore_ascii_case("cmd.exe")),
             "no cmd program may appear in the Windows open argv"
         );
-        // The whole hostile URI is a single argv element — nothing was split.
+        // The whole hostile URI is a single argv element - nothing was split.
         assert_eq!(argv.len(), 2);
         assert_eq!(argv[1], hostile);
     }

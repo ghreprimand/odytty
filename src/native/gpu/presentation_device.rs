@@ -121,9 +121,7 @@ pub(super) fn request_device(
     // surfaces, pipelines, buffers and atlases remain window-owned.
     let (device, queue) = create_device(adapter, features, limits.clone())?;
     let subscribers = Arc::new(Subscribers::default());
-    device.on_uncaptured_error(Arc::new(|error| {
-        tracing::error!("uncaptured GPU error: {error}")
-    }));
+    device.on_uncaptured_error(super::resources::uncaptured_error_handler());
     let callback = Arc::clone(&subscribers);
     device.set_device_lost_callback(move |reason, message| {
         tracing::error!("GPU device lost ({reason:?}): {message}");

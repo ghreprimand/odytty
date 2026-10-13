@@ -8,7 +8,7 @@
 
 use super::connection::{CONNECT_RETRY_INTERVAL, retry_connect};
 use super::*;
-use crate::automation::dispatch::{self, MAX_PER_DISPATCH};
+use crate::automation::dispatch;
 use crate::automation::protocol::{
     self, Action, ErrorCode, MAX_MESSAGE_BYTES, Reply, Request, VERSION,
 };
@@ -140,7 +140,9 @@ struct Harness {
     server: Option<Server>,
     stop_owner: Arc<AtomicBool>,
     owner: Option<JoinHandle<()>>,
-    cancelled: Arc<AtomicUsize>,
+    /// While set, the owner thread dispatches nothing, so a test can queue a
+    /// request and act before it is handled.
+    paused: Arc<AtomicBool>,
     wakes: Arc<AtomicUsize>,
     dispatched: Arc<AtomicUsize>,
 }
@@ -163,8 +165,8 @@ fn start_harness(structural_control: bool) -> Harness {
     let (wake_tx, wake_rx) = mpsc::sync_channel::<()>(64);
     let stop_owner = Arc::new(AtomicBool::new(false));
     let stop = stop_owner.clone();
-    let cancelled = Arc::new(AtomicUsize::new(0));
-    let cancel_count = cancelled.clone();
+    let paused = Arc::new(AtomicBool::new(false));
+    let pause = paused.clone();
     let wakes = Arc::new(AtomicUsize::new(0));
     let wake_count = wakes.clone();
     let dispatched = Arc::new(AtomicUsize::new(0));
@@ -172,6 +174,10 @@ fn start_harness(structural_control: bool) -> Harness {
     let owner = thread::spawn(move || {
         let queue = queue;
         while !stop.load(Ordering::Acquire) {
+            if pause.load(Ordering::Acquire) {
+                thread::sleep(Duration::from_millis(5));
+                continue;
+            }
             match wake_rx.recv_timeout(Duration::from_millis(20)) {
                 Ok(()) | Err(RecvTimeoutError::Timeout) => loop {
                     let handled = queue.dispatch(|request| {
@@ -197,14 +203,9 @@ fn start_harness(structural_control: bool) -> Harness {
                     if handled == 0 {
                         break;
                     }
-                    if handled == MAX_PER_DISPATCH {
-                        continue;
-                    }
                 },
                 Err(RecvTimeoutError::Disconnected) => break,
             }
-            // Observe cancel races for disconnect tests without reflecting paths.
-            let _ = cancel_count.load(Ordering::Relaxed);
         }
     });
     let server = Server::bind(&fixture.socket, submission, move || {
@@ -217,7 +218,7 @@ fn start_harness(structural_control: bool) -> Harness {
         server: Some(server),
         stop_owner,
         owner: Some(owner),
-        cancelled,
+        paused,
         wakes,
         dispatched,
     }
@@ -577,16 +578,23 @@ fn oversized_truncated_and_trailing_frames_fail_closed() {
 fn disconnect_before_reply_cancels_pending_work() {
     let harness = start_harness(false);
     let path = harness.fixture.socket.clone();
+    // Hold the owner so request 11 is still queued when its client goes away.
+    harness.paused.store(true, Ordering::Release);
     let mut stream = connect(&path, IO_TIMEOUT).expect("connect");
     protocol::write_request(&mut stream, &capabilities_request(11)).expect("request");
-    // Drop without half-closing first would be ideal; dropping the stream is EOF
-    // and must cancel via peer_finished rather than waiting for owner apply.
+    // Dropping the stream is EOF and must cancel via peer_finished rather than
+    // waiting for the owner to apply it.
     drop(stream);
     thread::sleep(POLL_INTERVAL * 10);
-    // A subsequent clean request still works: the worker joined and did not wedged.
+    harness.paused.store(false, Ordering::Release);
+    // A subsequent clean request still works: the worker joined and did not wedge.
     let response = request(&path, &capabilities_request(12)).expect("after disconnect");
     assert_eq!(response.request_id, 12);
-    let _ = harness.cancelled.load(Ordering::Relaxed);
+    assert_eq!(
+        harness.dispatched.load(Ordering::Acquire),
+        1,
+        "only the clean request is dispatched; the abandoned one was cancelled"
+    );
 }
 
 #[test]
@@ -838,12 +846,12 @@ fn thirty_three_requests_are_bounded_by_accept_or_busy_rate_limits() {
     let started = Instant::now();
     let mut successes = 0usize;
     let mut busy = 0usize;
-    let mut third_elapsed = Duration::ZERO;
+    let mut last_elapsed = Duration::ZERO;
     for id in 0..33u64 {
         let request_started = Instant::now();
         let response = request(&path, &capabilities_request(id)).expect("rate probe");
         if id == 32 {
-            third_elapsed = request_started.elapsed();
+            last_elapsed = request_started.elapsed();
         }
         match response.reply {
             Reply::Capabilities { .. } => successes += 1,
@@ -856,13 +864,9 @@ fn thirty_three_requests_are_bounded_by_accept_or_busy_rate_limits() {
     // connection transport, so Busy may be absent while the 33rd waits.
     assert!(
         busy >= 1
-            || third_elapsed >= Duration::from_millis(800)
+            || last_elapsed >= Duration::from_millis(800)
             || elapsed >= Duration::from_secs(1),
-        "33 requests must hit Busy or the accept-rate delay; busy={busy} successes={successes} third={third_elapsed:?} total={elapsed:?}"
-    );
-    assert!(
-        successes <= 33,
-        "must not invent extra successes; got {successes}"
+        "33 requests must hit Busy or the accept-rate delay; busy={busy} successes={successes} last={last_elapsed:?} total={elapsed:?}"
     );
 }
 
@@ -956,13 +960,8 @@ fn symlinked_parent_binds_on_the_resolved_directory_only() {
 }
 
 #[test]
-fn peer_uid_mismatch_is_unsupported_without_second_account() {
-    // Cross-user SO_PEERCRED refusal needs a second uid (root/chown). Same-user
-    // owner checks are covered elsewhere; record the gap explicitly.
-    eprintln!(
-        "skip peer-UID mismatch: no second account seam without root/chown (unsupported here)"
-    );
-}
+#[ignore = "cross-user SO_PEERCRED refusal needs a second account (root or chown); same-user owner checks are covered elsewhere"]
+fn peer_uid_mismatch_is_unsupported_without_second_account() {}
 
 #[test]
 fn stale_identity_error_code_roundtrips_over_the_wire() {

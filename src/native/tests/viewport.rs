@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Viewport scroll/indicator, resize & scale debounce, and wheel/scroll-key tests. (M6 mechanical split from native/tests.rs).
+//! Viewport scroll/indicator, resize & scale debounce, and wheel/scroll-key tests.
 
 use super::*;
 
@@ -250,10 +250,7 @@ fn scrollbar_drag_zero_travel_is_deterministic_not_a_panic() {
 
 #[test]
 fn solid_overlay_quads_append_after_cell_geometry() {
-    let Ok(font) = text::load_font() else {
-        eprintln!("skipping: no system font available");
-        return;
-    };
+    let font = text::load_font().expect("the bundled text face must load");
     let atlas = GlyphAtlas::build(&font, 24.0);
     let snapshot = snapshot(&["  "], 2);
     let overlay = SolidQuad {

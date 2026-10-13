@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Adversarial coverage for combining-mark *storage* - handle table or
-//! per-line sidecar alike.
+//! Marks follow their owning cell through edits, scrolling, restore and reflow.
 //!
-//! Pins **today's** observable grapheme behavior at the seams any denser
-//! representation has to keep: `Cell` is `Copy` (a later mutation of one
-//! copy must not change another), blank/overwrite/ICH/DCH, scroll, wrap,
-//! scrollback eviction, alternate-screen swap, session-host round-trip, and
-//! reflow. Distinct live clusters stay fully readable - there is no
-//! degradation path to pin. `cell_equivalence.rs` is the acceptance suite
-//! and is not touched here.
+//! Adversarial coverage for combining-mark storage, whatever its representation:
+//! `Cell` is `Copy` (a later mutation of one copy must not change another),
+//! blank/overwrite/ICH/DCH, scroll, wrap, scrollback eviction, alternate-screen
+//! swap, session-host round-trip and reflow. Distinct live clusters stay fully
+//! readable. `cell_equivalence.rs` is the acceptance suite.
 //!
 //! Windows: no platform surface. Core storage and CSI only.
 
@@ -70,9 +67,8 @@ fn visible_graphemes(terminal: &Terminal) -> Vec<String> {
         .collect()
 }
 
-/// `Cell` is `Copy`. Mutating the original after a copy must not change the
-/// copy's marks. A side table that shares a handle without copying the payload
-/// would make the copy observe the later mark - wrong glyphs, not missing ones.
+/// Copied cells retain independent marks: mutating the original after a copy
+/// does not change the copy.
 #[test]
 fn copied_cell_does_not_alias_later_combining_on_the_original() {
     let mut cell = Cell::new('e', Attrs::default());
@@ -439,9 +435,8 @@ fn scrollback_eviction_does_not_reattach_evicted_marks_to_survivors() {
     }
 }
 
-/// `push_row` merge must re-key continuation-row marks by the append offset.
-/// An off-by-N sidecar key leaves diacritics on a neighboring base: the
-/// graphemes are all still "present", but on the wrong character.
+/// Merged continuation-row marks use the append offset, so no diacritic lands on
+/// a neighboring base.
 #[test]
 fn push_row_merge_keeps_continuation_marks_on_their_own_base() {
     let lead = cluster('L', 4);

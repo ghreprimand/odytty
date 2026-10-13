@@ -675,20 +675,13 @@ fn resize_rejects_zero_dimensions() {
 /// for tests that drive resize/input/close directly and read the single frame
 /// the host receives.
 fn attached_session_over(socket: &std::path::Path, id: &str) -> Session {
-    let (client, _reader, terminal) =
-        AttachClient::connect_with(socket, id, test_caps(), test_deadline())
-            .expect("attach connects");
-    let terminal = Arc::new(Mutex::new(terminal));
-    let client = Arc::new(Mutex::new(client));
-    let writer =
-        attach_input_writer(client.clone(), SessionToken(0)).expect("writer thread spawns");
-    Session::new_attached(SessionToken(0), terminal, writer, client, id, None)
+    attached_session_token(socket, id, 0)
 }
 
 /// Like [`attached_session_over`] but with an explicit token, so several
 /// attached sessions can coexist in one [`WorkspaceSet`] without a token collision
-/// (the test-only `push` does not mint fresh tokens). Used by the Phase 14
-/// dedup / replace tests.
+/// (the test-only `push` does not mint fresh tokens). Used by the dedup and
+/// replace tests.
 fn attached_session_token(socket: &std::path::Path, id: &str, token: u64) -> Session {
     let (client, _reader, terminal) =
         AttachClient::connect_with(socket, id, test_caps(), test_deadline())

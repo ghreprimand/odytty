@@ -68,9 +68,12 @@ impl GlyphAtlas {
     }
 
     /// Bind dynamic growth to the byte budget and device texture height.
-    /// Initial device bounds are applied by `build_with_dimension_limit`.
-    /// Existing base glyphs stay resident; new glyphs use the fallback once
-    /// another complete atlas row would cross `max_dimension`.
+    /// Only `build_with_dimension_limit` calls this, with the limit its
+    /// `initial_geometry_fits` check already fitted the fixed atlas width and
+    /// base rows to, so no separate width check is needed here (unlike the
+    /// color atlas, whose limit can change later). Existing base glyphs stay
+    /// resident; new glyphs use the fallback once another complete atlas row
+    /// would cross `max_dimension`.
     pub fn set_texture_dimension_limit(&mut self, max_dimension: u32) {
         self.max_texture_dimension = max_dimension;
         let byte_rows = MAX_ATLAS_BYTES
@@ -88,18 +91,18 @@ impl GlyphAtlas {
             .max(self.next_slot);
     }
 
-    /// Install (or clear) the runtime per-codepoint glyph fallback resolver
-    /// (RV6 Linux backfill). When `Some`, a printable spacing codepoint that
-    /// misses the static [`Self::fallback_chain`] triggers a single, cached call
-    /// to the resolver (the native layer wires this to a `fc-match :charset`
-    /// query -- see [`crate::text::runtime_resolve_symbol_font`]). `None` (the
-    /// default, and the only state on macOS/non-Unix) disables the runtime
-    /// query, so the glyph path stays byte-identical to the pre-feature
-    /// renderer; the static chain still resolves exactly as before either way.
-    /// Switching the resolver clears the per-codepoint cache so a stale negative
-    /// result never pins a codepoint to tofu after the host font set changes.
-    /// Like the fallback/geometric switches, the native layer reinstalls it
-    /// after every atlas rebuild.
+    /// Install (or clear) the runtime per-codepoint glyph fallback resolver.
+    /// When `Some`, a printable spacing codepoint that misses the static
+    /// [`Self::fallback_chain`] triggers a single, cached call to the resolver
+    /// (the native layer wires this to a `fc-match :charset` query -- see
+    /// [`crate::text::runtime_resolve_symbol_font`]). `None` (the default, and
+    /// the only state on macOS/non-Unix) disables the runtime query; the static
+    /// chain resolves the same either way.
+    /// Switching the resolver clears the per-codepoint cache. A codepoint that
+    /// `ensure` has already placed (or pinned to the fallback slot) stays there
+    /// until the atlas is rebuilt, so a changed host font set takes effect for
+    /// new codepoints and after a rebuild. The native layer reinstalls the
+    /// resolver after every atlas rebuild.
     pub fn set_runtime_symbol_resolver(&mut self, resolver: Option<RuntimeSymbolResolver>) {
         self.runtime_symbol_resolver = resolver;
         self.runtime_symbol_cache.clear();

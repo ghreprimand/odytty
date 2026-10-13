@@ -52,17 +52,25 @@ import datetime as _datetime
 import hashlib
 import json
 import os
-import stat
 import re
 import shutil
+import stat
 import sys
 import tempfile
-import tomllib
 import unittest
-from unittest import mock
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from unittest import mock
+
+# `tomllib` arrived in Python 3.11. The check sits before its import so an older
+# interpreter gets this message and not a ModuleNotFoundError traceback.
+MIN_PYTHON = (3, 11)
+if sys.version_info < MIN_PYTHON:
+    sys.exit(f"error: Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer is required")
+
+import tomllib  # noqa: E402 - deliberately after the interpreter version check
+
 
 def write_utf8_lf(path: Path, text: str, *, append: bool = False) -> None:
     """Write UTF-8 bytes without platform newline translation, including on Windows."""
@@ -72,7 +80,6 @@ def write_utf8_lf(path: Path, text: str, *, append: bool = False) -> None:
 
 CORPUS_VERSION = "1.0.0"
 SCHEMA_VERSION = "1.0.0"
-MIN_PYTHON = (3, 11)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CORPUS_DIR = REPO_ROOT / "tests" / "fixtures" / "compatibility"
@@ -142,6 +149,17 @@ CLASS_FIELDS = {
 CASE_ID_RE = re.compile(r"^(vttest|real_app|differential|parser|fuzz)\.[a-z0-9]+(-[a-z0-9]+)*$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 HEX_RE = re.compile(r"^(?:[0-9a-f]{2})*$")
+# A candidate file stem used on the command line: no separators, no leading dot.
+CANDIDATE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*$")
+
+
+def _is_ascii_number(text: str) -> bool:
+    """Whether `text` is one or more ASCII digits.
+
+    `str.isdigit` also accepts digits such as superscript two, which `int` then
+    rejects, and `int` accepts full-width digits that no case file should use.
+    """
+    return text.isascii() and text.isdigit()
 PUBLIC_REF_RE = re.compile(r"^(issue|pull):[0-9]+$|^https://\S+$")
 
 # --- Privacy guards ---------------------------------------------------------
@@ -399,24 +417,24 @@ def parse_case_file(path: Path) -> tuple[CaseFile | None, list[str]]:
                 case_id = value
             elif key == "geometry":
                 parts = value.split()
-                if len(parts) != 2 or not all(p.isdigit() for p in parts):
+                if len(parts) != 2 or not all(_is_ascii_number(p) for p in parts):
                     errors.append(f"{label}: geometry must be `<columns> <rows>`")
                     continue
                 columns, rows = int(parts[0]), int(parts[1])
             elif key == "chunks":
                 parts = value.split()
-                if not parts or not all(p.isdigit() and int(p) > 0 for p in parts):
+                if not parts or not all(_is_ascii_number(p) and int(p) > 0 for p in parts):
                     errors.append(f"{label}: chunks must be one or more positive integers")
                     continue
                 chunks = [int(p) for p in parts]
             elif key == "expect-cursor":
                 parts = value.split()
-                if len(parts) != 2 or not all(p.isdigit() for p in parts):
+                if len(parts) != 2 or not all(_is_ascii_number(p) for p in parts):
                     errors.append(f"{label}: expect-cursor must be `<row> <column>` (0-indexed)")
                     continue
                 expectations.append(Expectation("cursor", (int(parts[0]), int(parts[1]))))
             elif key == "expect-scrollback-len":
-                if not value.isdigit():
+                if not _is_ascii_number(value):
                     errors.append(f"{label}: expect-scrollback-len must be a non-negative integer")
                     continue
                 expectations.append(Expectation("scrollback_len", (int(value),)))
@@ -443,7 +461,7 @@ def parse_case_file(path: Path) -> tuple[CaseFile | None, list[str]]:
                 if text_value is not None:
                     expectations.append(Expectation("cwd_windows", (text_value,)))
             elif key == "expect-line":
-                match_line = re.match(r"^(\d+) =(?: (.*))?$", value)
+                match_line = re.match(r"^([0-9]+) =(?: (.*))?$", value)
                 if match_line is None:
                     errors.append(
                         f"{label}: expect-line must be `<row> = <text>` (0-indexed row); "
@@ -1131,6 +1149,9 @@ def cmd_accept(paths: Paths, name: str) -> int:
 
 
 def _move_candidate(paths: Paths, name: str, target: Path, reason: str, verb: str) -> int:
+    if not CANDIDATE_NAME_RE.match(name):
+        print(f"error: {name!r} is not a candidate name (letters, digits, '-', '_' and '.')", file=sys.stderr)
+        return 2
     target.mkdir(parents=True, exist_ok=True)
     pair = [paths.incoming / f"{name}.vtseq", paths.incoming / f"{name}.toml"]
     if not pair[0].is_file():
@@ -1370,6 +1391,44 @@ class SelfTest(unittest.TestCase):
         self.write_manifest_header()
         self.write_case("parser.basic", ["abcde"], directives="# chunks: 2 2\n# expect-cursor: 0 0")
         self.assertErrorsContaining("replay must be exact")
+
+    def test_non_ascii_digits_are_validation_errors_not_exceptions(self) -> None:
+        self.write_manifest_header()
+        for index, directive in enumerate(
+            (
+                "# geometry: \u00b2 4\n# expect-cursor: 0 0",
+                "# geometry: \uff18\uff10 4\n# expect-cursor: 0 0",
+                "# chunks: \u00b3\n# expect-cursor: 0 0",
+                "# expect-cursor: \u00b2 0",
+                "# expect-scrollback-len: \u00b2\n# expect-cursor: 0 0",
+                "# expect-line: \uff10 = text\n# expect-cursor: 0 0",
+            )
+        ):
+            with self.subTest(directive=directive):
+                case_id = f"parser.digits{index}"
+                self.write_case(case_id, ["text"], directives=directive)
+        errors = self.errors()
+        for index in range(6):
+            self.assertTrue(
+                any(f"digits{index}" in error for error in errors),
+                f"digits{index} produced no validation error: {errors}",
+            )
+
+    def test_candidate_names_with_separators_are_refused(self) -> None:
+        # A real file one directory above `incoming` is what a `../` name would
+        # reach if the name were used as given.
+        outside = self.paths.incoming.parent / "outside.vtseq"
+        write_utf8_lf(outside, "not a candidate\n")
+        self.assertEqual(
+            _move_candidate(self.paths, "../outside", self.paths.rejected, "reason", "rejected"), 2
+        )
+        self.assertTrue(outside.is_file(), "a file outside incoming was moved")
+        for name in ("../x", "a/b", "..", ".hidden", "x\\y", ""):
+            with self.subTest(name=name):
+                self.assertEqual(
+                    _move_candidate(self.paths, name, self.paths.rejected, "reason", "rejected"), 2
+                )
+        self.assertEqual(list(self.paths.rejected.iterdir()), [])
 
     def test_expect_cursor_outside_geometry_is_an_error(self) -> None:
         self.write_manifest_header()

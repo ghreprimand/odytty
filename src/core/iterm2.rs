@@ -3,8 +3,8 @@
 //!
 //! The iTerm2 inline-image extension rides in the OSC 1337 namespace rather
 //! than in APC (Kitty) or DCS (Sixel). Its payload is one base64 blob of an
-//! ordinary image *file* — the terminal decodes the container itself instead
-//! of receiving raw pixels — followed by a small set of `key=value` arguments
+//! ordinary image *file* - the terminal decodes the container itself instead
+//! of receiving raw pixels - followed by a small set of `key=value` arguments
 //! that describe the requested on-screen size.
 //!
 //! # Wire form
@@ -21,19 +21,11 @@
 //!
 //! # Size ceiling (parser-limit discipline)
 //!
-//! The payload lives inside the OSC accumulator, so a single OSC — arguments
-//! and base64 together — is bounded by the parser's `MAX_OSC_RAW` (128 KiB).
-//! Over-cap payload bytes are *dropped* by the accumulator and the OSC still
-//! dispatches with its in-cap prefix, which for an image would mean handing a
-//! silently truncated file to the decoder. That is refused: when the
-//! accumulator is at its cap the whole command is rejected, no image is
-//! stored, and nothing is drawn ([`payload_truncated`]). This mirrors the APC
-//! rule that a corrupt partial image is worse than none.
-//!
-//! The practical ceiling is therefore ~96 KiB of *encoded file bytes* per
-//! image (128 KiB of base64 minus the argument text). Larger images must use
-//! the Kitty protocol, whose APC buffer is 1 MiB and which supports chunked
-//! transmission. `docs/graphics.md` states this ceiling.
+//! An OSC `File=` command that reached the parser's `MAX_OSC_RAW` (128 KiB)
+//! cap is rejected rather than decoding a truncated prefix
+//! ([`payload_truncated`]). The ceiling is therefore roughly 96 KiB of file
+//! bytes after base64; larger images need Kitty transmission.
+//! `docs/graphics.md` states this ceiling.
 //!
 //! ## Sibling payload paths
 //!
@@ -51,7 +43,7 @@
 //!
 //! `inline=0` in iTerm2 means "download this file to disk". OdyTTY never
 //! writes files on behalf of a terminal escape sequence, so a non-inline
-//! `File=` command is parsed and dropped — no file is created, no placement is
+//! `File=` command is parsed and dropped - no file is created, no placement is
 //! made. `MultipartFile=`/`FilePart=`/`FileEnd=` (the chunked download form)
 //! are likewise unhandled and fall through to the namespace's
 //! consume-without-state path.
@@ -311,7 +303,7 @@ fn natural_cells(px: u32, cell_px: u32) -> usize {
 /// a single specified axis derives the other, and two specified axes define a
 /// box the image is fitted *inside*. With it disabled, the specified values
 /// are used as given and the image stretches. All arithmetic is 64-bit and
-/// saturating — every input here is attacker-chosen.
+/// saturating - every input here is attacker-chosen.
 fn extent_in_cells(
     args: &FileArgs,
     image_px: (u32, u32),

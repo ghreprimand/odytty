@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! The security spine of the "Open With..." feature (C3b): turning a `.desktop`
+//! The security spine of the "Open With..." feature: turning a `.desktop`
 //! `Exec=` string into an argv vector, **never** a shell command.
 //!
 //! A `.desktop` `Exec` value is NOT a shell command line. It is a token list
@@ -7,8 +7,8 @@
 //! quoting: no `$VAR`, no globbing, no command substitution, no `~`) plus a
 //! fixed set of `%`-field codes. [`exec_to_argv`] tokenizes per those rules,
 //! keeps track of which tokens contain quoted text, and substitutes the
-//! resolved path as a single argv element, the way `editor_argv` (the C3
-//! editor matrix) splits its template before substituting so a path with
+//! resolved path as a single argv element, the way `editor_argv` splits its
+//! template before substituting so a path with
 //! spaces stays one element. The product flows into the shared
 //! `spawn_detached` (argv-only, null stdio), so the path is never interpolated
 //! into a shell string by OdyTTY.

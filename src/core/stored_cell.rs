@@ -17,14 +17,9 @@
 //!
 //! # What this deliberately does not do
 //!
-//! `Cell` stays self-describing and `Copy`. Padding provenance uses a spare
-//! stored flag bit without growing either cell type. Nothing outside this module's
-//! callers sees `StoredCell`: the ring converts on the way in and on the way
-//! out, so [`super::types::Cell::combining`] and
-//! [`super::types::Cell::grapheme`] keep their exact behavior for every reader,
-//! including the ones that hold a `Cell` with no terminal in scope (the
-//! renderer iterates `Snapshot::cells` after the core has been left behind - a
-//! cell there must still describe itself).
+//! Public `Cell`s remain self-contained and `Copy`; `StoredCell` is private to
+//! scrollback, which converts on the way in and out. Padding provenance uses a
+//! spare stored flag bit without growing either cell type.
 //!
 //! No `Attrs` field is narrowed. Colour, every SGR bit, and the hyperlink id are
 //! carried whole, because the saving here must not be bought with cell fidelity.
@@ -59,10 +54,7 @@ pub(in crate::core) struct StoredCell {
     flags: u8,
 }
 
-/// The whole point of this type is its size, so the compiler asserts it rather
-/// than a comment claiming it. `Cell` is pinned alongside because the saving is
-/// the *difference*: if `Cell` shrank and this did not, the trade would change
-/// and should be re-decided rather than silently kept.
+/// Compile-time pins preserve the storage-size tradeoff between the two types.
 const _: () = assert!(std::mem::size_of::<StoredCell>() == 28);
 const _: () = assert!(std::mem::size_of::<Cell>() == 92);
 
@@ -90,11 +82,8 @@ impl StoredCell {
 
     /// Rebuild the full `Cell`, re-attaching `marks`.
     ///
-    /// Marks are re-attached through [`Cell::push_combining`] rather than by
-    /// writing the array directly, so the `MAX_COMBINING` bound and its
-    /// bounded capacity are the same code that enforced it on the
-    /// way in. A second copy of that rule here is exactly how the two would
-    /// drift apart.
+    /// Marks are re-attached through [`Cell::push_combining`] to share its
+    /// `MAX_COMBINING` bound.
     #[inline]
     pub(in crate::core) fn hydrate(self, marks: &[char]) -> Cell {
         let mut cell = Cell::from_parts(
@@ -135,16 +124,8 @@ impl StoredCell {
 /// the owning logical line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct MarkRun {
-    /// Flat-cell index within the logical line.
-    ///
-    /// `usize`, deliberately, and not a narrower integer. A soft-wrapped
-    /// logical line is not bounded by the terminal width - it is bounded by
-    /// `MAX_LOGICAL_LINE_CELLS`, which is 2^20 - so a `u16` key would truncate
-    /// on ordinary output and silently attach marks to the wrong base
-    /// character. `usize` is the type flat indices already have everywhere else
-    /// in the store (`ButtonSpan::start_col` included), so there is no
-    /// conversion on this path that *could* truncate. This table is
-    /// per-marked-cell, not per-cell.
+    /// Flat-cell index within the logical line. `usize` because logical lines
+    /// can exceed 65,535 cells (up to `MAX_LOGICAL_LINE_CELLS`).
     index: usize,
     marks: [char; MAX_COMBINING],
     len: u8,
@@ -294,11 +275,8 @@ pub(in crate::core) fn marks_bytes(capacity: usize) -> u64 {
     (capacity as u64).saturating_mul(std::mem::size_of::<MarkRun>() as u64)
 }
 
-/// Heap bytes a stored-cell allocation of `capacity` cells occupies.
-///
-/// Deliberately separate from [`super::scrollback::cells_bytes`], which counts
-/// live-grid rows: the grid holds `Cell` and the ring holds [`StoredCell`], so
-/// one shared function would now silently misattribute one of them.
+/// Heap bytes a stored-cell allocation of `capacity` cells occupies. Live-grid
+/// rows of `Cell` are counted separately by [`super::scrollback::cells_bytes`].
 pub(in crate::core) fn stored_cells_bytes(capacity: usize) -> u64 {
     (capacity as u64).saturating_mul(std::mem::size_of::<StoredCell>() as u64)
 }
@@ -306,14 +284,8 @@ pub(in crate::core) fn stored_cells_bytes(capacity: usize) -> u64 {
 /// Append one physical row's cells to a logical line's storage, recording any
 /// combining marks in `marks` re-keyed by the flat index the append starts at.
 ///
-/// This is the **single re-keying site** in the store. Every path that builds
-/// or extends a logical line from physical rows routes through it, so the
-/// offset arithmetic exists once instead of once per caller. That matters more
-/// than it looks: an off-by-N here does not lose marks, it moves them onto the
-/// wrong base character - which reads as wrong glyphs rather than missing ones,
-/// and no "did we keep every mark" assertion would catch it. Pushing the cell
-/// and its marks in the same loop over the same index is what makes the two
-/// impossible to shift independently.
+/// The single re-keying site: every path that builds or extends a logical line
+/// from physical rows appends cells and marks here with the same flat offset.
 pub(in crate::core) fn adopt_row_cells(
     cells: &mut Vec<StoredCell>,
     marks: &mut MarkTable,

@@ -7,11 +7,8 @@
 //! cell grid it should be split across, but places nothing. It then prints
 //! ordinary text - the placeholder character [`PLACEHOLDER_CHAR`] (U+10EEEE)
 //! carrying combining diacritics - into the cells where the image tiles should
-//! appear. Because the position lives in the text itself, the image scrolls,
-//! reflows, is overwritten, and is erased exactly as the text is, with no
-//! placement bookkeeping. That is the whole point: applications that know
-//! nothing about the graphics protocol (tmux, vim, and the TUI toolkits layered
-//! on them) move the image correctly for free.
+//! appear. Text ownership supplies scrolling, reflow, overwrite, and erase;
+//! resolution only derives viewport placements from the cells.
 //!
 //! Each placeholder cell encodes:
 //!

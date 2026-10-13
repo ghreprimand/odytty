@@ -6,7 +6,7 @@
 //! parsed [`FontHandle`]. Startup never depends on host font installation:
 //! an unusable override falls back to a bundled face here.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::FontHandle;
 use super::glyph_geom::FontParseError;
@@ -20,17 +20,11 @@ use super::discovery::normalize_family;
 /// (its `.otf`/CFF outlines rasterize cleanly through `skrifa`); JetBrains
 /// Mono is also bundled and remains selectable via `font_family`.
 pub const BUNDLED_FONT_FAMILY: &str = "Victor Mono";
-/// Version of the bundled **default** family (Victor Mono).
-pub const BUNDLED_FONT_VERSION: &str = "1.560";
 /// Bundled but non-default family: JetBrains Mono is still shipped so existing
 /// configs keep working and it stays selectable in the picker.
 pub const JETBRAINS_FONT_FAMILY: &str = "JetBrains Mono";
-/// Version of the bundled JetBrains Mono faces.
-pub const JETBRAINS_FONT_VERSION: &str = "2.304";
 pub const BUNDLED_SYMBOL_FONT_FAMILY: &str = "Symbols Nerd Font Mono";
 pub const BUNDLED_SYMBOL_FONT_FILENAME: &str = "SymbolsNerdFontMono-Regular.ttf";
-pub const BUNDLED_SYMBOL_FONT_RELATIVE_PATH: &str =
-    "assets/fonts/nerd-fonts-symbols/SymbolsNerdFontMono-Regular.ttf";
 
 /// Bundled **legacy v2** symbols face (Nerd Fonts 2.3.3). Shipped alongside the
 /// v3 face above so the glyph pack covers *both* codepoint eras out of the box:
@@ -39,8 +33,6 @@ pub const BUNDLED_SYMBOL_FONT_RELATIVE_PATH: &str =
 /// still emit the v2 codepoints (e.g. the archway `U+F557` and python `U+F81F`).
 /// The v2 face fills exactly those gaps in the symbol-fallback chain.
 pub const BUNDLED_SYMBOL_FONT_V2_FILENAME: &str = "SymbolsNerdFontMono-v2-Regular.ttf";
-pub const BUNDLED_SYMBOL_FONT_V2_RELATIVE_PATH: &str =
-    "assets/fonts/nerd-fonts-symbols-v2/SymbolsNerdFontMono-v2-Regular.ttf";
 
 #[cfg(feature = "bundled-symbols-font")]
 pub(super) const BUNDLED_SYMBOL_FONT_BYTES: &[u8] =
@@ -301,34 +293,19 @@ pub enum TextError {
     },
 }
 
-/// Common Linux monospace font locations, probed in order.
-pub(super) fn font_candidates() -> Vec<PathBuf> {
-    [
-        "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
-        "/usr/share/fonts/liberation/LiberationMono-Regular.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-        "/usr/share/fonts/noto/NotoSansMono-Regular.ttf",
-    ]
-    .iter()
-    .map(PathBuf::from)
-    .collect()
-}
-
-/// Load the bundled default font, falling back to host candidates if needed.
+/// Load the bundled default font.
 pub fn load_font() -> Result<FontHandle, TextError> {
     load_font_with_path(None)
 }
 
-/// Load a monospace font: honor an explicit settings path, then try the bundled
-/// default and the host candidate list.
+/// Load a monospace font: honor an explicit settings path, then the bundled
+/// default.
 ///
 /// **Resilient by design:** a bad explicit `font_path` (missing,
 /// unreadable, or unparseable) must never abort startup. The explicit path is
 /// tried first; on failure a one-line stderr notice is emitted and loading
-/// falls back to the bundled default, then the host candidate list. Only when
-/// nothing loads does this return [`TextError::NoFont`]. The settings layer resolves
+/// falls back to the compiled-in bundled default, so [`TextError::NoFont`] is
+/// returned only if those bytes fail to parse. The settings layer resolves
 /// `ODYTTY_FONT_FAMILY` to a validated path *before* this point, so by the time
 /// a path reaches here it has usually already been monospace-checked; this
 /// fallback is the final safety net for `ODYTTY_FONT` direct paths.
@@ -342,18 +319,7 @@ pub fn load_font_with_path(font_path: Option<&Path>) -> Result<FontHandle, TextE
         }
     }
 
-    if let Ok(font) = load_bundled_font() {
-        return Ok(font);
-    }
-
-    for candidate in font_candidates() {
-        if candidate.exists()
-            && let Ok(font) = load_font_at(&candidate)
-        {
-            return Ok(font);
-        }
-    }
-    Err(TextError::NoFont)
+    load_bundled_font()
 }
 
 /// Load and parse a font from an explicit path.
@@ -502,7 +468,7 @@ pub(super) fn bundled_face_bytes(
 }
 
 /// Load the bundled symbols-only Nerd Font face (v3) when the asset feature is
-/// enabled. Default builds enable it so the RV6 PUA-icon fallback works without
+/// enabled. Default builds enable it so the PUA-icon fallback works without
 /// host Nerd Font installation; `--no-default-features` leaves this as `None`.
 pub fn resolve_bundled_symbol_font() -> Option<FontHandle> {
     #[cfg(feature = "bundled-symbols-font")]

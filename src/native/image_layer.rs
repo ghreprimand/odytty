@@ -356,7 +356,7 @@ pub(in crate::native) struct PaneImageUpload {
     pub(in crate::native) upload: ImageUpload,
 }
 
-/// The C4 viewer's free-floating overlay image: one texture + bind group and a
+/// The image viewer's free-floating overlay image: one texture + bind group and a
 /// 6-vertex fit-quad, drawn as the final scene step over everything (including
 /// the overlay panel/scrim). `None` ⇒ no overlay quads ⇒ the frame is
 /// byte-identical, which is the presentation-only invariant.
@@ -372,7 +372,7 @@ struct OverlayImage {
 
 pub(super) struct ImageLayer {
     pipeline: wgpu::RenderPipeline,
-    /// Overlay (C4 viewer) pipeline in the SWAPCHAIN/surface format. The viewer
+    /// Overlay (image viewer) pipeline in the SWAPCHAIN/surface format. The viewer
     /// is composited AFTER the CRT/bloom post pass directly onto the swapchain,
     /// so its pipeline targets the surface format - distinct from `pipeline`
     /// (placements), which draws inside the scene pass in the scene-target
@@ -386,7 +386,7 @@ pub(super) struct ImageLayer {
     /// NEAREST sampler for terminal-graphics placements. Kept Nearest so
     /// placement rendering (and its byte-identity) is unchanged.
     sampler: wgpu::Sampler,
-    /// LINEAR sampler used ONLY by the C4 viewer overlay, so a scaled-down photo
+    /// LINEAR sampler used ONLY by the image viewer overlay, so a scaled-down photo
     /// is smoothly interpolated rather than stair-stepped. The layout's binding 2
     /// is `Filtering`, so a linear sampler is layout-compatible.
     overlay_sampler: wgpu::Sampler,
@@ -424,7 +424,7 @@ pub(super) struct ImageLayer {
     /// after a scissored per-pane image draw, so following glyph draws are not
     /// clipped to the last pane's rect.
     pane_viewport: [u32; 2],
-    /// The C4 viewer overlay image, if any (drawn last, over the panel/scrim).
+    /// The image viewer overlay image, if any (drawn last, over the panel/scrim).
     overlay_image: Option<OverlayImage>,
     /// A fixed 6-vertex buffer holding the overlay image's fit-quad. Allocated
     /// once; rewritten whenever the overlay image / viewport changes.
@@ -484,7 +484,7 @@ impl ImageLayer {
             mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
-        // Linear sampler for the C4 viewer overlay only. The bind-group layout's
+        // Linear sampler for the image viewer overlay only. The bind-group layout's
         // sampler binding (binding 2) is `SamplerBindingType::Filtering`, which
         // accepts a linear (filtering) sampler - no layout change required.
         let overlay_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -587,7 +587,7 @@ impl ImageLayer {
             .saturating_mul(vertex)
     }
 
-    /// Set (or clear) the C4 viewer's overlay image. `image` is
+    /// Set (or clear) the image viewer's overlay image. `image` is
     /// `(rgba, width, height)` of a decoded, tightly-packed RGBA8 buffer;
     /// `None` clears the overlay so the frame returns to byte-identical. The
     /// fit-quad is recomputed for the current `viewport_w`×`viewport_h` so a
@@ -655,7 +655,7 @@ impl ImageLayer {
     }
 
     /// The centered fit-rect (viewport PIXELS, `[x0,y0,x1,y1]`) of the current
-    /// C4 viewer image, or `None` when no overlay image is set. This is the exact
+    /// image viewer image, or `None` when no overlay image is set. This is the exact
     /// rect the image is drawn over, so a click-outside hit-test is
     /// pixel-accurate. `None` after clear (no image / zero-size / under-length
     /// buffer all leave `overlay_image == None`).
@@ -663,7 +663,7 @@ impl ImageLayer {
         self.overlay_image.as_ref().map(|img| img.fit_rect)
     }
 
-    /// Whether a C4 overlay image is currently set. The render loop gates the
+    /// Whether an image-viewer overlay image is currently set. The render loop gates the
     /// entire post-post overlay pass on this: `false` ⇒ no pass is encoded ⇒ the
     /// frame is byte-identical to the no-viewer path (presentation-only
     /// invariant). Also used by tests to reason about that invariant.
@@ -671,7 +671,7 @@ impl ImageLayer {
         self.overlay_image.is_some()
     }
 
-    /// Draw the C4 viewer overlay, if any, onto the SWAPCHAIN - called from a
+    /// Draw the image viewer overlay, if any, onto the SWAPCHAIN - called from a
     /// dedicated pass opened AFTER the CRT/bloom post pass, so the photo is
     /// never touched by effects. Draws a full-viewport semitransparent scrim,
     /// then the image over its fit rectangle in surface format. Transparent
@@ -1166,7 +1166,7 @@ fn create_vertex_buffer(device: &wgpu::Device, capacity_bytes: u64) -> wgpu::Buf
 }
 
 /// Create an RGBA8 texture + its bind group from tightly-packed pixels. Shared
-/// by the terminal-placement upload ([`upload_image`]) and the C4 viewer
+/// by the terminal-placement upload ([`upload_image`]) and the image viewer
 /// overlay ([`ImageLayer::set_overlay_image`]) so both go through one
 /// texture-creation path with the same format/sampler/viewport binding.
 #[allow(clippy::too_many_arguments)]
@@ -1273,7 +1273,7 @@ fn upload_image(
 }
 
 /// Compute the centered, aspect-preserved pixel rect for an overlay image of
-/// `img_w`×`img_h` inside a `vp_w`×`vp_h` viewport (C4 viewer). The image is
+/// `img_w`×`img_h` inside a `vp_w`×`vp_h` viewport (image viewer). The image is
 /// scaled to fit within `OVERLAY_FIT_FRACTION` of the viewport on both axes and
 /// is **never upscaled past its source size** (`scale <= 1.0`), so small images
 /// render crisp at native size rather than blown up. The UV is the full texture.

@@ -604,6 +604,9 @@ pub(super) fn rasterize_geometric(
     let inner_x = ox + border;
     let inner_y = oy + border;
     let cov = crate::boxdraw::coverage(ch, cell.width, cell.height)?;
+    if (cell.width as usize).checked_mul(cell.height as usize) != Some(cov.len()) {
+        return None;
+    }
     let mut any = false;
     for cy in 0..cell.height {
         for cx in 0..cell.width {

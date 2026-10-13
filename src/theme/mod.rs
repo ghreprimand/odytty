@@ -40,6 +40,11 @@ pub use spec::{Appearance, ThemeSpec};
 /// library.
 pub const MIN_CONTRAST: f64 = 4.0;
 
+/// Background relative luminance above which a theme is treated as light.
+/// Every dark/light classification (appearance inference, capture, CVD
+/// polarity, the background-image scrim, and the CLI and picker labels) uses it.
+pub const LIGHT_BACKGROUND_LUMINANCE: f64 = 0.18;
+
 /// An sRGB color triple (8-bit per channel), matching the palette byte form used
 /// by the text renderer. Kept as a plain tuple so this module stays free of any
 /// rendering-backend types.

@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
-// The facade re-exports the module's own items; these are the third-party and
-// crate types the pre-split `text.rs` had in scope through its own `use` block,
-// which `use super::*` no longer carries now that each submodule imports what it
-// needs. Naming them here changes no assertion.
+// Types the tests use that the facade does not re-export.
 use std::path::{Path, PathBuf};
 
 use crate::core::Color;
@@ -590,7 +587,7 @@ fn host_extra_real_family_picks_a_monospace_regular_face() {
         font_families_in_dirs(&dirs)
             .iter()
             .any(|f| normalize_family(f) == normalize_family(&family)),
-        "font_families lists the resolved real family"
+        "font_families_in_dirs lists the resolved real family"
     );
 }
 
@@ -630,14 +627,6 @@ fn grouped_inventory_dedups_a_host_copy_of_a_bundled_family() {
         groups.system.is_empty(),
         "bundled copy is omitted from system group"
     );
-    for sys in &groups.system {
-        let key = normalize_family(sys);
-        assert!(
-            key != normalize_family(BUNDLED_FONT_FAMILY)
-                && key != normalize_family(JETBRAINS_FONT_FAMILY),
-            "system group must not repeat a bundled family: {sys:?}"
-        );
-    }
 }
 
 /// Lay down a multi-weight family fixture and return `(dir, dirs)`. Faces are
@@ -673,7 +662,7 @@ fn weight_face_finds_bold_within_a_family() {
 
 #[test]
 fn weight_face_empty_inputs_return_none() {
-    // T-FP-7 / T-regular-identity: an empty weight (or family) yields None so
+    // An empty weight (or family) yields None so
     // the loader takes its unchanged regular-face path. No file scan result
     // can ever stand in for "no weight requested".
     assert!(resolve_font_weight_face("CascadiaMono", "", &[]).is_none());
@@ -684,7 +673,7 @@ fn weight_face_empty_inputs_return_none() {
 
 #[test]
 fn weight_face_missing_weight_returns_none_for_fallback() {
-    // T-weight-not-found: a weight with no matching face returns None so the
+    // A weight with no matching face returns None so the
     // caller warns and falls back to the regular face - never a crash.
     let (_fixture_dir, dirs) = weight_fixture(
         "weight_missing",
@@ -698,7 +687,7 @@ fn weight_face_missing_weight_returns_none_for_fallback() {
 
 #[test]
 fn weight_face_light_resolves_and_beats_extralight() {
-    // T-light-still-works + the ExtraLight disambiguation: "Light" must
+    // The ExtraLight disambiguation: "Light" must
     // resolve to the Light face, NOT ExtraLight (whose stem also contains
     // "light"). The shortest-stem tie-break makes this deterministic
     // regardless of filesystem iteration order.
@@ -749,7 +738,7 @@ fn weight_face_prefers_non_italic_for_a_pure_weight() {
 
 #[test]
 fn weight_face_matching_is_case_and_separator_insensitive() {
-    // T-case-norm: weight matching normalizes case and separators, so
+    // Weight matching normalizes case and separators, so
     // "semi bold" / "SemiBold" both match "CascadiaMono-SemiBold.ttf".
     let (dir, dirs) = weight_fixture(
         "weight_case",
@@ -1100,7 +1089,7 @@ fn symbol_source_describe_is_stable() {
     );
 }
 
-// --- SYMMAP core ------------------------------------------------------
+// --- symbol map core ------------------------------------------------------
 
 #[test]
 fn symbolmap_empty_is_identity() {
@@ -1145,8 +1134,8 @@ fn symbolmap_first_match_wins_on_overlap() {
     assert!(map.push(0x2700, 0x2710, "Second")); // overlaps the first
     // A codepoint in BOTH ranges resolves to the first-inserted rule.
     assert_eq!(map.lookup(0x2705), Some("First"));
-    // A codepoint only in the second range still resolves to the second.
-    assert_eq!(map.lookup(0x2710), Some("First")); // 0x2710 is inside 0x2600..=0x27BF too
+    // 0x2710 lies in both ranges, so the first rule wins.
+    assert_eq!(map.lookup(0x2710), Some("First"));
     // A codepoint only the second rule could cover (outside the first).
     let mut map2 = SymbolMap::new();
     assert!(map2.push(0x100, 0x200, "A"));
@@ -1338,35 +1327,13 @@ fn windows_symbol_chain_resolves_reported_blank_glyphs() {
     }
 }
 
-/// Linux counterpart to `windows_symbol_chain_resolves_reported_blank_glyphs`.
-///
-/// The Windows test pins `U+2714` / `U+23BF` on the `windows-latest` runner.
-/// There was no Linux equivalent, which is exactly why a tofu class stayed
-/// invisible on the primary development platform: the codepoints Claude Code
-/// prints on every tool result line rendered as hollow boxes for as long as it
-/// took someone to notice by eye.
-///
-/// A Linux test cannot assume host fonts, so this pins what is host
-/// independent and reports -- loudly, in the pass message -- what it could not
-/// check. A test that passes vacuously on a bare CI image and also passes on a
-/// fully-fonted workstation is worse than no test, because it reads as
-/// coverage. The distinction here is explicit: if a face fontconfig claims
-/// covers the codepoint demonstrably carries an outline glyph, resolution MUST
-/// succeed, and a failure to use that face is a hard failure rather than a
-/// fallthrough to "no coverage".
-///
-/// Two subtleties in the premise, both learned from a failure:
-///
-/// - Coverage comes from `fc-list`, never `fc-match`. `fc-match` always names
-///   a best-effort face whether or not anything covers the charset, so on a
-///   bare CI image it nominates a non-covering face, the resolver rightly
-///   rejects it, and a premise built on `fc-match` fails the test against
-///   correct behavior. That happened; this comment is the record.
-/// - The claimed face is verified by an *independent* whole-file read before
-///   it can obligate the resolver. Verifying through the production reader
-///   would let the original defect (an oversized collection rejected whole)
-///   empty the premise and pass the test vacuously -- the exact blindness this
-///   test exists to prevent. The unbounded read is test-only and deliberate.
+/// Linux counterpart to `windows_symbol_chain_resolves_reported_blank_glyphs`:
+/// when a face that `fc-list` claims covers a codepoint carries a verified
+/// outline glyph, runtime backfill must resolve it. The premise comes from
+/// `fc-list` because `fc-match` names a best-effort face even when nothing
+/// covers the charset, and the claimed face is verified by an independent
+/// whole-file read so an oversized collection cannot empty the premise. Hosts
+/// with no provider are reported as skipped in the pass message.
 #[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn linux_runtime_backfill_resolves_reported_blank_glyphs() {
@@ -1404,9 +1371,8 @@ fn linux_runtime_backfill_resolves_reported_blank_glyphs() {
                 .flatten()
                 .is_some(),
             "{provider:?} verifiably provides an outline glyph for U+{:04X} {ch:?}, so the \
-             runtime backfill must resolve it. This is the failure the size ceiling used to \
-             cause: a 377 MiB collection was the only provider and was rejected whole \
-             instead of read one face at a time.",
+             runtime backfill must resolve it (an oversized collection must be read one \
+             face at a time, not rejected whole).",
             ch as u32
         );
         checked += 1;
@@ -1426,20 +1392,10 @@ fn linux_runtime_backfill_resolves_reported_blank_glyphs() {
     }
 }
 
-/// The face index fontconfig reports must be honored by the RESOLVER, not just
-/// available to it.
-///
-/// An earlier form of this test compared two explicit extractions and passed
-/// even when the resolver was reverted to always loading face 0 -- it proved the
-/// extractor could select a face, not that the resolver did. It now takes the
-/// font the resolver actually returns and compares its glyph outlines against
-/// the same file loaded at face 0 and at the reported index.
-///
-/// Host-independent: it asserts a relationship and skips cleanly when the host
-/// has no collection provider. Face 0 of a collection is arbitrary with respect
-/// to the request -- face 0 of Iosevka's 162-face collection is Iosevka Thin,
-/// while fontconfig's answer for a symbol charset is a Regular face -- so
-/// loading face 0 rasterizes symbols at the wrong weight beside a Regular body.
+/// The resolver must load a collection at the face index fontconfig reports:
+/// the font it returns is compared with the same file loaded at face 0 and at
+/// the reported index. Face 0 of a collection can be another weight. The test
+/// asserts a relationship and skips when the host has no collection provider.
 #[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn collection_faces_load_at_the_index_fontconfig_reports() {
@@ -1526,9 +1482,8 @@ fn runtime_backfill_shares_one_loaded_face_across_codepoints() {
 
 /// A collection face costs the face, not the file.
 ///
-/// The defect this guards: reading a whole collection to rasterize one glyph.
-/// Host-independent in its assertion -- it only requires that *if* a collection
-/// is present, one face is a small fraction of it.
+/// Rasterizing one glyph must not read a whole collection: if a collection is
+/// present, one face is a small fraction of it.
 #[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn a_collection_face_costs_far_less_than_its_file() {
@@ -1559,12 +1514,9 @@ fn a_collection_face_costs_far_less_than_its_file() {
     println!("a_collection_face_costs_far_less_than_its_file: no large collection on this host");
 }
 
-/// fontconfig record parsing, which sabotage showed is otherwise unexercised on
-/// a host where `fc-match` alone answers every query.
-///
-/// The enumeration path exists so that a face which fails to load costs a
-/// fallthrough rather than the glyph. On a single-provider host it never runs,
-/// so its parsing is pinned directly instead.
+/// fontconfig record parsing, pinned directly: the enumeration path (which
+/// lets a face that fails to load cost a fallthrough rather than the glyph)
+/// never runs on a host where `fc-match` alone answers every query.
 #[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn fc_records_parse_to_path_and_face_index() {
@@ -1600,12 +1552,8 @@ fn fc_records_parse_to_path_and_face_index() {
     assert_eq!(super::symbols::parse_fc_record_for_test("\t7"), None);
 }
 
-/// The candidate list is bounded and free of duplicates.
-///
-/// Tested against the pure helper rather than through the fontconfig queries.
-/// Removing the de-duplication passed a query-driven version of this test,
-/// because this host's fontconfig never reports the same face twice -- the test
-/// was describing the host, not the code.
+/// The candidate list is bounded and free of duplicates. Tested against the
+/// pure helper, because a host's fontconfig may never report a face twice.
 #[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn symbol_font_candidates_are_bounded_and_unique() {
@@ -1640,9 +1588,9 @@ fn symbol_font_candidates_are_bounded_and_unique() {
 }
 
 // ---------------------------------------------------------------------------
-// Slice 2b: owned glyph geometry + FontParseError display (independent of
-// atlas/raster paths). These pin the OdyTTY-owned value types and the
-// historical `InvalidFont` parse-error string that TextError::Parse embeds.
+// Owned glyph geometry + FontParseError display (independent of
+// atlas/raster paths). These pin the owned value types and the
+// `InvalidFont` parse-error string that TextError::Parse embeds.
 // ---------------------------------------------------------------------------
 
 #[test]

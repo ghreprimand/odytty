@@ -1706,9 +1706,9 @@ fn clicking_separator_rows_is_inert() {
     );
 }
 
-/// v0.3.1 launcher section: the three new items render with the live accelerator
-/// labels from the default bindings (Ctrl+Shift+S / P / R), proving the
-/// `set_accelerators` path covers them and they auto-track rebinds.
+/// The launcher section items render with the live accelerator labels from the
+/// default bindings (Connection Manager, Ctrl+Shift+S, and the rows after it),
+/// proving the `set_accelerators` path covers them and they track rebinds.
 #[test]
 fn launcher_items_show_live_accelerator_labels() {
     let (mut app, _terminal) = app_for_test();
@@ -1933,9 +1933,8 @@ fn editable_input_selection_survives_a_width_change_resize() {
 
 // ── right-click freeze (no blocking clipboard/stat on the loop thread) ──
 
-/// FIX-A helper: a left-rail App with two workspaces, so a right-press on rail
-/// slot 0 opens the `WorkspaceSlot` context menu through the real
-/// `handle_mouse_input` route. `None` when no PTY fixture is available.
+/// A left-rail App with two workspaces, so a right-press on rail slot 0 opens
+/// the `WorkspaceSlot` context menu through the real `handle_mouse_input` route.
 fn rail_two_workspace_app() -> App {
     let (mut app, _terminal) = app_for_test();
     app.set_test_cell_for_test(cell(8, 16));
@@ -2022,10 +2021,13 @@ fn a_stale_press_burst_into_a_fresh_workspace_menu_activates_nothing() {
     app.mouse_right_press_for_test();
     assert!(app.context_menu_open_for_test());
     let before = app.workspace_count_for_test();
+    // Hold the window open so a stall between the menu opening and the burst
+    // cannot let a press route into the menu body.
+    app.hold_context_menu_debounce_open_for_test();
 
     // A stale burst: several press/release pairs onto the menu body (where the
-    // "New Workspace" row could sit), all within the debounce window (elapsed
-    // ~0 in a test). Every one is swallowed, so no item activates.
+    // "New Workspace" row could sit), all inside the held debounce window.
+    // Every one is swallowed, so no item activates.
     let rect = app.overlay_rect_for_test().expect("rail menu open");
     app.set_pointer_cell_for_test(rect.body_top, rect.body_left);
     for _ in 0..4 {

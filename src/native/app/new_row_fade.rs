@@ -193,7 +193,7 @@ mod tests {
 
     // --- App-level (headless, no real PTY) ----------------------------------
 
-    fn build_app() -> Option<App> {
+    fn build_app() -> App {
         let d = Dimensions::new(COLS, ROWS);
         let (mut app, _terminal) = crate::native::test_support::headless_app_with(
             crate::native::options::NativeOptions::default(),
@@ -207,7 +207,7 @@ mod tests {
             height: CELL_H,
             baseline: 0,
         });
-        Some(app)
+        app
     }
 
     fn ctx_at(app: &App, cursor_row: usize, now: Instant) -> OverlayCtx {
@@ -231,9 +231,7 @@ mod tests {
 
     #[test]
     fn off_path_never_populates_and_is_inert() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         // The feature ships on by default, so seed the off state explicitly to
         // pin the off-path contract.
         app.settings.new_output_fade = false;
@@ -259,9 +257,7 @@ mod tests {
 
     #[test]
     fn reduced_motion_snaps_output_fade_and_suppresses_wakes() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.new_output_fade = true;
         let t0 = Instant::now();
         app.update_row_fade(t0, 0);
@@ -301,9 +297,7 @@ mod tests {
 
     #[test]
     fn live_row_fade_deadline_is_stable_until_the_fade_advances() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.new_output_fade = true;
         app.settings.new_output_fade_ms = 200.0;
         assert_eq!(app.new_row_fade_deadline(), None, "no fade wake at rest");
@@ -324,9 +318,7 @@ mod tests {
 
     #[test]
     fn reduced_motion_makes_cursor_effects_static_and_inert() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.cursor_motion = true;
         app.settings.cursor_trail = true;
         app.settings.cursor_glow = true;
@@ -402,9 +394,7 @@ mod tests {
 
     #[test]
     fn delta_marks_exactly_bottom_rows_and_rotates() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.new_output_fade = true;
         let t0 = Instant::now();
         // First call with a mismatched length resizes + snaps (no fade).
@@ -431,9 +421,7 @@ mod tests {
 
     #[test]
     fn delta_is_capped_at_grid_rows() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.new_output_fade = true;
         let t0 = Instant::now();
         app.update_row_fade(t0, 0);
@@ -450,9 +438,7 @@ mod tests {
 
     #[test]
     fn settle_clears_and_returns_to_idle() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.new_output_fade = true;
         let t0 = Instant::now();
         app.update_row_fade(t0, 0);
@@ -491,9 +477,7 @@ mod tests {
 
     #[test]
     fn fade_duration_setting_drives_the_settle_and_deadline_boundary() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.new_output_fade = true;
         // A non-default ramp: the settle boundary and the deadline must track it,
         // not the old fixed 120 ms.
@@ -522,9 +506,7 @@ mod tests {
 
     #[test]
     fn fade_duration_setting_scales_the_text_multiplier() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.new_output_fade = true;
         app.settings.new_output_fade_ms = 500.0;
         let t0 = Instant::now();
@@ -549,9 +531,7 @@ mod tests {
 
     #[test]
     fn fade_deadline_joins_animation_aggregator() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         // Cursor animation knobs off ⇒ the aggregate equals the fade deadline.
         app.settings.new_output_fade = true;
         let t0 = Instant::now();
@@ -572,9 +552,7 @@ mod tests {
 
     #[test]
     fn scrolled_back_clears_fade() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.new_output_fade = true;
         let t0 = Instant::now();
         app.update_row_fade(t0, 0);
@@ -594,9 +572,7 @@ mod tests {
 
     #[test]
     fn geometry_change_snaps() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.new_output_fade = true;
         let t0 = Instant::now();
         app.update_row_fade(t0, 0);
@@ -616,9 +592,7 @@ mod tests {
 
     #[test]
     fn cursor_row_is_never_faded() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.new_output_fade = true;
         let t0 = Instant::now();
         app.update_row_fade(t0, 0);
@@ -642,9 +616,7 @@ mod tests {
 
     #[test]
     fn text_ramp_starts_at_floor_and_rises_monotonically() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.new_output_fade = true;
         let t0 = Instant::now();
         app.update_row_fade(t0, 0);
@@ -685,9 +657,7 @@ mod tests {
     // multipane loop into the same anchoring the single-pane path always had.
     #[test]
     fn anchor_viewport_for_render_stays_scrolled_and_tracks_baseline() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         // Scroll the active pane back into history and record its baseline.
         app.viewport.scroll_up(5, 100);
         app.last_scrollback_len = 100;
@@ -715,9 +685,7 @@ mod tests {
     // a resize does. Fails before `on_active_session_changed` cleared the fade.
     #[test]
     fn activation_snaps_new_output_fade() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
+        let mut app = build_app();
         app.settings.new_output_fade = true;
         // Simulate an in-flight fade left on the session being (re)activated.
         let rows = app.grid.rows.max(1);

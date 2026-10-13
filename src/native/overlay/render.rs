@@ -30,8 +30,8 @@ impl OverlayUi {
     /// ([`Self::picker_title_back_hit`]). A leading `\u{2190}` marks the modes
     /// that carry a clickable back/close affordance; deriving the hit-test from
     /// this string (rather than a hand-maintained mode list) is what stops a new
-    /// `\u{2190}`-titled mode from drifting into a click-dead arrow (the NF15
-    /// recurrence class - About, then Connections, were each such a miss).
+    /// `\u{2190}`-titled mode from drifting into a click-dead arrow (About, then
+    /// Connections, were each such a miss).
     /// `ContextMenu` has no title bar (early-dispatched to its own layout) and
     /// returns an empty string.
     pub(in crate::native) fn title(&self) -> String {
@@ -1403,7 +1403,7 @@ pub(super) fn title_attrs() -> Attrs {
     attrs
 }
 
-/// Caption attrs for the Phase 13c image-viewer LIGHTBOX: a clean bold
+/// Caption attrs for the image-viewer lightbox: a clean bold
 /// bright-white caption on the DEFAULT background (no inverse-video bar, no
 /// panel chrome). The GPU scrim dims the whole terminal including this text, so
 /// bright white reads as legible light gray over the dimmed surround.

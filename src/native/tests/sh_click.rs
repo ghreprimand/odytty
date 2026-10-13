@@ -32,12 +32,12 @@ impl Write for RecordingWriter {
 
 /// Build an `App` over a one-shot PTY whose writer is a recording buffer, feed
 /// `content` into its terminal, and turn `sh_click` on. Returns the app plus the
-/// captured-bytes handle, or `None` when no PTY is available.
-fn build_app(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
+/// captured-bytes handle.
+fn build_app(content: &[u8]) -> (App, Arc<Mutex<Vec<u8>>>) {
     build_app_with(content, true)
 }
 
-fn build_app_with(content: &[u8], sh_click: bool) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
+fn build_app_with(content: &[u8], sh_click: bool) -> (App, Arc<Mutex<Vec<u8>>>) {
     let dims = Dimensions::new(COLS, ROWS);
     // The writer is the recorder so the emitted arrows are observable (a real
     // PTY writer would swallow them into a shell). No real PTY is needed.
@@ -51,7 +51,7 @@ fn build_app_with(content: &[u8], sh_click: bool) -> Option<(App, Arc<Mutex<Vec<
         t.advance(content);
     }
     app.set_sh_click_for_test(sh_click);
-    Some((app, bytes))
+    (app, bytes)
 }
 
 /// A live prompt awaiting input, advertising click-events: an OSC 133 `A` with a
@@ -134,9 +134,7 @@ fn bundled_snippet_repositions_only_when_setting_on() {
     let content = bash_snippet_live_prompt();
 
     // sh_click ON: cursor at column 7 ("$ hello"); click column 2 -> 5x Left.
-    let Some((mut app_on, bytes_on)) = build_app_with(&content, true) else {
-        return; // no PTY in this environment
-    };
+    let (mut app_on, bytes_on) = build_app_with(&content, true);
     let written_on = click_at(&mut app_on, &bytes_on, 0, 2);
     let lefts = 5;
     assert_eq!(
@@ -146,9 +144,7 @@ fn bundled_snippet_repositions_only_when_setting_on() {
     );
 
     // sh_click OFF (default): the same snippet output emits nothing.
-    let Some((mut app_off, bytes_off)) = build_app_with(&content, false) else {
-        return;
-    };
+    let (mut app_off, bytes_off) = build_app_with(&content, false);
     let written_off = click_at(&mut app_off, &bytes_off, 0, 2);
     assert!(
         written_off.is_empty(),
@@ -158,9 +154,7 @@ fn bundled_snippet_repositions_only_when_setting_on() {
 
 #[test]
 fn click_left_of_cursor_emits_left_arrows_on_live_prompt() {
-    let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
-        return; // no PTY in this environment
-    };
+    let (mut app, bytes) = build_app(live_prompt_click_enabled());
     // Cursor at column 7 ("$ hello"); click column 2 -> delta -5 -> 5x Left.
     let written = click_at(&mut app, &bytes, 0, 2);
     let lefts = 5;
@@ -176,11 +170,7 @@ fn click_right_of_cursor_emits_right_arrows() {
     // "$ hello" with the cursor moved back to column 4 (CUB 3): a click right
     // of the cursor, inside the typed input, yields Right arrows - one per
     // glyph between the cursor and the clicked cell.
-    let Some((mut app, bytes)) =
-        build_app(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07hello\x1b[3D")
-    else {
-        return;
-    };
+    let (mut app, bytes) = build_app(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07hello\x1b[3D");
     // Cursor at column 4; click column 6 -> 2 glyphs ("ll") -> 2x Right.
     let written = click_at(&mut app, &bytes, 0, 6);
     let rights = 2;
@@ -194,9 +184,7 @@ fn click_with_no_typed_input_is_inert() {
     // pre-F2 code sent Right arrows the shell then ignored (caret clamped at
     // an empty buffer); the new no-op is the same user-visible outcome with
     // zero bytes on the wire.
-    let Some((mut app, bytes)) = build_app(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07") else {
-        return;
-    };
+    let (mut app, bytes) = build_app(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07");
     let written = click_at(&mut app, &bytes, 0, 6);
     assert!(written.is_empty(), "no editable input -> no bytes");
 }
@@ -205,11 +193,7 @@ fn click_with_no_typed_input_is_inert() {
 fn click_honors_application_cursor_mode() {
     // Finding A regression guard: with DECCKM (application cursor) on, the burst
     // is the SS3 form, byte-identical to a real arrow keypress in that mode.
-    let Some((mut app, bytes)) =
-        build_app(b"\x1b]133;A;click_events=1\x07\x1b[?1h$ \x1b]133;B\x07hello")
-    else {
-        return;
-    };
+    let (mut app, bytes) = build_app(b"\x1b]133;A;click_events=1\x07\x1b[?1h$ \x1b]133;B\x07hello");
     let written = click_at(&mut app, &bytes, 0, 2);
     let lefts = 5;
     assert_eq!(written, b"\x1bOD".repeat(lefts));
@@ -220,9 +204,7 @@ fn click_on_cursor_cell_emits_nothing() {
     // T4 same-cell: a click on the cursor's own column is delta 0 on every
     // platform -> a no-op. Click-to-place carries no per-platform behaviour, so
     // a click that lands on the caret's own cell has nothing to send.
-    let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
-        return;
-    };
+    let (mut app, bytes) = build_app(live_prompt_click_enabled());
     let written = click_at(&mut app, &bytes, 0, 7);
     assert!(
         written.is_empty(),
@@ -234,9 +216,7 @@ fn click_on_cursor_cell_emits_nothing() {
 fn click_off_path_is_inert_when_setting_off() {
     // With sh_click off (the default), the click path is byte-identical to
     // today - no arrows, even though the shell advertised click-events.
-    let Some((mut app, bytes)) = build_app_with(live_prompt_click_enabled(), false) else {
-        return;
-    };
+    let (mut app, bytes) = build_app_with(live_prompt_click_enabled(), false);
     let written = click_at(&mut app, &bytes, 0, 2);
     assert!(written.is_empty(), "feature off -> no bytes emitted");
 }
@@ -245,9 +225,7 @@ fn click_off_path_is_inert_when_setting_off() {
 fn click_without_advertised_click_events_is_inert() {
     // A plain prompt with NO click_events attribute: the core flag stays off, so
     // even with sh_click on the feature does nothing (shell-gated by construction).
-    let Some((mut app, bytes)) = build_app(b"\x1b]133;A\x07$ hello") else {
-        return;
-    };
+    let (mut app, bytes) = build_app(b"\x1b]133;A\x07$ hello");
     let written = click_at(&mut app, &bytes, 0, 2);
     assert!(written.is_empty());
 }
@@ -256,9 +234,7 @@ fn click_without_advertised_click_events_is_inert() {
 fn shift_click_does_not_reposition() {
     // Shift is the selection/passthrough seam; SH-CLICK never reads it and
     // never fires under Shift.
-    let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
-        return;
-    };
+    let (mut app, bytes) = build_app(live_prompt_click_enabled());
     app.set_shift_modifier_for_test(true);
     let written = click_at(&mut app, &bytes, 0, 2);
     assert!(written.is_empty(), "shift+click stays a selection gesture");
@@ -268,9 +244,7 @@ fn shift_click_does_not_reposition() {
 fn tui_mouse_reporting_wins_over_click_to_position() {
     // T3 (highest risk): a TUI with mouse reporting active owns the click - the
     // report gate returns before the local click-to-position path is reached.
-    let Some((mut app, _bytes)) = build_app(live_prompt_click_enabled()) else {
-        return;
-    };
+    let (mut app, _bytes) = build_app(live_prompt_click_enabled());
     app.enable_mouse_reporting_for_test(); // DECSET 1000
     app.set_pointer_cell_for_test(0, 2);
     app.set_pointer_px_for_test(16.0, 0.0);
@@ -286,11 +260,7 @@ fn click_during_running_command_does_not_reposition() {
     // T4 prompt-context gate: the prompt has executed (an OutputStart mark
     // exists), so there is no live prompt even though click_events is still
     // enabled. A click on the cursor row must NOT emit arrows into the program.
-    let Some((mut app, bytes)) =
-        build_app(b"\x1b]133;A;click_events=1\x07$ cmd\r\n\x1b]133;C\x07output")
-    else {
-        return;
-    };
+    let (mut app, bytes) = build_app(b"\x1b]133;A;click_events=1\x07$ cmd\r\n\x1b]133;C\x07output");
     // The cursor now sits on the output row (row 1) after "output" (column 6);
     // click left of it on the same row.
     let written = click_at(&mut app, &bytes, 1, 2);
@@ -304,9 +274,7 @@ fn click_during_running_command_does_not_reposition() {
 fn click_on_a_different_row_than_the_cursor_is_inert() {
     // F2 a click off the input region's rows (here: an output row far below
     // a single-row prompt) never repositions - no wrong jump.
-    let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
-        return;
-    };
+    let (mut app, bytes) = build_app(live_prompt_click_enabled());
     let written = click_at(&mut app, &bytes, 3, 2);
     assert!(written.is_empty(), "off-region click never repositions");
 }
@@ -319,9 +287,7 @@ fn click_on_prompt_text_is_a_noop() {
     // click on the prompt text left of the input start, walking the caret to
     // buffer position 0 (benign only because the shell clamps). F2 makes the
     // prompt-side click a proper no-op.
-    let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
-        return;
-    };
+    let (mut app, bytes) = build_app(live_prompt_click_enabled());
     // Input starts at column 2 ("$ " is prompt); click column 0.
     let written = click_at(&mut app, &bytes, 0, 0);
     assert!(
@@ -332,14 +298,11 @@ fn click_on_prompt_text_is_a_noop() {
 
 #[test]
 fn wide_glyph_line_counts_glyphs_not_cells() {
-    // F2-NF1 (fails-before): "漢字" occupies four cells (two wide glyphs with
+    // F2-NF1 (fails-before): U+6F22 U+5B57 occupy four cells (two wide glyphs with
     // continuation spacers) but is two caret steps. The shipped raw-cell delta
     // sent 4 Lefts (caret overshoots); the glyph count sends 2.
-    let Some((mut app, bytes)) =
-        build_app("\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07漢字".as_bytes())
-    else {
-        return;
-    };
+    let (mut app, bytes) =
+        build_app("\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07\u{6F22}\u{5B57}".as_bytes());
     // Cursor at column 6 (after both wide glyphs); click column 2 (the first
     // glyph's lead cell) -> 2 glyphs -> 2x Left.
     let written = click_at(&mut app, &bytes, 0, 2);
@@ -365,9 +328,7 @@ fn exact_signal_clamps_decoration_click_to_input_end() {
     content.extend_from_slice(b"\x1b[16G23.1s\x1b[4G");
     // The shell reports its buffer: len=3 ("abc"), cur=1 -> grid cursor col 3.
     content.extend_from_slice(b"\x1b]133;P;odytty-edit;len=3;cur=1\x07");
-    let Some((mut app, bytes)) = build_app(&content) else {
-        return;
-    };
+    let (mut app, bytes) = build_app(&content);
     // Click the decoration (column 17): target clamps to the input end (rune
     // 3), cursor is at rune 1 -> exactly 2x Right, not 14.
     let written = click_at(&mut app, &bytes, 0, 17);
@@ -391,9 +352,7 @@ fn exact_soft_wrap_multi_row_click_travels_horizontally() {
     // buffer: 78 + 5 = 83 runes, cursor at the end.
     content.extend_from_slice(b"bcdef");
     content.extend_from_slice(b"\x1b]133;P;odytty-edit;len=83;cur=83\x07");
-    let Some((mut app, bytes)) = build_app(&content) else {
-        return;
-    };
+    let (mut app, bytes) = build_app(&content);
     // Click row 0 column 10: 8 glyphs into the input; cursor is at rune 83.
     let written = click_at(&mut app, &bytes, 0, 10);
     assert_eq!(
@@ -413,9 +372,7 @@ fn heuristic_soft_wrap_multi_row_click_travels() {
     content.extend_from_slice(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07");
     content.extend_from_slice(&[b'a'; 78]);
     content.extend_from_slice(b"bcdef");
-    let Some((mut app, bytes)) = build_app(&content) else {
-        return;
-    };
+    let (mut app, bytes) = build_app(&content);
     let written = click_at(&mut app, &bytes, 0, 10);
     let lefts = 75;
     assert_eq!(
@@ -434,9 +391,7 @@ fn hard_newline_buffer_click_is_a_noop() {
     let mut content = Vec::new();
     content.extend_from_slice(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07for i in 1");
     content.extend_from_slice(b"\x1b]133;P;odytty-edit;len=10;cur=10;nl=3\x07");
-    let Some((mut app, bytes)) = build_app(&content) else {
-        return;
-    };
+    let (mut app, bytes) = build_app(&content);
     // Cursor at column 12; click column 4 on the SAME row: still a no-op.
     let written = click_at(&mut app, &bytes, 0, 4);
     assert!(
@@ -451,9 +406,7 @@ fn malformed_edit_report_blocks_click_travel() {
         let mut content = live_prompt_click_enabled().to_vec();
         content.extend_from_slice(b"\x1b]133;P;odytty-edit;len=5;cur=5\x07");
         content.extend_from_slice(format!("\x1b]133;P;odytty-edit;{report}\x07").as_bytes());
-        let Some((mut app, bytes)) = build_app(&content) else {
-            return;
-        };
+        let (mut app, bytes) = build_app(&content);
         assert!(click_at(&mut app, &bytes, 0, 2).is_empty(), "{report}");
     }
 }
@@ -465,9 +418,7 @@ fn alt_screen_click_is_inert() {
     let mut content = Vec::new();
     content.extend_from_slice(live_prompt_click_enabled());
     content.extend_from_slice(b"\x1b[?1049hfullscreen app");
-    let Some((mut app, bytes)) = build_app(&content) else {
-        return;
-    };
+    let (mut app, bytes) = build_app(&content);
     let written = click_at(&mut app, &bytes, 0, 2);
     assert!(written.is_empty(), "alt screen -> no click-to-position");
 }
@@ -486,9 +437,7 @@ fn half_cell_left_and_right_half_straddle_a_glyph_boundary() {
     // the LEFT half lands the caret before it (delta -3), the RIGHT half after
     // it (delta -2) - exactly one column apart.
     let lefts = 3;
-    let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
-        return; // no PTY in this environment
-    };
+    let (mut app, bytes) = build_app(live_prompt_click_enabled());
     assert_eq!(
         click_at_frac(&mut app, &bytes, 0, 4, 0.2),
         b"\x1b[D".repeat(lefts),
@@ -496,9 +445,7 @@ fn half_cell_left_and_right_half_straddle_a_glyph_boundary() {
     );
 
     let rights = 2;
-    let Some((mut app2, bytes2)) = build_app(live_prompt_click_enabled()) else {
-        return;
-    };
+    let (mut app2, bytes2) = build_app(live_prompt_click_enabled());
     assert_eq!(
         click_at_frac(&mut app2, &bytes2, 0, 4, 0.8),
         b"\x1b[D".repeat(rights),
@@ -508,15 +455,12 @@ fn half_cell_left_and_right_half_straddle_a_glyph_boundary() {
 
 #[test]
 fn half_cell_right_half_of_a_wide_glyph_lands_after_the_whole_glyph() {
-    // "漢字ab": 漢 spans cols 2-3, 字 cols 4-5, then a, b; cursor after b (col 8,
+    // U+6F22 U+5B57 ab: U+6F22 spans cols 2-3, U+5B57 cols 4-5, then a, b; cursor after b (col 8,
     // 4 glyphs in). A right-half click on 漢's lead cell (col 2) rounds across
     // its continuation cell and lands the caret AFTER the whole glyph (1 glyph
     // in -> 3 Left), never between the glyph's two cells.
-    let Some((mut app, bytes)) =
-        build_app("\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07漢字ab".as_bytes())
-    else {
-        return;
-    };
+    let (mut app, bytes) =
+        build_app("\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07\u{6F22}\u{5B57}ab".as_bytes());
     let lefts = 3;
     assert_eq!(
         click_at_frac(&mut app, &bytes, 0, 2, 0.8),
@@ -531,11 +475,7 @@ fn half_cell_last_glyph_right_half_clamps_to_the_append_origin() {
     // click on the LAST glyph 'o' (col 6) targets the append origin (5 glyphs),
     // never past it -> 3 Right.
     let rights = 3;
-    let Some((mut app, bytes)) =
-        build_app(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07hello\x1b[3D")
-    else {
-        return;
-    };
+    let (mut app, bytes) = build_app(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07hello\x1b[3D");
     assert_eq!(
         click_at_frac(&mut app, &bytes, 0, 6, 0.8),
         b"\x1b[C".repeat(rights),
@@ -543,11 +483,8 @@ fn half_cell_last_glyph_right_half_clamps_to_the_append_origin() {
     );
 
     // A click well past the input's right edge clamps to the SAME append origin.
-    let Some((mut app2, bytes2)) =
-        build_app(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07hello\x1b[3D")
-    else {
-        return;
-    };
+    let (mut app2, bytes2) =
+        build_app(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07hello\x1b[3D");
     assert_eq!(
         click_at_frac(&mut app2, &bytes2, 0, 10, 0.8),
         b"\x1b[C".repeat(rights),
@@ -560,9 +497,7 @@ fn half_cell_prompt_side_right_half_is_a_noop() {
     // "$ " is the prompt (cols 0-1); the input starts at col 2. A right-half
     // click on the last prompt cell (col 1) must NOT round up across the input
     // start into a bogus travel - the guard tests the floored cell.
-    let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
-        return;
-    };
+    let (mut app, bytes) = build_app(live_prompt_click_enabled());
     assert!(
         click_at_frac(&mut app, &bytes, 0, 1, 0.8).is_empty(),
         "a right-half click on the prompt stays a no-op"

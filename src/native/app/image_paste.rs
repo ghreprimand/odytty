@@ -129,7 +129,7 @@ fn perform_upload(job: &RemoteUploadJob, png: &[u8], remote_path: &str) -> Resul
         .ok_or_else(|| "bad remote path".to_owned())?;
     let local = std::env::temp_dir().join(file_name);
     super::private_temp::write_private_temp(&local, png)
-        .map_err(|err| format!("temp write: {err}"))?;
+        .map_err(super::private_temp::temp_write_message)?;
 
     let result = stream_upload(job, &local, remote_path);
     // Best-effort local cleanup regardless of upload outcome.

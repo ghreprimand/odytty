@@ -3,9 +3,9 @@
 //! [`Machine`] (Layer 2) together and adapts their outputs to the
 //! [`VtDispatch`] sink that the terminal core implements.
 //!
-//! Public surface: [`OdyParser::new`] + [`OdyParser::advance`]. The shape is
-//! unchanged from the first-generation parser - `Screen` (the core dispatch
-//! consumer) and parser fixtures exercise the internals through the same seam.
+//! Public surface: [`OdyParser::new`] + [`OdyParser::advance`]. `Screen` (the
+//! core dispatch consumer) and parser fixtures exercise the internals through
+//! this seam.
 //!
 //! ## Pipeline
 //!
@@ -28,13 +28,12 @@
 //!                              └─ OSC / APC payload buffers (this module)
 //! ```
 //!
-//! ## OSC / APC buffering (PA2-r caps)
+//! ## OSC / APC buffering
 //!
 //! - **OSC**: [`MAX_OSC_RAW`] = 128 KiB. Payload accumulated; semicolons split
 //!   into params (at most [`MAX_OSC_PARAMS`], the final param absorbing any
 //!   overflow tail verbatim); terminators BEL / ST. Over-cap → drop further payload bytes
-//!   (the OSC still dispatches on terminator with the in-cap prefix, matching
-//!   the first-generation observable behavior). The cap is sized for
+//!   (the OSC still dispatches on terminator with the in-cap prefix). The cap is sized for
 //!   realistic OSC 52 (clipboard base64) and OSC 8 (hyperlinks).
 //! - **APC**: [`MAX_APC_RAW`] = 1 MiB. Buffered because `apc_dispatch` delivers
 //!   the whole payload. Over-cap → mark overflow and **drop** (do not dispatch
@@ -51,9 +50,8 @@ use super::segmenter::{GroundResult, Segmenter};
 /// with `;` recover the exact original bytes.
 const MAX_OSC_PARAMS: usize = 16;
 
-/// Cap on the OSC payload buffer. Raised to 128 KiB from the first-generation
-/// 1024-byte cap to cover realistic OSC 52 clipboard base64 transfers and OSC
-/// 8 hyperlinks; over-cap payload bytes are dropped and the OSC still
+/// Cap on the OSC payload buffer, sized for realistic OSC 52 clipboard base64
+/// transfers and OSC 8 hyperlinks; over-cap payload bytes are dropped and the OSC still
 /// dispatches with the in-cap prefix.
 pub(crate) const MAX_OSC_RAW: usize = 128 * 1024;
 
@@ -127,7 +125,7 @@ impl OdyParser {
                 // Action::None is the hot case (every param digit / collect /
                 // ignored byte returns it). Skipping the action-adapter match
                 // for None keeps the inner loop a single comparison + state
-                // check, matching the first-generation hot path's cost.
+                // check.
                 if !matches!(action, Action::None) {
                     self.apply(sink, action);
                 }

@@ -7,7 +7,7 @@
 //! grayscale+alpha, RGB, RGBA, and indexed images are normalized to 8-bit RGBA;
 //! 16-bit samples are stripped to 8-bit.
 //!
-//! File transports are security-restricted — see `kitty_transport` module docs.
+//! File transports are security-restricted - see `kitty_transport` module docs.
 //!
 //! Payloads may be zlib-compressed (`o=z`); decompression is bounded before it
 //! allocates, so a compression bomb is refused rather than honored. See
@@ -15,12 +15,13 @@
 //!
 //! Images may be addressed by client-chosen *image number* (`I=`) as well as by
 //! terminal-scoped *image id* (`i=`). Numbers are not unique: a transmission
-//! carrying a number always creates a new image, and later commands that
-//! address by number act on the newest image holding it.
+//! carrying a number always creates a new image, and later transmission,
+//! frame, and animation commands that address by number act on the newest
+//! image holding it. Display (`a=p`) and placement deletes still need `i=`.
 //!
 //! Platform surface: compression and image-number addressing are both parser
 //! and image-store work with no filesystem, process, or environment access, so
-//! Windows behaves identically to Unix. Neither affects the transport table —
+//! Windows behaves identically to Unix. Neither affects the transport table  -
 //! the shared-memory transport (`t=s`) stays Unix-only, compressed or not.
 
 use crate::graphics::{GraphicsProtocol, ImageScene, PlacementRequest};
@@ -61,8 +62,8 @@ pub(super) struct ControlData {
     pub(super) image_id: Option<u32>,
     /// Image number (`I=`): a client-chosen handle for programs that share a
     /// screen with other programs and therefore cannot know which image *ids*
-    /// are free. Numbers are deliberately not unique — transmitting with a
-    /// number always creates a new image — so every command that addresses by
+    /// are free. Numbers are deliberately not unique - transmitting with a
+    /// number always creates a new image - so every command that addresses by
     /// number resolves to the newest image carrying it. Zero means "absent",
     /// exactly as it does for `image_id`.
     pub(super) image_number: Option<u32>,
@@ -141,7 +142,7 @@ impl ControlData {
     /// when the client addressed the image only by number (`I=`) and the
     /// terminal allocated the id itself. The protocol's worked example is
     /// `i=99,I=13`, so the id comes first and the number is echoed back
-    /// unchanged — that echo is what lets a client correlate the assigned id
+    /// unchanged - that echo is what lets a client correlate the assigned id
     /// with the number it chose.
     fn response_prefix_for(&self, image_id: Option<u32>) -> String {
         let mut parts = Vec::new();
@@ -344,7 +345,7 @@ fn handle_command(
 ) -> Result<KittyOutcome, KittyError> {
     // Naming an image by both id (`i=`) and number (`I=`) is an error the
     // protocol requires be reported, not resolved by precedence. The two are
-    // independent namespaces — a client that sends both has a bug, and picking
+    // independent namespaces - a client that sends both has a bug, and picking
     // a winner would hide it and act on an image the client did not mean.
     // Checked before chunk assembly because only the first chunk of a
     // transmission carries these keys.
@@ -367,20 +368,11 @@ fn handle_command(
     }
 
     if command.control.more_chunks {
-        // C3: a chunked transmission is FIRST chunk (full control data, m=1),
-        // then ANY NUMBER of intermediate chunks (m=1, payload only), then the
-        // final chunk (m=0). The old code treated an existing pending
-        // accumulation as malformed, capping every transmission at exactly two
-        // chunks and rejecting real emitters (kitty icat, timg, term-image)
-        // that split large images into many chunks. Intermediate chunks append
-        // to the pending payload under the same MAX_PENDING_ENCODED_BYTES
-        // budget the final-chunk merge enforces; their control keys (beyond
-        // `m`) are ignored, matching kitty's protocol where only the first
-        // chunk carries the transmission metadata.
-        // NF9: chunk acks are SUCCESS responses, so `q>=1` suppresses them
-        // too. For intermediate chunks (which usually carry only `m=`) the
-        // quiet level lives on the FIRST chunk's control data in
-        // `state.pending`, same as the C19 error-path lookup above.
+        // Intermediate chunks append under MAX_PENDING_ENCODED_BYTES.
+        // Transmission metadata comes from the first chunk; the final chunk's
+        // quiet, placement, cursor, and parent fields are merged explicitly
+        // (`merge_final_chunk_control`). The first
+        // chunk's quiet level also applies to chunk acknowledgements.
         let (prefix, suppress_ok) = match state.pending.as_mut() {
             Some(pending) => {
                 if pending
@@ -541,7 +533,7 @@ fn process_frame_command(
     validate_frame_control(&command.control)?;
     // Resolved through the animation module's own resolver so the canvas this
     // frame is sized against and the image the frame is finally written to can
-    // never be two different images — `i=` and `I=` are accepted here exactly
+    // never be two different images - `i=` and `I=` are accepted here exactly
     // as they are there.
     let stored = kitty_animation::resolve_image(graphics, &command.control)?;
     let (canvas_width, canvas_height) = graphics
@@ -617,26 +609,10 @@ fn validate_compression(control: &ControlData) -> Result<(), KittyError> {
     }
 }
 
-/// Inflate an RFC 1950 zlib stream, refusing anything that would expand past
-/// `max_output` and anything that does not reach a proper end-of-stream.
-///
-/// The input arrives from the PTY and is adversarial by construction, so the
-/// bound is applied to the *decompressed* stream as it is produced, never to a
-/// size the payload declares about itself: a declared size is under the
-/// attacker's control, and an expansion-ratio test is a guess about intent
-/// rather than a limit on consumption. The output buffer therefore grows only
-/// as bytes actually arrive and is hard-clamped one byte past the budget —
-/// producing that byte is proof the payload exceeds the budget, and it is the
-/// entire cost of finding out, so the bomb's full expansion is never allocated.
-///
-/// Completion is checked explicitly rather than inferred from running out of
-/// input. Inflating with a plain reader treats a truncated transfer as a clean
-/// end-of-file, so a payload cut short mid-stream yields whatever bytes had
-/// already been produced and looks like a success. Requiring the decoder to
-/// report `StreamEnd` — which for zlib framing means the terminating block and
-/// the Adler-32 check were both present and correct — is what makes a truncated
-/// or corrupt payload a refusal. That matches the rule the APC, DCS and OSC
-/// payload paths already follow: a partial image is worse than none.
+/// Inflate one RFC 1950 zlib stream under `max_output`, producing at most one
+/// extra byte to detect excess, so a compression bomb is never fully
+/// expanded. `StreamEnd` (terminating block and Adler-32 check) is required;
+/// no-progress, corrupt, or incomplete streams are refused.
 fn decompress_payload(compressed: &[u8], max_output: usize) -> Result<Vec<u8>, KittyError> {
     /// First output reservation. Small enough that a short payload claiming an
     /// enormous expansion reserves next to nothing, large enough that an
@@ -651,7 +627,7 @@ fn decompress_payload(compressed: &[u8], max_output: usize) -> Result<Vec<u8>, K
     let ceiling = max_output.saturating_add(1);
 
     // `true` selects RFC 1950 (zlib) framing, which is exactly what `o=z`
-    // names — raw deflate and gzip are different formats and are not accepted.
+    // names - raw deflate and gzip are different formats and are not accepted.
     let mut inflate = flate2::Decompress::new(true);
     let mut out: Vec<u8> = Vec::new();
     let mut consumed = 0usize;
@@ -708,8 +684,8 @@ fn decompress_payload(compressed: &[u8], max_output: usize) -> Result<Vec<u8>, K
 }
 
 /// Apply `o=z` decompression when the command asked for it, otherwise pass the
-/// bytes through untouched. One helper so every payload-bearing action —
-/// transmit, transmit-and-display, animation frame, and query — decompresses
+/// bytes through untouched. One helper so every payload-bearing action  -
+/// transmit, transmit-and-display, animation frame, and query - decompresses
 /// under identical bounds instead of each growing its own copy of the rule.
 fn decompress_if_requested(
     control: &ControlData,
@@ -901,7 +877,7 @@ fn process_complete_command(
 // Display previously transmitted image (a=p)
 // ---------------------------------------------------------------------------
 
-/// `a=p` — display an image already in the store, addressed by its protocol
+/// `a=p` - display an image already in the store, addressed by its protocol
 /// image id (`i=`), without re-transmitting pixel data. Required for icat-style
 /// reuse and for placing multiple named placements (`p=`) of one image.
 fn process_display_command(
@@ -972,7 +948,7 @@ fn place_image(
 ) -> (bool, Option<(usize, usize)>) {
     // `U=1`: create a virtual placement instead of a screen-anchored one. It is
     // the sole prototype for Unicode-placeholder display, draws nothing itself,
-    // and never moves the cursor — the placeholder text the client prints does
+    // and never moves the cursor - the placeholder text the client prints does
     // both jobs. Both placement entry points (`a=T` transmit-and-display and
     // `a=p` display-previous) funnel through here, so this one branch covers
     // the whole surface.
@@ -1052,8 +1028,8 @@ fn place_image(
 /// Create the virtual placement for a `U=1` command. Returns whether the scene
 /// changed.
 ///
-/// A virtual placement is addressed by protocol image id — that id is what a
-/// placeholder cell's foreground color encodes — so a command without `i=` (or
+/// A virtual placement is addressed by protocol image id - that id is what a
+/// placeholder cell's foreground color encodes - so a command without `i=` (or
 /// with `i=0`) has no way to ever be referenced and is dropped. The cell extent
 /// comes from `c=`/`r=`; when a client omits one the extent falls back to the
 /// image's natural size in cells, and unlike a real placement it is NOT clamped
@@ -1326,14 +1302,7 @@ fn rgba_from_png(
         .map_err(|_| KittyError::InvalidPayload)?;
     let width = header.width;
     let height = header.height;
-    validate_png_header(
-        control,
-        header.color_type,
-        header.bit_depth,
-        width,
-        height,
-        max_decoded,
-    )?;
+    validate_png_header(control, width, height, max_decoded)?;
 
     let mut reader = decoder
         .read_info()
@@ -1359,26 +1328,10 @@ fn rgba_from_png(
 
 fn validate_png_header(
     control: &ControlData,
-    color_type: png::ColorType,
-    bit_depth: png::BitDepth,
     width: u32,
     height: u32,
     max_decoded: usize,
 ) -> Result<(), KittyError> {
-    match color_type {
-        png::ColorType::Grayscale
-        | png::ColorType::Rgb
-        | png::ColorType::Indexed
-        | png::ColorType::GrayscaleAlpha
-        | png::ColorType::Rgba => {}
-    }
-    match bit_depth {
-        png::BitDepth::One
-        | png::BitDepth::Two
-        | png::BitDepth::Four
-        | png::BitDepth::Eight
-        | png::BitDepth::Sixteen => {}
-    }
     if width == 0 || height == 0 {
         return Err(KittyError::InvalidPayload);
     }

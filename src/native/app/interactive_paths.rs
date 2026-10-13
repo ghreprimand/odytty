@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! INTERACTIVE-PATHS - the production stat-gate probe.
+//! The production stat-gate probe for interactive paths.
 //!
 //! The pure path engine (`crate::paths`) is std-only and deliberately never
 //! touches the filesystem; its single I/O seam is the [`ResolveProbe`] trait.
 //! This module supplies the one production implementation, [`FsResolveProbe`],
 //! which lives in `native/` precisely so `src/paths/` stays pure. The probe is
-//! a zero-field struct constructed at the hover site (Phase 7) - its only job is
-//! to classify an absolute path as a file or directory, or report that it does
+//! a zero-field struct constructed at the hover site. Its only job is to
+//! classify an absolute path as a directory or a file, or report that it does
 //! not exist, via a single `symlink_metadata` call.
 //!
-//! `symlink_metadata` (not `metadata`) is used so a symlink is classified by the
-//! link itself rather than its target - no traversal, no following into a
-//! possibly-hostile target, and no surprise on a dangling link. The call only
+//! `symlink_metadata` (not `metadata`) classifies the final path component by
+//! the link itself rather than its target, so a final symlink is not followed
+//! and a dangling link is not an error. Intermediate components are still
+//! resolved by the operating system. Anything that is not a directory,
+//! including a symlink, device or socket, is classed as a file. The call only
 //! runs when `interactive_paths` is on AND a syntactic path span sits under the
-//! pointer, so the default (feature-off) path makes zero `stat` calls.
+//! pointer, so the default (feature-off) path makes zero `stat` calls. On
+//! Windows a path that starts with two separators never reaches the call.
 
 use crate::paths::{FsKind, ResolveProbe, Resolved};
 
@@ -51,9 +54,28 @@ fn classify_permitted(
     probe(abs_path).map(|is_dir| if is_dir { FsKind::Dir } else { FsKind::File })
 }
 
+/// The last path component for a viewer caption. A backslash separates
+/// components only on Windows; elsewhere it is an ordinary file-name character.
+pub(super) fn file_name_caption(abs_path: &str, windows: bool) -> String {
+    let separators: &[char] = if windows { &['/', '\\'] } else { &['/'] };
+    abs_path
+        .rsplit(separators)
+        .next()
+        .unwrap_or(abs_path)
+        .to_owned()
+}
+
 #[cfg(test)]
 mod probe_tests {
     use super::*;
+
+    #[test]
+    fn the_caption_splits_on_backslashes_only_on_windows() {
+        assert_eq!(file_name_caption(r"C:\dir\shot.png", true), "shot.png");
+        assert_eq!(file_name_caption("C:/dir/shot.png", true), "shot.png");
+        assert_eq!(file_name_caption("/tmp/dir/shot.png", false), "shot.png");
+        assert_eq!(file_name_caption(r"/tmp/a\b.png", false), r"a\b.png");
+    }
 
     #[test]
     fn windows_network_and_device_paths_never_reach_the_probe() {
@@ -120,11 +142,10 @@ pub(in crate::native) struct ImageOverlayState {
 /// arguments.
 ///
 /// Returns `Ok(())` when the child was spawned, `Err(..)` when the spawn failed
-/// (most commonly a missing opener binary - `xdg-open`/`open` not installed or
-/// not on `PATH`, surfaced as `ErrorKind::NotFound`) or the argv was empty. P0-2:
-/// the caller uses this to surface a VISIBLE, non-blocking notice on failure
-/// instead of the old silent no-op that made a broken opener indistinguishable
-/// from "feature off". The success path must NOT fire any notice.
+/// (most commonly a missing opener program, surfaced as `ErrorKind::NotFound`)
+/// or the argv was empty. The caller shows a visible, non-blocking notice on
+/// failure, so a broken opener is distinguishable from the feature being off.
+/// The success path fires no notice.
 ///
 /// An empty argv is reported as `ErrorKind::InvalidInput` (defensive - the
 /// dispatch functions never return one).
@@ -408,7 +429,7 @@ mod dispatch_tests {
     // The dispatch/editor matrix is OS-agnostic except for the default-opener
     // fallback; these wrappers pin the Linux branch so each case still asserts a
     // concrete argv. The per-OS opener program itself is covered in
-    // `platform_opener::tests` (both branches).
+    // `platform_opener::tests` for Linux, macOS and Windows.
     fn open_argv_lin(r: &Resolved, ovr: &str, env: Option<&str>) -> Vec<String> {
         path_open_argv(r, ovr, env, OpenerOs::Linux)
     }

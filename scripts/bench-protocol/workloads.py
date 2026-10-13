@@ -4,7 +4,7 @@
 # Workload catalogue for the OdyTTY comparative benchmark protocol
 # (`docs/benchmark-protocol.md`, protocol version 1.5.4).
 #
-# Two classes live in this file and must never be pooled:
+# Two classes of workload live in this file and must never be pooled:
 #
 #   * W1-W7 keep their protocol identities (W1-W7). W1-W5 are optical-endpoint
 #     workloads. W6 and W7 are software-idle / long-session. Their apparatus

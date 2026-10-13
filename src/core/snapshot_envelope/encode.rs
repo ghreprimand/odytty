@@ -31,13 +31,9 @@ impl SnapshotEnvelope {
     /// buffer that fails to decode. The writers themselves are infallible -
     /// after validation every narrowing cast is provably lossless.
     ///
-    /// The terminal-state section (by far the largest payload; tens of MB for
-    /// a wide, deep session) is encoded DIRECTLY into the output buffer, with
-    /// its section-table length backpatched afterwards, instead of being
-    /// encoded into its own vector and then copied into the envelope. That
-    /// removes one full copy and one transient full-size allocation from
-    /// every snapshot broadcast/save. The wire bytes are identical to the
-    /// table-driven encoder (`encode_sections`), pinned by
+    /// The terminal-state section is written directly into the output and its
+    /// section length backpatched. Byte identity with the table-driven encoder
+    /// (`encode_sections`) is pinned by
     /// `direct_encode_matches_the_table_driven_encoder`.
     pub fn encode(&self) -> Result<Vec<u8>, SnapshotEnvelopeError> {
         self.validate_wire_bounds()?;

@@ -15,60 +15,12 @@
 //!
 //! ## Roster
 //!
-//! Odyssey identity: `plain` (the baseline; palette byte-identical to the
-//! historical xterm table), `odyssey-classic` (also accepted through the legacy
-//! `odyssey` alias), `odyssey-noir`, `odyssey-light` (light),
-//! `odyssey-aurora` (high-contrast), `odyssey-deepspace`, `odyssey-nebula`,
-//! `odyssey-solar`, `odyssey-abyss`, `odyssey-ember`, `odyssey-glacier`,
-//! `odyssey-meridian`, `odyssey-voyager`, `odyssey-pulsar`,
-//! `odyssey-dawn-light` (light), `odyssey-sandstone-light` (light), and
-//! `odyssey-graphite`, `odyssey-fathom`, `odyssey-harbor`, `odyssey-ion`,
-//! `odyssey-orchard`, `odyssey-volcanic`, `odyssey-cloud-light` (light),
-//! `odyssey-coral-light` (light), `odyssey-mist-light` (light),
-//! `odyssey-twilight`, `odyssey-verdant`, `odyssey-quasar`,
-//! `odyssey-meadow-light` (light), `odyssey-parchment-light` (light),
-//! `odyssey-tidepool`, `odyssey-moss`, `odyssey-rosewood`, `odyssey-slate`,
-//! `odyssey-blossom-light` (light), `odyssey-linen-light` (light),
-//! `odyssey-garnet`, `odyssey-sepia`, `odyssey-cobalt`,
-//! `odyssey-lilac-light` (light), `odyssey-pearl-light` (light),
-//! `odyssey-apricot-light` (light), `odyssey-chartreuse`, `odyssey-violet`,
-//! `odyssey-fuchsia`, `odyssey-butter-light` (light), `odyssey-sage-light`
-//! (light), `odyssey-slate-light` (light), `odyssey-amber`, `odyssey-default`
-//! (the shipped default; formerly `odyssey-jungle`, still a working alias),
-//! `odyssey-orchid`, `odyssey-seafoam-light` (light), `odyssey-indigo`,
-//! `odyssey-raspberry`, `odyssey-citrus-light` (light),
-//! `odyssey-mauve-light` (light), `odyssey-terracotta`, `odyssey-harvest`,
-//! `odyssey-lagoon`, `odyssey-clover-light` (light), `odyssey-midnight`,
-//! `odyssey-sienna-light` (light), `odyssey-periwinkle-light` (light),
-//! and `odyssey-pine`.
-//!
-//! Electric Blue: `odyssey-electric-blue` (blue-black, lavender, and cyan).
-//!
-//! Extended Odyssey originals: `odyssey-eclipse`, `odyssey-comet`,
-//! `odyssey-obsidian`, `odyssey-jade`, `odyssey-basalt`, `odyssey-fjord`,
-//! `odyssey-mangrove`, `odyssey-nocturne`, `odyssey-quartz-light` (light),
-//! `odyssey-marble-light` (light), `odyssey-dune-light` (light), and
-//! `odyssey-fern-light` (light).
-//!
-//! Further Odyssey originals (ash/gem/mineral, nautical, dusk/shadow,
-//! botanical): `odyssey-cinder`, `odyssey-umbra`, `odyssey-mariner`,
-//! `odyssey-onyx`, `odyssey-vesper`, `odyssey-cypress`, `odyssey-tungsten`,
-//! `odyssey-magma`, `odyssey-alabaster-light` (light),
-//! `odyssey-marigold-light` (light), `odyssey-willow-light` (light), and
-//! `odyssey-cerulean-light` (light).
-//!
-//! Community palettes (published values): `solarized-dark`, `gruvbox-dark`,
-//! `nord`, `dracula`, `tokyo-night`, `catppuccin-mocha`, `one-dark`, `monokai`,
-//! `everforest-dark`, `kanagawa`, `rose-pine`, `ayu-mirage`, `night-owl`,
-//! `palenight`, `github-dark`, `zenburn`, `oceanic-next`, and `iceberg-dark`.
-//! The published `red-planet` palette and OdyTTY's lower-glare
-//! `red-planet-dark` companion complete the dark community roster.
-//! Light palettes: `solarized-light`, `catppuccin-latte`, `github-light`,
-//! `gruvbox-light`, `one-light`, `ayu-light`, `rose-pine-dawn`,
-//! `tokyo-night-day`, `papercolor-light`, and `everforest-light`.
-//! Retro / phosphor palettes: `green-phosphor`, `amber-crt`, `ibm-5151`,
-//! `dos-cga`, `apple-ii-green`, `commodore-64`, `hercules-amber`, and
-//! `vt220-green`.
+//! [`REGISTRY`] is the authoritative roster. It includes
+//! `plain` (the baseline; palette byte-identical to the historical xterm
+//! table), the Odyssey originals, community palettes, and retro phosphor
+//! palettes. `odyssey` and `odyssey-jungle` remain aliases for
+//! `odyssey-classic` and `odyssey-default`. A test checks that
+//! `docs/themes.md` lists every registered built-in.
 
 use std::sync::OnceLock;
 
@@ -786,7 +738,8 @@ mod tests {
     fn appearance_flag_matches_background_luminance() {
         // A light theme must actually have a light background and vice versa -
         // catches a mis-set `appearance =` line. The midpoint split is generous
-        // (0.18 linear ≈ mid-gray) so only a clearly-wrong flag trips it.
+        // (the shared light-background boundary) so only a clearly-wrong flag
+        // trips it.
         use super::super::contrast::relative_luminance;
         for name in names() {
             let spec = spec_for(name);
@@ -794,10 +747,16 @@ mod tests {
             let bg = relative_luminance(theme.background);
             match spec.appearance {
                 Appearance::Light => {
-                    assert!(bg > 0.18, "{name}: light theme but dark background");
+                    assert!(
+                        bg > super::super::LIGHT_BACKGROUND_LUMINANCE,
+                        "{name}: light theme but dark background"
+                    );
                 }
                 Appearance::Dark => {
-                    assert!(bg < 0.18, "{name}: dark theme but light background");
+                    assert!(
+                        bg < super::super::LIGHT_BACKGROUND_LUMINANCE,
+                        "{name}: dark theme but light background"
+                    );
                 }
             }
         }

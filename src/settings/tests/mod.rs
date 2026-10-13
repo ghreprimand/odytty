@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-only
-#![allow(unused_imports)]
 
 use std::collections::HashMap;
 use std::ffi::OsString;

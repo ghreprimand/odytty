@@ -151,8 +151,8 @@ impl ColorGlyphVertex {
 
 /// A shaped color glyph placed on a snapshot lead cell.
 ///
-/// The key comes from shaping/rasterization, not from the cell's `char`; EM3
-/// tests supply synthetic keys and EM4 will supply real swash glyph/cluster ids.
+/// The key comes from shaping/rasterization, not from the cell's `char`: the
+/// emoji renderer supplies real glyph/cluster keys and tests supply synthetic ones.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColorGlyphRun {
     pub row: usize,
@@ -197,15 +197,15 @@ impl ColorGlyphRun {
 /// glyph run?" - for every visible cell. Answering it by scanning the run
 /// list per cell is O(cells x runs), which explodes on emoji-heavy screens
 /// where the run count grows with the cell count. This mask is built once per
-/// consumer pass in O(cells / 64 + covered cells) and answers each query in
+/// consumer pass in O(cells / 64 + runs + covered cells) and answers each query in
 /// O(1), producing exactly the same answers as
 /// `runs.iter().any(|run| run.covers(row, column))` for every in-grid cell
 /// (pinned by an equivalence test).
 pub struct ColorRunCoverage {
     columns: usize,
     rows: usize,
-    /// One bit per cell, row-major. Left empty when there are no runs so the
-    /// common emoji-free frame skips the allocation entirely.
+    /// One bit per cell, row-major. Left unallocated when there are no runs or
+    /// no addressable cells, so the common emoji-free frame skips it entirely.
     bits: Vec<u64>,
 }
 
@@ -243,7 +243,9 @@ impl ColorRunCoverage {
         }
     }
 
-    /// Whether no run covers any cell (the common emoji-free frame).
+    /// Whether the mask was left unallocated (no runs or no addressable cells).
+    /// A mask whose runs all fall outside the grid is allocated but covers
+    /// nothing, so `false` does not promise a covered cell.
     pub fn is_empty(&self) -> bool {
         self.bits.is_empty()
     }

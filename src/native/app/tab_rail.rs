@@ -33,10 +33,10 @@
 //! [`super::tab_panel`] and spliced in by the integration layer.
 //!
 //! ## Scope
-//! Both side placements are live; the App resolves placement through
-//! [`crate::settings::TabBarPlacement::effective`]. The band width, slot height, and inter-slot gap are the live
-//! `ODYTTY_TAB_RAIL_WIDTH` / `ODYTTY_TAB_RAIL_SLOT_ROWS` / `ODYTTY_TAB_RAIL_GAP`
-//! knobs (resolved by the integration layer into [`RailGeom`] + `rail_cols`);
+//! Both side placements are live. The band width, slot height, and inter-slot
+//! gap are the live `ODYTTY_TAB_RAIL_WIDTH` / `ODYTTY_TAB_RAIL_SLOT_ROWS` /
+//! `ODYTTY_TAB_RAIL_GAP` knobs (resolved by the integration layer into
+//! [`RailGeom`] + `rail_cols`);
 //! auto-hide and drag-resize are handled in the interaction layer.
 
 use super::tab_bar::{ACTIVITY_BADGE, TabBarColors, TabBarSource, TabHit};
@@ -798,11 +798,12 @@ fn is_slot_hovered(hover: Option<TabHit>, idx: usize) -> bool {
     matches!(hover, Some(TabHit::Switch(i) | TabHit::Close(i)) if i == idx)
 }
 
-/// The text a rail label shows: `s` trimmed, with control characters removed
-/// (the top strip's policy), so a restored or shell-set workspace name
-/// carrying ESC or a newline never projects them into chrome cells.
-fn rail_label_text(s: &str) -> String {
-    s.trim().chars().filter(|ch| !ch.is_control()).collect()
+/// The text a rail label shows: the top strip's policy
+/// ([`super::tab_bar::chrome_label_text`]), so a restored or shell-set
+/// workspace name carrying ESC, a newline or a bidi control never projects it
+/// into chrome cells.
+pub(super) fn rail_label_text(s: &str) -> String {
+    super::tab_bar::chrome_label_text(s)
 }
 
 /// The columns a rail label takes untruncated: the sum of its terminal

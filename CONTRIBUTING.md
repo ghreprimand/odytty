@@ -316,7 +316,7 @@ adapter feature and skips without it).
 
 The integration tests in `tests/gpu_composite_smoke.rs` cannot reach the
 library's test helpers, so they read `ODYTTY_REQUIRE_GPU_TESTS` themselves: with
-it set they select the software Vulkan adapter, and a missing adapter or HDR
+it set to `1` (the only value that counts; `0` or empty leaves it off) they select the software Vulkan adapter, and a missing adapter or HDR
 render format fails the test instead of reporting unavailable-hardware. The
 script runs them in a second `cargo test` invocation and checks their execution
 markers in the same way (`composite_names`).

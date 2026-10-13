@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! MP1 mouse protocol evidence tests.
+//! Mouse protocol evidence tests.
 //!
 //! These fixtures exercise the public terminal facade plus the public mouse
 //! encoder, so they stay hermetic and do not reach into native/window internals.

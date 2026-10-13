@@ -926,6 +926,48 @@ fn reorder_tab_splices_with_insertion_semantics_and_preserves_active_identity() 
 }
 
 #[test]
+fn reorder_tab_places_the_tab_before_the_slot_it_was_dropped_on_for_every_drag() {
+    // The expectation is stated as a boundary rule, not with the commit's own
+    // index arithmetic: the tab lands before the tab that sat at `drop`, or at
+    // the end when `drop` is the end boundary.
+    for count in 1..=6u64 {
+        for origin in 0..count {
+            for drop_idx in 0..=count {
+                let mut set = WorkspaceSet::new(build_session(), None);
+                for id in 1..count {
+                    set.push(build_session_with_id(SessionToken(id)));
+                }
+                let mut expected: Vec<u64> = (0..count).filter(|id| *id != origin).collect();
+                // Dropped on its own slot, the tab is placed before itself.
+                let at = if drop_idx == origin {
+                    origin as usize
+                } else {
+                    expected
+                        .iter()
+                        .position(|id| *id == drop_idx)
+                        .unwrap_or(expected.len())
+                };
+                expected.insert(at, origin);
+
+                let moved = set.reorder_tab(origin as usize, drop_idx as usize);
+                let order: Vec<u64> = (0..count as usize)
+                    .map(|pos| set.token_at_position(pos).expect("tab").0)
+                    .collect();
+                assert_eq!(
+                    order, expected,
+                    "count={count} origin={origin} drop={drop_idx}"
+                );
+                assert_eq!(
+                    moved,
+                    expected != (0..count).collect::<Vec<_>>(),
+                    "count={count} origin={origin} drop={drop_idx}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn reposition_active_tab_after_is_a_noop_when_already_adjacent_or_anchor_missing() {
     let mut set = WorkspaceSet::new(build_session(), None);
     set.push(build_session_with_id(SessionToken(1)));

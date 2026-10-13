@@ -480,13 +480,9 @@ fn soft_reset_leaves_alternate_scroll_untouched() {
 
 #[test]
 fn reset_input_reporting_modes_clears_the_latched_transient_family() {
-    // A remote session that latched input-reporting modes (a TUI, or the shell's
-    // readline enabling bracketed paste) must not carry them across a reconnect
-    // respawn into a FRESH login shell - the model is reused to preserve
-    // scrollback, so `WorkspaceSet::reconnect` calls this reset. Pins the
-    // primitive: without it, a stale DEC 2004 makes the next paste wrap in
-    // \e[200~/\e[201~ markers the fresh readline never enabled, echoing them
-    // literally (the reported garbled-paste symptom).
+    // Reset reused terminal input modes before a fresh remote shell: bracketed
+    // paste, mouse, application cursor, focus and alternate scroll return to
+    // defaults; terminal content is retained.
     let mut terminal = Terminal::new(8, 2);
     // Latch the whole family a pre-drop shell/TUI could have set.
     terminal.advance(b"\x1b[?2004h"); // bracketed paste on

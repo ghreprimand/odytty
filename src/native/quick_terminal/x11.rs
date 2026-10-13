@@ -172,7 +172,9 @@ mod x11_grab {
     /// the server sends a release and a press with the same timestamp for each
     /// repeat; with it, only presses arrive while the key stays down. Either
     /// way a held shortcut summons once, as the Windows (`MOD_NOREPEAT`) and
-    /// macOS (Carbon hot key) backends do.
+    /// macOS (Carbon hot key) backends do. The press activates the grab, so
+    /// its release always comes back on this connection; until it does, later
+    /// presses count as repeats.
     #[derive(Debug, Default)]
     pub(super) struct RepeatFilter {
         held: bool,

@@ -492,9 +492,9 @@ fn crt_off_is_exact_and_crt_on_bounded_dims_lit_cells() {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 13a/13c: the C4 viewer overlay is composited AFTER the CRT/bloom post
-// pass, directly onto the swapchain, so effects never touch the photo. Phase 13c
-// made it a LIGHTBOX: a full-viewport semi-transparent scrim dims the whole
+// The in-terminal image viewer overlay is composited AFTER the CRT/bloom post
+// pass, directly onto the swapchain, so effects never touch the photo. It is a
+// LIGHTBOX: a full-viewport semi-transparent scrim dims the whole
 // terminal, then the image draws crisp on top of its centered fit-rect. These
 // tests REPLICATE that architecture (scene -> HDR offscreen -> CRT+bloom ->
 // swapchain, then a LoadOp::Load overlay pass that draws the scrim + the image
@@ -961,14 +961,16 @@ fn cleared_viewer_frame_is_byte_identical() {
     );
 }
 
-/// CI's required GPU validation sets this variable. It makes a missing adapter
+/// CI's required GPU validation sets this variable to `1`. It makes a missing adapter
 /// or HDR render format fail the test instead of reporting
 /// unavailable-hardware, and selects the software Vulkan adapter, as the
 /// library's headless GPU helper does.
 const REQUIRE_GPU_TESTS_ENV: &str = "ODYTTY_REQUIRE_GPU_TESTS";
 
+/// Only the value `1` turns the requirement on, as in the library's
+/// `required_by_env`; `0` or an empty value leaves it off.
 fn gpu_required() -> bool {
-    std::env::var_os(REQUIRE_GPU_TESTS_ENV).is_some()
+    std::env::var_os(REQUIRE_GPU_TESTS_ENV).is_some_and(|value| value == "1")
 }
 
 fn gpu_instance() -> wgpu::Instance {

@@ -35,9 +35,10 @@ have described a command that may not be the one that ran; both the inherited
 prefix and the combined value were recorded, and the inherited prefix was empty
 for this run. Current runs retain exact flags in private local metadata and
 redact caller-supplied flags from shareable metadata. The fingerprint for this
-run was computed after the export and before publication, at which point every tracked Rust source was verified
-byte-identical to the recorded revision with no untracked Rust source present;
-runs from this revision onward record it during the build instead.
+run was computed after the export and before publication, at which point every
+tracked Rust source was verified byte-identical to the recorded revision with
+no untracked Rust source present; runs from this revision onward record it
+during the build instead.
 
 Reproduce with:
 

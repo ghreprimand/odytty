@@ -333,8 +333,7 @@ impl App {
     }
 }
 
-// Redraw arm moved verbatim from the `ApplicationHandler` match; the match
-// itself remains the stable ingress in `mod.rs`.
+// The redraw body. The `RedrawRequested` arm in `event_loop.rs` is the ingress.
 impl App {
     /// Handle one delivered `RedrawRequested`.
     ///
@@ -407,7 +406,7 @@ impl App {
                 let _ = self.update_held_cursor_frame(now);
             } else if !single_pane {
                 // Multi-pane active tab: branch to the per-pane render
-                // dispatch (design doc §3.2, audit rows #2/#3/#10/#11).
+                // dispatch.
                 // The single-pane fast path below is never reached here,
                 // so it stays byte-identical.
                 self.rebuild_multipane();

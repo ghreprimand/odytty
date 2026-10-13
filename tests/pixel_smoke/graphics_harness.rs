@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Graphics-path compositor helpers for the `pixel_smoke` suite (Stage 6
-//! hardening).
+//! Graphics-path compositor helpers for the `pixel_smoke` suite.
 //!
 //! Extends the shared CPU compositor to composite `ImageScene::visible_
-//! placements()` and EM3's dedicated color-glyph segment into the same `Frame`,
+//! placements()` and the dedicated color-glyph segment into the same `Frame`,
 //! using the *exact* ordering contract the GPU render pass uses (`gpu.rs::
 //! render`):
 //!
@@ -260,7 +259,7 @@ pub(crate) fn composite_scene(
     frame
 }
 
-/// Composite the V2 graphics path plus EM3's dedicated color-glyph segment:
+/// Composite the graphics path plus the dedicated color-glyph segment:
 /// backgrounds, below-images, coverage glyphs/decorations, color glyphs,
 /// cursor/overlays, then above-images.
 pub(crate) fn composite_scene_with_color_glyphs(

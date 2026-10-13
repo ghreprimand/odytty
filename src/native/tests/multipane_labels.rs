@@ -273,14 +273,6 @@ fn app_with_hoverable_path() -> App {
     app
 }
 
-fn hold_open_modifier(app: &mut App, held: bool) {
-    if cfg!(target_os = "macos") {
-        app.set_super_key_for_test(held);
-    } else {
-        app.set_ctrl_modifier_for_test(held);
-    }
-}
-
 /// Ctrl+hover over a path in a split tab underlines that span in the focused
 /// pane only, and the other pane is untouched. The span comes from the
 /// focused pane's own pointer mapping.

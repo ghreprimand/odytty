@@ -21,6 +21,7 @@ class MiriPartitions(unittest.TestCase):
 if [ "$2" != test ]; then echo 'simulated Miri'; exit 0; fi
 case "$SIMULATED_RESULT" in
   unsupported) echo 'unsupported operation'; exit 1 ;;
+  passing_phrase) echo 'warning: this feature is not supported'; echo 'test result: ok. 1 passed; 0 failed;'; exit 0 ;;
   ub) echo 'Undefined Behavior'; exit 1 ;;
   timeout) exit 124 ;;
   empty) echo 'test result: ok. 0 passed; 0 failed;'; exit 0 ;;
@@ -99,6 +100,7 @@ exit 0
             ("probe", "empty", 0, "empty-filter"),
             ("probe", "missing", 0, "empty-filter"),
             ("required", "unsupported", 1, "unsupported"),
+            ("required", "passing_phrase", 0, "pass"),
             ("probe", "timeout", 0, "timeout"),
             ("probe", "ub", 1, "undefined-behavior"),
         ]:

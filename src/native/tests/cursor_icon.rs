@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! The mouse-cursor shape the pointer path selects over the
-//! terminal grid. Before this, OdyTTY never called `set_cursor`, so the pointer
-//! stayed the OS default arrow everywhere; these tests pin the standard
-//! affordance - an I-beam over selectable text, the arrow while a TUI owns the
-//! mouse, and a hand over a hovered hyperlink.
+//! The mouse-cursor shape the pointer path selects over the terminal grid: an
+//! I-beam over selectable text, the arrow while a TUI owns the mouse, and a
+//! hand over a hovered hyperlink.
 //!
 //! Headless (no GPU/window): the cell size is injected via a test seam and the
 //! production `update_pointer_cell` handler is driven directly. The session
 //! owns no PTY child, so these tests never skip.
 
 use super::*;
+use crate::native::app::interactive_paths::MapProbe;
+use crate::paths::FsKind;
 use winit::window::CursorIcon;
 
 const COLS: usize = 80;
@@ -111,7 +111,6 @@ fn dragging_a_divider_keeps_the_resize_cursor() {
     // Pressing on the divider grabs it (the real press path), and subsequent
     // motion keeps the matching resize cursor for the whole gesture - even if
     // the pointer strays slightly off the hairline.
-    use winit::event::MouseButton as WinitMouseButton;
     let mut app = build_split_app(true);
     app.set_pointer_px_for_test(MID_X, MID_Y);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
@@ -157,8 +156,6 @@ fn pointer_over_hovered_hyperlink_is_a_hand() {
 // filesystem. The path is absolute, so neither OSC 7 cwd nor `$HOME` is
 // consulted - the resolution is fully synthetic. `/proj/...` is a fabricated
 // path, never a real machine path.
-use crate::native::app::interactive_paths::MapProbe;
-use crate::paths::FsKind;
 
 /// Print an absolute path at row 0 col 0; with `interactive_paths` on and the
 /// probe classifying it as a real file, hovering inside the span shows the hand
@@ -418,12 +415,17 @@ fn failed_open_spawn_raises_visible_notice() {
     assert!(message.contains("Couldn't open"), "user-facing phrasing");
 }
 
-/// A spawn of a real program (`true`, which exists on every unix CI host and
-/// exits immediately) does NOT raise a notice - the success path is silent.
+/// A spawn of a real program that exits at once does NOT raise a notice - the
+/// success path is silent. The program is `true` on Unix and `cmd /C exit 0` on
+/// Windows, which always has `cmd` and resolves it to an absolute file.
 #[test]
 fn successful_open_spawn_raises_no_notice() {
     let mut app = build_app(b"");
-    let argv = vec!["true".to_owned()];
+    let argv: Vec<String> = if cfg!(windows) {
+        ["cmd", "/C", "exit", "0"].map(str::to_owned).to_vec()
+    } else {
+        vec!["true".to_owned()]
+    };
     app.spawn_open_or_notice_for_test(&argv);
     assert!(
         app.open_notice_message_for_test().is_none(),

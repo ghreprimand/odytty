@@ -11,7 +11,7 @@
 use super::*;
 use crate::native::session::reparent::{MoveError, MoveScope};
 
-const SRC_BASE: u64 = 1 << 40;
+const SRC_BASE: u64 = crate::native::window_owner::WINDOW_TOKEN_STRIDE;
 const NEW_BASE: u64 = 2 << 40;
 
 fn dest_set() -> WorkspaceSet {
@@ -205,7 +205,10 @@ fn a_new_window_set_adopts_the_content_and_can_hand_it_back() {
     );
     assert_ne!(workspace_identity, tab_identity);
     let minted = adopted.mint_session_token().expect("range has room");
-    assert!(minted.0 >= NEW_BASE && minted.0 < NEW_BASE + (1 << 40));
+    assert!(
+        minted.0 >= NEW_BASE
+            && minted.0 < NEW_BASE + crate::native::window_owner::WINDOW_TOKEN_STRIDE
+    );
     assert_ne!(minted, tab_identity);
 
     // The new window could not open: everything goes back.

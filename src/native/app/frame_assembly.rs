@@ -236,9 +236,10 @@ impl App {
         (decorated, quads, comparison)
     }
 
-    /// Top tab-bar decoration: grow the snapshot by [`TAB_BAR_ROWS`] rows off the
-    /// top, shift the content (and cursor) down, and paint the active workspace's
-    /// tab strip into the reserved row. Extracted from
+    /// Top tab-bar decoration: grow the snapshot by the configured bar height
+    /// ([`Self::tab_bar_rows`] rows) off the top, shift the content (and cursor)
+    /// down, and paint the active workspace's tab strip into the reserved rows.
+    /// Extracted from
     /// [`Self::decorate_snapshot_with_tab_bar`] so it composes with the rail
     /// decoration (a frame can show both bands).
     pub(super) fn decorate_snapshot_with_top_bar(

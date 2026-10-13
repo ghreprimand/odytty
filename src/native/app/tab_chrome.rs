@@ -1,20 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Shared tab-chrome treatment: the **"Phosphor Flat"** visual language
-//! used by BOTH the horizontal
+//! Shared tab-chrome treatment, used by both the horizontal
 //! [`super::tab_bar`] and the vertical [`super::tab_rail`] widgets.
 //!
 //! This module owns **color**; the widgets own **layout**. Every function here
 //! is pure over theme roles ([`TabBarColors`]) with no GPU/quad/geometry types,
-//! so both axes share one treatment and it unit-tests without a device (the
-//! F4V2-NF2 "promote shared treatment fns to a shared chrome location" follow-up
-//! that the F4-V2 spec called for).
+//! so both axes share one treatment and it unit-tests without a device.
 //!
-//! ## Phosphor Flat, precisely
-//! The redesign dropped the whole outlined-box language (rings, underlines,
-//! separators, deleted rather than bypassed) because it read as hacked-together
-//! and cheap. The survey's unanimous law: **the container is
-//! invisible; only the active tab is a drawn object.** Hierarchy comes from
-//! luminance, not geometry.
+//! The container is invisible; only the active tab is a drawn object. Hierarchy
+//! comes from luminance, not geometry.
 //!
 //! - **ACTIVE** - a warm `selection` fill (the *bloom-off fallback*, always
 //!   emitted so the active tab is identifiable even with CRT/bloom disabled)

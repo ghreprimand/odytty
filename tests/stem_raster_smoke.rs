@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Live stem-darkening atlas-raster proof.
 //!
-//! RV5 ships *default-on* (a conservative coverage boost so light-on-dark body
+//! Stem darkening ships *default-on* (a conservative coverage boost so light-on-dark body
 //! text holds weight); `stem_darken = 0.0` is the opt-out that restores the
 //! classic raster byte-for-byte. The pure-function behaviour of the boost is
 //! pinned by `src/atlas/tests/stem_darken.rs`; this binary proves the boost is
@@ -166,14 +166,14 @@ fn endpoints_stay_pinned_at_default_strength() {
 
 #[test]
 fn plain_render_quality_neutralizes_stem_through_live_raster() {
-    // VE5 plain bypass: `render_quality = plain` derives a neutralized
+    // Plain bypass: `render_quality = plain` derives a neutralized
     // `effective_stem_darken() == 0.0` even when the raw `stem_darken` field is
     // hot. Proven through the LIVE atlas raster: building at the plain-effective
     // strength must reproduce the classic 0.0 raster byte-for-byte. The hot raw
     // field is the teeth - it proves plain *overrides* a live-enabled stem
     // boost, not merely that 0.0 in yields 0.0 out.
     //
-    // This is the stem coordinate of the VE5 `plain == minimal` proof; the
+    // This is the stem coordinate of the `plain == minimal` proof; the
     // focus_dim coordinate is the pixel_smoke `render_quality` layer, and the
     // post/bloom/crt coordinates are the settings + gpu structural units. It
     // lives here (not the global-free pixel suite) because `set_stem_darken` is

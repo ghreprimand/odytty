@@ -7,9 +7,10 @@
 //! subgraph (a tiny table can expand exponentially), a `PaintGlyph` traverses
 //! its child twice when the fill-glyph shortcut does not apply, and every
 //! clip, layer and fill costs a full pass over the raster. [`paint_cost`] walks the graph once per distinct Paint,
-//! memoized, and derives an upper bound on the traversal visits, the
-//! full-raster passes and the peak number of live intermediate buffers that
-//! the bounds and raster passes in `colr1` will incur. [`admits`] compares
+//! memoized, and derives upper bounds on the Paint visits of one traversal
+//! (the bounds and raster passes in `colr1` each traverse once), the
+//! full-raster passes and the peak number of live intermediate buffers of
+//! the raster pass. [`admits`] compares
 //! those against fixed budgets, so an over-budget glyph is refused before its
 //! traversal starts and falls back exactly as any other failed color glyph.
 
@@ -19,7 +20,7 @@ use skrifa::GlyphId;
 use skrifa::raw::tables::colr::{Colr, Paint};
 use skrifa::raw::{FontRef, TableProvider};
 
-/// Most Paint visits one glyph may expand to. Matches the order of the SVG
+/// Most Paint visits one traversal of a glyph may expand to. Matches the order of the SVG
 /// renderer's expanded-node cap.
 pub(super) const MAX_PAINT_VISITS: u64 = 1 << 16;
 /// Most full-raster passes times raster pixels one glyph may cost.

@@ -43,10 +43,9 @@ LICENSE_DIR="$DATA_DIR/licenses/odytty"
 
 # Remove only the licence files this tarball installs: the named notices and the
 # font licence files listed in the tarball's own licenses/fonts tree. Never a
-# recursive delete: custom prefixes can contain other licence files, and a
-# file this installer did not put there must survive. A
-# directory goes only once it is empty. Run from the extracted tarball, as the
-# install is.
+# recursive delete: custom prefixes can contain other licence files, and a file
+# this installer did not put there must survive. A directory goes only once it
+# is empty. Run from the extracted tarball, as the install is.
 uninstall_licences() {
     for notice in LICENSE NOTICE THIRD-PARTY-LICENSES; do
         rm -f "$LICENSE_DIR/$notice"

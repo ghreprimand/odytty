@@ -24,6 +24,16 @@ class DocumentationGuardTests(unittest.TestCase):
         self.append("docs/releases/README.md", "[v0.14.0](0.14.0.md)\n")
         self.write("docs/releases/0.14.0.md", "# OdyTTY v0.14.0\n\nProfiles.\n")
         self.write("Cargo.toml", '[package]\nversion = "0.14.0"\n')
+        self.set_release_files("0.14.0")
+
+    def set_release_files(self, version):
+        """The lockfiles and AppStream entry a tagged commit carries."""
+        lock = f'[[package]]\nname = "odytty"\nversion = "{version}"\n'
+        (self.root / "fuzz/parser_graphics").mkdir(parents=True, exist_ok=True)
+        (self.root / "dist/linux").mkdir(parents=True, exist_ok=True)
+        self.write("Cargo.lock", lock)
+        self.write("fuzz/parser_graphics/Cargo.lock", lock)
+        self.write(guard.APPSTREAM, f'<releases>\n  <release version="{version}" date="2026-01-01">\n')
 
     def write(self, name, text):
         (self.root / name).write_text(text, encoding="utf-8")
@@ -81,8 +91,29 @@ class DocumentationGuardTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     guard.check(self.root)
 
+    def test_release_mode_rejects_a_leftover_candidate_marker_at_the_published_version(self):
+        self.append("README.md", "\nRelease candidate: **v0.14.0**.\n")
+        with self.assertRaisesRegex(ValueError, "candidate marker remains"):
+            guard.check(self.root, "0.14.0")
+        guard.check(self.root)
+
+    def test_release_mode_checks_lockfiles_and_the_appstream_entry(self):
+        for name, mutate in (
+            ("Cargo.lock", lambda text: text.replace("0.14.0", "0.13.0")),
+            ("fuzz/parser_graphics/Cargo.lock", lambda text: text.replace("0.14.0", "0.13.0")),
+            (guard.APPSTREAM, lambda text: text.replace("0.14.0", "0.13.0")),
+        ):
+            with self.subTest(file=name):
+                original = (self.root / name).read_text(encoding="utf-8")
+                self.write(name, mutate(original))
+                with self.assertRaisesRegex(ValueError, "differs from the release version"):
+                    guard.check(self.root, "0.14.0")
+                self.write(name, original)
+        guard.check(self.root, "0.14.0")
+
     def test_candidate_preserves_truth_about_not_yet_published_version(self):
         self.write("Cargo.toml", '[package]\nversion = "0.15.0"\n')
+        self.set_release_files("0.15.0")
         for name in ("README.md", "SPEC.md", "TODO.md", "docs/releases/README.md"):
             self.append(name, "\nRelease candidate: **v0.15.0**.\n")
         self.append("TODO.md", "\n## v0.15.0: Quick access (release candidate)\n\n- [x] Feature acceptance.\n\n### Post-publication checks\n\n- [ ] Verify published artifacts.\n")
@@ -93,6 +124,7 @@ class DocumentationGuardTests(unittest.TestCase):
 
     def test_candidate_post_publication_unchecked_is_allowed(self):
         self.write("Cargo.toml", '[package]\nversion = "0.15.0"\n')
+        self.set_release_files("0.15.0")
         for name in ("README.md", "SPEC.md", "TODO.md", "docs/releases/README.md"):
             self.append(name, "\nRelease candidate: **v0.15.0**.\n")
         self.append(
@@ -126,6 +158,7 @@ class DocumentationGuardTests(unittest.TestCase):
 
     def test_release_mode_rejects_cargo_and_candidate_drift(self):
         self.write("Cargo.toml", '[package]\nversion = "0.15.0"\n')
+        self.set_release_files("0.15.0")
         # No Release candidate markers: must not pass by reusing published 0.14.0.
         with self.assertRaisesRegex(ValueError, "Release candidate"):
             guard.check(self.root, "0.15.0")

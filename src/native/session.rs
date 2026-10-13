@@ -37,7 +37,7 @@ mod window_merge;
 mod tests;
 
 pub(super) use arrangement::{ArrangeOutcome, FloatStep};
-pub(super) use lifecycle::SHUTDOWN_REAP_DEADLINE;
+pub(super) use lifecycle::{SHUTDOWN_REAP_DEADLINE, reorder_destination};
 pub(super) use model::{FailedNavAnchor, Session, SessionToken, WorkspaceSet};
 pub(super) use persistence::{RestoreReport, RestoredLocalLeaf};
 pub(super) use presentation::CursorComparison;

@@ -212,12 +212,13 @@ Sessions, PTY pumps, attach pumps and background workers wake the window through
 an `EventWaker` instead of a bare winit proxy. Production wraps the proxy and
 forwards every event unchanged. Test builds can instead hold a discarding waker,
 which accepts events and drops them, as an unrun loop would leave them
-unconsumed. macOS uses it for the 58 cases that spawn sessions, which were
-ignored there and now run; setting `ODYTTY_TEST_DISCARD_WAKER` selects it on
-Linux and Windows too, so the macOS path can be exercised on those hosts. Linux
-and Windows keep the shared loop by default. Hosts without a display, including
-the Linux CI runner, still report the proxy-backed cases unavailable unless the
-virtual display provides one or the discarding waker is selected.
+unconsumed. macOS uses it for the 58 cases that spawn sessions (the 56 left
+above plus two added since), which were ignored there and now run; setting
+`ODYTTY_TEST_DISCARD_WAKER` selects it on Linux and Windows too, so the macOS
+path can be exercised on those hosts. Linux and Windows keep the shared loop by
+default. Hosts without a display, including the Linux CI runner, still report
+the proxy-backed cases unavailable unless the virtual display provides one or
+the discarding waker is selected.
 
 The same change also starts running these on macOS: the automation
 accepted-connection observer test, the automation listener-fault test, and

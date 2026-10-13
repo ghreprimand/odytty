@@ -165,6 +165,16 @@ pub(super) struct TabBarGlyph {
     pub(super) wide_tail: bool,
 }
 
+impl TabBarGlyph {
+    /// Show a single chrome symbol here, dropping any label owner or wide tail
+    /// the column held, so a symbol never inherits a label's extra scalars.
+    pub(super) fn set_symbol(&mut self, ch: char) {
+        self.ch = ch;
+        self.owner = None;
+        self.wide_tail = false;
+    }
+}
+
 /// Output from [`TabBar::render`]: fully specified row cells plus any optional
 /// pixel-space quads the integration layer wants to composite separately.
 ///
@@ -383,7 +393,7 @@ impl TabBar {
             if let Some(close_col) = slot.close_col.filter(|_| is_active || is_hovered)
                 && let Some(glyph) = row.get_mut(close_col)
             {
-                glyph.ch = '×';
+                glyph.set_symbol('×');
                 glyph.attrs = la;
             }
 
@@ -394,12 +404,12 @@ impl TabBar {
                 let progress = source.tab_progress(slot.idx);
                 let activity = !is_active && source.tab_activity(slot.idx);
                 if let Some(progress) = progress {
-                    glyph.ch = progress_badge(progress);
+                    glyph.set_symbol(progress_badge(progress));
                     glyph.attrs.foreground = active_lbl;
                     glyph.attrs.background = slot_bg;
                     glyph.attrs.set_bold(true);
                 } else if activity {
-                    glyph.ch = ACTIVITY_BADGE;
+                    glyph.set_symbol(ACTIVITY_BADGE);
                     glyph.attrs.foreground = active_lbl;
                     glyph.attrs.background = slot_bg;
                     glyph.attrs.set_bold(true);
@@ -428,7 +438,7 @@ impl TabBar {
             plus_attrs.foreground = plus_fg;
             plus_attrs.background = plus_bg;
             if let Some(glyph) = row.get_mut(nt_col) {
-                glyph.ch = '+';
+                glyph.set_symbol('+');
                 glyph.attrs = plus_attrs;
             }
 
@@ -441,7 +451,7 @@ impl TabBar {
             picker_attrs.foreground = picker_fg;
             picker_attrs.background = picker_bg;
             if let Some(glyph) = row.get_mut(picker_col) {
-                glyph.ch = '\u{25be}';
+                glyph.set_symbol('\u{25be}');
                 glyph.attrs = picker_attrs;
             }
         }
@@ -579,6 +589,16 @@ fn is_slot_hovered(hover: Option<TabHit>, idx: usize) -> bool {
     }
 }
 
+/// The text a chrome label shows: `s` trimmed, then cleaned by the shared
+/// overlay-row rule ([`crate::native::display_text::sanitize_row_text`]), so a
+/// restored or shell-set name carrying ESC, a newline, a zero-width character
+/// or a right-to-left override never projects it into chrome cells (where it
+/// would count as a column or hide in the name). Joiners stay: emoji sequences
+/// and several scripts need them.
+pub(super) fn chrome_label_text(s: &str) -> String {
+    crate::native::display_text::sanitize_row_text(s.trim())
+}
+
 /// Truncate `s` to at most `max_cols` display columns.
 ///
 /// Control characters are stripped first: a hostile or buggy program can set a
@@ -592,7 +612,7 @@ fn is_slot_hovered(hover: Option<TabHit>, idx: usize) -> bool {
 /// Leading/trailing whitespace is stripped; when truncation is needed the last
 /// column holds `…`.
 fn truncate_label(s: &str, max_cols: usize) -> String {
-    let cleaned: String = s.trim().chars().filter(|ch| !ch.is_control()).collect();
+    let cleaned = chrome_label_text(s);
     let owners = crate::core::text_owners(&cleaned, false);
     let total: usize = owners.iter().map(|(_, width)| width).sum();
     if total <= max_cols {
@@ -1416,6 +1436,18 @@ mod tests {
             out.glyphs[inactive.label_col].attrs.foreground,
             "active label distinct from inactive"
         );
+    }
+
+    /// Bidi controls and zero-width characters never reach a chrome label, while
+    /// the joiners an emoji sequence needs stay; the rail shares the rule.
+    #[test]
+    fn chrome_labels_drop_bidi_and_zero_width_controls_but_keep_joiners() {
+        let hostile = "ab\u{202E}cd\u{200B}\u{2066}e\u{200F}";
+        assert_eq!(chrome_label_text(hostile), "abcde");
+        assert_eq!(truncate_label(hostile, 10), "abcde");
+        assert_eq!(super::super::tab_rail::rail_label_text(hostile), "abcde");
+        let family = "\u{1F468}\u{200D}\u{1F469}";
+        assert_eq!(chrome_label_text(family), family, "joiners are kept");
     }
 
     /// Truncation measures by terminal owners: a cut never separates the rest

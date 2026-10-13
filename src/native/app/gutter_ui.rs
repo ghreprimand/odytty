@@ -173,13 +173,7 @@ pub(super) fn pane_command_status_gutter_quads(
         geometry.origin,
         palette,
     );
-    for quad in &mut quads {
-        quad.rect[0] = quad.rect[0].max(geometry.clip_rect[0]);
-        quad.rect[1] = quad.rect[1].max(geometry.clip_rect[1]);
-        quad.rect[2] = quad.rect[2].min(geometry.clip_rect[2]);
-        quad.rect[3] = quad.rect[3].min(geometry.clip_rect[3]);
-    }
-    quads.retain(|quad| quad.rect[0] < quad.rect[2] && quad.rect[1] < quad.rect[3]);
+    super::cursor_frame::clip_solid_quads_to_rect(&mut quads, geometry.clip_rect);
     quads
 }
 

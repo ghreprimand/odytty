@@ -7,7 +7,6 @@ use super::*;
 use crate::native::bindings::KeyBindings;
 use crate::native::context_menu_ui::humanize_chord;
 use crate::settings::{BindableAction, KeyBindingOverride, KeyChord, format_key_chord};
-use winit::event::MouseButton as WinitMouseButton;
 
 fn app_with(settings: Settings) -> App {
     let (app, _terminal) =

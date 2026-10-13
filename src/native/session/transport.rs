@@ -230,10 +230,11 @@ impl RemoteReconnect {
 /// best-effort cleanup on close.
 pub(in crate::native) struct RemoteUpload {
     destination: String,
-    // Read only by the not-`test` upload/cleanup argv builders; under `cfg(test)`
-    // the confirm flow records the intended upload instead of building an argv.
-    #[cfg_attr(test, allow(dead_code))]
+    /// The connect route's explicit port override; `None` for an imported
+    /// alias, whose port OpenSSH resolves from its own config.
     port: Option<u16>,
+    // Read only by the not-`test` upload and cleanup argv builders; under
+    // `cfg(test)` the confirm flow records the intended upload instead.
     #[cfg_attr(test, allow(dead_code))]
     control_dir: Option<std::path::PathBuf>,
     /// Remote temp paths this tab's uploads may have created, and whether the
@@ -678,7 +679,7 @@ impl WorkspaceSet {
     /// within `content`, reflowing changed terminal models and flushing only
     /// backends whose grid/metrics became dirty. For an all-single-pane world
     /// every tab's lone leaf still spans `content`; multi-pane tabs derive each
-    /// pane from its own sub-rect (design doc §2.5 audit row #1). An unchanged
+    /// pane from its own sub-rect. An unchanged
     /// session is inert instead of receiving a redundant PTY/ConPTY resize.
     ///
     /// `pad` is the physical window-padding inset applied to every divider-facing
@@ -1093,32 +1094,19 @@ impl WorkspaceSet {
     }
 
     /// Spawn a restored local shell at `cwd` and insert it into the arena
-    /// without attaching it to a tab (WP2 restore path). Mirrors
-    /// [`Self::insert_spawned_session`] but (1) hands the captured cwd to the
-    /// shell spawn so the child starts there, and (2) SEEDS the terminal model's
-    /// advisory cwd to the same value so the restored pane reports the right
-    /// directory (and tab title) from the first frame, before any OSC 7 arrives.
-    /// `cwd` is `None` when the pane had no restorable directory, which spawns
-    /// the shell wherever the process already is.
+    /// without attaching it to a tab (the restore path). It is
+    /// [`Self::insert_spawned_session_in`]: the captured cwd goes to the shell
+    /// spawn so the child starts there, and seeds the terminal model's advisory
+    /// cwd so the restored pane reports the right directory (and tab title)
+    /// from the first frame, before any OSC 7 arrives. `cwd` is `None` when the
+    /// pane had no restorable directory, which spawns the shell wherever the
+    /// process already is.
     pub(crate) fn insert_restored_session(
         &mut self,
         grid: crate::core::Dimensions,
         cwd: Option<std::path::PathBuf>,
     ) -> Result<SessionToken, std::io::Error> {
-        let shell_integration = self.shell_integration_enabled;
-        let spawn_cwd = cwd.clone();
-        self.insert_local_session_with(grid, cwd, move |grid| {
-            let settings = crate::settings::Settings {
-                shell_integration,
-                ..crate::settings::Settings::default()
-            };
-            PtySession::spawn_default_shell_in_with_settings(
-                grid,
-                spawn_cwd,
-                crate::cwd::DirectorySource::Derived,
-                &settings,
-            )
-        })
+        self.insert_spawned_session_in(grid, cwd)
     }
 
     /// Like [`Self::insert_restored_session`] but honors a resolved named-profile
@@ -1129,13 +1117,8 @@ impl WorkspaceSet {
         cwd: Option<std::path::PathBuf>,
         effective: &crate::profiles::EffectiveLaunch,
     ) -> Result<SessionToken, std::io::Error> {
-        let token = self.insert_spawned_session_with_effective(grid, cwd, effective)?;
-        if let Some(name) = effective.profile_name.clone()
-            && let Some(session) = self.sessions.get_mut(&token)
-        {
-            session.launch_profile = Some(name);
-        }
-        Ok(token)
+        // The spawn path records the profile name on the session.
+        self.insert_spawned_session_with_effective(grid, cwd, effective)
     }
 
     /// Spawn an explicit child command in a local PTY and insert it into the

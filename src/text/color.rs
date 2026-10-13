@@ -13,8 +13,7 @@ use crate::core::Color;
 ///
 /// These are the *baseline* defaults (the plain theme). The active default used
 /// when resolving `Color::Default` is overridable at runtime via
-/// [`set_default_colors`]; the theme layer sets it once at startup. Core terminal
-/// semantics never read these - only presentation does.
+/// [`set_default_colors`]; the theme layer sets it once at startup.
 pub const DEFAULT_FG_SRGB: (u8, u8, u8) = (0xCC, 0xCC, 0xCC);
 pub const DEFAULT_BG_SRGB: (u8, u8, u8) = (0x0B, 0x0C, 0x10);
 

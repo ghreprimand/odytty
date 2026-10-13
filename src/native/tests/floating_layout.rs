@@ -82,10 +82,6 @@ fn press(app: &mut App, key: NamedKey, code: KeyCode, shift: bool) {
     );
 }
 
-fn arrow(app: &mut App, key: NamedKey, code: KeyCode, shift: bool) {
-    press(app, key, code, shift);
-}
-
 fn type_char(app: &mut App, ch: char) {
     let text = ch.to_string();
     app.drive_raw_key_event_for_test(
@@ -177,7 +173,7 @@ fn arrange_mode_moves_and_resizes_from_the_keyboard_and_swallows_other_keys() {
     let start_dims = focused_dimensions(&app);
 
     // Bare arrows reach the shell until the mode is armed.
-    arrow(&mut app, NamedKey::ArrowRight, KeyCode::ArrowRight, false);
+    press(&mut app, NamedKey::ArrowRight, KeyCode::ArrowRight, false);
     assert!(
         !bytes(&first_bytes).is_empty(),
         "bare arrows go to the pane"
@@ -190,8 +186,8 @@ fn arrange_mode_moves_and_resizes_from_the_keyboard_and_swallows_other_keys() {
 
     // Shrink first (the tiled-to-floating conversion fills the height), then
     // move, so both directions have room.
-    arrow(&mut app, NamedKey::ArrowUp, KeyCode::ArrowUp, true);
-    arrow(&mut app, NamedKey::ArrowUp, KeyCode::ArrowUp, true);
+    press(&mut app, NamedKey::ArrowUp, KeyCode::ArrowUp, true);
+    press(&mut app, NamedKey::ArrowUp, KeyCode::ArrowUp, true);
     let shrunk = top_rect(&app);
     assert_eq!(
         shrunk[3],
@@ -205,8 +201,8 @@ fn arrange_mode_moves_and_resizes_from_the_keyboard_and_swallows_other_keys() {
         "the pane's terminal follows its rectangle"
     );
 
-    arrow(&mut app, NamedKey::ArrowRight, KeyCode::ArrowRight, false);
-    arrow(&mut app, NamedKey::ArrowDown, KeyCode::ArrowDown, false);
+    press(&mut app, NamedKey::ArrowRight, KeyCode::ArrowRight, false);
+    press(&mut app, NamedKey::ArrowDown, KeyCode::ArrowDown, false);
     let moved = top_rect(&app);
     assert_eq!(moved[0], shrunk[0] + 8.0, "one cell right");
     assert_eq!(moved[1], shrunk[1] + 16.0, "one cell down");
@@ -216,7 +212,7 @@ fn arrange_mode_moves_and_resizes_from_the_keyboard_and_swallows_other_keys() {
         "a move keeps the size"
     );
 
-    arrow(&mut app, NamedKey::ArrowRight, KeyCode::ArrowRight, true);
+    press(&mut app, NamedKey::ArrowRight, KeyCode::ArrowRight, true);
     let resized = top_rect(&app);
     assert_eq!(resized[2], moved[2] + 8.0, "Shift+Right grows by a cell");
 
@@ -232,7 +228,7 @@ fn arrange_mode_moves_and_resizes_from_the_keyboard_and_swallows_other_keys() {
     // Escape ends the mode, and arrows reach the shell again.
     press(&mut app, NamedKey::Escape, KeyCode::Escape, false);
     assert!(!app.float_arrange_active_for_test());
-    arrow(&mut app, NamedKey::ArrowLeft, KeyCode::ArrowLeft, false);
+    press(&mut app, NamedKey::ArrowLeft, KeyCode::ArrowLeft, false);
     assert!(bytes(&first_bytes).len() > written);
     assert_eq!(top_rect(&app), resized, "the rectangle no longer moves");
 }
@@ -287,7 +283,7 @@ fn the_arrange_mode_belongs_to_its_tab() {
         "returning to the tab does not silently re-arm it"
     );
     let before = bytes(&bytes_first).len();
-    arrow(&mut app, NamedKey::ArrowLeft, KeyCode::ArrowLeft, false);
+    press(&mut app, NamedKey::ArrowLeft, KeyCode::ArrowLeft, false);
     assert!(
         bytes(&bytes_first).len() > before,
         "keys reach the shell again"
@@ -361,13 +357,13 @@ fn the_palette_lists_every_pane_in_the_stable_order_with_the_front_one_marked() 
 fn clicking_the_visible_part_of_a_buried_floating_pane_focuses_and_raises_it() {
     let (mut app, _bytes) = app_with_panes(2);
     app.handle_palette_action_for_test("float-panes");
-    let buried = app.active_pane_rects_for_test()[0].0;
-    let front = app.active_session_token_for_test();
-    assert_ne!(buried, front);
-    // Pane order is tree order [0, 1]; focus is on pane 0, so pane 1 is the
-    // buried one here.
     let rects = app.active_pane_rects_for_test();
     let (buried_token, buried_rect) = rects[0];
+    let front = app.active_session_token_for_test();
+    assert_ne!(
+        buried_token, front,
+        "the first pane starts buried, not focused"
+    );
     let (x, y) = (
         f64::from(buried_rect[0] + buried_rect[2] / 2.0),
         f64::from(buried_rect[1] + 8.0),
@@ -444,9 +440,9 @@ fn the_arrange_label_paints_only_while_active_and_falls_back_on_narrow_panes() {
 }
 
 #[test]
-fn moving_a_pane_between_windows_into_a_floating_tab_keeps_the_layout_mode() {
-    // The model-level join is covered in the session tests; here the App path
-    // confirms a floating tab still reports its mode after a reflow.
+fn a_floating_tab_still_reports_its_layout_mode_after_a_reflow() {
+    // Moving a pane between windows into a floating tab is covered by the
+    // session tests; here the App path confirms the mode survives a reflow.
     let (mut app, _bytes) = app_with_panes(2);
     app.handle_palette_action_for_test("float-panes");
     app.reflow_active_panes_for_test();

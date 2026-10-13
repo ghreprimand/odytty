@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! OSC (Operating System Command) payload parsing helpers, split out of the
-//! parent module for the modularity cap: OSC string reassembly, OSC 7
-//! working-directory URL decoding, OSC 52 clipboard selection parsing, xterm
-//! `rgb:` color parse/format, and the indexed-color sRGB table. The screen
-//! module uses these pure helpers without filesystem access.
+//! OSC payload parsing helpers: string reassembly, OSC 7 file URL decoding,
+//! OSC 52 clipboard-selector parsing, xterm `rgb:` color parse/format, and the
+//! indexed-color sRGB table. None touch the filesystem.
 
 use super::*;
 

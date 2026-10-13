@@ -9,7 +9,8 @@
 use super::*;
 
 /// Build an `App` over a headless session and feed `content` into its
-/// terminal so a selection has real words/lines to snap to.
+/// terminal so a selection has real words/lines to snap to. Returns only the
+/// App; the terminal handle is not needed by these tests.
 fn app_with_content(content: &[u8]) -> App {
     let dims = Dimensions::new(80, 24);
     let (app, terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());

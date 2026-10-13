@@ -12,6 +12,9 @@
 # its timeout. Buttons are default-off in OdyTTY (the `buttons` master gate);
 # with the gate off, OdyTTY behaves like any other terminal here.
 #
+# Windows: not supported. The demo reads raw bytes from a Unix terminal with
+# bash `read`; it has no PowerShell or cmd form.
+#
 # Usage:  bash scripts/button-demo.sh
 set -u
 
@@ -90,6 +93,8 @@ while [ "$SECONDS" -lt "$deadline" ]; do
     q|Q) exit 0 ;;
   esac
   buf="$buf$ch"
+  # An unterminated escape cannot grow the buffer without bound.
+  [ "${#buf}" -le 256 ] || buf=""
   case "$buf" in
     *"$esc"'[?1337;'*'~')
       code="${buf##*'[?1337;'}"

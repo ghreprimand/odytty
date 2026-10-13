@@ -432,7 +432,7 @@ impl ThemeEntry {
 }
 
 fn appearance_for(theme: Theme) -> ThemeAppearance {
-    if relative_luminance(theme.background) > 0.18 {
+    if relative_luminance(theme.background) > crate::theme::LIGHT_BACKGROUND_LUMINANCE {
         ThemeAppearance::Light
     } else {
         ThemeAppearance::Dark
@@ -618,7 +618,10 @@ mod tests {
         assert!(written.contains("# kept"));
         assert!(written.contains("theme = dracula"));
         assert!(written.contains("font_size = 18"));
-        assert!(!written.contains("/home/"));
+        assert!(
+            !crate::test_dirs::contains_absolute_path_token(&written),
+            "the written settings hold no absolute path"
+        );
 
         std::fs::remove_dir_all(&base).unwrap();
     }

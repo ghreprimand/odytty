@@ -2,12 +2,12 @@
 //! Font-family picker overlay.
 //!
 //! Displays the monospace font families available on the host (via
-//! [`crate::text::font_families`]), lets the user navigate and filter them, and
+//! [`crate::text::font_families_grouped`]), lets the user navigate and filter them, and
 //! on Enter emits a [`SettingEdit`] that writes `font_family` to the config -
 //! the same path saving any other setting uses.
 //!
 //! **Real family names**: the list is the distinct real `name`-table families
-//! that have a monospace face, read by [`crate::text::font_families`]. There is
+//! that have a monospace face, read by [`crate::text::font_families_grouped`]. There is
 //! no filename-stem guessing - italic/variant files of one family collapse into
 //! a single entry, and the name the user picks resolves cleanly because the
 //! resolver matches the same real family names.

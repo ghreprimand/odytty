@@ -177,11 +177,14 @@ reason elsewhere, and `commit_bytes` exists only in Windows records. A figure is
 never approximated, and a Linux figure is never substituted for another
 platform's.
 
-**Mapping names are recorded as basenames, never full paths.** The basename
-carries the analytical content (`libnvidia-glcore.so.610`, `libLLVM.so.22.1`);
-the directory carries machine identity. A capture taken from a development
-checkout would otherwise embed a home directory in a file destined for a public
-evidence tree.
+**Mapping names are recorded as basenames, never full paths, and only for
+recognised shapes.** The basename carries the analytical content
+(`libnvidia-glcore.so.610`, `libLLVM.so.22.1`); the directory carries machine
+identity. A capture taken from a development checkout would otherwise embed a
+home directory in a file destined for a public evidence tree. The subject's own
+binary, shared objects and the `/dev/dri/` and `/dev/nvidia*` device nodes keep
+their names; every other mapped file is folded into one `other-file` entry
+without its name, because a file name can still say what its owner called it.
 
 ## Reading a capture
 

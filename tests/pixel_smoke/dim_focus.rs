@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! SGR-dim attribute, perceptual-dim confinement, and ID2 focus dimming.
+//! SGR-dim attribute, perceptual-dim confinement, and focus dimming.
 
 use odytty::core::{Color, CursorStyle, RgbColor, Terminal};
 use odytty::grid::{self, INSTANCES_PER_QUAD};
@@ -74,7 +74,7 @@ fn perceptual_dim_delta_is_confined_to_dim_cells() {
     );
 }
 
-/// ID2 off-path gate: driving the focus-dim seam at `0.0` (the focused window,
+/// Off-path gate: driving the focus-dim seam at `0.0` (the focused window,
 /// and the knob default) is byte-identical to the standard focused render, so a
 /// focused frame is pixel-identical to the pre-feature renderer.
 #[test]
@@ -89,7 +89,7 @@ fn focus_dim_off_is_pixel_identical_to_focused() {
     );
 }
 
-/// ID2 unfocused baseline: a non-zero focus-dim recedes the whole grid - both
+/// Unfocused baseline: a non-zero focus-dim recedes the whole grid - both
 /// the background fill and the glyph ink lose luminance - and the dim is applied
 /// before the minimum-contrast floor, so at a raised minimum contrast the text still clears
 /// the floor against the dimmed background (legibility wins by construction).
@@ -140,7 +140,7 @@ fn unfocused_focus_dim_recedes_grid_and_floor_keeps_text_legible() {
 /// composited pixels (not just vertex colors). When a visible block cursor sits
 /// over a printable glyph, the under-cursor glyph is redrawn in the cell's
 /// background color through `text::enforce_contrast_rgba(bg, block_color)` (the
-/// second RV1 resolve site; the body site is the per-cell glyph). At the default
+/// second contrast-floor resolve site; the body site is the per-cell glyph). At the default
 /// floor of 1.0 that is exact passthrough, so after compositing the cell is
 /// dominated by the cursor block but the glyph's cut-out paints in the cell
 /// background - i.e. the under-glyph stays legible against the block. This is the
@@ -225,11 +225,11 @@ fn block_cursor_floor_keeps_under_glyph_legible_in_composite() {
     );
 }
 
-/// ID2 × RV1 precondition, in live pixels: an unfocused window dims **both** the
+/// Focus-dim and contrast-floor precondition, in live pixels: an unfocused window dims **both** the
 /// foreground ink and the background fill, and the dim is *perceptual* (OKLab),
 /// so a colored background recedes in luminance while keeping its hue - it does
-/// not wash toward gray. This is the load-bearing precondition behind the RV1
-/// re-lift claim: the floor only keeps text legible *because* it runs against a
+/// not wash toward gray. This is the load-bearing precondition behind the
+/// contrast re-lift claim: the floor only keeps text legible *because* it runs against a
 /// genuinely dimmed background, so proving the background actually dims (and
 /// stays chromatic) anchors that argument in pixels. Global-free: focus-dim is a
 /// per-call parameter, never the process floor.

@@ -23,6 +23,16 @@ pub(super) fn write_private_temp(path: &std::path::Path, bytes: &[u8]) -> std::i
     write_staged(file, path, bytes)
 }
 
+/// The failure text for a staging write. A name that already exists locally is
+/// a collision, not a disk fault, and a fresh paste picks a new name.
+pub(super) fn temp_write_message(err: std::io::Error) -> String {
+    if err.kind() == std::io::ErrorKind::AlreadyExists {
+        "temp write: a staging file with this name already exists; paste again".to_owned()
+    } else {
+        format!("temp write: {err}")
+    }
+}
+
 /// Write `bytes` to the just-created `out` at `path`, removing `path` when the
 /// write fails so no partial temp is left behind.
 fn write_staged(
@@ -71,6 +81,35 @@ mod tests {
         std::fs::write(&path, b"planted").expect("planted file");
         assert!(write_private_temp(&path, b"png").is_err());
         assert_eq!(std::fs::read(&path).expect("still there"), b"planted");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staging_creates_the_file_private_to_its_owner() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = crate::test_dirs::fresh_temp_dir("odytty-image-stage-");
+        let path = dir.join("private.png");
+        write_private_temp(&path, b"png").expect("staged");
+        let mode = std::fs::metadata(&path)
+            .expect("metadata")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600, "mode is {mode:o}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_name_collision_is_reported_as_one_not_as_a_disk_fault() {
+        let dir = crate::test_dirs::fresh_temp_dir("odytty-image-stage-");
+        let path = dir.join("planted.png");
+        std::fs::write(&path, b"planted").expect("planted file");
+        let err = write_private_temp(&path, b"png").expect_err("exists");
+        assert!(temp_write_message(err).contains("already exists; paste again"));
+        assert_eq!(
+            temp_write_message(std::io::Error::other("disk full")),
+            "temp write: disk full"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
