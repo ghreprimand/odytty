@@ -26,7 +26,7 @@ pub use switch::{
     normalize_host_pattern, suggest_profile_switch,
 };
 
-pub(crate) use json::{Json, parse as parse_json};
+pub(crate) use json::{Json, is_whole_literal as is_whole_json_literal, parse as parse_json};
 
 pub use discovery::{DiscoveredShell, ShellKind, discovered_shells, parse_wsl_distro_list};
 pub use launch::{LocalLaunchPlan, LocalSpawnKind, build_local_command, spawn_local_plan};

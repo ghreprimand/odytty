@@ -124,13 +124,19 @@ fn tabset_with_proxy_for_test() -> Option<WorkspaceSet> {
 }
 
 /// A short-lived local child masquerading as an ssh session, whose exit code
-/// is `code`. Used to drive the reconnect classifier without a live ssh.
-#[cfg(not(windows))]
+/// is `code`. Used to drive the reconnect classifier without a live ssh. The
+/// command text is a fixed test constant on both platforms.
 fn exit_code_command(code: i32) -> SshCommand {
-    SshCommand::new(
-        "/bin/sh",
-        vec![OsString::from("-c"), OsString::from(format!("exit {code}"))],
-    )
+    shell_command(&format!("exit {code}"))
+}
+
+/// Run `script` through the platform's stock command interpreter.
+fn shell_command(script: &str) -> SshCommand {
+    #[cfg(not(windows))]
+    let (program, flag) = ("/bin/sh", "-c");
+    #[cfg(windows)]
+    let (program, flag) = ("cmd.exe", "/C");
+    SshCommand::new(program, vec![OsString::from(flag), OsString::from(script)])
 }
 
 fn pane_dims(set: &WorkspaceSet, token: SessionToken) -> (usize, usize) {

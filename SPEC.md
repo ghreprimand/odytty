@@ -3255,3 +3255,8 @@ Saved layout and profile filenames share a portable Windows device-stem rule.
 Layouts prefix reserved stems with an underscore, including superscript numbered
 COM/LPT ports and conservative COM0/LPT0 handling. Profiles retain ASCII-only
 validation and reject reserved stems.
+
+Saved-layout schema versions must be whole unsigned 32-bit numbers in their
+original decimal spelling. A fractional literal that rounds to a supported
+version is refused as malformed on Linux, macOS and Windows. Equivalent whole
+number spellings remain accepted.

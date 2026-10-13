@@ -746,11 +746,14 @@ impl ThemeBuilder {
                                 buffer.clear();
                                 *replace_on_input = false;
                             }
-                            buffer.push(ch.to_ascii_lowercase());
+                            if buffer.len() < MAX_HEX_ENTRY_LEN {
+                                buffer.push(ch.to_ascii_lowercase());
+                            }
                         }
                     }
                     Some(EditMode::Seed { buffer }) => {
-                        if ch == '#' || ch.is_ascii_hexdigit() {
+                        if (ch == '#' || ch.is_ascii_hexdigit()) && buffer.len() < MAX_HEX_ENTRY_LEN
+                        {
                             buffer.push(ch.to_ascii_lowercase());
                         }
                     }
@@ -759,7 +762,9 @@ impl ThemeBuilder {
                     // keep the inner filter as an `if`.
                     #[allow(clippy::collapsible_match)]
                     Some(EditMode::Name { buffer }) => {
-                        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                        if (ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
+                            && buffer.len() < MAX_THEME_NAME_LEN
+                        {
                             buffer.push(ch.to_ascii_lowercase());
                         }
                     }
@@ -829,9 +834,14 @@ impl ThemeBuilder {
     fn save_request(&mut self, name: String) -> ThemeBuilderOutcome {
         let name = name.trim().to_ascii_lowercase();
         if !valid_theme_name(&name) {
+            self.message = Some(if crate::state_dir::is_windows_reserved_stem(&name) {
+                "That name is a Windows device name; choose another.".to_owned()
+            } else {
+                format!(
+                    "Use up to {MAX_THEME_NAME_LEN} letters, numbers, dashes, or underscores; no paths."
+                )
+            });
             self.editing = Some(EditMode::Name { buffer: name });
-            self.message =
-                Some("Use letters, numbers, dashes, or underscores; no paths.".to_owned());
             return ThemeBuilderOutcome::Consumed;
         }
         self.spec.name = name.clone();
@@ -1340,7 +1350,9 @@ pub(super) fn save_theme_to_dir(
     if !valid_theme_name(&request.name) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "theme name must contain only letters, numbers, dashes, or underscores",
+            format!(
+                "theme name must be 1 to {MAX_THEME_NAME_LEN} letters, numbers, dashes, or underscores, and not a Windows device name"
+            ),
         ));
     }
     fs::create_dir_all(theme_dir)?;
@@ -1374,16 +1386,37 @@ fn suggested_name(name: &str) -> String {
     }
     let out = out.trim_matches('-');
     if out.is_empty() {
+        return "custom-theme".to_owned();
+    }
+    // Keep the suggestion within the save-name limit, suffix included.
+    let stem = out.strip_suffix("-custom").unwrap_or(out);
+    let stem: String = stem
+        .chars()
+        .take(MAX_THEME_NAME_LEN - "-custom".len())
+        .collect();
+    let stem = stem.trim_end_matches('-');
+    if stem.is_empty() {
         "custom-theme".to_owned()
-    } else if out.ends_with("-custom") {
-        out.to_owned()
     } else {
-        format!("{out}-custom")
+        format!("{stem}-custom")
     }
 }
 
+/// Longest accepted save name, in ASCII characters. The file name adds
+/// `.theme`, well inside every supported file-system limit.
+const MAX_THEME_NAME_LEN: usize = 64;
+
+/// Longest color or seed entry: `#rrggbb`. Longer input can never parse.
+const MAX_HEX_ENTRY_LEN: usize = 7;
+
+/// Save names are ASCII letters, digits, dashes and underscores, at most
+/// [`MAX_THEME_NAME_LEN`] long. A Windows device name such as `con` or `lpt1`
+/// is refused on every platform, as for layouts and profiles, so a theme
+/// saved anywhere also loads on Windows.
 fn valid_theme_name(name: &str) -> bool {
     !name.is_empty()
+        && name.len() <= MAX_THEME_NAME_LEN
+        && !crate::state_dir::is_windows_reserved_stem(name)
         && !name.contains('.')
         && !name.contains('/')
         && !name.contains('\\')

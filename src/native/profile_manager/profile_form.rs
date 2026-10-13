@@ -717,7 +717,11 @@ impl ProfileManager {
     }
 
     fn load_shell_suggestions(&mut self) {
-        self.discovered_shells = shell_discovery::discovered_shells();
+        #[cfg(test)]
+        let shells = tests::fixture_shells().unwrap_or_else(shell_discovery::discovered_shells);
+        #[cfg(not(test))]
+        let shells = shell_discovery::discovered_shells();
+        self.discovered_shells = shells;
         self.shell_suggestion_index = 0;
     }
 
@@ -770,7 +774,11 @@ impl ProfileManager {
     /// profile form opens (never on the startup launch path), and its result is
     /// cached, so it never blocks the first usable terminal.
     fn load_theme_suggestions(&mut self) {
-        self.theme_suggestions = discovered_theme_names();
+        #[cfg(test)]
+        let themes = tests::fixture_themes().unwrap_or_else(discovered_theme_names);
+        #[cfg(not(test))]
+        let themes = discovered_theme_names();
+        self.theme_suggestions = themes;
         // Anchor the index on the current draft value when it names a known theme
         // so the first Left/Right step is relative to what is shown.
         self.theme_suggestion_index = self

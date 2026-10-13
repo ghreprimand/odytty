@@ -86,47 +86,54 @@ fn focus_field(manager: &mut ProfileManager, field: FormField) {
 
 #[test]
 fn theme_row_cycles_the_builtin_roster_and_save_rejects_unknown() {
-    let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default(), None);
-    manager.open_add();
-    manager.draft_name = "themed".to_owned();
-    // The roster is loaded on open and holds the built-ins.
-    assert!(!manager.theme_suggestions.is_empty());
-    focus_field(&mut manager, FormField::Theme);
-    let _ = manager.handle_input(OverlayInput::Right);
-    let cycled = manager.draft_theme.clone();
-    assert!(
-        manager.theme_suggestions.contains(&cycled),
-        "Right must land on a roster theme"
-    );
-    assert!(manager.theme_suggestion_hint().is_some());
-    // An unknown theme name is an inline save error, not a silent fallback.
-    manager.draft_theme = "no-such-theme-xyz".to_owned();
-    assert!(matches!(
-        manager.try_save(),
-        ProfileManagerOutcome::Consumed
-    ));
-    assert!(
-        manager
-            .error
-            .as_deref()
-            .is_some_and(|e| e.contains("unknown theme")),
-        "unknown theme must block save with an inline error"
-    );
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-profile-discovery-");
+    crate::native::tests::config_env::with_config_base(fixture.path(), true, || {
+        let _suggestions = SuggestionFixture::new();
+        let mut manager = ProfileManager::new();
+        manager.open(ProfileCatalog::default(), None);
+        manager.open_add();
+        manager.draft_name = "themed".to_owned();
+        let mut expected: Vec<String> = crate::theme::names().map(str::to_owned).collect();
+        expected.sort();
+        assert_eq!(manager.theme_suggestions, expected);
+        focus_field(&mut manager, FormField::Theme);
+        let _ = manager.handle_input(OverlayInput::Right);
+        let cycled = manager.draft_theme.clone();
+        assert!(
+            manager.theme_suggestions.contains(&cycled),
+            "Right must land on a roster theme"
+        );
+        assert!(manager.theme_suggestion_hint().is_some());
+        // An unknown theme name is an inline save error, not a silent fallback.
+        manager.draft_theme = "no-such-theme-xyz".to_owned();
+        assert!(matches!(
+            manager.try_save(),
+            ProfileManagerOutcome::Consumed
+        ));
+        assert!(
+            manager
+                .error
+                .as_deref()
+                .is_some_and(|e| e.contains("unknown theme")),
+            "unknown theme must block save with an inline error"
+        );
+    });
 }
 
 #[test]
 fn form_loads_discovered_shell_suggestions_on_add() {
-    let mut manager = ProfileManager::new();
-    manager.open(catalog_with(&[]), None);
-    assert!(matches!(
-        manager.open_add(),
-        ProfileManagerOutcome::Consumed
-    ));
-    assert!(
-        !manager.discovered_shells.is_empty(),
-        "profile form must load cached shell discovery on demand"
-    );
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-profile-discovery-");
+    crate::native::tests::config_env::with_config_base(fixture.path(), true, || {
+        let _suggestions = SuggestionFixture::new();
+        let mut manager = ProfileManager::new();
+        manager.open(catalog_with(&[]), None);
+        assert!(matches!(
+            manager.open_add(),
+            ProfileManagerOutcome::Consumed
+        ));
+        assert_eq!(manager.discovered_shells, fixture_shells().unwrap());
+        assert_eq!(manager.discovered_shells[0].program, "fixture-shell");
+    });
 }
 
 #[test]
@@ -377,10 +384,26 @@ fn env_editor_adds_rows_and_secret_entries_are_rejected_inline_not_dropped() {
 #[test]
 fn env_editor_rejects_os_invalid_keys_and_nul_values_inline() {
     let cases = [
-        ("", "value", "empty key"),
-        ("FOO=BAR", "1", "equals in key"),
-        ("FOO\0BAR", "1", "NUL in key"),
-        ("FOO", "a\0b", "NUL in value"),
+        (
+            "",
+            "value",
+            "environment key and value are both required; clear both to drop the row",
+        ),
+        (
+            "FOO=BAR",
+            "1",
+            "malformed profile: environment key \"FOO=BAR\" must not contain '='",
+        ),
+        (
+            "FOO\0BAR",
+            "1",
+            "malformed profile: environment key \"FOO\\0BAR\" must not contain a NUL byte",
+        ),
+        (
+            "FOO",
+            "a\0b",
+            "malformed profile: environment value must not contain a NUL byte",
+        ),
     ];
     for (key, value, label) in cases {
         let mut manager = ProfileManager::new();
@@ -395,20 +418,10 @@ fn env_editor_rejects_os_invalid_keys_and_nul_values_inline() {
             matches!(manager.try_save(), ProfileManagerOutcome::Consumed),
             "{label}: save must not Persist"
         );
-        assert!(
-            manager.error.as_ref().is_some_and(|error| {
-                let lower = error.to_ascii_lowercase();
-                lower.contains("environment")
-                    || lower.contains("env")
-                    || lower.contains("invalid")
-                    || lower.contains("malformed")
-                    || lower.contains("nul")
-                    || lower.contains('=')
-                    || lower.contains("required")
-                    || lower.contains("empty")
-            }),
-            "{label}: must surface an inline validation error; got {:?}",
-            manager.error
+        assert_eq!(
+            manager.error.as_deref(),
+            Some(label),
+            "distinct validation error for {key:?}"
         );
         assert_eq!(
             manager.draft_env.len(),
@@ -698,18 +711,10 @@ fn invalid_name_surfaces_error_without_persist() {
 #[test]
 fn load_edit_save_reload_keeps_every_nested_preserved_map() {
     use crate::profiles::{profile_path_in_dir, read_profile_file, write_profile_file};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!(
-        "odytty-profile-ui-preserved-{}-{nanos}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&dir).expect("mkdir");
-    let text = r#"{
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-profile-ui-");
+    let dir = fixture.path();
+    crate::native::tests::config_env::with_config_base(dir, true, || {
+        let text = r#"{
   "schema_version": 1,
   "name": "dev",
   "future_flag": true,
@@ -723,45 +728,45 @@ fn load_edit_save_reload_keeps_every_nested_preserved_map() {
   "effects": {"bloom": true, "future_effect": 0.25},
   "layout": {"saved_layout": "two", "future_layout": [9]}
 }"#;
-    let parsed = LaunchProfile::parse_json(text, Some("dev")).expect("parse");
-    let path = profile_path_in_dir(&dir, "dev").expect("path");
-    write_profile_file(&path, &parsed).expect("seed");
+        let parsed = LaunchProfile::parse_json(text, Some("dev")).expect("parse");
+        let path = profile_path_in_dir(dir, "dev").expect("path");
+        write_profile_file(&path, &parsed).expect("seed");
 
-    let loaded = read_profile_file(&path, Some("dev")).expect("load");
-    let mut catalog = ProfileCatalog::default();
-    catalog.profiles.insert("dev".to_owned(), loaded);
-    let mut manager = ProfileManager::new();
-    manager.open(catalog, None);
-    let _ = manager.open_edit_selected();
-    manager.draft_title = "Edited".to_owned();
-    let ProfileManagerOutcome::Persist { profile, replace } = manager.try_save() else {
-        panic!("persist");
-    };
-    assert_eq!(replace, None);
-    write_profile_file(&path, &profile).expect("save");
-    let reloaded = read_profile_file(&path, Some("dev")).expect("reload");
-    assert_eq!(reloaded.appearance.title.as_deref(), Some("Edited"));
-    assert!(reloaded.preserved.contains_key("future_flag"));
-    assert!(reloaded.launch.preserved.contains_key("future_launch"));
-    assert!(
-        reloaded
-            .launch
-            .command
-            .as_ref()
-            .expect("command")
-            .preserved
-            .contains_key("future_command")
-    );
-    assert!(
-        reloaded
-            .appearance
-            .preserved
-            .contains_key("future_appearance")
-    );
-    assert!(reloaded.cursor.preserved.contains_key("future_cursor"));
-    assert!(reloaded.effects.preserved.contains_key("future_effect"));
-    assert!(reloaded.layout.preserved.contains_key("future_layout"));
-    let _ = std::fs::remove_dir_all(dir);
+        let loaded = read_profile_file(&path, Some("dev")).expect("load");
+        let mut catalog = ProfileCatalog::default();
+        catalog.profiles.insert("dev".to_owned(), loaded);
+        let mut manager = ProfileManager::new();
+        manager.open(catalog, None);
+        let _ = manager.open_edit_selected();
+        manager.draft_title = "Edited".to_owned();
+        let ProfileManagerOutcome::Persist { profile, replace } = manager.try_save() else {
+            panic!("persist");
+        };
+        assert_eq!(replace, None);
+        write_profile_file(&path, &profile).expect("save");
+        let reloaded = read_profile_file(&path, Some("dev")).expect("reload");
+        assert_eq!(reloaded.appearance.title.as_deref(), Some("Edited"));
+        assert!(reloaded.preserved.contains_key("future_flag"));
+        assert!(reloaded.launch.preserved.contains_key("future_launch"));
+        assert!(
+            reloaded
+                .launch
+                .command
+                .as_ref()
+                .expect("command")
+                .preserved
+                .contains_key("future_command")
+        );
+        assert!(
+            reloaded
+                .appearance
+                .preserved
+                .contains_key("future_appearance")
+        );
+        assert!(reloaded.cursor.preserved.contains_key("future_cursor"));
+        assert!(reloaded.effects.preserved.contains_key("future_effect"));
+        assert!(reloaded.layout.preserved.contains_key("future_layout"));
+    });
 }
 
 fn edit_command_profile() -> ProfileManager {
@@ -823,4 +828,72 @@ fn shell_suggestion_with_arguments_replaces_existing_command() {
     assert_eq!(command.program, "shell");
     assert_eq!(command.args, vec!["--interactive"]);
     assert!(profile.launch.shell.is_none());
+}
+
+thread_local! {
+    static SUGGESTION_FIXTURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+struct SuggestionFixture(bool);
+
+impl SuggestionFixture {
+    fn new() -> Self {
+        Self(SUGGESTION_FIXTURE.replace(true))
+    }
+}
+
+impl Drop for SuggestionFixture {
+    fn drop(&mut self) {
+        SUGGESTION_FIXTURE.set(self.0);
+    }
+}
+
+pub(super) fn fixture_shells() -> Option<Vec<crate::profiles::DiscoveredShell>> {
+    SUGGESTION_FIXTURE.get().then(|| {
+        vec![crate::profiles::DiscoveredShell {
+            label: "Fixture shell".to_owned(),
+            program: "fixture-shell".to_owned(),
+            args: Vec::new(),
+            kind: ShellKind::Posix,
+        }]
+    })
+}
+
+pub(super) fn fixture_themes() -> Option<Vec<String>> {
+    SUGGESTION_FIXTURE.get().then(|| {
+        let mut names: Vec<String> = crate::theme::names().map(str::to_owned).collect();
+        names.sort();
+        names
+    })
+}
+
+#[test]
+fn suggestion_fixture_restores_after_assertion_unwind() {
+    assert!(fixture_shells().is_none());
+    let result = std::panic::catch_unwind(|| {
+        let _fixture = SuggestionFixture::new();
+        assert_eq!(fixture_shells().unwrap()[0].program, "fixture-shell");
+        panic!("project-authored discovery fixture unwind");
+    });
+    assert!(result.is_err());
+    assert!(fixture_shells().is_none());
+    assert!(fixture_themes().is_none());
+}
+
+#[test]
+fn profile_temp_fixture_cleans_written_files_after_assertion_unwind() {
+    let recorded = std::cell::RefCell::new(None);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let fixture = crate::test_dirs::ScratchDir::new("odytty-profile-unwind-");
+        *recorded.borrow_mut() = Some(fixture.path().to_path_buf());
+        crate::native::tests::config_env::with_config_base(fixture.path(), true, || {
+            let path = fixture.path().join("fixture.profile.json");
+            let profile = LaunchProfile::new("fixture").unwrap();
+            crate::profiles::write_profile_file(&path, &profile).unwrap();
+            assert!(path.is_file());
+            panic!("project-authored profile fixture cleanup probe");
+        });
+    }));
+    assert!(result.is_err());
+    assert!(!recorded.borrow().as_ref().unwrap().exists());
 }

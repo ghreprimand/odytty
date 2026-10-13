@@ -17,6 +17,10 @@ pub(super) enum Json {
     Null,
     Bool(bool),
     Num(f64),
+    /// A parsed non-whole literal whose nearest `f64` is a whole number.
+    /// Preserve that distinction for version validation without retaining
+    /// a second copy of every number's literal.
+    NonWhole(f64),
     Str(String),
     Arr(Vec<Json>),
     Obj(Vec<(String, Json)>),
@@ -46,7 +50,7 @@ impl Json {
 
     pub(super) fn as_f64(&self) -> Option<f64> {
         match self {
-            Json::Num(n) => Some(*n),
+            Json::Num(n) | Json::NonWhole(n) => Some(*n),
             _ => None,
         }
     }
@@ -54,7 +58,7 @@ impl Json {
     /// A non-negative, finite number as a `usize`, else `None`.
     pub(super) fn as_usize(&self) -> Option<usize> {
         match self {
-            Json::Num(n) if n.is_finite() && *n >= 0.0 => Some(*n as usize),
+            Json::Num(n) | Json::NonWhole(n) if n.is_finite() && *n >= 0.0 => Some(*n as usize),
             _ => None,
         }
     }
@@ -101,7 +105,7 @@ fn write_value(out: &mut String, value: &Json, depth: usize) {
     match value {
         Json::Null => out.push_str("null"),
         Json::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-        Json::Num(n) => write_number(out, *n),
+        Json::Num(n) | Json::NonWhole(n) => write_number(out, *n),
         Json::Str(s) => write_string(out, s),
         Json::Arr(items) => {
             if items.is_empty() {
@@ -389,7 +393,13 @@ impl Parser {
         let slice: String = self.chars[start..self.pos].iter().collect();
         slice
             .parse::<f64>()
-            .map(Json::Num)
+            .map(|value| {
+                if value.fract() == 0.0 && !crate::profiles::is_whole_json_literal(&slice) {
+                    Json::NonWhole(value)
+                } else {
+                    Json::Num(value)
+                }
+            })
             .map_err(|_| format!("invalid number '{slice}'"))
     }
 

@@ -56,6 +56,10 @@ min_contrast = 17.0
 Blank lines are ignored. Duplicate keys are allowed; the last occurrence wins.
 If that value is invalid, OdyTTY warns and falls back to the setting's built-in
 default rather than an earlier occurrence.
+A value containing `#`, a `"`, or leading or trailing spaces is written in double
+quotes; inside quotes only `\\` and `\"` are escapes and every other backslash is
+kept as written, so a hand-written `"C:\Users\me\theme.conf"` needs no doubling.
+A leading UTF-8 byte order mark is ignored.
 The in-app settings panel writes this same file with preservation-first
 writeback: comments, blank lines, ordering, and unknown/future keys stay in
 place, changed keys are rewritten, missing changed keys are appended, and saves
@@ -1412,7 +1416,9 @@ last connection (the pre-persistence posture).
 
 A per-host `Persist` line in `hosts.conf` overrides the global value for a
 single host and additionally accepts any raw `ssh` ControlPersist value (for
-example `Persist 45m`). This only takes effect with connection reuse on.
+example `Persist 45m`). A duration that totals zero (`0s`, `0m`) means off, and
+a window longer than 30 days is shortened to 30 days. This only takes effect
+with connection reuse on.
 **Windows:** OpenSSH for Windows has no connection multiplexing, so this knob is
 inert on a Windows client (no control options are ever emitted).
 

@@ -18,6 +18,7 @@ use super::reload::{ConfigFileFingerprint, ConfigPollEvent};
 use super::*;
 
 mod automation;
+mod config_quoting;
 /// Tests in this directory that call `apply_reloadable_values` - or that read
 /// one of the process-global switches it republishes - take
 /// `crate::test_lock::render_globals_lock`, the single coordinating guard for
@@ -60,6 +61,7 @@ mod system_theme;
 fn every_reload_test_holds_the_render_globals_lock() {
     let sources = [
         ("automation.rs", include_str!("automation.rs")),
+        ("config_quoting.rs", include_str!("config_quoting.rs")),
         ("cursor.rs", include_str!("cursor.rs")),
         ("font_zero.rs", include_str!("font_zero.rs")),
         ("info.rs", include_str!("info.rs")),

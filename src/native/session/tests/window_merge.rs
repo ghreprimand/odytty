@@ -358,3 +358,38 @@ fn a_set_refuses_to_mint_past_its_disjoint_range() {
     assert_eq!(set.mint_session_token(), None);
     assert_eq!(set.mint_session_token(), None);
 }
+
+/// Taking sessions out of an arena is one step: a token without a session
+/// puts back every session already taken, so a commit that meets a broken
+/// invariant leaves both arenas as they were instead of panicking mid-move.
+#[test]
+fn taking_sessions_puts_every_one_back_on_a_miss() {
+    let mut source = source_set();
+    let missing = SessionToken(SRC_BASE + 7);
+    let Err(error) =
+        source.take_sessions(&[SessionToken(SRC_BASE), SessionToken(SRC_BASE + 1), missing])
+    else {
+        panic!("a missing token must be refused");
+    };
+    assert_eq!(error, missing);
+    assert_eq!(source.sessions.len(), 2, "both sessions are back");
+
+    // A token named twice is a miss on its second take.
+    let Err(error) = source.take_sessions(&[SessionToken(SRC_BASE), SessionToken(SRC_BASE)]) else {
+        panic!("a token named twice must be refused");
+    };
+    assert_eq!(error, SessionToken(SRC_BASE));
+    assert!(source.get(SessionToken(SRC_BASE)).is_some());
+
+    let Ok(taken) = source.take_sessions(&[SessionToken(SRC_BASE + 1), SessionToken(SRC_BASE)])
+    else {
+        panic!("present tokens are taken");
+    };
+    let ids: Vec<SessionToken> = taken.iter().map(|session| session.id).collect();
+    assert_eq!(
+        ids,
+        vec![SessionToken(SRC_BASE + 1), SessionToken(SRC_BASE)],
+        "sessions come out in the order asked"
+    );
+    assert!(source.sessions.is_empty());
+}

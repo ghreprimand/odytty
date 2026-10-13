@@ -116,21 +116,22 @@ pub(super) fn strip_inline_comment(line: &str) -> &str {
 }
 
 /// Read side of [`quote_config_value`]: a value wrapped in double quotes has the
-/// quotes removed and `\\`/`\"` unescaped; any other value is returned trimmed.
-/// An unquoted value is byte-identical to the old `value.trim()`.
+/// quotes removed and `\\`/`\"` unescaped; any other backslash stays literal, so
+/// a hand-written `"C:\Users\me"` reads back unchanged. Any other value is
+/// returned trimmed. An unquoted value is byte-identical to the old
+/// `value.trim()`.
 pub(super) fn unquote_config_value(value: &str) -> String {
     let trimmed = value.trim();
     let bytes = trimmed.as_bytes();
     if bytes.len() >= 2 && bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"' {
         let inner = &trimmed[1..trimmed.len() - 1];
         let mut out = String::with_capacity(inner.len());
-        let mut escaped = false;
-        for ch in inner.chars() {
-            if escaped {
-                out.push(ch);
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
+        let mut chars = inner.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\\' && matches!(chars.peek(), Some('\\' | '"')) {
+                // `\\` and `\"` are the writer's escapes; the next character is
+                // taken literally.
+                out.extend(chars.next());
             } else {
                 out.push(ch);
             }

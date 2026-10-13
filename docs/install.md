@@ -994,6 +994,7 @@ version=X.Y.Z
 cargo build --release --locked
 install -Dm755 target/release/odytty \
   "$HOME/.local/opt/odytty/$version/bin/odytty"
+install -d "$HOME/.local/bin"
 ln -sfn "$HOME/.local/opt/odytty/$version/bin/odytty" \
   "$HOME/.local/bin/odytty"
 install -Dm644 dist/linux/io.unfinished_works.odytty.desktop \

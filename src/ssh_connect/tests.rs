@@ -580,6 +580,18 @@ fn parse_control_persist_maps_off_tokens_and_durations() {
     assert_eq!(parse_control_persist("1h30m").as_deref(), Some("5400"));
     assert_eq!(parse_control_persist("90s").as_deref(), Some("90"));
     assert_eq!(parse_control_persist("600").as_deref(), Some("600"));
+    // A duration that totals zero is off, never `0` (OpenSSH: persist forever).
+    for zero in ["0s", "00", "0m", "0h", "0h0m0s", "000s"] {
+        assert_eq!(parse_control_persist(zero).as_deref(), Some("no"), "{zero}");
+    }
+    // A window past the 30-day ceiling is clamped; the ceiling itself stays.
+    assert_eq!(
+        parse_control_persist("99999999999999").as_deref(),
+        Some("2592000")
+    );
+    assert_eq!(parse_control_persist("721h").as_deref(), Some("2592000"));
+    assert_eq!(parse_control_persist("720h").as_deref(), Some("2592000"));
+    assert_eq!(parse_control_persist("719h").as_deref(), Some("2588400"));
     // Garbage yields None so the caller can fall back to the global default.
     assert_eq!(parse_control_persist("soon"), None);
     assert_eq!(parse_control_persist("1h30"), None);

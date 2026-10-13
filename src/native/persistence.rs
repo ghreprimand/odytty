@@ -493,9 +493,16 @@ impl ShapeSnapshot {
     /// anything else malformed is [`LoadError::Malformed`].
     pub(crate) fn from_json_str(input: &str) -> Result<ShapeSnapshot, LoadError> {
         let value = json::parse(input).map_err(LoadError::Malformed)?;
-        let version = value
+        let version_value = value
             .get("version")
-            .and_then(Json::as_f64)
+            .ok_or_else(|| LoadError::malformed("missing \"version\""))?;
+        if matches!(version_value, Json::NonWhole(_)) {
+            return Err(LoadError::malformed(
+                "version must be an unsigned 32-bit integer",
+            ));
+        }
+        let version = version_value
+            .as_f64()
             .ok_or_else(|| LoadError::malformed("missing \"version\""))?;
         if !version.is_finite()
             || version.fract() != 0.0

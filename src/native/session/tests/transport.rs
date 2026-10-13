@@ -3,6 +3,7 @@
 //! capabilities, resize routing, remote connect, upload, and reconnect.
 
 use super::*;
+use crate::native::session::transport::RemoteReconnect;
 
 // macOS forbids constructing a winit `EventLoop` off the main thread
 // (winit panics: "Initializing the event loop outside of the main thread is
@@ -450,7 +451,6 @@ fn classify_remote_exit_maps_255_to_reconnect_and_everything_else_to_close() {
     target_os = "macos",
     ignore = "winit EventLoop cannot be built off the main thread on macOS"
 )]
-#[cfg(not(windows))]
 #[test]
 fn ssh_session_stores_reconnect_anchor_but_a_local_shell_does_not() {
     let Some(mut sessions) = tabset_with_proxy_for_test() else {
@@ -516,7 +516,6 @@ fn remote_upload_for_engages_only_on_integrated_hosts() {
     target_os = "macos",
     ignore = "winit EventLoop cannot be built off the main thread on macOS"
 )]
-#[cfg(not(windows))]
 #[test]
 fn restored_integrated_remote_pane_exposes_its_upload_target() {
     let Some(mut sessions) = tabset_with_proxy_for_test() else {
@@ -561,7 +560,6 @@ fn restored_integrated_remote_pane_exposes_its_upload_target() {
     target_os = "macos",
     ignore = "winit EventLoop cannot be built off the main thread on macOS"
 )]
-#[cfg(not(windows))]
 #[test]
 fn restored_plain_remote_pane_leaves_paste_through_unset() {
     let Some(mut sessions) = tabset_with_proxy_for_test() else {
@@ -597,47 +595,62 @@ fn restored_plain_remote_pane_leaves_paste_through_unset() {
     assert!(sessions.close(SessionToken(0)));
 }
 
+/// A proxy-backed set whose window has applied its first grid, so a spawn
+/// starts at once on Windows too instead of being held for that grid.
+fn settled_tabset_with_proxy_for_test() -> Option<WorkspaceSet> {
+    let mut sessions = tabset_with_proxy_for_test()?;
+    sessions.start_held_launches();
+    Some(sessions)
+}
+
+/// Wait until `token`'s read pump has seen EOF, which is when the app runs
+/// its exit handling. `false` if that does not happen within the bound.
+fn wait_for_shell_exit(sessions: &WorkspaceSet, token: SessionToken) -> bool {
+    let deadline = Instant::now() + std::time::Duration::from_secs(20);
+    while Instant::now() < deadline {
+        let finished = sessions
+            .get(token)
+            .and_then(|session| session.pump_thread.as_ref())
+            .is_some_and(std::thread::JoinHandle::is_finished);
+        if finished {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    false
+}
+
+/// Wait for the child to exit, then run the app's exit decision once, as
+/// the shell-exit event does.
+fn exit_and_try_arm(sessions: &mut WorkspaceSet, token: SessionToken) -> bool {
+    assert!(
+        wait_for_shell_exit(sessions, token),
+        "the stub child must exit"
+    );
+    sessions.try_arm_reconnect(token)
+}
+
 #[cfg_attr(
     target_os = "macos",
     ignore = "winit EventLoop cannot be built off the main thread on macOS"
 )]
-#[cfg(not(windows))]
 #[test]
 fn arm_reconnect_holds_the_tab_open_on_a_255_drop_and_paints_the_banner() {
-    let Some(mut sessions) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = settled_tabset_with_proxy_for_test() else {
         return;
     };
     let ssh = sessions
         .spawn_ssh_command_in_new_tab_for_test(Dimensions::new(40, 8), exit_code_command(255))
         .expect("ssh stub session");
-    // Poll until the child has exited (255): while it is still running,
-    // `try_wait` returns `Ok(None)` non-destructively, so a `false` here just
-    // means "not dead yet" - retry. Once dead, the code is captured once and
-    // the tab is held open.
-    let armed = (0..200).any(|_| {
-        if sessions.try_arm_reconnect(ssh) {
-            true
-        } else {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            false
-        }
-    });
-    assert!(armed, "a 255 drop must arm reconnect within the timeout");
+    assert!(
+        exit_and_try_arm(&mut sessions, ssh),
+        "a 255 drop must arm reconnect"
+    );
     assert!(sessions.get(ssh).expect("ssh session").awaiting_reconnect);
     assert!(sessions.switch(ssh));
     assert!(sessions.active_awaiting_reconnect());
     // The in-pane banner was painted into the terminal model.
-    let text: String = sessions
-        .get(ssh)
-        .expect("ssh session")
-        .terminal
-        .lock()
-        .expect("terminal lock")
-        .snapshot()
-        .cells
-        .iter()
-        .map(|cell| cell.ch)
-        .collect();
+    let text = pane_text(&sessions, ssh);
     assert!(
         text.contains("connection dropped"),
         "the dropped banner must be visible, got: {text:?}"
@@ -646,32 +659,36 @@ fn arm_reconnect_holds_the_tab_open_on_a_255_drop_and_paints_the_banner() {
     assert!(sessions.close(SessionToken(0)));
 }
 
+fn pane_text(sessions: &WorkspaceSet, token: SessionToken) -> String {
+    sessions
+        .get(token)
+        .expect("session")
+        .terminal
+        .lock()
+        .expect("terminal lock")
+        .snapshot()
+        .cells
+        .iter()
+        .map(|cell| cell.ch)
+        .collect()
+}
+
+/// The child's clean exit reaches the exit decision unreaped, as in the app:
+/// the decision reads the status itself and closes.
 #[cfg_attr(
     target_os = "macos",
     ignore = "winit EventLoop cannot be built off the main thread on macOS"
 )]
-#[cfg(not(windows))]
 #[test]
 fn arm_reconnect_declines_a_clean_exit() {
-    let Some(mut sessions) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = settled_tabset_with_proxy_for_test() else {
         return;
     };
     let ssh = sessions
         .spawn_ssh_command_in_new_tab_for_test(Dimensions::new(20, 8), exit_code_command(0))
         .expect("ssh stub session");
-    // Reap the child up-front so its status is consumed; the subsequent
-    // `try_arm_reconnect` sees an unknown (`None`) code - which, like the
-    // clean 0 it exited with, must NOT arm reconnect.
-    let _ = sessions
-        .get(ssh)
-        .expect("ssh session")
-        .local_pty()
-        .expect("local ssh pty")
-        .lock()
-        .expect("pty lock")
-        .wait();
     assert!(
-        !sessions.try_arm_reconnect(ssh),
+        !exit_and_try_arm(&mut sessions, ssh),
         "a clean exit must not hold the tab open"
     );
     assert!(!sessions.get(ssh).expect("ssh session").awaiting_reconnect);
@@ -679,19 +696,35 @@ fn arm_reconnect_declines_a_clean_exit() {
     assert!(sessions.close(SessionToken(0)));
 }
 
+/// A local child without a reconnect anchor that exits 255 still closes:
+/// the code is shaped like a dropped connection, but only an ssh launch
+/// carries the anchor that offers a reconnect.
 #[cfg_attr(
     target_os = "macos",
     ignore = "winit EventLoop cannot be built off the main thread on macOS"
 )]
-#[cfg(not(windows))]
 #[test]
 fn a_local_shell_never_arms_reconnect() {
-    let Some(mut sessions) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = settled_tabset_with_proxy_for_test() else {
         return;
     };
-    // The startup session at token 0 is a plain local shell with no
-    // reconnect anchor: even a 255-shaped exit can never arm reconnect.
-    assert!(!sessions.try_arm_reconnect(SessionToken(0)));
+    let (program, args) = exit_code_command(255).into_program_args();
+    let local = sessions
+        .insert_exec_session(Dimensions::new(20, 8), program, args)
+        .expect("local child");
+    sessions
+        .active_workspace_mut()
+        .tabs
+        .push(Tab::single(local));
+    assert!(sessions.get(local).expect("local").reconnect.is_none());
+    assert!(
+        !exit_and_try_arm(&mut sessions, local),
+        "a local exit never arms reconnect"
+    );
+    assert!(!sessions.get(local).expect("local").awaiting_reconnect);
+    // The exit really was 255: the refusal came from the missing anchor.
+    assert_eq!(sessions.capture_exit_code(local), Some(255));
+    assert!(!sessions.close(local));
     assert!(sessions.close(SessionToken(0)));
 }
 
@@ -699,28 +732,20 @@ fn a_local_shell_never_arms_reconnect() {
     target_os = "macos",
     ignore = "winit EventLoop cannot be built off the main thread on macOS"
 )]
-#[cfg(not(windows))]
 #[test]
 fn reconnect_respawns_into_the_same_token_and_clears_the_prompt() {
-    let Some(mut sessions) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = settled_tabset_with_proxy_for_test() else {
         return;
     };
-    // A slightly longer-lived stub so the first spawn is comfortably alive,
-    // then drops 255 to arm the prompt.
     let ssh = sessions
         .spawn_ssh_command_in_new_tab_for_test(Dimensions::new(20, 8), exit_code_command(255))
         .expect("ssh stub session");
     let tabs_before = sessions.tab_count();
     let sessions_before = sessions.len();
-    let armed = (0..200).any(|_| {
-        if sessions.try_arm_reconnect(ssh) {
-            true
-        } else {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            false
-        }
-    });
-    assert!(armed, "drop must arm reconnect");
+    assert!(
+        exit_and_try_arm(&mut sessions, ssh),
+        "drop must arm reconnect"
+    );
     // Reconnect re-runs the stored argv into the SAME token/tab.
     assert!(sessions.reconnect(ssh), "reconnect respawns the session");
     assert_eq!(sessions.tab_count(), tabs_before, "no new tab is created");
@@ -739,10 +764,9 @@ fn reconnect_respawns_into_the_same_token_and_clears_the_prompt() {
     target_os = "macos",
     ignore = "winit EventLoop cannot be built off the main thread on macOS"
 )]
-#[cfg(not(windows))]
 #[test]
 fn reconnect_resets_stale_input_reporting_modes() {
-    let Some(mut sessions) = tabset_with_proxy_for_test() else {
+    let Some(mut sessions) = settled_tabset_with_proxy_for_test() else {
         return;
     };
     let ssh = sessions
@@ -760,21 +784,93 @@ fn reconnect_resets_stale_input_reporting_modes() {
         "the pre-drop shell latched bracketed paste on the reused model"
     );
 
-    let armed = (0..200).any(|_| {
-        if sessions.try_arm_reconnect(ssh) {
-            true
-        } else {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            false
-        }
-    });
-    assert!(armed, "drop must arm reconnect");
+    assert!(
+        exit_and_try_arm(&mut sessions, ssh),
+        "drop must arm reconnect"
+    );
     assert!(sessions.reconnect(ssh), "reconnect respawns the session");
     assert!(
         !crate::native::lock_recover(&sessions.get(ssh).expect("ssh session").terminal)
             .bracketed_paste_enabled(),
         "reconnect must clear the pre-drop bracketed-paste latch so a paste \
          into the fresh shell is not wrapped in markers it never enabled"
+    );
+    assert!(!sessions.close(ssh));
+    assert!(sessions.close(SessionToken(0)));
+}
+
+/// The reconnected PTY carries the pane's real cell size at once. The model
+/// already holds that size, so no later layout pass sees a change; before,
+/// the fresh shell read the PTY layer's 8x16 default until an unrelated
+/// geometry change. Unix only: ConPTY reports no pixel size.
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "winit EventLoop cannot be built off the main thread on macOS"
+)]
+#[cfg(unix)]
+#[test]
+fn reconnect_gives_the_new_pty_the_panes_pixel_size() {
+    let Some(mut sessions) = settled_tabset_with_proxy_for_test() else {
+        return;
+    };
+    let ssh = sessions
+        .spawn_ssh_command_in_new_tab_for_test(Dimensions::new(20, 8), exit_code_command(255))
+        .expect("ssh stub session");
+    crate::native::lock_recover(&sessions.get(ssh).expect("ssh session").terminal)
+        .set_cell_metrics(12, 24);
+    assert!(
+        exit_and_try_arm(&mut sessions, ssh),
+        "drop must arm reconnect"
+    );
+    // The reconnected child stays alive so its PTY can be queried.
+    sessions.get_mut(ssh).expect("ssh session").reconnect =
+        Some(RemoteReconnect::new(shell_command("sleep 30")));
+    assert!(sessions.reconnect(ssh), "reconnect respawns the session");
+    let pixels = sessions
+        .get(ssh)
+        .expect("ssh session")
+        .local_pty()
+        .expect("local pty")
+        .lock()
+        .expect("pty lock")
+        .pixel_dimensions_for_test()
+        .expect("query pixel size");
+    assert_eq!(pixels, (20 * 12, 8 * 24), "20x8 cells of 12x24 pixels");
+    assert!(!sessions.get(ssh).expect("ssh session").pty_resize_dirty);
+    assert!(!sessions.close(ssh));
+    assert!(sessions.close(SessionToken(0)));
+}
+
+/// A reconnect whose respawn fails keeps the prompt and says so in the
+/// pane; before, Enter appeared to do nothing.
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "winit EventLoop cannot be built off the main thread on macOS"
+)]
+#[test]
+fn a_failed_reconnect_keeps_the_prompt_and_says_so() {
+    let Some(mut sessions) = settled_tabset_with_proxy_for_test() else {
+        return;
+    };
+    let ssh = sessions
+        .spawn_ssh_command_in_new_tab_for_test(Dimensions::new(40, 8), exit_code_command(255))
+        .expect("ssh stub session");
+    assert!(
+        exit_and_try_arm(&mut sessions, ssh),
+        "drop must arm reconnect"
+    );
+    sessions.get_mut(ssh).expect("ssh session").reconnect = Some(RemoteReconnect::new(
+        SshCommand::new("odytty-test-no-such-program", Vec::new()),
+    ));
+    assert!(!sessions.reconnect(ssh), "a failed respawn reports failure");
+    assert!(
+        sessions.get(ssh).expect("ssh session").awaiting_reconnect,
+        "the prompt stays for a retry or Esc"
+    );
+    let text = pane_text(&sessions, ssh);
+    assert!(
+        text.contains("reconnect failed"),
+        "the failure is visible in the pane, got: {text:?}"
     );
     assert!(!sessions.close(ssh));
     assert!(sessions.close(SessionToken(0)));

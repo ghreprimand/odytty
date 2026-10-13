@@ -241,14 +241,14 @@ impl WorkspaceSet {
         // Move sessions first so the destination arena holds every token before
         // its owning tab tree is appended: no interim observer can see a tab
         // whose pane session is missing from the arena. Revalidation just
-        // confirmed each token is present and unique and this runs with no
-        // intervening yield, so a missing token here is a broken invariant, not
-        // a race - it panics loudly rather than silently dropping a pane.
-        for token in &plan.tokens {
-            let session = source
-                .sessions
-                .remove(token)
-                .expect("revalidated source session present at commit");
+        // confirmed each token is present and unique, so a miss here is a
+        // broken invariant. The sessions leave the source as one step that
+        // puts them all back on a miss, so even then both arenas are left as
+        // they were, and the inserts below fit the capacity reserved above.
+        let sessions = source
+            .take_sessions(&plan.tokens)
+            .map_err(MergeError::MissingSession)?;
+        for (token, session) in plan.tokens.iter().zip(sessions) {
             self.sessions.insert(*token, session);
         }
 

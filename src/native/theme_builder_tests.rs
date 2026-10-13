@@ -1032,3 +1032,125 @@ fn theme_edit_buffers_keep_ascii_input_policies() {
     assert!(matches!(builder.render_signature().editing,
         Some(ThemeBuilderEditSignature::Color { buffer, .. }) if buffer.is_empty()));
 }
+
+fn name_buffer(builder: &ThemeBuilder) -> Option<String> {
+    match builder.render_signature().editing {
+        Some(ThemeBuilderEditSignature::Name { buffer }) => Some(buffer),
+        _ => None,
+    }
+}
+
+fn clear_name_entry(builder: &mut ThemeBuilder) {
+    while name_buffer(builder).is_some_and(|buffer| !buffer.is_empty()) {
+        builder.handle_input(OverlayInput::Backspace);
+    }
+}
+
+/// Windows resolves `con.theme` and the other device names to a device, so
+/// they are refused on every platform, as for layouts and profiles. A name
+/// past the length limit is refused before it reaches the file system.
+#[test]
+fn save_names_refuse_windows_device_names_and_overlong_names() {
+    let dir = temp_dir("reserved-and-long");
+    let spec = ThemeSpec::from_theme(&Theme::ODYSSEY);
+    let overlong = "a".repeat(MAX_THEME_NAME_LEN + 1);
+    for name in ["con", "CON", "nul", "aux", "prn", "com1", "lpt9", &overlong] {
+        let request = ThemeBuilderSaveRequest {
+            name: name.to_owned(),
+            spec: spec.clone(),
+        };
+        let error = save_theme_to_dir(&dir, &request).expect_err(name);
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{name:?}");
+    }
+    assert!(std::fs::read_dir(&dir).unwrap().next().is_none());
+
+    // The longest accepted name, and names that only start like a device.
+    let longest = "a".repeat(MAX_THEME_NAME_LEN);
+    for name in [longest.as_str(), "console", "con-custom", "com10"] {
+        let request = ThemeBuilderSaveRequest {
+            name: name.to_owned(),
+            spec: spec.clone(),
+        };
+        let path = save_theme_to_dir(&dir, &request).expect(name);
+        assert_eq!(path, dir.join(format!("{name}.theme")));
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn typing_a_device_name_keeps_the_name_prompt_open_with_a_reason() {
+    let mut builder = ThemeBuilder::new(&Settings::default());
+    builder.handle_input(OverlayInput::Save);
+    clear_name_entry(&mut builder);
+    for ch in "nul".chars() {
+        builder.handle_input(OverlayInput::Char(ch));
+    }
+    assert_eq!(
+        builder.handle_input(OverlayInput::Activate),
+        ThemeBuilderOutcome::Consumed,
+        "no save request for a device name"
+    );
+    assert_eq!(name_buffer(&builder).as_deref(), Some("nul"));
+    let message = builder.render_signature().message.unwrap_or_default();
+    assert!(message.contains("Windows device"), "{message:?}");
+}
+
+/// Entry stops at the longest value that can be valid instead of growing
+/// until save or parse refuses it.
+#[test]
+fn entry_buffers_stop_at_their_longest_valid_length() {
+    let mut builder = ThemeBuilder::new(&Settings::default());
+    builder.handle_input(OverlayInput::Save);
+    clear_name_entry(&mut builder);
+    for _ in 0..(MAX_THEME_NAME_LEN + 40) {
+        builder.handle_input(OverlayInput::Char('a'));
+    }
+    assert_eq!(
+        name_buffer(&builder).map(|buffer| buffer.len()),
+        Some(MAX_THEME_NAME_LEN)
+    );
+    let ThemeBuilderOutcome::Save(request) = builder.handle_input(OverlayInput::Activate) else {
+        panic!("the longest name saves");
+    };
+    assert_eq!(request.name.len(), MAX_THEME_NAME_LEN);
+
+    // Color entry: the first character replaces the prefilled value.
+    let mut builder = ThemeBuilder::new(&Settings::default());
+    builder.handle_input(OverlayInput::Activate);
+    for ch in std::iter::once('#').chain(std::iter::repeat_n('a', 20)) {
+        builder.handle_input(OverlayInput::Char(ch));
+    }
+    assert!(matches!(builder.render_signature().editing,
+        Some(ThemeBuilderEditSignature::Color { buffer, .. }) if buffer == "#aaaaaa"));
+
+    // Seed entry starts prefilled at the limit.
+    let mut builder = ThemeBuilder::new(&Settings::default());
+    builder.handle_input(OverlayInput::Char('g'));
+    let prefilled = builder.render_signature().editing;
+    builder.handle_input(OverlayInput::Char('a'));
+    assert_eq!(builder.render_signature().editing, prefilled);
+    for _ in 0..MAX_HEX_ENTRY_LEN {
+        builder.handle_input(OverlayInput::Backspace);
+    }
+    for _ in 0..20 {
+        builder.handle_input(OverlayInput::Char('b'));
+    }
+    assert!(matches!(builder.render_signature().editing,
+        Some(ThemeBuilderEditSignature::Seed { buffer }) if buffer == "bbbbbbb"));
+}
+
+/// The suggested save name of a long theme name still fits the limit.
+#[test]
+fn suggested_names_fit_the_save_name_limit() {
+    for name in [
+        "Very Long Theme Name ".repeat(10),
+        format!("{}-custom", "b".repeat(100)),
+        "con".to_owned(),
+    ] {
+        let suggested = suggested_name(&name);
+        assert!(valid_theme_name(&suggested), "{name:?} -> {suggested:?}");
+        assert!(suggested.ends_with("-custom"), "{suggested:?}");
+    }
+    assert_eq!(suggested_name("Odyssey Default"), "odyssey-default-custom");
+    assert_eq!(suggested_name("mine-custom"), "mine-custom");
+}

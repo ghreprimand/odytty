@@ -229,6 +229,18 @@ impl WorkspaceSet {
             .is_single_pane();
         if scope == MoveScope::ActivePane && !single_pane {
             let token = tokens[0];
+            let Some(layout) = self.workspaces[ws_idx].tabs[tab_idx]
+                .layout
+                .clone()
+                .close_leaf(token)
+            else {
+                return Err(MoveError::SourceEmpty);
+            };
+            // Taken before the tree changes, so a miss leaves the source as
+            // it was.
+            let sessions = self
+                .take_sessions(&[token])
+                .map_err(MoveError::MissingSession)?;
             let tab = &mut self.workspaces[ws_idx].tabs[tab_idx];
             let restore = RestorePoint::Pane {
                 ws_idx,
@@ -237,27 +249,26 @@ impl WorkspaceSet {
                 focused: tab.focused,
                 zoomed: tab.zoomed,
             };
-            let Some(layout) = tab.layout.clone().close_leaf(token) else {
-                return Err(MoveError::SourceEmpty);
-            };
             if let Some(first) = layout.leaves().first().copied() {
                 tab.focused = first;
             }
             tab.layout = layout;
             tab.zoomed = false;
-            let session = self
-                .sessions
-                .remove(&token)
-                .expect("move token checked present");
             return Ok(MovedContent {
                 tab: Tab::single(token),
-                sessions: vec![session],
+                sessions,
                 fresh_tab: true,
                 restore,
             });
         }
 
-        // A whole tab leaves (the active tab, or the tab of a lone pane).
+        // A whole tab leaves (the active tab, or the tab of a lone pane). Its
+        // sessions are taken before the tree changes: a token named twice or
+        // missing leaves the source as it was.
+        let leaves = self.workspaces[ws_idx].tabs[tab_idx].layout.leaves();
+        let sessions = self
+            .take_sessions(&leaves)
+            .map_err(MoveError::MissingSession)?;
         let active_ws = self.active_ws;
         let ws = &mut self.workspaces[ws_idx];
         let active_tab = ws.active_tab;
@@ -277,16 +288,6 @@ impl WorkspaceSet {
             ws.active_tab = tab_idx.min(ws.tabs.len() - 1);
             None
         };
-        let sessions = tab
-            .layout
-            .leaves()
-            .into_iter()
-            .map(|token| {
-                self.sessions
-                    .remove(&token)
-                    .expect("move token checked present")
-            })
-            .collect();
         Ok(MovedContent {
             tab,
             sessions,

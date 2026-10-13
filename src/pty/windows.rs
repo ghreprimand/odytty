@@ -783,8 +783,8 @@ impl PtySession {
     /// *succeed* and then exits a moment later, so the spawn returns `Ok` yet the
     /// pane would otherwise stay blank. The child-waiter thread detects that
     /// abnormal-and-immediate exit, records a human-readable line into this slot
-    /// (and echoes it to stderr), then closes the pseudoconsole - which makes the
-    /// pump's output reader observe EOF. The pump takes the line from here on
+    /// and then closes the pseudoconsole, which makes the pump's output reader
+    /// observe EOF (the line is echoed to stderr afterwards). The pump takes the line from here on
     /// that EOF and writes it into the pane exactly once, replacing the old
     /// synchronous 250 ms spawn-path wait with a zero-cost path that surfaces the
     /// reason through the normal `ShellExited` teardown instead of blocking
@@ -994,13 +994,15 @@ fn should_report_startup_failure(code: u32, elapsed: Duration, teardown_requeste
 ///   1. reads the child's exit code and, if it exited *abnormally and within*
 ///      [`STARTUP_FAILURE_WINDOW`] of the moment it began running (its spawn,
 ///      or its resume for a held child), records a startup-failure line into
-///      `diagnostic` and echoes it to stderr (this folds the former synchronous
-///      250 ms `diagnose_immediate_exit` spawn-path wait into the wait that
-///      already exists - no startup tax); then
+///      `diagnostic` (this folds the former synchronous 250 ms
+///      `diagnose_immediate_exit` spawn-path wait into the wait that already
+///      exists - no startup tax); then
 ///   2. closes the pseudoconsole (idempotent via the shared flag), which makes
 ///      the pump's blocked output reader observe EOF; the app then tears the
 ///      session down through its single existing `ShellExited` path, and the
-///      pump writes any recorded diagnostic into the pane on that EOF.
+///      pump writes the recorded diagnostic into the pane on that EOF; then
+///   3. echoes the line to stderr on a separate thread, so a blocked stderr
+///      cannot hold up this waiter (see `exit_report`).
 ///
 /// A held child ([`crate::pty::spawn_held`]) is waited on together with its
 /// fallback event first: the waiter parks until the child exits (a kill) or
@@ -1076,28 +1078,35 @@ fn spawn_child_waiter(
         let mut code: u32 = 0;
         // SAFETY: live owned process handle; the child has exited.
         let got_code = unsafe { GetExitCodeProcess(handle, &mut code) }.is_ok();
-        // Close the pseudoconsole FIRST: it is the teardown edge the rest
-        // of the session waits on (reader EOF → ShellExited). Diagnostics
-        // come after, so a blocked or dead stderr can never delay or wedge
-        // session teardown behind console I/O.
         let teardown_requested = pcon.is_teardown_requested();
-        pcon.close_once();
         let exit_code = got_code.then_some(code);
-        if let Some(line) = startup_report(&outcome, spawned, exit_code, teardown_requested) {
-            // stderr (routed to the launching console via AttachConsole) is
-            // the durable channel; the pane copy is best-effort (the tab may
-            // close before a frame draws). Non-panicking write: a failed
-            // stderr write in a detached-console session must not panic the
-            // waiter thread.
-            let _ = writeln!(
-                io::stderr(),
-                "odytty:{}",
-                line.replace(['\r', '\n'], " ").trim()
-            );
-            if let Ok(mut slot) = diagnostic.lock() {
-                *slot = Some(line);
-            }
-        }
+        let line = startup_report(&outcome, spawned, exit_code, teardown_requested);
+        // The pane line goes into the slot BEFORE the pseudoconsole closes, so
+        // the pump cannot see end-of-file first and leave the pane blank. The
+        // standard-error copy comes last and runs on its own thread: a
+        // blocked or dead stderr must never delay or wedge session teardown,
+        // which joins this waiter. If that thread cannot start the copy is
+        // skipped; the pane line is the one that matters.
+        super::exit_report::finish_child_exit(
+            line,
+            |line| {
+                if let Ok(mut slot) = diagnostic.lock() {
+                    *slot = Some(line);
+                }
+            },
+            || pcon.close_once(),
+            |line| {
+                let _ = crate::spawn_util::spawn_named("odytty-conpty-report", move || {
+                    // Non-panicking write: a failed stderr write in a
+                    // detached-console session must not panic.
+                    let _ = writeln!(
+                        io::stderr(),
+                        "odytty:{}",
+                        line.replace(['\r', '\n'], " ").trim()
+                    );
+                });
+            },
+        );
     })
     .context("spawn ConPTY child-waiter thread")
 }

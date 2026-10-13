@@ -280,11 +280,8 @@ fn atomic_write_syncs_and_round_trips_a_multi_kib_payload() {
     // before returning (parity with the settings writeback path). The durable
     // path must still round-trip exactly and leave no temp sibling - a crash can
     // only ever leave the temp behind, never a renamed-but-empty target.
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!("odytty-f23-sync-{}-{nanos}", std::process::id()));
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-test-");
+    let dir = fixture.path().join("state");
     let path = dir.join("nested").join("workspaces.json");
 
     // A multi-KiB payload exercises the explicit write_all + sync_all path, and a
@@ -306,18 +303,12 @@ fn atomic_write_syncs_and_round_trips_a_multi_kib_payload() {
         vec!["workspaces.json".to_owned()],
         "no temp leftovers"
     );
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn atomic_write_replaces_target_and_leaves_no_temp_file() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let dir =
-        std::env::temp_dir().join(format!("odytty-wp1-atomic-{}-{nanos}", std::process::id()));
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-test-");
+    let dir = fixture.path().join("state");
     let path = dir.join("workspaces.json");
 
     write_atomic(&path, "first\n").expect("first write");
@@ -338,8 +329,6 @@ fn atomic_write_replaces_target_and_leaves_no_temp_file() {
         vec!["workspaces.json".to_owned()],
         "no temp leftovers"
     );
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[cfg(unix)]
@@ -347,14 +336,8 @@ fn atomic_write_replaces_target_and_leaves_no_temp_file() {
 fn atomic_write_repairs_parent_and_target_modes_and_rejects_a_symlink_target() {
     use std::os::unix::fs::{PermissionsExt, symlink};
 
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let root = std::env::temp_dir().join(format!(
-        "odytty-persist-modes-{}-{nanos}",
-        std::process::id()
-    ));
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-test-");
+    let root = fixture.path().join("state");
     std::fs::create_dir(&root).expect("create root");
     let state = root.join("state");
     std::fs::create_dir(&state).expect("create state");
@@ -405,7 +388,6 @@ fn atomic_write_repairs_parent_and_target_modes_and_rejects_a_symlink_target() {
                 .ends_with(".tmp")),
         "failed replacement cleans up its owned temporary sibling"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -439,15 +421,31 @@ fn deeply_nested_json_returns_an_error_instead_of_overflowing_the_stack() {
 
 #[test]
 fn nesting_just_within_the_cap_still_parses() {
-    // A structure nested to a normal-but-non-trivial depth (well inside the
-    // 128-frame cap) must still parse cleanly; the guard must not reject real,
-    // moderately-nested layouts.
-    let depth = 32;
-    let text = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
-    assert!(
-        json::parse(&text).is_ok(),
-        "a moderately-nested array must still parse"
-    );
+    // Empty innermost containers consume one frame each, so these exercise
+    // the exact parser boundary, through both readers and container kinds.
+    for (open, close) in [("[", "]"), ("{\"nested\":", "}")] {
+        for depth in [128, 129] {
+            let text = if open == "[" {
+                format!("{}{}", open.repeat(depth), close.repeat(depth))
+            } else {
+                format!("{}{{}}{}", open.repeat(depth - 1), close.repeat(depth - 1))
+            };
+            for parsed in [
+                json::parse(&text),
+                crate::profiles::parse_json(&text).map(|_| Json::Null),
+            ] {
+                if depth == 128 {
+                    assert!(parsed.is_ok(), "depth 128 must parse");
+                } else {
+                    let position = 128 * open.len();
+                    assert_eq!(
+                        parsed.unwrap_err(),
+                        format!("maximum nesting depth 128 exceeded at position {position}")
+                    );
+                }
+            }
+        }
+    }
 }
 
 // ---- cwd resolution for restore (design §10.5, sub-ODP 8f) ----
@@ -784,14 +782,8 @@ fn sanitize_layout_name_mangles_windows_reserved_device_stems() {
 #[test]
 fn sweep_stale_temp_siblings_removes_only_aged_temporaries() {
     use std::time::{Duration, SystemTime};
-    let nanos = SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!(
-        "odytty-c27-tmpsweep-{}-{nanos}",
-        std::process::id()
-    ));
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-test-");
+    let dir = fixture.path().join("state");
     std::fs::create_dir_all(&dir).expect("create temp dir");
 
     let orphan = dir.join(".shape.json.1234.567.0.tmp");
@@ -811,8 +803,6 @@ fn sweep_stale_temp_siblings_removes_only_aged_temporaries() {
     std::fs::write(&fresh, b"in-flight").expect("write fresh");
     super::sweep_stale_temp_siblings_at(&dir, SystemTime::now(), Duration::from_secs(60 * 60));
     assert!(fresh.exists(), "a fresh in-flight temp is left alone");
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A layout saves, lists, loads (equal to what was saved), and deletes -
@@ -820,12 +810,8 @@ fn sweep_stale_temp_siblings_removes_only_aged_temporaries() {
 /// touched.
 #[test]
 fn layout_save_list_load_delete_round_trip() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let dir =
-        std::env::temp_dir().join(format!("odytty-wp3-layouts-{}-{nanos}", std::process::id()));
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-test-");
+    let dir = fixture.path().join("state");
 
     let layout = ShapeSnapshot {
         version: SNAPSHOT_VERSION,
@@ -884,8 +870,6 @@ fn layout_save_list_load_delete_round_trip() {
     assert!(matches!(load_layout_in(&dir, "dev"), LoadOutcome::Absent));
     // Deleting a missing layout is a success no-op.
     delete_layout_in(&dir, "dev").expect("idempotent delete");
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// `layout_exists_in` reports presence keyed by the SAME
@@ -894,11 +878,8 @@ fn layout_save_list_load_delete_round_trip() {
 /// never disagree with the writer about which file a name means.
 #[test]
 fn layout_exists_matches_the_writer_stem() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!("odytty-overwrite-{}-{nanos}", std::process::id()));
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-test-");
+    let dir = fixture.path().join("state");
 
     let layout = ShapeSnapshot {
         version: SNAPSHOT_VERSION,
@@ -930,8 +911,6 @@ fn layout_exists_matches_the_writer_stem() {
     assert!(layout_exists_in(&dir, "My_Layout"));
     // A genuinely different name does not collide.
     assert!(!layout_exists_in(&dir, "Other"));
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[cfg(unix)]
@@ -939,14 +918,8 @@ fn layout_exists_matches_the_writer_stem() {
 fn layout_migration_repairs_direct_json_only_and_leaves_unknown_entries_alone() {
     use std::os::unix::fs::PermissionsExt;
 
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!(
-        "odytty-layout-migration-{}-{nanos}",
-        std::process::id()
-    ));
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-test-");
+    let dir = fixture.path().join("state");
     crate::state_dir::prepare_private_dir(&dir).expect("prepare layouts leaf");
     let direct_json = dir.join("legacy.json");
     std::fs::write(&direct_json, "{}\n").expect("seed direct json");
@@ -989,7 +962,6 @@ fn layout_migration_repairs_direct_json_only_and_leaves_unknown_entries_alone() 
         0o755,
         "nested directories are left alone"
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // ---- malformed-snapshot launch robustness (belt-and-suspenders) ----
@@ -1085,12 +1057,8 @@ fn garbage_and_broken_files_on_disk_degrade_to_a_soft_outcome_never_panic() {
     // path) but takes an injectable directory, so it exercises the identical
     // file-level degradation without ever touching the real state dir. Every
     // hostile file below must yield a soft `LoadOutcome` - never a panic.
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let dir =
-        std::env::temp_dir().join(format!("odytty-h4-corrupt-{}-{nanos}", std::process::id()));
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-test-");
+    let dir = fixture.path().join("state");
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let name = "state";
     let path = layout_path_in(&dir, name).expect("a plain name resolves to a path");
@@ -1126,8 +1094,6 @@ fn garbage_and_broken_files_on_disk_degrade_to_a_soft_outcome_never_panic() {
         load_layout_in(&dir, name),
         LoadOutcome::Skew { found: 999 }
     ));
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // ---- aggregate load budgets (fail closed, no restore spawn) ----
@@ -1261,14 +1227,8 @@ fn over_budget_snapshot_from_json_degrades_to_malformed() {
 
 #[test]
 fn oversized_state_file_is_rejected_before_parsing() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!(
-        "odytty-plaus01-bytes-{}-{nanos}",
-        std::process::id()
-    ));
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-test-");
+    let dir = fixture.path().join("state");
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let name = "state";
     let path = layout_path_in(&dir, name).expect("a plain name resolves to a path");
@@ -1280,20 +1240,12 @@ fn oversized_state_file_is_rejected_before_parsing() {
         matches!(load_layout_in(&dir, name), LoadOutcome::Corrupt(_)),
         "a state file over the byte budget must degrade to Corrupt, not be read+parsed"
     );
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn sensitive_state_reader_enforces_the_limit_during_the_read() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!(
-        "odytty-state-read-cap-{}-{nanos}",
-        std::process::id()
-    ));
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-test-");
+    let dir = fixture.path().join("state");
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let path = dir.join("state.json");
 
@@ -1308,8 +1260,6 @@ fn sensitive_state_reader_enforces_the_limit_during_the_read() {
         .expect_err("one byte over the limit is rejected");
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     assert!(error.to_string().contains("8-byte load budget"));
-
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn snapshot_with(layout: PaneShape) -> ShapeSnapshot {
@@ -1389,12 +1339,8 @@ fn missing_or_malformed_read_only_loads_writable() {
 
 #[test]
 fn layout_listing_examines_a_bounded_number_of_entries() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let dir =
-        std::env::temp_dir().join(format!("odytty-layout-scan-{}-{nanos}", std::process::id()));
+    let fixture = crate::test_dirs::ScratchDir::new("odytty-layout-test-");
+    let dir = fixture.path().join("state");
     let layout = sample_snapshot();
     save_layout_in(&dir, "dev", &layout).expect("save");
     let small = list_layout_names_in(&dir);
@@ -1410,7 +1356,6 @@ fn layout_listing_examines_a_bounded_number_of_entries() {
         "a directory past the bound reports truncation"
     );
     assert!(large.names.len() <= 1);
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[cfg(windows)]
@@ -1449,15 +1394,8 @@ fn windows_network_cwd_validation_and_restore_refuse_before_metadata() {
     );
 }
 
-fn layout_identity_scratch_dir(label: &str) -> std::path::PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    std::env::temp_dir().join(format!(
-        "odytty-layout-{label}-{}-{nanos}",
-        std::process::id()
-    ))
+fn layout_identity_scratch_dir(label: &str) -> crate::test_dirs::ScratchDir {
+    crate::test_dirs::ScratchDir::new(&format!("odytty-layout-{label}-"))
 }
 
 /// A layout delete bound to the file seen when the row was listed refuses a
@@ -1465,7 +1403,8 @@ fn layout_identity_scratch_dir(label: &str) -> std::path::PathBuf {
 /// neighbouring layout.
 #[test]
 fn layout_delete_refuses_a_target_that_changed_after_listing() {
-    let dir = layout_identity_scratch_dir("delete-identity");
+    let fixture = layout_identity_scratch_dir("delete-identity");
+    let dir = fixture.path().join("state");
     let layout = sample_snapshot();
     save_layout_in(&dir, "alpha", &layout).expect("save alpha");
     save_layout_in(&dir, "beta", &layout).expect("save beta");
@@ -1495,7 +1434,6 @@ fn layout_delete_refuses_a_target_that_changed_after_listing() {
         LayoutDeleteOutcome::Deleted
     );
     assert!(list_layout_names_in(&dir).names.is_empty());
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 /// A file whose stem is not its own sanitized name is not listed, because
@@ -1503,13 +1441,13 @@ fn layout_delete_refuses_a_target_that_changed_after_listing() {
 /// different file.
 #[test]
 fn layout_listing_skips_stems_that_address_a_different_file() {
-    let dir = layout_identity_scratch_dir("stem-roundtrip");
+    let fixture = layout_identity_scratch_dir("stem-roundtrip");
+    let dir = fixture.path().join("state");
     let layout = sample_snapshot();
     save_layout_in(&dir, "a_b", &layout).expect("save a_b");
     write_atomic(&dir.join("a.b.json"), &layout.to_json_pretty()).expect("write a.b");
     assert_eq!(list_layout_names_in(&dir).names, vec!["a_b".to_owned()]);
     assert_eq!(layout_stamp_in(&dir, "a.b"), None);
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -1628,6 +1566,36 @@ fn layout_names_replace_unicode_line_and_paragraph_separators() {
         assert_eq!(
             sanitize_layout_name(&format!("visible{ch}name")),
             Some("visible_name".to_owned())
+        );
+    }
+}
+
+#[test]
+fn layout_version_rejects_fractional_literals_that_round_to_supported_version() {
+    for literal in [
+        "1.00000000000000000001",
+        "0.99999999999999999999",
+        "100000000000000000001e-20",
+    ] {
+        let text = format!(r#"{{"version":{literal},"active_workspace":0,"workspaces":[]}}"#);
+        assert!(
+            matches!(
+                ShapeSnapshot::from_json_str(&text),
+                Err(LoadError::Malformed(_))
+            ),
+            "fractional literal {literal} must not become a supported version"
+        );
+    }
+}
+
+#[test]
+fn layout_version_accepts_equivalent_whole_literals_and_preserves_lenient_fields() {
+    for literal in ["1", "1.0", "10e-1", "1.00000000000000000000"] {
+        let text =
+            format!(r#"{{"version":{literal},"active_workspace":0,"workspaces":[],"future":2.}}"#);
+        assert!(
+            ShapeSnapshot::from_json_str(&text).is_ok(),
+            "whole literal {literal}"
         );
     }
 }

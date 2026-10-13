@@ -752,6 +752,28 @@ impl WorkspaceSet {
         self.sessions.get_mut(&token)
     }
 
+    /// Remove the sessions for `tokens`, in order, as one step. When a token
+    /// has no session (a corrupt tree, or a token named twice), every session
+    /// already removed goes back and that token is returned, so the arena is
+    /// left as it was. Window merge and tab or pane moves take their sessions
+    /// through this before they change any tree.
+    pub(in crate::native) fn take_sessions(
+        &mut self,
+        tokens: &[SessionToken],
+    ) -> Result<Vec<Session>, SessionToken> {
+        let mut taken = Vec::with_capacity(tokens.len());
+        for token in tokens {
+            let Some(session) = self.sessions.remove(token) else {
+                for (put_back, session) in tokens.iter().zip(taken) {
+                    self.sessions.insert(*put_back, session);
+                }
+                return Err(*token);
+            };
+            taken.push(session);
+        }
+        Ok(taken)
+    }
+
     /// Read access to a session by token (multi-pane render dispatch snapshots
     /// each visible pane's terminal through this).
     pub(in crate::native) fn get(&self, token: SessionToken) -> Option<&Session> {

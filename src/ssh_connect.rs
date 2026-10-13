@@ -508,20 +508,31 @@ pub fn remote_tmux_enabled(host_tmux: Option<bool>, global_default: bool) -> boo
     host_tmux.unwrap_or(global_default)
 }
 
+/// The longest `ControlPersist` window a value may name (30 days). OpenSSH
+/// accepts up to its integer range and fails the connection beyond it; the
+/// master is meant to be a bounded convenience, so a longer window is clamped.
+const MAX_CONTROL_PERSIST_SECS: u64 = 30 * 24 * 60 * 60;
+
 /// Parse a `ControlPersist` value (a `remote_persist` preset or a per-host
 /// `Persist` override) into the canonical token emitted after `ControlPersist=`:
 /// `no` for an off token (the master dies with its last connection), otherwise
 /// the window in whole seconds. Accepts an off token (`off`/`0`/`no`/`none`),
 /// bare seconds (`600`), and `<n>h`/`<n>m`/`<n>s` combinations (`2h`, `1h30m`,
-/// `90s`). Returns `None` for an unrecognized value so the caller can fall back
-/// to the global default. Pure string handling with no shell and no I/O; the value is
+/// `90s`). A duration that totals zero (`0s`, `00`, `0m`) is the off token too:
+/// OpenSSH reads `ControlPersist 0` as "persist indefinitely", the opposite of
+/// the intent. A window beyond [`MAX_CONTROL_PERSIST_SECS`] is clamped to it.
+/// Returns `None` for an unrecognized value so the caller can fall back to the
+/// global default. Pure string handling with no shell and no I/O; the value is
 /// only ever placed as a single `-o ControlPersist=<token>` argv element.
 pub fn parse_control_persist(raw: &str) -> Option<String> {
     let trimmed = raw.trim().to_ascii_lowercase();
     if matches!(trimmed.as_str(), "off" | "0" | "no" | "none" | "false") {
         return Some("no".to_owned());
     }
-    parse_duration_secs(&trimmed).map(|secs| secs.to_string())
+    parse_duration_secs(&trimmed).map(|secs| match secs {
+        0 => "no".to_owned(),
+        secs => secs.min(MAX_CONTROL_PERSIST_SECS).to_string(),
+    })
 }
 
 /// Parse a duration into whole seconds. Accepts bare seconds (`600`) or a

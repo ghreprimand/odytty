@@ -1489,25 +1489,24 @@ fn level1_enter_drills_and_level2_esc_backs_out() {
         SettingsLevel::SectionDetail { section_index: 1 },
         "Enter at Level 1 drills into Fonts"
     );
-    // Entries should be the Fonts group only.
-    assert!(
-        panel
-            .render_signature()
-            .entries
-            .iter()
-            .all(|e| e.key == "font"
-                || e.key == "font_family"
-                || e.key == "font_size"
-                || e.key == "font_weight"
-                || e.key == "font_zero"
-                || e.key == "line_height"
-                || e.key == "synthetic_styles"
-                || e.key == "symbol_fallback"
-                || e.key == "symbol_font"
-                || e.key == "symbol_map"
-                || e.key == "ambiguous_width"),
-        "Level 2 Fonts shows Font-group entries"
-    );
+    // Level 2 shows exactly the catalog's Font-group settings, in catalog
+    // order, so a new Font setting appears without editing this test and a
+    // missing row fails it.
+    assert_eq!(SECTIONS[1].name, "Fonts");
+    let font_keys: Vec<&str> = Settings::default()
+        .setting_info()
+        .into_iter()
+        .filter(|entry| entry.group == "Font")
+        .map(|entry| entry.key)
+        .collect();
+    assert!(!font_keys.is_empty(), "the catalog has Font settings");
+    let shown: Vec<&str> = panel
+        .render_signature()
+        .entries
+        .iter()
+        .map(|entry| entry.key)
+        .collect();
+    assert_eq!(shown, font_keys, "Level 2 Fonts shows the Font group");
 
     // Esc at Level 2 → Level 1.
     let outcome = panel.handle_input(OverlayInput::Close);

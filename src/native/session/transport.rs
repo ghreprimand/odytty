@@ -322,6 +322,11 @@ pub(in crate::native) fn classify_remote_exit(code: Option<i32>) -> ExitDisposit
 const RECONNECT_BANNER: &str =
     "\r\n\x1b[1;33m connection dropped \x1b[0m  Enter: reconnect · Esc: close\r\n";
 
+/// Painted when a reconnect attempt cannot respawn the session; the prompt
+/// stays, so Enter retries and Esc closes as before.
+const RECONNECT_FAILED_NOTICE: &str =
+    "\r\n\x1b[1;31m reconnect failed \x1b[0m  Enter: retry · Esc: close\r\n";
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PtyResizePolicy {
     FlushDirty,
@@ -1601,37 +1606,53 @@ impl WorkspaceSet {
     /// scrollback (and the dropped banner) intact. The reconnect anchor is kept,
     /// so a second drop can reconnect again. Returns `true` on success; on spawn
     /// failure the session stays in the awaiting-reconnect state so the prompt
-    /// can be retried or dismissed.
+    /// can be retried or dismissed, and a one-line notice says the attempt
+    /// failed.
     pub(in crate::native) fn reconnect(&mut self, token: SessionToken) -> bool {
-        let Some(proxy) = self.proxy.clone() else {
+        if self.proxy.is_none() {
             return false;
-        };
+        }
         let Some(session) = self.sessions.get(&token) else {
             return false;
         };
         let Some(reconnect) = session.reconnect.as_ref() else {
             return false;
         };
-        let (program, args) = reconnect.command.clone().into_program_args();
+        let command = reconnect.command.clone();
+        let terminal = session.terminal.clone();
+        if self.respawn_remote(token, command).is_some() {
+            return true;
+        }
+        crate::native::lock_recover(&terminal).advance(RECONNECT_FAILED_NOTICE.as_bytes());
+        false
+    }
+
+    /// The respawn half of [`Self::reconnect`]; `None` when any step fails.
+    fn respawn_remote(&mut self, token: SessionToken, command: SshCommand) -> Option<()> {
+        let proxy = self.proxy.clone()?;
+        let session = self.sessions.get(&token)?;
+        let (program, args) = command.into_program_args();
         let terminal = session.terminal.clone();
         let recorder = session.recorder.clone();
-        let grid = crate::native::lock_recover(&terminal).screen().dimensions();
+        let (grid, metrics) = {
+            let terminal = crate::native::lock_recover(&terminal);
+            (terminal.screen().dimensions(), terminal.cell_metrics())
+        };
         // A reconnect before the first surface grid is held like any other
         // early spawn.
-        let Ok(spawned) =
-            self.spawn_local_for_window(|| PtySession::spawn_exec(grid, program, args, None))
-        else {
-            return false;
-        };
-        let Ok(reader) = spawned.try_clone_reader() else {
-            return false;
-        };
-        let Ok(raw_writer) = spawned.take_writer() else {
-            return false;
-        };
-        let Ok(boxed_writer) = crate::native::pty_writer::writer_shim(raw_writer, token) else {
-            return false;
-        };
+        let spawned = self
+            .spawn_local_for_window(|| PtySession::spawn_exec(grid, program, args, None))
+            .ok()?;
+        // The new PTY starts with the default cell size. The model already has
+        // the pane's real size, so no later layout pass would see a change and
+        // send it; send it now so the fresh shell reads the right pixel size.
+        // ConPTY has no pixel size, so Windows keeps the spawn size.
+        spawned.set_cell_metrics(metrics);
+        #[cfg(unix)]
+        let pixel_size_failed = spawned.resize(grid).is_err();
+        let reader = spawned.try_clone_reader().ok()?;
+        let raw_writer = spawned.take_writer().ok()?;
+        let boxed_writer = crate::native::pty_writer::writer_shim(raw_writer, token).ok()?;
         let writer: PtyWriter = Arc::new(Mutex::new(boxed_writer));
         let diagnostic = spawned.pending_diagnostic_slot();
         // Respawning into a FRESH remote login shell: the terminal model is
@@ -1642,7 +1663,7 @@ impl WorkspaceSet {
         // literally into the command line. The reconnected shell re-emits
         // whatever modes it wants at its first prompt.
         crate::native::lock_recover(&terminal).reset_input_reporting_modes();
-        let Ok(pump_thread) = spawn_pty_pump(
+        let pump_thread = spawn_pty_pump(
             reader,
             writer.clone(),
             terminal,
@@ -1650,13 +1671,10 @@ impl WorkspaceSet {
             token,
             recorder,
             diagnostic,
-        ) else {
-            return false;
-        };
+        )
+        .ok()?;
         let pty = Arc::new(Mutex::new(spawned));
-        let Some(session) = self.sessions.get_mut(&token) else {
-            return false;
-        };
+        let session = self.sessions.get_mut(&token)?;
         // The old read pump already ended at EOF; drop its handle. The prior PTY
         // child is reaped by `Drop for PtySession` when the old source is
         // replaced below.
@@ -1665,7 +1683,13 @@ impl WorkspaceSet {
         session.writer = writer;
         session.awaiting_reconnect = false;
         session.needs_rebuild = true;
-        true
+        // A failed pixel-size send is retried like any failed backend resize.
+        #[cfg(unix)]
+        if pixel_size_failed {
+            session.pty_resize_dirty = true;
+            session.resize_retry.failed(Instant::now());
+        }
+        Some(())
     }
 
     #[cfg(test)]

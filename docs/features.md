@@ -2018,7 +2018,11 @@ OpenSSH's `%C` hash of the effective host, port, and user, keeping different
 endpoints isolated while preserving a fixed-width path.
 
 When a remote connection drops, the tab stays open with a reconnect prompt.
-`Enter` reconnects in place, while `Esc` or `Ctrl+D` closes the tab.
+`Enter` reconnects in place, while `Esc` or `Ctrl+D` closes the tab. If the
+connection command cannot be started again, the pane says `reconnect failed`
+and the prompt stays, so `Enter` retries. On Linux and macOS the reconnected
+session's terminal size carries the pane's pixel size at once, as a new tab's
+does; the Windows console size has no pixel field.
 
 ### Paste Images Into Remote Sessions
 
@@ -2388,3 +2392,8 @@ Saved layout and profile filenames share a portable Windows device-stem rule.
 Layouts prefix reserved stems with an underscore, including superscript numbered
 COM/LPT ports and conservative COM0/LPT0 handling. Profiles retain ASCII-only
 validation and reject reserved stems.
+
+Saved-layout schema versions must be whole unsigned 32-bit numbers in their
+original decimal spelling. A fractional literal that rounds to a supported
+version is refused as malformed on Linux, macOS and Windows. Equivalent whole
+number spellings remain accepted.

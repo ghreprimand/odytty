@@ -213,3 +213,30 @@ fn a_new_window_set_adopts_the_content_and_can_hand_it_back() {
     source.restore_moved(content);
     assert_eq!(shape(&source), before);
 }
+
+/// A tab tree that names one session twice is refused with the source
+/// unchanged. The move used to remove the tab from its workspace first and
+/// then panic on the second removal, leaving the tab in neither window.
+#[test]
+fn a_tab_naming_a_session_twice_is_refused_with_the_source_unchanged() {
+    let mut source = source_set();
+    source.workspaces[0].tabs[0].layout = PaneNode::Split {
+        axis: SplitAxis::Columns,
+        ratio: 0.5,
+        first: Box::new(PaneNode::Leaf(SessionToken(SRC_BASE))),
+        second: Box::new(PaneNode::Leaf(SessionToken(SRC_BASE))),
+    };
+    let before = shape(&source);
+
+    let Err(error) = source.detach_for_move(MoveScope::ActiveTab) else {
+        panic!("a tab naming one session twice must be refused");
+    };
+    assert_eq!(error, MoveError::MissingSession(SessionToken(SRC_BASE)));
+    assert_eq!(shape(&source), before, "the source tree is unchanged");
+    for token in [SRC_BASE, SRC_BASE + 1, SRC_BASE + 2] {
+        assert!(
+            source.get(SessionToken(token)).is_some(),
+            "session {token} stays in the source arena"
+        );
+    }
+}

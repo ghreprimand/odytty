@@ -130,7 +130,10 @@ colors](#create-theme-from-current-colors)), edit its foreground/background,
 palette, and role colors, or generate a starting palette from a seed color, then
 save the result. Saving writes `<theme_dir>/<name>.theme` in exactly the
 [file format](#file-format) documented below - so a builder-made theme is an
-ordinary user theme file you can keep editing by hand. On save, role colors are
+ordinary user theme file you can keep editing by hand. A save name is 1 to 64
+ASCII letters, digits, dashes, or underscores. Windows device names such as
+`con`, `nul`, `aux`, `prn`, `com1`, or `lpt1` are refused on every platform, so
+a saved theme also loads on Windows. On save, role colors are
 snapped to meet the WCAG AA 4.5 contrast target.
 
 Select a role to adjust it with the OKLCH sliders. Click its displayed hex value,
