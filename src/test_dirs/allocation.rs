@@ -11,6 +11,14 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 /// Create a fresh, empty directory `<base>/<prefix><pid>-<n>-<clock>` that no
 /// other test in this or any earlier run owns.
 pub fn fresh_dir(base: &Path, prefix: &str) -> PathBuf {
+    try_fresh_dir(base, prefix)
+        .unwrap_or_else(|error| panic!("create test directory under {}: {error}", base.display()))
+}
+
+/// [`fresh_dir`] that reports a base that cannot hold a directory (missing,
+/// read-only, not permitted) instead of panicking, so a caller with several
+/// candidate bases can move on to the next.
+pub fn try_fresh_dir(base: &Path, prefix: &str) -> io::Result<PathBuf> {
     for _ in 0..1024 {
         let clock = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -21,12 +29,15 @@ pub fn fresh_dir(base: &Path, prefix: &str) -> PathBuf {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         match std::fs::create_dir(&path) {
-            Ok(()) => return path,
+            Ok(()) => return Ok(path),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(error) => panic!("create test directory {}: {error}", path.display()),
+            Err(error) => return Err(error),
         }
     }
-    panic!("no free test directory name under {}", base.display());
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "no free test directory name",
+    ))
 }
 
 /// [`fresh_dir`] under the platform temp directory.

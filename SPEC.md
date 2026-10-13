@@ -2441,6 +2441,11 @@ over 8 MiB of raw body bytes are refused whole and discarded through their
 closing marker, with a logged warning. A failed PTY resize retains the previous
 model geometry and retries no faster than every 250 ms. Linux and macOS use
 this frontend; Windows rejects `--interactive`.
+On child exit, the interactive frontend drains captured PTY output through
+in-order EOF and presents the final terminal state. After a 250 ms grace,
+the PTY wake pipe requests reader EOF to bound descendant-held output. The
+loop continues polling input and resize between finite drains; a temporary
+empty queue never completes the session while the reader remains alive.
 
 ## Cross-Platform Architecture
 

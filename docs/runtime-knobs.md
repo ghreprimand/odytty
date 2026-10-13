@@ -1196,6 +1196,11 @@ the possible closing-marker suffix. Smaller pastes keep their existing child
 bracketed-paste encoding. A failed PTY resize is logged, keeps the previous
 model geometry, and is retried no faster than every 250 ms. These limits apply
 on Linux and macOS; Windows has no interactive fallback frontend.
+On child exit, the interactive frontend drains captured PTY output through
+in-order EOF and presents the final terminal state. After a 250 ms grace,
+the PTY wake pipe requests reader EOF to bound descendant-held output. The
+loop continues polling input and resize between finite drains; a temporary
+empty queue never completes the session while the reader remains alive.
 
 ## Detached-Session CLI
 

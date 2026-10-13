@@ -202,3 +202,45 @@ fn a_read_only_toggle_reloads_on_every_platform() {
         "an attribute or mode change reloads the catalog"
     );
 }
+
+/// A concurrent catalog load must not affect this test's parse count or evict
+/// its verified cache entry. The child deliberately does not take the count lock.
+#[test]
+fn catalog_parse_counts_and_cache_are_isolated_between_test_threads() {
+    let _count_guard = crate::test_lock::catalog_count_lock();
+    let own = TempDir::new();
+    let other = TempDir::new();
+    for dir in [own.path(), other.path()] {
+        write_profile_file(
+            &dir.join("dev.profile.json"),
+            &LaunchProfile::new("dev").expect("profile"),
+        )
+        .expect("write");
+    }
+    let before = catalog_parse_count_for_test();
+    let first = load_catalog_from_dir(own.path());
+    assert_eq!(catalog_parse_count_for_test(), before + 1);
+
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let before = catalog_parse_count_for_test();
+                let first = load_catalog_from_dir(other.path());
+                assert_eq!(load_catalog_from_dir(other.path()), first);
+                assert_eq!(catalog_parse_count_for_test(), before + 1);
+            })
+            .join()
+            .expect("concurrent catalog load");
+    });
+    assert_eq!(
+        catalog_parse_count_for_test(),
+        before + 1,
+        "another test thread cannot increment this count"
+    );
+    assert_eq!(load_catalog_from_dir(own.path()), first);
+    assert_eq!(
+        catalog_parse_count_for_test(),
+        before + 1,
+        "another test thread cannot evict this cache entry"
+    );
+}

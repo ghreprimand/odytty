@@ -17,6 +17,7 @@ const READER_QUEUE_CAP: usize = 16;
 const PTY_DRAIN_MESSAGES: usize = 16;
 const MAX_PASTE_BYTES: usize = 8 * 1024 * 1024;
 const STDIN_READ_BYTES: usize = 1024;
+const CHILD_EXIT_GRACE: Duration = Duration::from_millis(250);
 const RESIZE_RETRY: Duration = Duration::from_millis(250);
 const INPUT_POLL: Duration = Duration::from_millis(16);
 const BRACKETED_PASTE_START: &[u8] = b"\x1b[200~";
@@ -44,10 +45,12 @@ pub fn run_interactive() -> Result<()> {
     let mut input_decoder = InputDecoder::default();
     let mut should_render = true;
     let mut next_resize = Instant::now();
+    let mut child_exit = ChildExitDrain::default();
+    let mut pending_output = None;
 
     loop {
         let mut saw_output = false;
-        if drain_pty_output(&pty_rx, |message| {
+        if drain_pty_output(&pty_rx, &mut pending_output, |message| {
             match message {
                 PtyMessage::Output(bytes) => {
                     terminal.advance(&bytes);
@@ -62,6 +65,9 @@ pub fn run_interactive() -> Result<()> {
             }
             Ok(false)
         })? {
+            // EOF is in-order after every output chunk. Present the final state
+            // before restoring the caller terminal and finishing the session.
+            render_debug_screen(&mut stdout, &terminal)?;
             let _ = session.wait();
             return Ok(());
         }
@@ -110,7 +116,13 @@ pub fn run_interactive() -> Result<()> {
             should_render = false;
         }
 
-        if session.try_wait()?.is_some() {
+        if child_exit.should_finish(
+            session.try_wait()?.is_some(),
+            Instant::now(),
+            &pty_rx,
+            &mut pending_output,
+            || session.force_reader_eof(),
+        ) {
             return Ok(());
         }
     }
@@ -122,15 +134,66 @@ fn reader_channel<T>() -> (SyncSender<T>, Receiver<T>) {
 
 fn drain_pty_output(
     rx: &Receiver<PtyMessage>,
+    pending: &mut Option<PtyMessage>,
     mut consume: impl FnMut(PtyMessage) -> Result<bool>,
 ) -> Result<bool> {
     for _ in 0..PTY_DRAIN_MESSAGES {
-        let Ok(message) = rx.try_recv() else { break };
+        let Some(message) = pending.take().or_else(|| rx.try_recv().ok()) else {
+            break;
+        };
         if consume(message)? {
             return Ok(true);
         }
     }
     Ok(false)
+}
+
+#[derive(Default)]
+struct ChildExitDrain {
+    gone_at: Option<Instant>,
+    eof_requested: bool,
+}
+
+impl ChildExitDrain {
+    fn should_finish(
+        &mut self,
+        child_gone: bool,
+        now: Instant,
+        rx: &Receiver<PtyMessage>,
+        pending: &mut Option<PtyMessage>,
+        mut force_eof: impl FnMut(),
+    ) -> bool {
+        if !child_gone {
+            self.gone_at = None;
+            self.eof_requested = false;
+            return false;
+        }
+        let gone_at = self.gone_at.get_or_insert(now);
+        if now.saturating_duration_since(*gone_at) < CHILD_EXIT_GRACE {
+            return false;
+        }
+        if !self.eof_requested {
+            // Stop a reader held open by descendants, then consume its queued
+            // chunks and in-order EOF. Never complete just because the child
+            // status is available or the queue is temporarily empty.
+            force_eof();
+            self.eof_requested = true;
+        }
+        if pending.is_some() {
+            return false;
+        }
+        match rx.try_recv() {
+            Ok(message) => {
+                *pending = Some(message);
+                false
+            }
+            Err(mpsc::TryRecvError::Empty) => false,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                tracing::warn!("interactive PTY reader stopped without an EOF message");
+                true
+            }
+        }
+    }
 }
 
 fn resize_terminal(
@@ -227,8 +290,6 @@ fn spawn_stdin_reader(tx: SyncSender<Vec<u8>>) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Draw the snapshot as plain text for the debug view. Each cell contributes
-/// its base scalar only; extension scalars and attributes are not shown.
 fn render_debug_screen(stdout: &mut Stdout, terminal: &Terminal) -> Result<()> {
     let snapshot = terminal.snapshot();
     stdout
@@ -401,8 +462,7 @@ enum InputAction {
 }
 
 struct TerminalModeGuard {
-    /// Held only so raw mode is restored when the guard drops.
-    _raw: RawModeGuard,
+    raw: RawModeGuard,
 }
 
 impl TerminalModeGuard {
@@ -413,7 +473,7 @@ impl TerminalModeGuard {
             .write_all(b"\x1b[?1049h\x1b[?2004h\x1b[?25l")
             .context("enter alternate screen")?;
         stdout.flush().context("flush terminal mode setup")?;
-        Ok(Self { _raw: raw })
+        Ok(Self { raw })
     }
 }
 
@@ -421,6 +481,7 @@ impl Drop for TerminalModeGuard {
     fn drop(&mut self) {
         let _ = stdout().write_all(b"\x1b[?25h\x1b[?2004l\x1b[?1049l");
         let _ = stdout().flush();
+        let _ = &self.raw;
     }
 }
 
@@ -484,7 +545,7 @@ mod tests {
         }
         let mut consumed = 0;
         assert!(
-            !drain_pty_output(&rx, |_| {
+            !drain_pty_output(&rx, &mut None, |_| {
                 consumed += 1;
                 Ok(false)
             })
@@ -492,6 +553,131 @@ mod tests {
         );
         assert_eq!(consumed, 16);
         assert!(matches!(rx.try_recv(), Ok(PtyMessage::Output(_))));
+    }
+
+    #[test]
+    fn child_exit_keeps_final_output_until_in_order_eof() {
+        let (tx, rx) = mpsc::channel();
+        for _ in 0..17 {
+            tx.send(PtyMessage::Output(b"tail".to_vec())).unwrap();
+        }
+        tx.send(PtyMessage::Eof).unwrap();
+        let now = Instant::now();
+        let mut pending = None;
+        let mut completion = ChildExitDrain::default();
+        let mut bytes = Vec::new();
+        assert!(
+            !drain_pty_output(&rx, &mut pending, |message| {
+                if let PtyMessage::Output(chunk) = message {
+                    bytes.extend(chunk);
+                }
+                Ok(false)
+            })
+            .unwrap()
+        );
+        assert_eq!(bytes.len(), 16 * 4);
+        assert!(!completion.should_finish(true, now, &rx, &mut pending, || {}));
+        // Even after the grace period, queued output is retained for the next
+        // bounded drain rather than discarded by the child's exit status.
+        assert!(!completion.should_finish(
+            true,
+            now + Duration::from_secs(1),
+            &rx,
+            &mut pending,
+            || {}
+        ));
+        assert!(
+            drain_pty_output(&rx, &mut pending, |message| {
+                match message {
+                    PtyMessage::Output(chunk) => {
+                        bytes.extend(chunk);
+                        Ok(false)
+                    }
+                    PtyMessage::Eof => Ok(true),
+                    PtyMessage::Error(error) => Err(error.into()),
+                }
+            })
+            .unwrap()
+        );
+        assert!(bytes == b"tail".repeat(17));
+    }
+
+    #[test]
+    fn child_exit_fallback_requires_grace_and_no_queued_message() {
+        let (tx, rx) = mpsc::channel();
+        let now = Instant::now();
+        let mut pending = None;
+        let mut completion = ChildExitDrain::default();
+        let calls = std::cell::Cell::new(0);
+        assert!(
+            !completion.should_finish(false, now, &rx, &mut pending, || calls.set(calls.get() + 1))
+        );
+        assert!(
+            !completion.should_finish(true, now, &rx, &mut pending, || calls.set(calls.get() + 1))
+        );
+        assert!(!completion.should_finish(
+            true,
+            now + Duration::from_millis(249),
+            &rx,
+            &mut pending,
+            || calls.set(calls.get() + 1)
+        ));
+        assert_eq!(calls.get(), 0);
+        tx.send(PtyMessage::Eof).unwrap();
+        assert!(
+            !completion.should_finish(true, now + CHILD_EXIT_GRACE, &rx, &mut pending, || calls
+                .set(calls.get() + 1))
+        );
+        assert!(matches!(pending, Some(PtyMessage::Eof)));
+        pending = None;
+        assert!(
+            !completion.should_finish(true, now + CHILD_EXIT_GRACE, &rx, &mut pending, || calls
+                .set(calls.get() + 1))
+        );
+        assert_eq!(calls.get(), 1, "request EOF exactly once");
+        drop(tx);
+        assert!(
+            completion.should_finish(true, now + CHILD_EXIT_GRACE, &rx, &mut pending, || calls
+                .set(calls.get() + 1))
+        );
+    }
+
+    #[test]
+    fn reader_pump_final_chunks_cross_multiple_input_service_turns() {
+        let data = vec![b'x'; 17 * 8192];
+        let (tx, rx) = reader_channel();
+        spawn_pty_reader(Box::new(std::io::Cursor::new(data.clone())), tx).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut completion = ChildExitDrain::default();
+        let mut pending = None;
+        let mut captured = Vec::new();
+        let mut input_service_turns = 0;
+        loop {
+            if drain_pty_output(&rx, &mut pending, |message| match message {
+                PtyMessage::Output(bytes) => {
+                    captured.extend(bytes);
+                    Ok(false)
+                }
+                PtyMessage::Eof => Ok(true),
+                PtyMessage::Error(error) => Err(error.into()),
+            })
+            .unwrap()
+            {
+                break;
+            }
+            input_service_turns += 1;
+            assert!(!completion.should_finish(true, Instant::now(), &rx, &mut pending, || {}));
+            assert!(
+                Instant::now() < deadline,
+                "reader pump must complete under its owned deadline"
+            );
+            thread::yield_now();
+        }
+        assert!(input_service_turns > 0);
+        assert!(
+            captured == data,
+            "all queued chunks must reach the consumer before EOF"
+        );
     }
 
     #[test]

@@ -22,20 +22,33 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-#[cfg(test)]
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::SystemTime;
 
 use super::limits::MAX_PROFILE_DIR_SCAN_ENTRIES;
 use super::schema::profile_name_from_path;
 use super::store::ProfileCatalog;
 
-/// Test-only count of catalogs actually parsed (cache misses).
-#[cfg(test)]
-static CATALOG_PARSE_COUNT: AtomicUsize = AtomicUsize::new(0);
-
 /// The last parsed catalog and the listing it was parsed from.
+#[cfg(not(test))]
 static CACHE: Mutex<Option<CachedCatalog>> = Mutex::new(None);
+
+#[cfg(test)]
+thread_local! {
+    /// Isolate test observations and cache eviction from other test threads.
+    static CACHE: Mutex<Option<CachedCatalog>> = const { Mutex::new(None) };
+    static CATALOG_PARSE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+fn with_cache<T>(operation: impl FnOnce(&Mutex<Option<CachedCatalog>>) -> T) -> T {
+    #[cfg(test)]
+    {
+        CACHE.with(operation)
+    }
+    #[cfg(not(test))]
+    {
+        operation(&CACHE)
+    }
+}
 
 struct CachedCatalog {
     dir: PathBuf,
@@ -135,32 +148,36 @@ pub(super) fn list_profile_dir(dir: &Path) -> io::Result<Listing> {
 /// The cached catalog for `dir` when `listing` matches the one it was parsed
 /// from.
 pub(super) fn cached(dir: &Path, listing: &Listing) -> Option<ProfileCatalog> {
-    let cache = CACHE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let cached = cache.as_ref()?;
-    (cached.dir == dir
-        && cached.truncated == listing.truncated
-        && cached.listing == listing.candidates)
-        .then(|| cached.catalog.clone())
+    with_cache(|cache| {
+        let cache = cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let cached = cache.as_ref()?;
+        (cached.dir == dir
+            && cached.truncated == listing.truncated
+            && cached.listing == listing.candidates)
+            .then(|| cached.catalog.clone())
+    })
 }
 
 /// Remember `catalog` as parsed from `listing`.
 pub(super) fn store(dir: &Path, listing: Listing, catalog: &ProfileCatalog) {
     #[cfg(test)]
-    CATALOG_PARSE_COUNT.fetch_add(1, Ordering::Relaxed);
-    *CACHE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(CachedCatalog {
-        dir: dir.to_owned(),
-        listing: listing.candidates,
-        truncated: listing.truncated,
-        catalog: catalog.clone(),
+    CATALOG_PARSE_COUNT.with(|count| count.set(count.get() + 1));
+    with_cache(|cache| {
+        *cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(CachedCatalog {
+            dir: dir.to_owned(),
+            listing: listing.candidates,
+            truncated: listing.truncated,
+            catalog: catalog.clone(),
+        });
     });
 }
 
-/// Test-only: catalogs parsed so far (cache misses).
+/// Catalogs parsed on the current test thread (cache misses).
 #[cfg(test)]
 pub fn catalog_parse_count_for_test() -> usize {
-    CATALOG_PARSE_COUNT.load(Ordering::Relaxed)
+    CATALOG_PARSE_COUNT.with(std::cell::Cell::get)
 }

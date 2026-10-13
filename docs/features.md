@@ -151,7 +151,9 @@ prefer to edit the file.
 The Unix-only diagnostic `--interactive` frontend has bounded reader queues,
 services input and resize between output drains, and refuses host-terminal
 pastes over 8 MiB whole. Resize failures are logged and retried while retaining
-the previous geometry. It is available on Linux and macOS; Windows rejects it.
+the previous geometry. Child-exit completion drains captured output through
+in-order EOF, with a 250 ms reader-EOF fallback for held-open descendants.
+It is available on Linux and macOS; Windows rejects it.
 See the [CLI reference](runtime-knobs.md#introspection-and-shell-integration-commands)
 for the exact bounds.
 

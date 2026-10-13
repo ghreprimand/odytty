@@ -17,7 +17,7 @@ use std::path::Path;
 mod allocation;
 #[cfg(unix)]
 pub(crate) use allocation::fresh_socket_dir;
-pub(crate) use allocation::{ChildEnv, fresh_dir, fresh_temp_dir};
+pub(crate) use allocation::{ChildEnv, fresh_dir, fresh_temp_dir, try_fresh_dir};
 
 /// A fresh scratch directory removed when dropped, including when an assertion
 /// panics, so fixtures never outlive the test that owns them.
@@ -82,28 +82,67 @@ mod absolute_path_token_tests {
 /// fixture owns and never populates. It has a directory part, so no `PATH`
 /// entry can supply it (a bare name would resolve through an inherited `PATH`).
 pub(crate) struct AbsentProgram {
-    _dir: ScratchDir,
+    _dir: Option<ScratchDir>,
     pub(crate) program: String,
 }
 
 impl AbsentProgram {
     pub(crate) fn new() -> Self {
-        let dir = ScratchDir::new("ottap");
-        let owned = dir.path().join("absent-program").display().to_string();
-        // An editor spec is split on whitespace, so a temp folder with a space
-        // in its path would turn the program into several argv elements. A
-        // fixed absolute path in a folder that does not exist is just as
-        // absent and has no space.
-        let program = if owned.contains(char::is_whitespace) {
-            if cfg!(windows) {
-                r"C:\odytty-absent-program\program.exe".to_owned()
-            } else {
-                "/odytty-absent-program/program".to_owned()
-            }
+        let mut bases = vec![std::env::temp_dir()];
+        if cfg!(windows) {
+            bases.extend(std::env::var_os("PUBLIC").map(std::path::PathBuf::from));
         } else {
-            owned
+            bases.extend(["/tmp", "/var/tmp"].map(std::path::PathBuf::from));
+        }
+        let unowned_root = if cfg!(windows) {
+            std::path::Path::new(r"C:\")
+        } else {
+            std::path::Path::new("/")
         };
-        Self { _dir: dir, program }
+        Self::in_bases(&bases, unowned_root)
+    }
+
+    /// An editor spec is split on whitespace, so a program path with a space
+    /// would become several argv elements. The first base whose scratch folder
+    /// can be created, and whose path has no whitespace, owns the program.
+    /// With none, the program sits in a uniquely named folder under
+    /// `unowned_root` that is verified not to exist: absent for this process
+    /// and never a fixed name another program could occupy.
+    fn in_bases(bases: &[std::path::PathBuf], unowned_root: &std::path::Path) -> Self {
+        for base in bases {
+            if base.display().to_string().contains(char::is_whitespace) {
+                continue;
+            }
+            let Ok(path) = try_fresh_dir(base, "ottap") else {
+                continue;
+            };
+            let dir = ScratchDir(path);
+            let program = dir.path().join("absent-program").display().to_string();
+            if !program.contains(char::is_whitespace) {
+                return Self {
+                    _dir: Some(dir),
+                    program,
+                };
+            }
+        }
+        static NEXT_UNOWNED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        for _ in 0..1024 {
+            let folder = unowned_root.join(format!(
+                "odytty-absent-{}-{}",
+                std::process::id(),
+                NEXT_UNOWNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            if matches!(
+                std::fs::symlink_metadata(&folder),
+                Err(ref error) if error.kind() == std::io::ErrorKind::NotFound
+            ) {
+                return Self {
+                    _dir: None,
+                    program: folder.join("program").display().to_string(),
+                };
+            }
+        }
+        panic!("no absent program path under {}", unowned_root.display());
     }
 }
 
@@ -132,6 +171,75 @@ pub(crate) fn wait_until_socket_refuses(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn spaced_base(scratch: &ScratchDir) -> std::path::PathBuf {
+        let spaced = scratch.path().join("has space");
+        std::fs::create_dir(&spaced).expect("spaced base");
+        spaced
+    }
+
+    #[test]
+    fn an_absent_program_skips_a_spaced_base_and_stays_in_an_owned_folder() {
+        let scratch = ScratchDir::new("ottad");
+        let spaced = spaced_base(&scratch);
+        let plain = scratch.path().to_path_buf();
+        let absent = AbsentProgram::in_bases(&[spaced.clone(), plain.clone()], &spaced);
+        let program = std::path::Path::new(&absent.program);
+        assert!(!absent.program.contains(char::is_whitespace));
+        let owned = program.parent().expect("owned folder").to_path_buf();
+        assert_eq!(owned.parent(), Some(plain.as_path()));
+        assert!(owned.is_dir(), "the folder is created and owned");
+        assert_eq!(std::fs::read_dir(&owned).expect("read").count(), 0);
+        assert!(!program.exists());
+        drop(absent);
+        assert!(!owned.exists(), "the owned folder goes with the fixture");
+    }
+
+    #[test]
+    fn an_absent_program_with_no_usable_base_never_names_an_occupied_path() {
+        let scratch = ScratchDir::new("ottad");
+        let spaced = spaced_base(&scratch);
+        let root = scratch.path().join("root");
+        std::fs::create_dir(&root).expect("root");
+        // A program already present at the former fixed fallback location.
+        let planted = root.join("odytty-absent-program");
+        std::fs::create_dir(&planted).expect("planted folder");
+        std::fs::write(planted.join("program"), b"#!/bin/sh\n").expect("planted program");
+        let first = AbsentProgram::in_bases(std::slice::from_ref(&spaced), &root);
+        let second = AbsentProgram::in_bases(std::slice::from_ref(&spaced), &root);
+        for absent in [&first, &second] {
+            let program = std::path::Path::new(&absent.program);
+            assert_ne!(program, planted.join("program"));
+            assert!(!absent.program.contains(char::is_whitespace));
+            assert!(program.starts_with(&root));
+            assert!(
+                std::fs::symlink_metadata(program.parent().expect("folder")).is_err(),
+                "the folder holding the program does not exist"
+            );
+        }
+        assert_ne!(first.program, second.program, "each fixture is unique");
+    }
+
+    #[test]
+    fn an_absent_program_skips_a_base_that_cannot_hold_a_folder() {
+        let scratch = ScratchDir::new("ottad");
+        let missing = scratch.path().join("missing");
+        let plain = scratch.path().to_path_buf();
+        let absent = AbsentProgram::in_bases(&[missing, plain.clone()], &plain);
+        assert!(std::path::Path::new(&absent.program).starts_with(&plain));
+        assert!(
+            std::path::Path::new(&absent.program)
+                .parent()
+                .is_some_and(|f| f.is_dir())
+        );
+    }
+
+    #[test]
+    fn the_default_absent_program_has_no_whitespace_and_does_not_exist() {
+        let absent = AbsentProgram::new();
+        assert!(!absent.program.contains(char::is_whitespace));
+        assert!(!std::path::Path::new(&absent.program).exists());
+    }
 
     #[cfg(unix)]
     #[test]
