@@ -1322,7 +1322,10 @@ remain one command per prefix transaction.
   `BindableAction::ALL` set, currently 52)
   (select a row and press `Enter` to capture a new chord, `Backspace` resets to
   default, `R` resets all, conflict prompt on clash, writes to `odytty.conf` via
-  the preservation-first writeback path). A global action never takes an
+  the preservation-first writeback path). Wheel scrolling moves the list and
+  highlight while browsing, and is inert during chord capture, conflict
+  confirmation, and the unsaved-close prompt on Linux Wayland, Linux X11,
+  macOS, and Windows. A global action never takes an
   unmodified typing key (a character, Space, Tab, Backspace, Enter, or Escape
   without Ctrl, Alt, or Super); the editor refuses it, the config skips it with
   a warning, and the live binding table ignores it. Other named keys, such as
@@ -2417,6 +2420,14 @@ reconfiguration without reapplying the theme.
 - Heavy animation or effects that compromise readability or latency
 
 - Flatpak packaging; the AppImage is the portable single-file Linux option
+
+The Unix-only diagnostic `--interactive` frontend uses 16-chunk bounded PTY
+and stdin reader queues with backpressure. A loop consumes at most 16 PTY
+messages before servicing input and resize. Host-terminal bracketed pastes
+over 8 MiB of raw body bytes are refused whole and discarded through their
+closing marker, with a logged warning. A failed PTY resize retains the previous
+model geometry and retries no faster than every 250 ms. Linux and macOS use
+this frontend; Windows rejects `--interactive`.
 
 ## Cross-Platform Architecture
 

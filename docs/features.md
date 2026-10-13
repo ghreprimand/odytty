@@ -100,7 +100,10 @@ changes in the file; other settings adopt the reloaded values. Theme-builder
 drafts also survive reloads, and cancelling restores the reloaded theme.
 The keybinding editor keeps accepted overrides and in-progress capture or
 confirmation across configuration reloads. Discard restores the reloaded
-bindings and other settings. Conflict and close questions retain their controls
+bindings and other settings. Wheel scrolling moves the list and highlight while
+browsing, and is inert during chord capture, conflict confirmation, and the
+unsaved-close prompt on Linux Wayland, Linux X11, macOS, and Windows.
+Conflict and close questions retain their controls
 while a reload notice appears separately. Theme text edits keep their Enter/Esc
 instructions alongside reload and validation feedback. The edited color role and
 its input buffer remain visible whenever at least one role row fits.
@@ -144,6 +147,13 @@ variable, range, default, and reload rule. The
 prefer to edit the file.
 
 ## Terminal Compatibility
+
+The Unix-only diagnostic `--interactive` frontend has bounded reader queues,
+services input and resize between output drains, and refuses host-terminal
+pastes over 8 MiB whole. Resize failures are logged and retried while retaining
+the previous geometry. It is available on Linux and macOS; Windows rejects it.
+See the [CLI reference](runtime-knobs.md#introspection-and-shell-integration-commands)
+for the exact bounds.
 
 OdyTTY owns its parser and terminal model. The supported surface covers common
 shells and full-screen terminal applications:

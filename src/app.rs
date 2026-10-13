@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use std::io::{Read, Stdout, Write, stdin, stdout};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, RawFd};
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use rustix::termios::{OptionalActions, Termios, Winsize, tcgetattr, tcgetwinsize, tcsetattr};
@@ -12,6 +12,12 @@ use crate::core::{Dimensions, Terminal};
 use crate::input;
 use crate::pty::PtySession;
 
+// Each reader has at most 16 queued chunks plus its current read buffer.
+const READER_QUEUE_CAP: usize = 16;
+const PTY_DRAIN_MESSAGES: usize = 16;
+const MAX_PASTE_BYTES: usize = 8 * 1024 * 1024;
+const STDIN_READ_BYTES: usize = 1024;
+const RESIZE_RETRY: Duration = Duration::from_millis(250);
 const INPUT_POLL: Duration = Duration::from_millis(16);
 const BRACKETED_PASTE_START: &[u8] = b"\x1b[200~";
 const BRACKETED_PASTE_END: &[u8] = b"\x1b[201~";
@@ -27,8 +33,8 @@ pub fn run_interactive() -> Result<()> {
     // rendering stay responsive and queued memory stays capped.
     let writer = crate::session_host::HostPtyWriter::spawn(session.take_writer()?)
         .context("spawn pty writer thread")?;
-    let (pty_tx, pty_rx) = mpsc::channel();
-    let (input_tx, input_rx) = mpsc::channel();
+    let (pty_tx, pty_rx) = reader_channel();
+    let (input_tx, input_rx) = reader_channel();
 
     spawn_pty_reader(session.try_clone_reader()?, pty_tx).context("spawn pty reader thread")?;
     spawn_stdin_reader(input_tx).context("spawn stdin reader thread")?;
@@ -37,10 +43,11 @@ pub fn run_interactive() -> Result<()> {
     let mut stdout = stdout();
     let mut input_decoder = InputDecoder::default();
     let mut should_render = true;
+    let mut next_resize = Instant::now();
 
     loop {
         let mut saw_output = false;
-        while let Ok(message) = pty_rx.try_recv() {
+        if drain_pty_output(&pty_rx, |message| {
             match message {
                 PtyMessage::Output(bytes) => {
                     terminal.advance(&bytes);
@@ -50,12 +57,13 @@ pub fn run_interactive() -> Result<()> {
                     }
                     saw_output = true;
                 }
-                PtyMessage::Eof => {
-                    let _ = session.wait();
-                    return Ok(());
-                }
+                PtyMessage::Eof => return Ok(true),
                 PtyMessage::Error(error) => return Err(error).context("read pty output"),
             }
+            Ok(false)
+        })? {
+            let _ = session.wait();
+            return Ok(());
         }
         should_render |= saw_output;
 
@@ -71,6 +79,9 @@ pub fn run_interactive() -> Result<()> {
                             let _ = session.wait();
                             return Ok(());
                         }
+                        InputAction::PasteRejected => {
+                            tracing::warn!("interactive paste exceeds 8 MiB and was refused")
+                        }
                         InputAction::Ignore => {}
                     }
                 }
@@ -80,11 +91,18 @@ pub fn run_interactive() -> Result<()> {
         }
 
         let new_dimensions = current_dimensions();
-        if new_dimensions != dimensions {
-            dimensions = new_dimensions;
-            terminal.resize(dimensions.columns, dimensions.rows);
-            session.resize(dimensions)?;
-            should_render = true;
+        if new_dimensions != dimensions && Instant::now() >= next_resize {
+            let resized =
+                resize_terminal(&mut dimensions, &mut terminal, new_dimensions, |size| {
+                    session.resize(size)
+                })?;
+            should_render |= resized;
+            next_resize = Instant::now()
+                + if resized {
+                    Duration::ZERO
+                } else {
+                    RESIZE_RETRY
+                };
         }
 
         if should_render {
@@ -96,6 +114,41 @@ pub fn run_interactive() -> Result<()> {
             return Ok(());
         }
     }
+}
+
+fn reader_channel<T>() -> (SyncSender<T>, Receiver<T>) {
+    mpsc::sync_channel(READER_QUEUE_CAP)
+}
+
+fn drain_pty_output(
+    rx: &Receiver<PtyMessage>,
+    mut consume: impl FnMut(PtyMessage) -> Result<bool>,
+) -> Result<bool> {
+    for _ in 0..PTY_DRAIN_MESSAGES {
+        let Ok(message) = rx.try_recv() else { break };
+        if consume(message)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn resize_terminal(
+    dimensions: &mut Dimensions,
+    terminal: &mut Terminal,
+    new_dimensions: Dimensions,
+    mut resize: impl FnMut(Dimensions) -> Result<()>,
+) -> Result<bool> {
+    if new_dimensions == *dimensions {
+        return Ok(false);
+    }
+    if let Err(error) = resize(new_dimensions) {
+        tracing::warn!(%error, "interactive PTY resize failed; keeping the previous geometry");
+        return Ok(false);
+    }
+    *dimensions = new_dimensions;
+    terminal.resize(dimensions.columns, dimensions.rows);
+    Ok(true)
 }
 
 fn current_dimensions() -> Dimensions {
@@ -116,7 +169,7 @@ fn dimensions_from_winsize(winsize: Winsize) -> Dimensions {
 /// session error rather than a panic unwinding the caller.
 fn spawn_pty_reader(
     mut reader: Box<dyn Read + Send>,
-    tx: Sender<PtyMessage>,
+    tx: SyncSender<PtyMessage>,
 ) -> std::io::Result<()> {
     thread::Builder::new()
         .name("odytty-tui-pty-reader".to_owned())
@@ -149,12 +202,12 @@ fn spawn_pty_reader(
 /// Spawn the stdin input pump. Fallible for the same reason as the PTY
 /// output pump: a spawn failure at startup must be a reported error, not a
 /// panic.
-fn spawn_stdin_reader(tx: Sender<Vec<u8>>) -> std::io::Result<()> {
+fn spawn_stdin_reader(tx: SyncSender<Vec<u8>>) -> std::io::Result<()> {
     thread::Builder::new()
         .name("odytty-tui-stdin-reader".to_owned())
         .spawn(move || {
             let mut stdin = stdin();
-            let mut buffer = [0; 1024];
+            let mut buffer = [0; STDIN_READ_BYTES];
             loop {
                 match stdin.read(&mut buffer) {
                     Ok(0) => break,
@@ -213,6 +266,7 @@ fn render_debug_screen(stdout: &mut Stdout, terminal: &Terminal) -> Result<()> {
 struct InputDecoder {
     pending: Vec<u8>,
     paste: Option<Vec<u8>>,
+    paste_rejected: bool,
 }
 
 impl InputDecoder {
@@ -221,19 +275,33 @@ impl InputDecoder {
             return vec![InputAction::Ignore];
         }
 
+        let mut actions = Vec::new();
+        for chunk in bytes.chunks(STDIN_READ_BYTES) {
+            actions.extend(self.decode_chunk(chunk, child_bracketed_paste));
+        }
+        if actions.is_empty() {
+            actions.push(InputAction::Ignore);
+        }
+        actions
+    }
+
+    fn decode_chunk(&mut self, bytes: &[u8], child_bracketed_paste: bool) -> Vec<InputAction> {
         self.pending.extend_from_slice(bytes);
         let mut actions = Vec::new();
 
         loop {
             if let Some(mut paste) = self.paste.take() {
                 if let Some(end) = find_bytes(&self.pending, BRACKETED_PASTE_END) {
-                    paste.extend_from_slice(&self.pending[..end]);
+                    self.append_paste(&mut paste, end, &mut actions);
                     self.pending.drain(..end + BRACKETED_PASTE_END.len());
-                    let text = String::from_utf8_lossy(&paste);
-                    actions.push(InputAction::Bytes(input::encode_paste(
-                        &text,
-                        child_bracketed_paste,
-                    )));
+                    if !self.paste_rejected {
+                        let text = String::from_utf8_lossy(&paste);
+                        actions.push(InputAction::Bytes(input::encode_paste(
+                            &text,
+                            child_bracketed_paste,
+                        )));
+                    }
+                    self.paste_rejected = false;
                     continue;
                 }
 
@@ -245,7 +313,7 @@ impl InputDecoder {
                 // the pasted content.
                 let keep = marker_suffix_overlap(&self.pending, BRACKETED_PASTE_END);
                 let take = self.pending.len() - keep;
-                paste.extend_from_slice(&self.pending[..take]);
+                self.append_paste(&mut paste, take, &mut actions);
                 self.pending.drain(..take);
                 self.paste = Some(paste);
                 break;
@@ -264,10 +332,22 @@ impl InputDecoder {
             break;
         }
 
-        if actions.is_empty() {
-            actions.push(InputAction::Ignore);
-        }
         actions
+    }
+
+    fn append_paste(&mut self, paste: &mut Vec<u8>, len: usize, actions: &mut Vec<InputAction>) {
+        if self.paste_rejected {
+            return;
+        }
+        if len > MAX_PASTE_BYTES.saturating_sub(paste.len()) {
+            // Refuse the whole paste and discard until END, without forwarding
+            // a truncated command or interpreting discarded bytes as keys.
+            *paste = Vec::new();
+            self.paste_rejected = true;
+            actions.push(InputAction::PasteRejected);
+        } else {
+            paste.extend_from_slice(&self.pending[..len]);
+        }
     }
 
     fn push_raw(&mut self, actions: &mut Vec<InputAction>, len: usize) {
@@ -316,6 +396,7 @@ enum PtyMessage {
 enum InputAction {
     Bytes(Vec<u8>),
     Quit,
+    PasteRejected,
     Ignore,
 }
 
@@ -378,6 +459,114 @@ mod tests {
     use std::fs::File;
 
     use super::*;
+
+    #[test]
+    fn reader_queues_apply_backpressure() {
+        for _ in 0..2 {
+            let (tx, rx) = reader_channel::<Vec<u8>>();
+            for _ in 0..16 {
+                tx.send(vec![0; 1024]).unwrap();
+            }
+            assert!(matches!(
+                tx.try_send(vec![0; 1024]),
+                Err(mpsc::TrySendError::Full(_))
+            ));
+            assert_eq!(rx.recv().unwrap().len(), 1024);
+            tx.try_send(vec![0; 1024]).unwrap();
+        }
+    }
+
+    #[test]
+    fn pty_drain_leaves_work_for_the_next_input_and_resize_turn() {
+        let (tx, rx) = mpsc::channel();
+        for _ in 0..17 {
+            tx.send(PtyMessage::Output(b"x".to_vec())).unwrap();
+        }
+        let mut consumed = 0;
+        assert!(
+            !drain_pty_output(&rx, |_| {
+                consumed += 1;
+                Ok(false)
+            })
+            .unwrap()
+        );
+        assert_eq!(consumed, 16);
+        assert!(matches!(rx.try_recv(), Ok(PtyMessage::Output(_))));
+    }
+
+    #[test]
+    fn resize_failure_retains_geometry_and_allows_a_retry() {
+        let old = Dimensions::new(80, 24);
+        let new = Dimensions::new(100, 30);
+        let mut dimensions = old;
+        let mut terminal = Terminal::new(old.columns, old.rows);
+        terminal.advance(b"kept");
+        let result = resize_terminal(&mut dimensions, &mut terminal, new, |_| {
+            anyhow::bail!("injected resize failure")
+        });
+        assert!(matches!(result, Ok(false)));
+        assert_eq!(dimensions, old);
+        assert_eq!(terminal.snapshot().dimensions, old);
+        assert!(resize_terminal(&mut dimensions, &mut terminal, new, |_| Ok(())).unwrap());
+        assert_eq!(dimensions, new);
+        assert_eq!(terminal.snapshot().dimensions, new);
+        assert_eq!(terminal.snapshot().cells[0].ch, 'k');
+    }
+
+    #[test]
+    fn oversized_paste_is_refused_whole_and_decoder_recovers() {
+        for child_mode in [false, true] {
+            let mut decoder = InputDecoder::default();
+            decoder.decode(BRACKETED_PASTE_START, child_mode);
+            let block = vec![b'a'; 1024];
+            for _ in 0..8192 {
+                assert_eq!(
+                    decoder.decode(&block, child_mode),
+                    vec![InputAction::Ignore]
+                );
+            }
+            assert_eq!(decoder.paste.as_ref().unwrap().len(), 8 * 1024 * 1024);
+            assert_eq!(
+                decoder.decode(b"b", child_mode),
+                vec![InputAction::PasteRejected]
+            );
+            assert!(decoder.paste.as_ref().unwrap().is_empty());
+            assert_eq!(
+                decoder.decode(b"more\x1b[201", child_mode),
+                vec![InputAction::Ignore]
+            );
+            assert_eq!(
+                decoder.decode(b"~ok", child_mode),
+                vec![InputAction::Bytes(b"ok".to_vec())]
+            );
+            assert_eq!(
+                decoder.decode(b"\x1b[200~new\x1b[201~", false),
+                vec![InputAction::Bytes(b"new".to_vec())]
+            );
+        }
+    }
+
+    #[test]
+    fn paste_at_the_limit_is_preserved_and_complete_overflow_is_refused() {
+        let mut decoder = InputDecoder::default();
+        decoder.decode(BRACKETED_PASTE_START, false);
+        let body = vec![b'a'; 8 * 1024 * 1024];
+        decoder.decode(&body, false);
+        let actions = decoder.decode(BRACKETED_PASTE_END, false);
+        assert!(matches!(&actions[..], [InputAction::Bytes(bytes)] if bytes == &body));
+        let mut oversized = BRACKETED_PASTE_START.to_vec();
+        oversized.extend_from_slice(&body);
+        oversized.extend_from_slice(b"b\x1b[201~x");
+        let actions = decoder.decode(&oversized, false);
+        assert!(
+            actions
+                == vec![
+                    InputAction::PasteRejected,
+                    InputAction::Bytes(b"x".to_vec())
+                ],
+            "oversized paste must be refused whole, then resume raw input"
+        );
+    }
 
     #[test]
     fn forwards_raw_terminal_bytes_to_pty() {

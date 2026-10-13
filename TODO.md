@@ -613,6 +613,9 @@ with Rust 1.97.1; the package checkpoint is complete without repeating MSRV test
   - [x] Headless interactive mode now owns raw-mode restore via termios, uses
         ANSI screen control directly, forwards raw stdin bytes, and reserves
         Ctrl-Q as the local quit affordance.
+  - [x] Unix interactive fallback uses bounded reader queues and output drains,
+        refuses host-terminal pastes over 8 MiB whole, and retains geometry on
+        a logged PTY resize failure before retrying. Windows has no fallback.
 - [x] Graphics-protocol architecture lands on the owned DCS/APC parser plumbing
       after PA2.
 
@@ -1660,7 +1663,8 @@ feature validates against.
         `R` resets all bindings, and conflicts prompt before replacing. Changes
         are written to `odytty.conf` via the preservation-first writeback path;
         the list is sourced from `BindableAction::ALL` and covers core, overlay,
-        tab, workspace, and pane actions.
+        tab, workspace, and pane actions. Wheel scrolling is inert during chord
+        capture, conflict confirmation, and the unsaved-close prompt.
   - [x] First-run onboarding and settings search: on first launch (no config
         file yet, or `ODYTTY_ONBOARDING=1`) a welcome card shows the core
         keyboard shortcuts, read live from the active bindings so rebinds are

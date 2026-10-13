@@ -579,8 +579,12 @@ impl KeyRemapUi {
 
     /// Scroll the list window by `delta` rows (the wheel). The selection
     /// follows into the window, so the window and the highlighted row never
-    /// part and a later key moves from what is shown.
+    /// part and a later key moves from what is shown. Capture, conflict
+    /// confirmation and the dirty-close prompt keep the list fixed.
     pub(super) fn scroll_lines(&mut self, delta: isize) {
+        if self.is_capturing_chord() || self.pending_close_prompt {
+            return;
+        }
         let capacity = self.last_list_capacity.get().max(1);
         let max_start = ACTIONS.len().saturating_sub(capacity);
         let start = self

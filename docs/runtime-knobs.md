@@ -1186,6 +1186,16 @@ The Unix-only `--interactive` mode retains the original headless terminal
 frontend for diagnostics and development; it uses the caller's terminal for
 display and reserves Ctrl+Q as its local quit chord. It is not the normal native
 application path and is rejected cleanly on Windows.
+Both reader queues hold up to 16 chunks, with backpressure rather than dropped
+bytes: PTY reads are at most 8 KiB and stdin reads at most 1 KiB. Each loop
+processes at most 16 PTY messages before polling input and checking resize.
+Host-terminal bracketed pastes over 8 MiB of raw body bytes are refused whole,
+with a warning in the log; the decoder discards through the closing marker
+before accepting subsequent input. An unterminated refused paste retains only
+the possible closing-marker suffix. Smaller pastes keep their existing child
+bracketed-paste encoding. A failed PTY resize is logged, keeps the previous
+model geometry, and is retried no faster than every 250 ms. These limits apply
+on Linux and macOS; Windows has no interactive fallback frontend.
 
 ## Detached-Session CLI
 

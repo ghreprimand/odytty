@@ -259,3 +259,86 @@ fn reload_close_prompt_survives_real_input_and_cancel() {
         "the unsaved editor binding survives cancellation"
     );
 }
+
+fn assert_modal_wheel_is_inert(app: &mut App) {
+    app.render_overlay_rows_for_test(60, 12);
+    let before = app.overlay_signature_for_test();
+    for delta in [-1.0, 1.0] {
+        app.dispatch_wheel_for_test(delta);
+        assert_eq!(app.overlay_signature_for_test(), before);
+    }
+}
+
+#[test]
+fn wheel_during_capture_keeps_the_highlight_on_the_armed_action() {
+    let mut app = build_app();
+    app.open_key_bindings_overlay_for_test();
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
+    assert!(app.overlay_capturing_chord_for_test());
+    assert_modal_wheel_is_inert(&mut app);
+    app.drive_overlay_key_for_test(WinitKey::Character("j".into()), true, true);
+    assert_eq!(
+        app.live_action_for_chord_for_test(&WinitKey::Character("j".into()), true, true),
+        Some(BindableAction::Search)
+    );
+}
+
+#[test]
+fn wheel_during_conflict_keeps_the_pending_action_visible() {
+    let mut app = build_app();
+    app.open_key_bindings_overlay_for_test();
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
+    app.drive_overlay_key_for_test(WinitKey::Character("p".into()), true, true);
+    assert!(
+        app.overlay_signature_for_test()
+            .key_remap
+            .conflict
+            .is_some()
+    );
+    assert_modal_wheel_is_inert(&mut app);
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
+    assert_eq!(
+        app.live_action_for_chord_for_test(&WinitKey::Character("p".into()), true, true),
+        Some(BindableAction::Search)
+    );
+}
+
+#[test]
+fn wheel_during_dirty_close_prompt_keeps_the_editor_position() {
+    let mut app = build_app();
+    app.open_key_bindings_overlay_for_test();
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
+    app.drive_overlay_key_for_test(WinitKey::Character("j".into()), true, true);
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Escape), false, false);
+    assert!(
+        app.overlay_signature_for_test()
+            .key_remap
+            .pending_close_prompt
+    );
+    assert_modal_wheel_is_inert(&mut app);
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Escape), false, false);
+    assert!(
+        !app.overlay_signature_for_test()
+            .key_remap
+            .pending_close_prompt
+    );
+    assert!(app.overlay_open_for_test());
+}
+
+#[test]
+fn browsing_wheel_moves_the_keybinding_window_and_highlight() {
+    let mut app = build_app();
+    app.open_key_bindings_overlay_for_test();
+    app.render_overlay_rows_for_test(60, 12);
+    let before = app.overlay_signature_for_test().key_remap;
+    app.dispatch_wheel_for_test(-1.0);
+    let after = app.overlay_signature_for_test().key_remap;
+    assert!(after.scroll > before.scroll);
+    assert!(after.selected > before.selected);
+    assert_ne!(after, before);
+    app.dispatch_wheel_for_test(1.0);
+    assert_eq!(
+        app.overlay_signature_for_test().key_remap.scroll,
+        before.scroll
+    );
+}
