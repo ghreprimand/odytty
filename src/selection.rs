@@ -616,10 +616,10 @@ fn ordered_range(range: SelectionRange) -> SelectionRange {
 /// by every copy extractor so they cannot drift. A wide glyph copies with its
 /// lead cell; a span holding only the continuation half copies nothing, the
 /// same rule for CJK and shaped owners. Spacer and layout-padding
-/// cells contribute nothing. With `trim_pad`, only the grid's own padding
-/// (ASCII space) is trimmed from the end: a row that really ends in U+00A0,
-/// U+3000, a tab or another space-like scalar keeps it. A span outside the row
-/// is empty.
+/// cells contribute nothing. With `trim_pad`, trailing ASCII spaces are
+/// trimmed, whether they are unwritten grid cells or spaces the program wrote;
+/// a row that ends in U+00A0, U+3000, a tab or another space-like scalar keeps
+/// it. A span outside the row is empty.
 pub(crate) fn selected_row_text(
     cells: &[crate::core::Cell],
     start: usize,
@@ -643,9 +643,9 @@ pub(crate) fn selected_row_text(
 
 /// The characters a copied cell contributes: its base char followed by any
 /// retained extension scalars, in arrival order. Combining marks, spacing
-/// signs, and joined consonants copy as their original logical source text. Shared with the absolute
-/// scrollback-window copy path so the snapshot and scrollback extractors
-/// contribute identical bytes for a cell.
+/// signs, and joined consonants copy as their original logical source text.
+/// Shared with the absolute scrollback-window copy path so the snapshot and
+/// scrollback extractors contribute identical bytes for a cell.
 pub(crate) fn cell_grapheme_chars(cell: &crate::core::Cell) -> impl Iterator<Item = char> + '_ {
     std::iter::once(cell.ch)
         .chain(cell.combining().iter().copied())

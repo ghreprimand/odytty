@@ -204,11 +204,17 @@ impl HeadlessSession {
 /// reuses the same tab, whose title override persists across the drop.
 pub(in crate::native) struct RemoteReconnect {
     command: SshCommand,
+    /// Failed attempts since the last successful connect, so each failure
+    /// notice says which attempt it reports.
+    failed_attempts: u32,
 }
 
 impl RemoteReconnect {
     pub(in crate::native) fn new(command: SshCommand) -> Self {
-        Self { command }
+        Self {
+            command,
+            failed_attempts: 0,
+        }
     }
 }
 
@@ -321,9 +327,17 @@ const RECONNECT_BANNER: &str =
     "\r\n\x1b[1;33m connection dropped \x1b[0m  Enter: reconnect · Esc: close\r\n";
 
 /// Painted when a reconnect attempt cannot respawn the session; the prompt
-/// stays, so Enter retries and Esc closes as before.
-const RECONNECT_FAILED_NOTICE: &str =
-    "\r\n\x1b[1;31m reconnect failed \x1b[0m  Enter: retry · Esc: close\r\n";
+/// stays, so Enter retries and Esc closes as before. The first failure reads
+/// `reconnect failed`; each later one adds its attempt number, so repeated
+/// lines show that every Enter was a new attempt.
+fn reconnect_failed_notice(attempt: u32) -> String {
+    let label = if attempt > 1 {
+        format!("reconnect failed (attempt {attempt})")
+    } else {
+        "reconnect failed".to_owned()
+    };
+    format!("\r\n\x1b[1;31m {label} \x1b[0m  Enter: retry · Esc: close\r\n")
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PtyResizePolicy {
@@ -1605,7 +1619,7 @@ impl WorkspaceSet {
     /// so a second drop can reconnect again. Returns `true` on success; on spawn
     /// failure the session stays in the awaiting-reconnect state so the prompt
     /// can be retried or dismissed, and a one-line notice says the attempt
-    /// failed.
+    /// failed, numbered from the second failure on.
     pub(in crate::native) fn reconnect(&mut self, token: SessionToken) -> bool {
         if self.proxy.is_none() {
             return false;
@@ -1618,10 +1632,21 @@ impl WorkspaceSet {
         };
         let command = reconnect.command.clone();
         let terminal = session.terminal.clone();
-        if self.respawn_remote(token, command).is_some() {
+        let succeeded = self.respawn_remote(token, command).is_some();
+        let Some(reconnect) = self
+            .sessions
+            .get_mut(&token)
+            .and_then(|session| session.reconnect.as_mut())
+        else {
+            return succeeded;
+        };
+        if succeeded {
+            reconnect.failed_attempts = 0;
             return true;
         }
-        crate::native::lock_recover(&terminal).advance(RECONNECT_FAILED_NOTICE.as_bytes());
+        reconnect.failed_attempts = reconnect.failed_attempts.saturating_add(1);
+        let notice = reconnect_failed_notice(reconnect.failed_attempts);
+        crate::native::lock_recover(&terminal).advance(notice.as_bytes());
         false
     }
 

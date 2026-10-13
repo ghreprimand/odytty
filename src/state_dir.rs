@@ -728,19 +728,9 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "odytty-state-dir-{tag}-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock before epoch")
-                .as_nanos()
-        ));
-        fs::create_dir(&path).expect("create temp root");
-        path
+        crate::test_dirs::fresh_temp_dir(&format!("odytty-state-dir-{tag}-"))
     }
 
     #[cfg(unix)]

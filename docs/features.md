@@ -2026,9 +2026,10 @@ endpoints isolated while preserving a fixed-width path.
 When a remote connection drops, the tab stays open with a reconnect prompt.
 `Enter` reconnects in place, while `Esc` or `Ctrl+D` closes the tab. If the
 connection command cannot be started again, the pane says `reconnect failed`
-and the prompt stays, so `Enter` retries. On Linux and macOS the reconnected
-session's terminal size carries the pane's pixel size at once, as a new tab's
-does; the Windows console size has no pixel field.
+and the prompt stays, so `Enter` retries; each later failure adds a line
+naming its attempt number. On Linux and macOS the reconnected session's
+terminal size carries the pane's pixel size at once, as a new tab's does; the
+Windows console size has no pixel field.
 
 ### Paste Images Into Remote Sessions
 

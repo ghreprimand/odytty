@@ -640,22 +640,11 @@ pub(super) fn pane_chrome_pin(pane: &PaneRender) -> grid::ChromePin {
     }
 }
 
-/// Accumulate one pane's color glyphs (emoji) into the shared per-frame buffer.
-///
-/// `build_color_glyph_vertices_with_origin_into` clears its output on entry -
-/// the two single-pane callers rebuild the whole buffer, so that clear is their
-/// contract. The multi-pane loop therefore builds each pane into `scratch` and
-/// then *extends* `shared`; writing straight into `shared` would clear away
-/// every earlier pane's glyphs and desync the frame. A pane whose emoji count
-/// is lower than an earlier pane's used to leave a captured `shared[start..]`
-/// offset pointing past the end of the emptied buffer, which panicked and - via
-/// the abort-on-panic hook - took the window down.
-///
-/// This is a free function so the accumulation can be exercised without a GPU
-/// device or window: the panic only reproduced across panes with uneven emoji
-/// counts, which needs no rendering to trigger. It takes the per-pane geometry
-/// as primitives rather than a `&PaneRender` for that reason - a test can drive
-/// it from a bare snapshot and run list without building a full pane record.
+/// Build one pane's color glyphs (emoji) into `scratch`, apply the pane clips,
+/// and append them to the shared per-frame buffer. The builder clears its
+/// output on entry, so panes must not build into `shared` directly. A free
+/// function taking primitive geometry, so tests can drive uneven per-pane
+/// emoji counts without a GPU or a full pane record.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::native) fn accumulate_pane_color_glyphs(
     shared: &mut Vec<ColorGlyphVertex>,

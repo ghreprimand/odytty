@@ -518,24 +518,12 @@ impl WorkspaceSet {
     }
 
     /// Reconcile the scrollback length and physical push baselines of every
-    /// pane of the active tab to its terminal's current output state,
-    /// WITHOUT anchoring the viewport. Called on activation (tab / workspace
-    /// switch): a tab keeps producing output while it is backgrounded, but it is
-    /// not rendered. Without an eviction to reconcile, its push baseline can
-    /// freeze at the count from its last on-screen frame. Without this, the
-    /// first render after switching back counts the accumulated row pushes
-    /// (all the backgrounded growth at once) and `anchor_after_growth` yanks a
-    /// scrolled-up viewport toward the top of scrollback, stranding fresh output
-    /// offscreen below - the user returns to a tab "stuck scrolled up" with new
-    /// output invisible. Treating the backgrounded growth as already-past
-    /// preserves the pane's scroll position across the switch: a pane at the
-    /// live bottom (offset 0) stays live, and a scrolled-up pane keeps its
-    /// offset relative to the now-current bottom rather than jumping into deep
-    /// history. This is the viewport analogue of the new-output-fade
-    /// discontinuity the activation path already clears. A no-op for a
-    /// tab that was never backgrounded (its baseline already equals its current
-    /// length). Platform-neutral: viewport/scrollback bookkeeping is identical
-    /// on Unix and Windows.
+    /// pane of the active tab to its terminal's current output state, without
+    /// anchoring the viewport. Called on tab or workspace activation: output a
+    /// backgrounded tab produced is treated as already past, so switching back
+    /// does not anchor-jump a scrolled-up viewport into deep history (a pane at
+    /// the live bottom stays live). A no-op for a tab that was never
+    /// backgrounded. Platform-neutral.
     pub(in crate::native) fn reconcile_active_tab_scroll_baselines(&mut self) {
         let Some(tab) = self.active_tab_ref() else {
             return;

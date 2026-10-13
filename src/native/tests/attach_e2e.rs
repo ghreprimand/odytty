@@ -1,30 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Real-process end-to-end daemon-survival test for resumable sessions.
-//!
-//! The unit tests cover each side against a stand-in (the attach client vs. an
-//! in-process fake host; the host vs. a synthetic client). This test is the
-//! missing integration seam: it glues the **real** detached session-host
-//! *process* to the **real** native [`AttachClient`] across a true client
-//! disconnect, exercising the actual wire format, socket-path resolution, and
-//! cross-process daemon survival where a mismatch would otherwise hide.
-//!
-//! Flow (each step bounded so a stuck host fails the test rather than hanging):
-//! 1. spawn a real session-host subprocess (this test executable re-run at
-//!    [`host_process_entry`], which calls the routine `odytty session-host`
-//!    dispatches to) owning a real PTY child;
-//! 2. attach with the real `AttachClient`, restore the snapshot (full
-//!    pre-attach scrollback), and drive input the child echoes;
-//! 3. drop the client (clean detach - the window-close path) and assert the
-//!    host process SURVIVES with its PTY + scrollback intact;
-//! 4. reattach by id with a fresh client and assert the restored snapshot
-//!    carries the scrollback produced before + during the first attach, plus
-//!    the mid-attach output (proving it landed in the host's terminal model);
-//! 5. end the child and assert the host process reaps cleanly - no orphaned
-//!    daemon and no stale socket.
-//!
-//! Hermetic: a synthetic runtime base under a short socket directory (the host creates
-//! and `0700`-locks its own `odytty/` runtime dir inside it), a trivial
-//! controlled `/bin/sh` child, and bounded timeouts. No real user data.
+//! Real-process daemon survival for resumable sessions: run the
+//! `odytty session-host` routine in a separate process (this test executable
+//! re-run at [`host_process_entry`]) with a PTY child, attach with the real
+//! [`AttachClient`], detach, reattach by id, and check that the pre-attach
+//! scrollback and mid-attach output survive and that the host reaps cleanly
+//! with no orphaned daemon or stale socket. Each step is bounded, and the test
+//! is hermetic: a synthetic runtime base under a short socket directory, a
+//! controlled `/bin/sh` child, no user data.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};

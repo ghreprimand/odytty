@@ -891,7 +891,7 @@ mod tests {
     }
 
     /// The live copy choke point keeps a row's real trailing space-like
-    /// scalars: only the grid's own ASCII-space padding is trimmed.
+    /// scalars: only trailing ASCII spaces are trimmed.
     #[test]
     fn absolute_selection_keeps_trailing_non_pad_whitespace() {
         let Some(app) = build_app() else {

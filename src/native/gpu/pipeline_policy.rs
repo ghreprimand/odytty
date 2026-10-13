@@ -133,23 +133,11 @@ pub(in crate::native) fn select_alpha_mode(
     modes.first().copied().unwrap_or(Opaque)
 }
 
-/// TRANSPARENCY: the opacity fed to the CONTENT cell-vertex builder. The
-/// wallpaper softening and window transparency COMPOSE - the content surface
-/// alpha is their product, `cell_bg_opacity * window_bg_alpha`, rather than one
-/// regime replacing the other at the 100% boundary.
-///
-/// At the opaque default (`window_bg_alpha == 1.0`) this is exactly
-/// `cell_bg_opacity`, so the opaque path is byte-identical. Below 1.0 the cells
-/// stay at the same softening fraction OF the window alpha, so the wallpaper
-/// layer (a separate pass carrying its own `window_bg_alpha` uniform) keeps
-/// showing through the cells instead of being occluded by a near-opaque cell
-/// quad - the earlier hard branch snapped the cell alpha up to `window_bg_alpha`
-/// (~0.99 just below 100%), which hid the wallpaper entirely one step off the
-/// boundary. The product is continuous as `window_bg_alpha -> 1.0` (the limit
-/// from below, `cell_bg_opacity`, equals the value at 1.0) and monotonic in the
-/// window alpha, so window opacity now scales one continuous stack - wallpaper
-/// treatment fading over the desktop-through - instead of toggling between two
-/// background models.
+/// Opacity for content cell backgrounds: `cell_bg_opacity * window_bg_alpha`.
+/// At an opaque window (`window_bg_alpha == 1.0`) this is exactly
+/// `cell_bg_opacity`, so the opaque path is byte-identical; the product is
+/// continuous and monotonic in the window alpha, so the wallpaper pass (which
+/// carries its own `window_bg_alpha`) keeps showing through translucent cells.
 pub(in crate::native) fn content_build_opacity(window_bg_alpha: f32, cell_bg_opacity: f32) -> f32 {
     cell_bg_opacity * window_bg_alpha
 }
@@ -251,33 +239,13 @@ pub(in crate::native) fn required_limits_for_adapter(
     )
 }
 
-/// Backend sets to try, in order, when bringing the instance up.
-///
-/// Initializing a backend is not free: the loader maps that backend's driver
-/// stack into the process and pages in the code it runs. Asking for every
-/// backend at once therefore pays for a full second driver stack that the
-/// window will never draw through. Measured on the shipped windowed
-/// configuration, an all-backends instance sat about 1.5 MB above the staged
-/// one - consistently, across replicates at fixed window geometry, but small.
-/// A headless probe of the same change suggested a far larger figure; the
-/// windowed number is the one that describes the product. What is saved is one
-/// backend's initialization, not one driver's mapping: on a unified vendor
-/// driver the GL libraries stay mapped at nearly identical resident cost either
-/// way, so nothing here should be read as GL going unloaded.
-///
-/// So: try the accelerated backends first, and keep the wider set as a
-/// fallback. `Backends::PRIMARY` is Vulkan, DX12, and Metal - it excludes GL,
-/// which is a genuine last-resort path for older hardware, virtual machines,
-/// and remote display stacks with no working Vulkan. Dropping GL outright would
-/// trade memory for a class of machines that stop launching, so it stays
-/// reachable; it is simply no longer initialized on machines that never need
-/// it. The second stage is entered only when the first cannot produce a usable
-/// accelerated adapter, so its cost falls exactly on the configurations that
-/// would otherwise have failed or fallen back to software rendering.
-///
-/// An explicit `WGPU_BACKEND` request is honoured exactly and never widened:
-/// someone who names a backend is diagnosing something, and silently adding a
-/// second stage would hide the answer they are looking for.
+/// Backend sets to try, in order, when bringing the instance up: Vulkan, DX12
+/// and Metal (`Backends::PRIMARY`) first, then every backend including GL. The
+/// wider set runs only when the first stage yields no usable accelerated
+/// adapter, so GL stays reachable for older hardware, virtual machines and
+/// remote displays without being initialized everywhere else (measured on the
+/// shipped windowed configuration, an all-backends instance sat about 1.5 MB
+/// higher). An explicit `WGPU_BACKEND` is honoured exactly and never widened.
 pub(in crate::native) fn backend_stages(explicit: Option<wgpu::Backends>) -> Vec<wgpu::Backends> {
     match explicit {
         Some(backends) => vec![backends],
@@ -291,9 +259,8 @@ pub(in crate::native) fn backend_stages(explicit: Option<wgpu::Backends>) -> Vec
 /// A software rasterizer at a stage that excludes GL is not necessarily the
 /// machine's best option: a system with no usable Vulkan driver can still have
 /// an accelerated GL one, and before the staged bring-up such a system reached
-/// it through the all-backends instance. Falling through keeps that outcome
-/// identical. Only the final stage accepts software, and it does so with the
-/// same warning it always did.
+/// it through the all-backends instance. Only the final stage accepts
+/// software, with a warning.
 pub(in crate::native) fn software_adapter_is_final(stage_index: usize, stages: usize) -> bool {
     stage_index + 1 >= stages
 }
@@ -326,20 +293,11 @@ pub(in crate::native) fn surface_failure_action(
 }
 
 /// Bring up an instance, a presentable surface, and the best adapter available,
-/// trying each backend set from [`backend_stages`] in order.
-///
-/// Each stage builds its own instance, because the backend set is fixed at
-/// instance creation and the surface belongs to the instance that made it. A
-/// stage that yields an accelerated adapter ends the search, so the common case -
-/// a machine with a working Vulkan, DX12, or Metal driver - creates exactly
-/// one instance and initializes exactly one backend, instead of initializing
-/// every installed backend and drawing through one of them.
-///
-/// A stage that yields only a software rasterizer is not accepted while a wider
-/// stage remains: a machine with no usable Vulkan driver may still have an
-/// accelerated GL one, and that machine must keep reaching it. The software
-/// rescue within a stage, and the warnings on both the rescue and the
-/// final-software case, behave exactly as before.
+/// trying each backend set from [`backend_stages`] in order. Each stage builds
+/// its own instance (the backend set is fixed at instance creation and the
+/// surface belongs to it). An accelerated adapter ends the search; a software
+/// rasterizer is held as a fallback while a wider stage remains, because a
+/// machine with no usable Vulkan driver may still have an accelerated GL one.
 pub(in crate::native) fn bring_up_adapter(
     window: &Arc<Window>,
     display: &winit::event_loop::OwnedDisplayHandle,
@@ -445,9 +403,8 @@ pub(in crate::native) fn bring_up_adapter(
 }
 
 /// Replace a software adapter with an accelerated, presentable one from the
-/// same instance when enumeration offers a better choice. Returns the adapter
-/// to use and its info; identical to the pre-staging behavior, including the
-/// warning text.
+/// same instance when enumeration offers one. Returns the adapter to use and
+/// its info.
 fn rescue_software_adapter(
     instance: &wgpu::Instance,
     surface: &wgpu::Surface<'static>,

@@ -219,21 +219,13 @@ impl Session {
         true
     }
 
-    /// Whole-app shutdown teardown for one session. SIGKILL the child *now*
-    /// (synchronous but non-blocking - signal delivery never waits) so no
-    /// runaway shell or `ssh` client survives the process, then return the
-    /// blocking reap (`wait`) + pump-thread join as a deferred closure the
-    /// caller runs OFF the main thread under a single bounded deadline
-    /// ([`WorkspaceSet::shutdown_all`]). This is the CLOSE-HANG fix: a wedged
-    /// remote - an `ssh` client parked in a dead-socket syscall whose `wait()`
-    /// blocks for the kernel's network timeout, or a reader thread that never
-    /// sees EOF - must never delay window teardown. The process is exiting, so
-    /// if the deferred reaper outlives the deadline the OS reaps the orphaned
-    /// child and the detached thread dies with the process. [`Self::close`]
-    /// (single-tab close in a long-lived process) uses the same off-main-thread
-    /// deferral, but its reaper runs to completion - reaping the zombie and
-    /// joining the reader - rather than leaning on process exit, so a live
-    /// process leaks neither.
+    /// Whole-app shutdown teardown for one session: kill the child now (signal
+    /// delivery never waits) and return the blocking reap and pump-thread join
+    /// as a closure the caller runs off the main thread under one bounded
+    /// deadline ([`WorkspaceSet::shutdown_all`]), so a wedged remote never
+    /// delays window teardown. If the reaper outlives the deadline the OS reaps
+    /// the orphan at process exit. [`Self::close`] defers the same way but its
+    /// reaper runs to completion, so a long-lived process leaks nothing.
     pub(super) fn shutdown(mut self) -> Box<dyn FnOnce() + Send> {
         self.fire_upload_cleanup();
         let pump_thread = self.pump_thread.take();

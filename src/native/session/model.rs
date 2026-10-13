@@ -127,17 +127,14 @@ pub(in crate::native) struct Session {
     pub(in crate::native) last_presented_cursor_blinking: bool,
     pub(in crate::native) selection: AbsoluteSelectionState,
     pub(in crate::native) pointer_cell: Option<CellPoint>,
-    /// INTERACTIVE-PATHS hover probe memo (security/efficiency): the
-    /// `(pointer_cell, viewport offset, scrollback trim epoch, hovered row text
-    /// and cwd digest)` for which `update_hover_path` last ran its filesystem
-    /// stat probe. The digest makes new text or a new OSC 7 directory under a
-    /// stationary pointer re-resolve, while unrelated output does not. `CursorMoved`
-    /// fires on every reported pointer motion, not once per cell, so without
-    /// this the up-to-8 `symlink_metadata` syscalls re-run on every pixel of
-    /// motion inside one character cell, and a path lexically under an autofs or
-    /// stale-NFS mount could wedge the UI thread on every repeat. When the key
-    /// is unchanged the probe is skipped entirely. `None` forces a recompute and
-    /// is the resting state while `interactive_paths` is off.
+    /// Memo of the last hover path probe: `(pointer_cell, viewport offset,
+    /// scrollback trim epoch, hovered row text and cwd digest)`. An unchanged
+    /// key skips the up to eight `symlink_metadata` calls `update_hover_path`
+    /// would otherwise repeat on every pointer-motion event inside one cell
+    /// (a path under a stale network mount could stall the UI thread each
+    /// time); new text or a new OSC 7 directory changes the digest. `None`
+    /// forces a recompute and is the resting state while `interactive_paths`
+    /// is off.
     pub(in crate::native) hover_path_probe_key: Option<(CellPoint, usize, u64, u64)>,
     /// Terminal render revision the hover targets (OSC 8 link, bare URL, path)
     /// were last re-resolved against, so a frame after new output re-resolves

@@ -773,14 +773,14 @@ fn reconnect_gives_the_new_pty_the_panes_pixel_size() {
 }
 
 /// A reconnect whose respawn fails keeps the prompt and says so in the
-/// pane; before, Enter appeared to do nothing.
+/// pane; before, Enter appeared to do nothing. Repeat failures are numbered.
 #[test]
 fn a_failed_reconnect_keeps_the_prompt_and_says_so() {
     let Some(mut sessions) = settled_tabset_with_proxy_for_test() else {
         return;
     };
     let ssh = sessions
-        .spawn_ssh_command_in_new_tab_for_test(Dimensions::new(40, 8), exit_code_command(255))
+        .spawn_ssh_command_in_new_tab_for_test(Dimensions::new(80, 24), exit_code_command(255))
         .expect("ssh stub session");
     assert!(
         exit_and_try_arm(&mut sessions, ssh),
@@ -798,6 +798,23 @@ fn a_failed_reconnect_keeps_the_prompt_and_says_so() {
     assert!(
         text.contains("reconnect failed"),
         "the failure is visible in the pane, got: {text:?}"
+    );
+    assert!(
+        !text.contains("attempt"),
+        "the first failure carries no number, got: {text:?}"
+    );
+    assert!(!sessions.reconnect(ssh), "the retry fails too");
+    assert!(!sessions.reconnect(ssh), "and the third");
+    let text = pane_text(&sessions, ssh);
+    assert_eq!(
+        text.matches("reconnect failed").count(),
+        3,
+        "one line per attempt, got: {text:?}"
+    );
+    assert!(
+        text.contains("reconnect failed (attempt 2)")
+            && text.contains("reconnect failed (attempt 3)"),
+        "each repeat names its attempt, got: {text:?}"
     );
     assert!(!sessions.close(ssh));
     assert!(sessions.close(SessionToken(0)));

@@ -42,33 +42,14 @@ impl GpuState {
         self.post_options().active() && self.post_process_format.is_some()
     }
 
-    /// Release the post-process render targets whenever the effect stack is
-    /// inactive.
-    ///
-    /// [`PostProcessResources`] is created lazily on the first frame that needs
-    /// it. It was previously never released, so turning bloom and CRT back off
-    /// left the full-resolution offscreen target and the two half-resolution
-    /// bloom targets resident for the remaining life of the process - three
-    /// `Rgba16Float` surfaces totalling `width * height * 12` bytes, about 24 MB
-    /// at 1080p and 95 MB at 4K, held for an effect nothing was drawing.
-    ///
-    /// Releasing from the consumer side rather than inside the effect setters is
-    /// deliberate. `render` is the only consumer of these targets, so the check
-    /// there covers every path that can turn the stack off - including any added
-    /// later. Today the effect fields are reachable only through
-    /// `set_bloom`/`set_crt`, but a third mutation site would need no change
-    /// here, whereas a setter-side release would have to be remembered at each
-    /// one. `resize` calls this as well, for a narrower reason: an inactive
-    /// stack's targets must not be rebuilt at each new size.
-    ///
-    /// Externally this is invisible. Turning an effect back on takes the same
-    /// lazy creation path that built the targets the first time, inside the
-    /// frame that needs them and before that frame is presented - so the first
-    /// effects-on frame is fully post-processed, exactly as the very first
-    /// toggle always was. Nothing between the release and the next enable reads
-    /// the targets: the no-effect branch of `render` draws straight to the
-    /// swapchain, and the scene pipelines are keyed off the target *format*,
-    /// which the setters already maintain independently of this allocation.
+    /// Drop the post-process render targets while no effect is active (three
+    /// `Rgba16Float` surfaces, `width * height * 12` bytes: about 24 MB at
+    /// 1080p and 95 MB at 4K). Called from `render`, the only consumer, so
+    /// every path that turns the stack off is covered, and from `resize` so an
+    /// inactive stack is not rebuilt at each size. Re-enabling an effect
+    /// recreates the targets lazily inside the frame that needs them, before
+    /// it is presented; the no-effect branch of `render` draws straight to the
+    /// swapchain and never reads them.
     pub(super) fn release_post_process_if_inactive(&mut self) {
         if !self.post_active() {
             self.post_process = None;
@@ -290,35 +271,19 @@ impl GpuState {
             self.encode_overlay_pass(&mut encoder, &view);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
-        // WINIT PRESENT CONTRACT: tell the windowing system a present is about
-        // to happen, immediately before it happens. On Wayland this is what
-        // takes a `wl_surface.frame` callback, which makes winit align
-        // `RedrawRequested` with the compositor's own draw loop.
-        //
-        // Not cosmetic - it is the visibility signal this app was missing. With
-        // no callback in flight, winit never throttles `RedrawRequested`, so a
-        // surface the compositor has stopped painting (display DPMS-off, output
-        // asleep, surface occluded) still gets driven through `render()` on the
-        // skipped-frame keep-alive. Every acquire then times out because the
-        // compositor is legitimately not releasing buffers, which climbs the
-        // skip ladder into the surface-recreate escalation for a window that
-        // was never actually stalled. Requesting the callback here makes "the
-        // compositor is not asking us to draw" self-limiting: no callback, no
-        // `RedrawRequested`, no doomed acquires, and the window repaints as
-        // soon as the output wakes.
-        //
-        // Placement matters: the request is only committed by the present that
-        // follows, so it MUST sit on the path that actually presents. Requesting
-        // it before an acquire that may skip would leave an uncommitted callback
-        // that never fires and would throttle redraws forever.
-        //
-        // Platform surface: real on Wayland (frame callback) and X11 (sync
-        // counter); a documented no-op on Windows, macOS, iOS, Android, and
-        // web, so ConPTY/DX12 and Metal behavior is unchanged.
+        // Tell the windowing system a present is about to happen, immediately
+        // before it does. On Wayland this takes the `wl_surface.frame`
+        // callback that paces `RedrawRequested`, so a surface the compositor
+        // has stopped painting (output asleep, surface occluded) stops driving
+        // `render` instead of climbing the skipped-acquire ladder. The request
+        // is committed by the present that follows, so it must sit on the path
+        // that presents: before an acquire that may skip, it would never fire
+        // and would throttle redraws forever. Real on Wayland (frame callback)
+        // and X11 (sync counter); a no-op on Windows and macOS.
         self.window.pre_present_notify();
         frame.present();
-        // FREEZE-HARDEN (b): count only frames that actually reached
-        // present(); skipped/failed acquires above never get here.
+        // Count only frames that actually reached present(); skipped or
+        // failed acquires above never get here.
         self.frames_presented = self.frames_presented.wrapping_add(1);
 
         if suboptimal {

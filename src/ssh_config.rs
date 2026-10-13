@@ -45,11 +45,14 @@ pub struct SshHostEntry {
     /// Concrete alias from a `Host` pattern. Wildcards and negated patterns are
     /// not surfaced.
     pub alias: String,
-    /// Optional `HostName` value from the same `Host` block.
+    /// Optional `HostName` value: the first one set across the concrete `Host`
+    /// blocks naming this alias.
     pub host_name: Option<String>,
-    /// Optional `User` value from the same `Host` block.
+    /// Optional `User` value: the first one set across the concrete `Host`
+    /// blocks naming this alias.
     pub user: Option<String>,
-    /// Optional `Port` value from the same `Host` block.
+    /// Optional `Port` value: the first one set across the concrete `Host`
+    /// blocks naming this alias.
     pub port: Option<u16>,
 }
 
@@ -345,7 +348,6 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn limits() -> SshConfigReadLimits {
         SshConfigReadLimits {
@@ -360,13 +362,7 @@ mod tests {
     }
 
     fn temp_dir(prefix: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("{prefix}-{}-{nanos}", std::process::id()));
-        fs::create_dir_all(&path).expect("create synthetic temp dir");
-        path
+        crate::test_dirs::fresh_temp_dir(&format!("{prefix}-"))
     }
 
     #[test]

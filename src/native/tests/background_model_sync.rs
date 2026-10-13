@@ -1,19 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! NF21-P3 App-level tests: background sessions must track terminal-model state
-//! that was previously applied only to the focused session through `Deref`.
-//!
-//! - an OS light/dark flip (and, by the same seam, a settings reload)
-//!   fans the theme colors/palette over every session, so a background tab
-//!   answers OSC 4/10/11 with the CURRENT theme rather than the pre-flip one.
-//! - OSC 52 is drained for every session each pass. A WRITE emitted by a
-//!   non-focused session is DISCARDED (a backgrounded program must not hijack the
-//!   clipboard) and, being drained, cannot resurface on switch-back; a write from
-//!   the focused session still reaches the clipboard.
-//!
-//! These drive a real `App`. Cases that spawn a second tab need a real
-//! wake handle: they return early when the environment offers none (a
-//! display-less Linux host). macOS uses a discarding waker, so they run there too.
-//! The rest run without a proxy on every platform.
+//! Background sessions track terminal-model state the focused session gets
+//! through `Deref`: a theme change (OS light/dark flip or settings reload)
+//! reaches every session's OSC 4/10/11 answers, and OSC 52 is drained for
+//! every session each pass (a non-focused write is discarded; a focused write
+//! reaches the clipboard). Cases that spawn a second tab need a real wake
+//! handle: they return early when the environment has none (a display-less
+//! Linux host). macOS uses a discarding waker, so they run there too. The
+//! rest run on every platform.
 
 use super::super::app::osc52::PromptDecision;
 use super::super::session::{Session, SessionToken, WorkspaceSet};

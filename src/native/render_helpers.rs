@@ -114,26 +114,12 @@ pub(super) enum GeometryUpdate {
 }
 
 impl GeometryUpdate {
-    /// Keep the F4-P3 floating rail overlay alive across a cursor-only frame.
-    ///
-    /// The rail overlay is appended to the vertex buffer's trailing segment
-    /// (after `cell_vertex_count`), alongside the cursor. The `CursorOnly` fast
-    /// path (`GpuState::update_cursor_and_overlays`) rebuilds ONLY that segment
-    /// from the cursor vertices: it truncates to `cell_vertex_count` and
-    /// re-appends the cursor WITHOUT the rail. So once the rail is steady-revealed
-    /// the next cursor blink - a `CursorOnly` update - drops the rail out of the
-    /// buffer, and it stays gone until an unrelated `Full` rebuild (a hover
-    /// change, terminal output, or the pointer leaving the window) re-appends it.
-    /// That is the "reveals where expected, then vanishes as the pointer inches
-    /// further in, reappears past the edge, won't stay up" behavior: the reveal
-    /// state machine holds `visible` rock-steady while the blink keeps eating the
-    /// pixels.
-    ///
-    /// Promote `CursorOnly` to `Full` whenever the rail overlay is present so it
-    /// is re-appended every frame it is visible. `Full` and `Retained` are left
-    /// unchanged (`Retained` never touches the buffer, so the rail persists across
-    /// it), and the no-rail path keeps its classification exactly - nothing off
-    /// the revealed-rail path changes.
+    /// Promote a cursor-only update to a full rebuild while the floating rail
+    /// is drawn: the rail sits in the vertex buffer's trailing segment with the
+    /// cursor, and the cursor-only path rebuilds only that segment from the
+    /// cursor vertices, which would drop the rail until the next full rebuild.
+    /// `Full` and `Retained` are unchanged (`Retained` never touches the
+    /// buffer), and the no-rail path keeps its classification exactly.
     pub(super) fn retaining_rail_overlay(self, rail_present: bool) -> Self {
         match self {
             GeometryUpdate::CursorOnly if rail_present => GeometryUpdate::Full,
@@ -379,7 +365,7 @@ pub(super) struct RailOverlaySignature {
 pub(super) struct CursorRenderSignature {
     pub(super) visible: bool,
     pub(super) style: CursorStyle,
-    /// Quantized cursor-animation key (ID1 easing alpha + VE4 slide offset).
+    /// Quantized cursor-animation key (easing alpha and slide offset).
     ///
     /// The render cache only varies the cursor geometry on a `CursorOnly`
     /// reclassification, which fires when `content` is equal but `cursor`
