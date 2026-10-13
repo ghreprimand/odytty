@@ -725,6 +725,86 @@ fn a_loading_animation_parks_before_gapless_tail_frames() {
     assert_eq!(frames.current_frame(), Some(3));
 }
 
+/// Root frame (gap 100) plus a 40ms frame and `tail` gapless frames, each with
+/// distinct pixels, in loading mode.
+fn loading_frames_with_gapless_tail(tail: usize) -> ImageFrames {
+    let mut frames = ImageFrames::default();
+    let base = canvas([1, 1, 1, 255]);
+    frames
+        .transmit_frame(&base, 2, 2, full_update(&canvas([2, 2, 2, 255]), Some(40)))
+        .expect("displayable frame");
+    for n in 0..tail {
+        let shade = 10 + n as u8;
+        frames
+            .transmit_frame(
+                &base,
+                2,
+                2,
+                full_update(&canvas([shade, shade, shade, 255]), Some(-1)),
+            )
+            .expect("gapless tail frame");
+    }
+    frames.set_gap(1, 100).expect("root gap");
+    frames.set_state(AnimationState::RunLoading);
+    frames
+}
+
+#[test]
+fn a_delayed_loading_tick_stops_on_the_last_displayable_frame() {
+    for tail in [1, 2, 5] {
+        let mut frames = loading_frames_with_gapless_tail(tail);
+        assert!(!frames.advance(0), "the first tick phases the clock");
+        // One late tick runs past frame 2's gap and reaches the gapless tail.
+        assert!(frames.advance(200), "tail={tail}: frame 1 -> frame 2 flips");
+        assert_eq!(
+            frames.current_frame(),
+            Some(2),
+            "tail={tail}: playback parks on the last displayable frame"
+        );
+        assert_eq!(
+            frames.current_rgba(),
+            Some(&canvas([2, 2, 2, 255])[..]),
+            "tail={tail}: base data from the gapless tail is never displayed"
+        );
+        assert_eq!(frames.next_deadline_ms(), None, "tail={tail}: parked");
+        assert!(!frames.advance(10_000), "tail={tail}: nothing more to show");
+        assert_eq!(frames.current_frame(), Some(2));
+    }
+}
+
+#[test]
+fn a_loading_animation_lands_on_the_same_frame_however_time_is_chunked() {
+    let mut late = loading_frames_with_gapless_tail(2);
+    assert!(!late.advance(0));
+    late.advance(200);
+    let mut chunked = loading_frames_with_gapless_tail(2);
+    assert!(!chunked.advance(0));
+    assert!(chunked.advance(100));
+    chunked.advance(140);
+    chunked.advance(200);
+    assert_eq!(late.current_frame(), chunked.current_frame());
+    assert_eq!(late.current_rgba(), chunked.current_rgba());
+    assert_eq!(late.current_frame(), Some(2));
+}
+
+#[test]
+fn a_delayed_loading_tick_resumes_through_the_gapless_tail_when_a_frame_arrives() {
+    let mut frames = loading_frames_with_gapless_tail(2);
+    assert!(!frames.advance(0));
+    assert!(frames.advance(200));
+    assert_eq!(frames.current_frame(), Some(2));
+    let base = canvas([1, 1, 1, 255]);
+    frames
+        .transmit_frame(&base, 2, 2, full_update(&canvas([9, 9, 9, 255]), Some(40)))
+        .expect("later displayable frame");
+    assert!(frames.is_animating());
+    // Frame 2's gap ended long ago, so the next tick steps over the two
+    // gapless frames and shows the new frame in the same tick.
+    assert!(frames.advance(10_000));
+    assert_eq!(frames.current_frame(), Some(5));
+    assert_eq!(frames.current_rgba(), Some(&canvas([9, 9, 9, 255])[..]));
+}
+
 #[test]
 fn stored_frames_refuse_a_canvas_of_another_size() {
     let mut frames = frames_with_two_frames();

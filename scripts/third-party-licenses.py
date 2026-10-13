@@ -6,6 +6,7 @@ crates linked into the shipped binaries.
 usage:
   python3 scripts/third-party-licenses.py generate   # rewrite the file
   python3 scripts/third-party-licenses.py check      # fail if it is stale
+  python3 scripts/third-party-licenses.py verify-holders  # re-read holder sources (network)
 
 The crate set is the locked normal-dependency closure of the root package for
 each shipped target (`cargo metadata --locked --filter-platform`), unioned.
@@ -14,7 +15,8 @@ because they are normal dependencies, even though they run at build time. The
 text of every licence file in a crate's published source is reproduced once per
 distinct text, with the crates it applies to. A crate whose source carries no
 licence file gets the standard text of each licence its manifest declares, with
-the authors the manifest declares (or, when it declares none, the repository that
+the authors the manifest declares (or, when it declares none, the holder recorded
+in scripts/third-party-holders.json for its repository, or else the repository that
 keeps its copyright statement), and the file says so. COPYRIGHT and AUTHORS files
 are reproduced beside the licence texts.
 
@@ -40,6 +42,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "THIRD-PARTY-LICENSES"
 SPDX_DIR = Path(__file__).resolve().parent / "third-party-licenses-spdx"
+HOLDERS = Path(__file__).resolve().parent / "third-party-holders.json"
 
 # The targets the project ships binaries for.
 TARGETS = (
@@ -173,20 +176,91 @@ def author_names(package: dict) -> str:
     return ", ".join(names) if names else "none declared"
 
 
-def holder_note(package: dict) -> str:
-    """Where a crate with no declared authors keeps its copyright statement.
+def normalise_repository(url: str) -> str:
+    """A repository URL without a trailing slash or `.git`, for table lookup."""
+    url = url.strip().rstrip("/")
+    return url[: -len(".git")] if url.endswith(".git") else url
+
+
+def validate_holders(holders: dict) -> None:
+    """Refuse a holder table whose entries cannot be checked later."""
+    for repository, entry in holders.items():
+        where = f"{HOLDERS.name} entry {repository}"
+        if not isinstance(entry, dict) or not str(entry.get("holder", "")).strip():
+            raise GenerationError(f"{where} names no holder")
+        if not re.fullmatch(r"[0-9a-f]{40}", str(entry.get("commit", ""))):
+            raise GenerationError(f"{where} needs the full 40-digit commit its sources were read at")
+        sources = entry.get("sources")
+        if not isinstance(sources, list) or not sources:
+            raise GenerationError(f"{where} lists no source file")
+        for source in sources:
+            url = str(source.get("url", "")) if isinstance(source, dict) else ""
+            digest = str(source.get("sha256", "")) if isinstance(source, dict) else ""
+            if not url.startswith("https://"):
+                raise GenerationError(f"{where} has a source that is not an https URL: {url!r}")
+            if not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise GenerationError(f"{where} has no sha256 for {url}")
+
+
+def load_holders() -> dict[str, dict]:
+    """The checked-in table of holders a crate's published source does not name.
+
+    Keyed by repository URL. Each entry records who holds the copyright, the
+    commit the upstream licence files were read at, and the URL and sha256 of
+    each file that names the holder, so `verify-holders` can re-check them. The
+    generator itself reads only this table, never the network.
+    """
+    if not HOLDERS.is_file():
+        return {}
+    holders = json.loads(HOLDERS.read_text(encoding="utf-8"))
+    validate_holders(holders)
+    return {normalise_repository(repository): entry for repository, entry in holders.items()}
+
+
+def verify_holders(holders: dict, fetch) -> list[str]:
+    """Problems found re-reading each source (`fetch(url) -> bytes`); empty when sound."""
+    problems = []
+    for repository, entry in sorted(holders.items()):
+        for source in entry["sources"]:
+            url = source["url"]
+            try:
+                body = fetch(url)
+            except Exception as error:  # noqa: BLE001 - any fetch failure is a problem to report
+                problems.append(f"{repository}: could not fetch {url}: {error}")
+                continue
+            if hashlib.sha256(body).hexdigest() != source["sha256"]:
+                problems.append(f"{repository}: {url} no longer matches its recorded sha256")
+            elif entry["holder"] not in body.decode("utf-8", "replace"):
+                problems.append(f"{repository}: {url} does not name the holder {entry['holder']}")
+    return problems
+
+
+def holder_note(package: dict, holders: dict | None = None) -> str:
+    """Who holds the copyright of a crate with no declared authors.
 
     Such a crate's published source names no holder (its licence files, when
-    it has any, stay at the repository root, outside the package), so the file
-    points at the repository its manifest declares and says so.
+    it has any, stay at the repository root, outside the package). When the
+    checked-in holder table has the crate's repository, the holder it records
+    is named, with the commit of the upstream licence files that state it. Else
+    the file points at the repository the manifest declares and says so.
     """
     place = package.get("repository") or package.get("homepage")
     if place:
+        entry = (holders or {}).get(normalise_repository(place))
+        if entry:
+            return (
+                f"holder: {entry['holder']} (named by the licence files at {place},"
+                f" commit {entry['commit'][:8]}; the published crate omits them)"
+            )
         return f"holder: not named in the published source; see {place}"
     return "holder: not named in the published source and no repository is declared"
 
 
-def render(linked: dict[tuple[str, str], dict], unlinked: set[tuple[str, str]]) -> str:
+def render(
+    linked: dict[tuple[str, str], dict],
+    unlinked: set[tuple[str, str]],
+    holders: dict | None = None,
+) -> str:
     texts: dict[str, list[str]] = {}  # normalised text -> crates it applies to
     order: list[str] = []
     entries: list[str] = []
@@ -224,7 +298,7 @@ def render(linked: dict[tuple[str, str], dict], unlinked: set[tuple[str, str]]) 
                 f" | authors: {authors}"
             )
             if not package.get("authors") or authors == "none declared":
-                entry += f" | {holder_note(package)}"
+                entry += f" | {holder_note(package, holders)}"
             entries.append(entry)
 
     out: list[str] = []
@@ -250,7 +324,10 @@ def render(linked: dict[tuple[str, str], dict], unlinked: set[tuple[str, str]]) 
         "\n\"standard text\": the standard text of each licence its manifest declares is given"
         "\nunder STANDARD TEXTS, to be read with the authors the manifest names for that crate;"
         "\nthe year and holder placeholders in those texts stand for them. A crate that names no"
-        "\nauthors there also says where its copyright statement is kept (its repository)."
+        "\nauthors there is marked with the holder the project's checked-in holder table records"
+        "\nfor its repository (read from the upstream licence files at the commit given, which"
+        "\nthe published crate omits and which do not state a year for this version), or else"
+        "\nsays where its copyright statement is kept (its repository)."
     )
     out.append("")
     out.append(f"linked crates: {len(linked)}")
@@ -284,7 +361,7 @@ def render(linked: dict[tuple[str, str], dict], unlinked: set[tuple[str, str]]) 
 
 def generate_text(offline: bool) -> str:
     linked, unlinked = collect(offline)
-    return render(linked, unlinked)
+    return render(linked, unlinked, load_holders())
 
 
 def cmd_generate(args: argparse.Namespace) -> int:
@@ -313,15 +390,35 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_verify_holders(_args: argparse.Namespace) -> int:
+    """Re-read every recorded upstream source over the network (not run in CI)."""
+    import urllib.request
+
+    def fetch(url: str) -> bytes:
+        with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310 - https URLs only
+            return response.read(1 << 20)
+
+    problems = verify_holders(load_holders(), fetch)
+    for problem in problems:
+        print(problem, file=sys.stderr)
+    if not problems:
+        print(f"{HOLDERS.name} sources match their recorded digests")
+    return 1 if problems else 0
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("command", choices=("generate", "check"))
+    parser.add_argument("command", choices=("generate", "check", "verify-holders"))
     parser.add_argument(
         "--offline", action="store_true", help="pass --offline to cargo metadata (crates already fetched)"
     )
     args = parser.parse_args(argv)
     try:
-        return {"generate": cmd_generate, "check": cmd_check}[args.command](args)
+        return {
+            "generate": cmd_generate,
+            "check": cmd_check,
+            "verify-holders": cmd_verify_holders,
+        }[args.command](args)
     except GenerationError as error:
         print(f"third-party-licenses: {error}", file=sys.stderr)
         return 2

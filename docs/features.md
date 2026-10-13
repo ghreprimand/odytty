@@ -202,10 +202,12 @@ application enables both protocols (fish does), non-zero Kitty flags win.
 On Windows, a console application can request ConPTY Win32 input with DEC
 private mode 9001. While that mode is active, OdyTTY sends complete Win32 key
 records, including key-up state, virtual-key and scan codes, Unicode text,
-modifier flags, and repeat counts. A key whose text needs more than one
-UTF-16 unit (an emoji or other supplementary character, or composed text)
-sends one key-down record per unit with the same key identity; its key-up is
-one record. This preserves input such as
+modifier flags, and repeat counts. The Unicode text is the text Windows
+produced for the key, so a dead key that cannot combine with the next letter
+sends both the accent and the letter. A key whose text needs more than one
+UTF-16 unit (an emoji or other supplementary character, composed text, or that
+dead-key pair) sends one key-down record per unit with the same key identity;
+its key-up is one record. This preserves input such as
 `Ctrl+Backspace` word deletion in PowerShell and distinct `Shift+Enter`.
 The application requests the mode; there is no OdyTTY setting, and the mode is
 inert on Unix. When it is inactive, Kitty, modifyOtherKeys, and legacy input
@@ -1910,7 +1912,9 @@ Hosts come from OdyTTY's `hosts.conf`. When `ssh_config_hosts = on`, the manager
 also shows name-only entries from the OpenSSH config; while it is off, OdyTTY
 does not reference `~/.ssh`. As in OpenSSH, the first value of a keyword wins
 and `Host` blocks naming the same alias are merged; a config longer than the
-read limit is read up to its last whole line.
+read limit is read up to its last whole line. Once the entry limit is reached
+no further alias is listed, but later blocks for aliases already listed still
+merge.
 
 The manager is presentation-only. Selecting a host starts the system `ssh`
 client in a new session.
@@ -1943,8 +1947,11 @@ alias as the host beside a user or port (`deploy@box:2200`), and the picker's
 The identity-key browser scrolls to keep its selected candidate visible. Only
 visible candidate rows accept a click; its prompt and footer are inert. The
 `~/.ssh` scan reads at most 4,096 directory entries, skips names over 255
-bytes, and lists at most 256 candidates; when a bound cuts the scan short, a
-notice says so, and typing a path still reaches any other key.
+bytes, and lists at most 256 candidates. Raw directory results, including
+errors, count toward the entry bound. A bound or an entry-enumeration or
+file-type error raises an incomplete-list notice; typing a path still reaches
+any other key. Missing or initially unreadable directories retain the empty
+list and manual-entry hint. This scan is shared across Linux, macOS, and Windows.
 
 The `[Browse]` chip is located from the row's own layout, not by searching the
 drawn text, so a key path that itself contains `[Browse` is never mistaken for
@@ -2417,3 +2424,7 @@ target; one stray JSON directory or symlink cannot disable other layouts.
 Desktop notification helpers use a ten-second timeout with kill and reap.
 Windows toast requests distinguish the four application-owned notification
 kinds through fixed scripts; terminal-authored text never enters those scripts.
+
+Config writeback follows up to 40 symlinks and creates a missing final target.
+Unresolved or cyclic chains and link-read errors fail before replacing a link.
+The resolver is shared on Linux, macOS, and Windows; symlink fixtures exercise Unix.

@@ -403,16 +403,16 @@ fn ctrl_click_dispatch_builds_platform_open_for_plain_file() {
 fn failed_open_spawn_raises_visible_notice() {
     let mut app = build_app(b"");
     assert!(app.open_notice_message_for_test().is_none(), "clean start");
-    let argv = vec![
-        "odytty-nonexistent-opener-xyz".to_owned(),
-        "/proj/a.png".to_owned(),
-    ];
+    // A path with a directory part inside a folder this test owns, so no
+    // inherited `PATH` entry can supply the program.
+    let absent = crate::test_dirs::AbsentProgram::new();
+    let argv = vec![absent.program.clone(), "/proj/a.png".to_owned()];
     app.spawn_open_or_notice_for_test(&argv);
     let message = app
         .open_notice_message_for_test()
         .expect("a failed open must surface a notice");
     assert!(
-        message.contains("odytty-nonexistent-opener-xyz"),
+        message.contains(&absent.program),
         "notice names the missing opener: {message}"
     );
     assert!(message.contains("Couldn't open"), "user-facing phrasing");

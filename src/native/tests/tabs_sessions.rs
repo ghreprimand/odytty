@@ -4650,7 +4650,12 @@ fn prefix_focus_next_cycles_panes() {
 /// spawns a real opener on the shared box. Returns the app, the left pane's id,
 /// and both panes' recorded PTY writes (left, right).
 #[cfg(test)]
-type SplitPathFixture = (App, usize, [Arc<Mutex<Vec<u8>>>; 2]);
+type SplitPathFixture = (
+    App,
+    usize,
+    [Arc<Mutex<Vec<u8>>>; 2],
+    crate::test_dirs::AbsentProgram,
+);
 
 #[cfg(test)]
 fn split_app_with_path_in_left_pane() -> Option<SplitPathFixture> {
@@ -4693,8 +4698,9 @@ fn split_app_with_path_in_left_pane() -> Option<SplitPathFixture> {
     // A guaranteed-absent opener: the `:line` file routes through the editor
     // matrix, so this argv[0] is what Command tries to spawn -> NotFound, no
     // process, and the ladder still reports the path handled.
-    app.set_interactive_paths_editor_for_test("odytty_test_no_such_opener");
-    Some((app, left_id, [b_left, b_right]))
+    let opener = crate::test_dirs::AbsentProgram::new();
+    app.set_interactive_paths_editor_for_test(&opener.program);
+    Some((app, left_id, [b_left, b_right], opener))
 }
 
 /// The host open modifier: Cmd (super) on macOS, Ctrl on Linux/Windows.
@@ -4716,7 +4722,7 @@ fn ctrl_click_in_a_split_runs_the_open_ladder_instead_of_selecting() {
     // a Ctrl+click on a resolved path in a split focuses the pane, re-resolves the
     // hover span against it, and runs the ladder -- consuming the press so NO
     // selection begins.
-    let Some((mut app, left_id, written)) = split_app_with_path_in_left_pane() else {
+    let Some((mut app, left_id, written, opener)) = split_app_with_path_in_left_pane() else {
         eprintln!("skipping: no PTY available");
         return;
     };
@@ -4744,9 +4750,12 @@ fn ctrl_click_in_a_split_runs_the_open_ladder_instead_of_selecting() {
     // Positive evidence that the ladder ran: the guaranteed-absent editor made
     // the open fail, which raises the notice. A press that was merely swallowed
     // (focus change, no selection, no open) raises none.
+    let notice = app
+        .open_notice_message_for_test()
+        .expect("the open ladder ran and reported the failed editor spawn");
     assert!(
-        app.open_notice_message_for_test().is_some(),
-        "the open ladder ran and reported the failed editor spawn"
+        notice.contains(&opener.program),
+        "the notice names the absent editor that was tried: {notice}"
     );
     for pane in &written {
         assert!(
@@ -4763,7 +4772,7 @@ fn a_plain_click_in_a_split_still_begins_a_selection() {
     // The modifier-gated control: WITHOUT the open modifier, the ladder no-ops and
     // the split branch falls through to begin a selection exactly as before, so
     // plain click-drag selection in a split is unchanged.
-    let Some((mut app, left_id, _written)) = split_app_with_path_in_left_pane() else {
+    let Some((mut app, left_id, _written, _opener)) = split_app_with_path_in_left_pane() else {
         eprintln!("skipping: no PTY available");
         return;
     };

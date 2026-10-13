@@ -16,8 +16,8 @@ use crate::settings::BindableAction;
 
 /// Build an `App` backed by the shared test wake handle so `handle_new_workspace`
 /// (which spawns a fresh shell) succeeds. `Err` when this environment offers no
-/// loop. Cases that use it are ignored on macOS, where AppKit forbids building
-/// the loop off the main thread.
+/// loop. On macOS the handle discards events, because AppKit forbids building
+/// the loop off the main thread, so these cases run there too.
 fn app_with_proxy() -> Result<App, &'static str> {
     Ok(app_over(Some(event_waker_for_test()?)))
 }

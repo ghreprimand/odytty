@@ -532,7 +532,10 @@ next launch. Only variable names appear in this notice, never their values.
 This behavior applies on Linux Wayland, Linux X11, macOS, and Windows.
 Missing changed keys are appended under an OdyTTY settings
 section. Saves use a same-directory temporary file followed by rename; OdyTTY
-does not truncate the config file in place. The keybinding editor preserves
+does not truncate the config file in place. Config writeback follows up to 40
+symlinks, including a missing final target; unresolved or cyclic chains and
+link-read errors fail before replacing a link. This resolver is shared on
+Linux, macOS, and Windows; symlink fixtures exercise Unix. The keybinding editor preserves
 accepted overrides, active chord capture, conflict confirmation, and the
 unsaved-close prompt during configuration reload. Discard restores the newly
 loaded bindings and other settings. Conflict and close questions stay visible
@@ -747,7 +750,10 @@ report-all.
 
 On Windows, DEC private mode 9001 switches native input to complete Win32
 `KEY_EVENT_RECORD` values, including key-up state, virtual-key and scan codes,
-Unicode text, modifier flags, and repeat counts. Application-requested Win32
+Unicode text, modifier flags, and repeat counts. Key-down and repeat records
+carry the text the platform produced (one record per UTF-16 unit), so an
+uncombinable dead key sends its accent as well as the letter; key-up and Ctrl
+chords stay one record. Application-requested Win32
 input takes precedence over Kitty and modifyOtherKeys encoding while active,
 which preserves inputs such as `Ctrl+Backspace` and `Shift+Enter` for console
 applications. The mode has no user setting and is inert on Unix.
@@ -2125,7 +2131,9 @@ that closed while the picker was open, including when names are duplicated.
   leaves every other block, comment, and unknown field byte-for-byte untouched,
   carries an optional `IdentityFile` path (adds `ssh -i`, never a stored secret)
   and a reserved `Protocol` field. The identity-key browser keeps the selected
-  candidate visible and accepts clicks only on rendered candidate rows. The
+  candidate visible and accepts clicks only on rendered candidate rows. An
+  incomplete directory scan, including an entry-enumeration or file-type error,
+  raises a notice while retaining candidates and manual path entry. The
   form scrolls to keep the focused control visible in short windows, collapses
   help before controls, and maps clicks only to rendered fields. It offers a **Test connection** probe that
   reports authentication, host-key and reachability outcomes without ever handling a password. Probe

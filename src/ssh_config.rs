@@ -179,11 +179,6 @@ fn parse_ssh_config_text(text: &str, limits: SshConfigReadLimits) -> Vec<SshHost
             }
             _ => {}
         }
-
-        if entries.len() >= limits.max_entries {
-            current = None;
-            break;
-        }
     }
 
     flush_block(&mut entries, &mut seen, current, limits.max_entries);
@@ -326,8 +321,10 @@ fn flush_block(
             }
             continue;
         }
+        // At the cap no new alias is admitted, but the rest of the block still
+        // merges into aliases already retained.
         if entries.len() >= max_entries {
-            break;
+            continue;
         }
         seen.insert(alias.clone(), entries.len());
         entries.push(SshHostEntry {
@@ -674,5 +671,110 @@ mod tests {
         assert!(read_ssh_config_with_limits(&missing, limits()).is_empty());
         assert!(read_ssh_config_with_limits(&dir, limits()).is_empty());
         fs::remove_dir_all(dir).ok();
+    }
+
+    fn capped(max_entries: usize) -> SshConfigReadLimits {
+        SshConfigReadLimits {
+            max_bytes: 4096,
+            max_entries,
+            max_field_chars: 128,
+        }
+    }
+
+    type Summary<'a> = (&'a str, Option<&'a str>, Option<&'a str>, Option<u16>);
+
+    fn summary(entries: &[SshHostEntry]) -> Vec<Summary<'_>> {
+        entries
+            .iter()
+            .map(|e| {
+                (
+                    e.alias.as_str(),
+                    e.host_name.as_deref(),
+                    e.user.as_deref(),
+                    e.port,
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_repeated_block_still_merges_when_the_entry_cap_is_reached() {
+        let entries = parse_ssh_config_bytes_with_limits(
+            b"Host a
+ HostName h.invalid
+Host a
+ User late
+ Port 2201
+",
+            capped(1),
+        );
+        assert_eq!(
+            summary(&entries),
+            vec![("a", Some("h.invalid"), Some("late"), Some(2201))]
+        );
+    }
+
+    #[test]
+    fn the_entry_cap_admits_no_new_alias_but_later_repeats_still_merge() {
+        // `b` is refused at the cap; the repeat of `a` after it still merges,
+        // and the first value of every keyword still wins.
+        let entries = parse_ssh_config_bytes_with_limits(
+            b"Host a
+ HostName first.invalid
+Host b
+ User refused
+Host a
+ HostName second.invalid
+ User late
+",
+            capped(1),
+        );
+        assert_eq!(
+            summary(&entries),
+            vec![("a", Some("first.invalid"), Some("late"), None)]
+        );
+    }
+
+    #[test]
+    fn a_refused_alias_does_not_block_a_retained_alias_in_the_same_block() {
+        let entries = parse_ssh_config_bytes_with_limits(
+            b"Host a
+ HostName h.invalid
+Host b a
+ User shared
+",
+            capped(1),
+        );
+        assert_eq!(
+            summary(&entries),
+            vec![("a", Some("h.invalid"), Some("shared"), None)]
+        );
+    }
+
+    #[test]
+    fn the_default_entry_cap_keeps_merging_repeats_of_retained_aliases() {
+        let mut text = String::new();
+        for n in 0..DEFAULT_SSH_CONFIG_MAX_ENTRIES {
+            text.push_str(&format!(
+                "Host h{n}
+"
+            ));
+        }
+        text.push_str(
+            "Host extra
+ User refused
+Host h0
+ User late
+",
+        );
+        let limits = SshConfigReadLimits {
+            max_bytes: 1 << 20,
+            ..SshConfigReadLimits::default()
+        };
+        let entries = parse_ssh_config_bytes_with_limits(text.as_bytes(), limits);
+        assert_eq!(entries.len(), DEFAULT_SSH_CONFIG_MAX_ENTRIES);
+        assert!(entries.iter().all(|e| e.alias != "extra"));
+        assert_eq!(entries[0].alias, "h0");
+        assert_eq!(entries[0].user.as_deref(), Some("late"));
     }
 }

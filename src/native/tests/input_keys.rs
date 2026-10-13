@@ -1169,6 +1169,7 @@ fn win32_records_carry_every_utf16_unit_of_the_produced_text() {
             &WinitKey::Character("a".into()),
             mods,
             event_type,
+            None,
         )
     };
     let record = |unit: u16, down: u8| format!("\x1b[65;30;{unit};{down};0;1_").into_bytes();
@@ -1184,6 +1185,113 @@ fn win32_records_carry_every_utf16_unit_of_the_produced_text() {
         ctrl.iter().filter(|&&byte| byte == b'_').count(),
         1,
         "a Ctrl chord keeps one control-code record"
+    );
+}
+
+/// Win32 input mode encodes the text the platform produced, not the logical
+/// key: after a dead key that cannot combine, Windows produces both the accent
+/// and the letter while the logical key is the letter alone. The physical key
+/// identity, the single release record, the Ctrl control code, and named keys
+/// are unchanged, and control-bearing produced text falls back to the logical
+/// text.
+#[test]
+fn win32_records_carry_generated_text_rather_than_the_logical_key() {
+    let encode = |code: KeyCode,
+                  logical: WinitKey,
+                  mods: Modifiers,
+                  event_type: KeyEventType,
+                  text: Option<&str>| {
+        super::super::bindings::encode_win32_key_records(
+            PhysicalKey::Code(code),
+            &logical,
+            &logical,
+            mods,
+            event_type,
+            text,
+        )
+    };
+    let x = || WinitKey::Character("x".into());
+    let record =
+        |unit: u16, down: u8, ctrl: u16| format!("\x1b[88;45;{unit};{down};{ctrl};1_").into_bytes();
+    let accent_x = [record(0xB4, 1, 0), record(0x78, 1, 0)].concat();
+
+    let press = encode(
+        KeyCode::KeyX,
+        x(),
+        Modifiers::NONE,
+        KeyEventType::Press,
+        Some("\u{b4}x"),
+    );
+    assert_eq!(press, accent_x, "the dead-key accent must not be lost");
+    let repeat = encode(
+        KeyCode::KeyX,
+        x(),
+        Modifiers::NONE,
+        KeyEventType::Repeat,
+        Some("\u{b4}x"),
+    );
+    assert_eq!(repeat, accent_x, "a repeat carries the produced text too");
+    let emoji = encode(
+        KeyCode::KeyX,
+        x(),
+        Modifiers::NONE,
+        KeyEventType::Press,
+        Some("\u{1F600}"),
+    );
+    assert_eq!(emoji, [record(0xD83D, 1, 0), record(0xDE00, 1, 0)].concat());
+    let released = encode(
+        KeyCode::KeyX,
+        x(),
+        Modifiers::NONE,
+        KeyEventType::Release,
+        Some("\u{b4}x"),
+    );
+    assert_eq!(released, record(0x78, 0, 0), "a release is one record");
+    let ctrl = encode(
+        KeyCode::KeyX,
+        x(),
+        Modifiers::CTRL,
+        KeyEventType::Press,
+        Some("\u{18}"),
+    );
+    assert_eq!(
+        ctrl,
+        record(0x18, 1, 8),
+        "a Ctrl chord keeps its control code"
+    );
+    let control = encode(
+        KeyCode::KeyX,
+        x(),
+        Modifiers::NONE,
+        KeyEventType::Press,
+        Some("\u{b4}\n"),
+    );
+    assert_eq!(
+        control,
+        record(0x78, 1, 0),
+        "control-bearing text falls back"
+    );
+    let space = encode(
+        KeyCode::Space,
+        WinitKey::Named(NamedKey::Space),
+        Modifiers::NONE,
+        KeyEventType::Press,
+        Some("\u{b4}"),
+    );
+    assert_eq!(
+        space, b"\x1b[32;57;180;1;0;1_",
+        "a dead key then Space sends the accent"
+    );
+    let enter = encode(
+        KeyCode::Enter,
+        WinitKey::Named(NamedKey::Enter),
+        Modifiers::NONE,
+        KeyEventType::Press,
+        Some("\r"),
+    );
+    assert_eq!(
+        enter, b"\x1b[13;28;13;1;0;1_",
+        "a named key keeps its mapped unit"
     );
 }
 

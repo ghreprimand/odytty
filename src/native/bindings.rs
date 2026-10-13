@@ -1081,35 +1081,53 @@ pub(super) fn map_win32_key_event(
     })
 }
 
-/// Encode one physical key event as Win32 input-mode records. The first
-/// record carries the key's first UTF-16 unit; when its logical text needs
-/// more units (a supplementary scalar's low surrogate, or the rest of
-/// multi-scalar composed text), each further unit follows as its own record
-/// with the same key identity, so no produced text is cut. A release carries
-/// only the first record: the text was already delivered on the key-down.
-/// Ctrl chords keep their single control-code record.
+/// Encode one physical key event as Win32 input-mode records. A key-down or
+/// repeat carries the text the platform produced (`generated_text`, which
+/// after an uncombinable dead key holds both characters while the logical key
+/// holds one), falling back to the logical text. Each UTF-16 unit is its own
+/// record with the same key identity, so no produced text is cut. A release
+/// carries one record and a Ctrl chord keeps its single control-code record.
 pub(super) fn encode_win32_key_records(
     physical: PhysicalKey,
     logical: &WinitKey,
     base_logical: &WinitKey,
     mods: Modifiers,
     event_type: KeyEventType,
+    generated_text: Option<&str>,
 ) -> Vec<u8> {
-    let Some(event) = map_win32_key_event(physical, logical, base_logical, mods, event_type) else {
+    let Some(mut event) = map_win32_key_event(physical, logical, base_logical, mods, event_type)
+    else {
         return Vec::new();
     };
+    if event_type == KeyEventType::Release || mods.ctrl {
+        return crate::input::encode_win32_key_event(event, event_type);
+    }
+    // Produced text is used only for text keys and only when it is printable;
+    // named keys and control translations keep the mapped Unicode unit.
+    let produced = generated_text
+        .filter(|text| !text.is_empty() && !text.chars().any(char::is_control))
+        .filter(|_| {
+            matches!(
+                logical,
+                WinitKey::Character(_) | WinitKey::Named(NamedKey::Space)
+            )
+        });
+    let text = match (produced, logical) {
+        (Some(text), _) => text,
+        (None, WinitKey::Character(text)) => text.as_str(),
+        (None, _) => "",
+    };
+    let mut units = text.encode_utf16();
+    if let Some(first) = units.next() {
+        event.unicode_char = first;
+    }
     let mut bytes = crate::input::encode_win32_key_event(event, event_type);
-    if event_type != KeyEventType::Release
-        && !mods.ctrl
-        && let WinitKey::Character(text) = logical
-    {
-        for unit in text.encode_utf16().skip(1) {
-            let record = Win32KeyEvent {
-                unicode_char: unit,
-                ..event
-            };
-            bytes.extend(crate::input::encode_win32_key_event(record, event_type));
-        }
+    for unit in units {
+        let record = Win32KeyEvent {
+            unicode_char: unit,
+            ..event
+        };
+        bytes.extend(crate::input::encode_win32_key_event(record, event_type));
     }
     bytes
 }

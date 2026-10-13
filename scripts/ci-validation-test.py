@@ -3,6 +3,7 @@
 """Project-authored fixtures pin the required validation proof boundary."""
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -27,6 +28,21 @@ PROOFS = [f"VALIDATION_EXECUTED test={name}" for name in GPU + COMPOSITE] + [
 
 
 class RequiredValidation(unittest.TestCase):
+    def test_ci_push_checks_integration_branches(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        push = re.search(r"(?ms)^  push:\n(.*?)(?=^  \S|\Z)", workflow)
+        self.assertIsNotNone(push, "CI must validate pushed integration commits")
+        branches = re.search(r"(?m)^    branches:\s*\[([^\]]*)\]", push.group(1))
+        self.assertIsNotNone(branches, "CI push branches must be explicit")
+        names = {value.strip().strip("\"'") for value in branches.group(1).split(",")}
+        self.assertTrue({"master", "ci/**"}.issubset(names),
+                        "master and temporary CI branches both require the matrix")
+
+    def test_guide_requires_full_parallel_suite_and_repeated_touched_groups(self):
+        guide = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+        self.assertIn("RUST_TEST_THREADS=4 cargo test --locked", guide)
+        self.assertIn("Run touched test groups five times at `RUST_TEST_THREADS=4`", guide)
+
     def run_fixture(self, proofs, status=0):
         with tempfile.TemporaryDirectory() as directory:
             stub = Path(directory) / "cargo"

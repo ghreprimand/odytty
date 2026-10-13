@@ -603,6 +603,38 @@ fn animation_playback_advances_visible_placements_and_schedules_bounded_wakes() 
 }
 
 #[test]
+fn a_delayed_tick_never_publishes_a_gapless_tail_frame_to_the_scene() {
+    let mut terminal = terminal_with_animated_image();
+    terminal.advance(&apc(
+        "a=f,i=1,f=32,s=2,v=2,z=40",
+        &canvas([40, 50, 60, 255]),
+    ));
+    // Base data for a frame still to come: gapless, distinct pixels.
+    terminal.advance(&apc(
+        "a=f,i=1,f=32,s=2,v=2,z=-1",
+        &canvas([70, 80, 90, 255]),
+    ));
+    terminal.advance(&apc_no_payload("a=a,i=1,s=2,r=1,z=100"));
+    let _ = terminal.take_host_output();
+
+    assert!(!terminal.advance_graphics_animations(1_000, 0));
+    let revision_before = terminal.render_revision();
+    assert!(
+        terminal.advance_graphics_animations(1_200, 0),
+        "the late tick still flips to the last displayable frame"
+    );
+    assert_eq!(
+        displayed_pixels(&terminal, 1),
+        canvas([40, 50, 60, 255]),
+        "the gapless tail's base data never reaches the displayed pixels"
+    );
+    assert!(terminal.render_revision() != revision_before);
+    assert_eq!(terminal.graphics_animation_deadline_ms(0), None);
+    assert!(!terminal.advance_graphics_animations(5_000, 0));
+    assert_eq!(displayed_pixels(&terminal, 1), canvas([40, 50, 60, 255]));
+}
+
+#[test]
 fn no_animation_means_no_deadline_and_no_work() {
     let mut terminal = terminal_with_animated_image();
 

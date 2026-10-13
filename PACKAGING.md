@@ -299,8 +299,16 @@ Windows x86_64 and macOS aarch64), so a dependency change that alters the
 closure needs a regenerated file in the same commit. A crate whose published
 source has no licence file gets the standard text of its declared licence from
 `scripts/third-party-licenses-spdx/`, with its declared authors, and the file
-says so; when it declares no authors the entry names the repository that keeps
-its copyright statement and states that the published source names no holder.
+says so. When it declares no authors, the entry names the holder recorded for its
+repository in `scripts/third-party-holders.json` (the 13 objc2 framework crates:
+the upstream licence files state the holder, but the published crates omit them),
+with the commit those files were read at; a repository absent from that table
+gets the repository link and a statement that the published source names no
+holder. Each table entry records the URL and sha256 of the files that name the
+holder, and `python3 scripts/third-party-licenses.py verify-holders` re-reads
+them over the network (the generator and CI never do; run it when adding or
+changing an entry). The upstream files carry the year 2026, which post-dates the
+locked crate versions, so the notice states no year for them.
 COPYRIGHT and AUTHORS files in a crate's source are reproduced beside its
 licence texts, because for several crates they are the only statement of who
 holds the copyright. CI runs the script's `check` mode (it needs cargo

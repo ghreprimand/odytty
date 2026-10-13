@@ -40,6 +40,35 @@ impl Drop for ScratchDir {
     }
 }
 
+/// A program path no process can resolve: a name inside a scratch folder this
+/// fixture owns and never populates. It has a directory part, so no `PATH`
+/// entry can supply it (a bare name would resolve through an inherited `PATH`).
+pub(crate) struct AbsentProgram {
+    _dir: ScratchDir,
+    pub(crate) program: String,
+}
+
+impl AbsentProgram {
+    pub(crate) fn new() -> Self {
+        let dir = ScratchDir::new("ottap");
+        let owned = dir.path().join("absent-program").display().to_string();
+        // An editor spec is split on whitespace, so a temp folder with a space
+        // in its path would turn the program into several argv elements. A
+        // fixed absolute path in a folder that does not exist is just as
+        // absent and has no space.
+        let program = if owned.contains(char::is_whitespace) {
+            if cfg!(windows) {
+                r"C:\odytty-absent-program\program.exe".to_owned()
+            } else {
+                "/odytty-absent-program/program".to_owned()
+            }
+        } else {
+            owned
+        };
+        Self { _dir: dir, program }
+    }
+}
+
 /// Wait for a dropped listener's inherited descriptors to close before probing
 /// stale-socket behavior. Each nonblocking connect and the whole wait are bounded.
 #[cfg(unix)]

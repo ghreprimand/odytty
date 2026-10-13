@@ -1,0 +1,16 @@
+{
+  "https://github.com/madsmtm/objc2": {
+    "holder": "Mads Marquart",
+    "commit": "ee9a7ada2131f5944b8750428e265c15632f2a19",
+    "sources": [
+      {
+        "url": "https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-MIT.txt",
+        "sha256": "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+      },
+      {
+        "url": "https://raw.githubusercontent.com/madsmtm/objc2/ee9a7ada2131f5944b8750428e265c15632f2a19/LICENSE-ZLIB.txt",
+        "sha256": "fced3e7fedc235fa83ed0108b0df74d86b435d06436356f46917a903cbadd80a"
+      }
+    ]
+  }
+}

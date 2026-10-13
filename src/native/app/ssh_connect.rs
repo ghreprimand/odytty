@@ -180,7 +180,7 @@ impl App {
     /// Returns full paths, sorted; a missing or unreadable `~/.ssh` yields an
     /// empty list and the browser shows a "type a path manually" hint. The scan
     /// is bounded ([`IDENTITY_SCAN_ENTRIES`], [`IDENTITY_NAME_BYTES`],
-    /// [`IDENTITY_CANDIDATES`]); a truncated scan raises a notice that manual
+    /// [`IDENTITY_CANDIDATES`]); bounds or entry errors raise a notice that manual
     /// entry still reaches any other key. Windows: `~/.ssh` resolves under
     /// `%USERPROFILE%` exactly as on Unix.
     pub(in crate::native) fn gather_identity_key_candidates(&mut self) -> Vec<String> {
@@ -816,12 +816,12 @@ const IDENTITY_SCAN_ENTRIES: usize = 4096;
 const IDENTITY_NAME_BYTES: usize = 255;
 /// Candidates the key browser lists at most, after sorting.
 const IDENTITY_CANDIDATES: usize = 256;
-/// Notice raised when the key scan hit one of its bounds.
+/// Notice raised when the key scan is incomplete because of bounds or errors.
 const IDENTITY_SCAN_TRUNCATED_NOTICE: &str =
-    "~/.ssh has more entries than the key browser lists; type a path for any other key";
+    "~/.ssh key list is incomplete; type a path for any other key";
 
-/// A bounded `~/.ssh` scan: the listed candidates, and whether a bound cut
-/// the scan short.
+/// A bounded `~/.ssh` scan: candidates and whether a bound or directory-entry
+/// error made the answer incomplete.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct IdentityScan {
     candidates: Vec<String>,
@@ -833,7 +833,8 @@ struct IdentityScan {
 /// (never real key material). Reads entry NAMES only — never file contents —
 /// and skips entries whose own file type is a directory (a symlink to a
 /// directory is not filtered). Returns full paths, sorted for a stable list,
-/// within the entry, name-length and candidate bounds above.
+/// within the entry, name-length and candidate bounds above. Entry and file-type
+/// errors mark the retained answer incomplete without opening key contents.
 fn gather_identity_key_candidates_in(ssh_dir: &std::path::Path) -> IdentityScan {
     gather_identity_key_candidates_bounded(
         ssh_dir,
@@ -852,19 +853,45 @@ fn gather_identity_key_candidates_bounded(
     let Ok(entries) = std::fs::read_dir(ssh_dir) else {
         return IdentityScan::default();
     };
+    scan_identity_entries(
+        ssh_dir,
+        entries.map(|entry| {
+            let entry = entry?;
+            Ok((entry.file_name(), entry.file_type()?.is_dir()))
+        }),
+        max_entries,
+        max_name_bytes,
+        max_candidates,
+    )
+}
+
+fn scan_identity_entries(
+    ssh_dir: &std::path::Path,
+    entries: impl IntoIterator<Item = std::io::Result<(std::ffi::OsString, bool)>>,
+    max_entries: usize,
+    max_name_bytes: usize,
+    max_candidates: usize,
+) -> IdentityScan {
     let mut truncated = false;
     let mut names: Vec<String> = Vec::new();
     let mut pub_stems: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for (inspected, entry) in entries.flatten().enumerate() {
+    for (inspected, entry) in entries.into_iter().enumerate() {
         if inspected >= max_entries {
             truncated = true;
             break;
         }
+        let (name, is_dir) = match entry {
+            Ok(entry) => entry,
+            Err(_) => {
+                truncated = true;
+                continue;
+            }
+        };
         // Skip subdirectories — a key is a file (or a symlink to one).
-        if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+        if is_dir {
             continue;
         }
-        let Ok(name) = entry.file_name().into_string() else {
+        let Ok(name) = name.into_string() else {
             continue;
         };
         if name.len() > max_name_bytes {
@@ -919,7 +946,7 @@ fn is_identity_key_candidate(name: &str, has_pub_sibling: bool) -> bool {
 mod identity_key_candidate_tests {
     use super::{
         gather_identity_key_candidates_bounded, gather_identity_key_candidates_in,
-        is_identity_key_candidate,
+        is_identity_key_candidate, scan_identity_entries,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -935,6 +962,62 @@ mod identity_key_candidate_tests {
 
     fn temp_dir(prefix: &str) -> Scratch {
         Scratch(crate::test_dirs::fresh_temp_dir(&format!("{prefix}-")))
+    }
+
+    #[test]
+    fn iterator_error_marks_partial_key_scan_incomplete() {
+        let scan = scan_identity_entries(
+            std::path::Path::new("synthetic-keys"),
+            [
+                Ok(("id_fake".into(), false)),
+                Err(std::io::Error::other("injected directory error")),
+            ],
+            4,
+            255,
+            4,
+        );
+        assert_eq!(
+            scan.candidates,
+            vec![
+                std::path::Path::new("synthetic-keys")
+                    .join("id_fake")
+                    .to_string_lossy()
+            ]
+        );
+        assert!(
+            scan.truncated,
+            "partial answers must raise the incomplete notice"
+        );
+    }
+
+    #[test]
+    fn repeated_iterator_errors_count_toward_key_scan_bound() {
+        let mut read = 0;
+        let entries = std::iter::from_fn(|| {
+            read += 1;
+            (read <= 10).then(|| Err(std::io::Error::other("injected directory error")))
+        });
+        let scan =
+            scan_identity_entries(std::path::Path::new("synthetic-keys"), entries, 2, 255, 4);
+        assert!(scan.truncated);
+        assert!(read <= 3, "raw errors must not bypass the entry bound");
+        assert!(scan.candidates.is_empty());
+    }
+
+    #[test]
+    fn key_scan_retains_candidates_after_an_entry_error() {
+        let scan = scan_identity_entries(
+            std::path::Path::new("synthetic-keys"),
+            [
+                Err(std::io::Error::other("injected directory error")),
+                Ok(("id_fake".into(), false)),
+            ],
+            4,
+            255,
+            4,
+        );
+        assert_eq!(scan.candidates.len(), 1);
+        assert!(scan.truncated);
     }
 
     #[test]

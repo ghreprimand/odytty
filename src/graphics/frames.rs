@@ -485,9 +485,7 @@ impl ImageFrames {
             // A loading animation can move only onto a frame that will be
             // shown. Trailing gapless frames are base data for frames still to
             // come, so stepping onto them would display them.
-            AnimationState::RunLoading => {
-                (self.current + 1..self.frames.len()).any(|i| self.playback_gap_ms(i).is_some())
-            }
+            AnimationState::RunLoading => self.has_displayable_frame_after_current(),
             AnimationState::Running => true,
         }
     }
@@ -546,6 +544,11 @@ impl ImageFrames {
         changed
     }
 
+    /// Whether any frame after the current one can be displayed (has a gap).
+    fn has_displayable_frame_after_current(&self) -> bool {
+        (self.current + 1..self.frames.len()).any(|i| self.playback_gap_ms(i).is_some())
+    }
+
     /// Take one step forward in the frame list, applying end-of-list policy.
     /// Returns whether the position moved.
     fn step_frame(&mut self) -> bool {
@@ -553,6 +556,15 @@ impl ImageFrames {
             return false;
         }
         if self.current + 1 < self.frames.len() {
+            // A loading animation never steps onto a frame it will not show:
+            // trailing gapless frames are base data for frames still to come.
+            // Checked at every step, so a late tick that passes the last
+            // displayable frame parks on it exactly as separate ticks would.
+            if self.state == AnimationState::RunLoading
+                && !self.has_displayable_frame_after_current()
+            {
+                return false;
+            }
             self.current += 1;
             return true;
         }

@@ -239,29 +239,33 @@ fn clamp_config_mode(mode: u32) -> u32 {
     if mode & !0o644 == 0 { mode } else { 0o644 }
 }
 
-/// The file a config path ultimately names: `path` itself unless it is a
-/// symlink, then the final target of the chain, a relative link read against
-/// the directory holding it. A dangling link resolves to its missing target so a
-/// first write creates it there. A chain longer than 40 links, or any read
-/// error, leaves the original path, which keeps the plain replace behavior.
-fn follow_config_link(path: &Path) -> PathBuf {
+/// Resolve up to 40 config symlinks relative to each link's directory.
+/// Missing targets are valid first-write destinations. Unresolved chains and
+/// read errors are refused before creating a temp or replacing any link.
+fn follow_config_link(path: &Path) -> io::Result<PathBuf> {
     let mut current = path.to_path_buf();
-    for _ in 0..40 {
-        let is_link = fs::symlink_metadata(&current)
-            .map(|meta| meta.file_type().is_symlink())
-            .unwrap_or(false);
-        if !is_link {
-            return current;
-        }
-        let Ok(target) = fs::read_link(&current) else {
-            return path.to_path_buf();
+    for followed in 0..=40 {
+        let metadata = match fs::symlink_metadata(&current) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(current),
+            Err(error) => return Err(error),
         };
+        if !metadata.file_type().is_symlink() {
+            return Ok(current);
+        }
+        if followed == 40 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "config symlink chain exceeds 40 links or is cyclic",
+            ));
+        }
+        let target = fs::read_link(&current)?;
         current = match current.parent() {
             Some(parent) => parent.join(target),
             None => target,
         };
     }
-    path.to_path_buf()
+    unreachable!("every final iteration returns")
 }
 
 /// Atomically write `bytes` to `path` under `mode`.
@@ -290,7 +294,7 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8], mode: WriteMode) -> io::Re
     // cut the file from the repository it was linked to.
     let followed;
     let path = if matches!(mode, WriteMode::Config) {
-        followed = follow_config_link(path);
+        followed = follow_config_link(path)?;
         followed.as_path()
     } else {
         path
@@ -854,6 +858,65 @@ mod tests {
         assert!(!unix::owner_policy_accepts_only_the_effective_uid(
             uid.wrapping_add(1)
         ));
+    }
+
+    #[cfg(unix)]
+    fn config_chain(root: &Path, count: usize) -> PathBuf {
+        use std::os::unix::fs::symlink;
+        fs::write(root.join("target.conf"), b"original").expect("target");
+        for index in 0..count {
+            let target = if index + 1 == count {
+                "target.conf".to_owned()
+            } else {
+                format!("link-{}", index + 1)
+            };
+            symlink(target, root.join(format!("link-{index}"))).expect("chain link");
+        }
+        root.join("link-0")
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_write_follows_exactly_forty_links() {
+        for count in [39, 40] {
+            let root = crate::test_dirs::ScratchDir::new("config-chain-boundary-");
+            let first = config_chain(root.path(), count);
+            write_atomic(&first, b"updated", WriteMode::Config).expect("bounded chain");
+            assert!(
+                fs::symlink_metadata(&first)
+                    .expect("link metadata")
+                    .is_symlink()
+            );
+            assert_eq!(
+                fs::read(root.path().join("target.conf")).expect("target"),
+                b"updated"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_write_refuses_over_limit_chains_and_cycles_without_replacement() {
+        use std::os::unix::fs::symlink;
+        let root = crate::test_dirs::ScratchDir::new("config-chain-refusal-");
+        let first = config_chain(root.path(), 41);
+        assert!(write_atomic(&first, b"updated", WriteMode::Config).is_err());
+        assert!(
+            fs::symlink_metadata(&first)
+                .expect("link metadata")
+                .is_symlink()
+        );
+        assert_eq!(
+            fs::read(root.path().join("target.conf")).expect("target"),
+            b"original"
+        );
+        let cycle = root.path().join("cycle");
+        symlink("cycle", &cycle).expect("cycle");
+        assert!(write_atomic(&cycle, b"updated", WriteMode::Config).is_err());
+        assert_eq!(
+            fs::read_link(&cycle).expect("cycle stays"),
+            PathBuf::from("cycle")
+        );
     }
 
     #[cfg(unix)]

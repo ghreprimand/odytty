@@ -229,12 +229,36 @@ fn a_crate_with_no_declared_authors_says_where_its_holder_is_stated() {
         if line.contains(" | authors: none declared") {
             checked += 1;
             assert!(
-                line.contains(" | holder: not named in the published source"),
+                line.contains(" | holder: not named in the published source")
+                    || line.contains(" (named by the licence files at "),
                 "{line} names neither authors nor where the copyright statement is kept"
             );
         }
     }
     assert!(checked > 0, "no crate without authors was found to check");
+}
+
+#[test]
+fn objc2_family_crates_name_the_holder_the_upstream_licence_files_state() {
+    let text = read(FILE);
+    let mut checked = 0;
+    for line in text
+        .lines()
+        .filter(|line| line.starts_with("crate: objc2-"))
+    {
+        checked += 1;
+        assert!(
+            line.contains(" | holder: Mads Marquart (named by the licence files at ")
+                || !line.contains("authors: none declared"),
+            "{line} still points at the repository instead of naming the holder"
+        );
+    }
+    assert!(checked > 10, "the objc2 framework crates were not found");
+    let table = read("scripts/third-party-holders.json");
+    assert!(
+        table.contains("\"holder\": \"Mads Marquart\""),
+        "the holder table does not record the objc2 holder"
+    );
 }
 
 #[test]

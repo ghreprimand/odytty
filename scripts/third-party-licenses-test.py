@@ -36,9 +36,9 @@ class GeneratorTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
-    def render(self, packages, unlinked=()):
+    def render(self, packages, unlinked=(), holders=None):
         linked = {(p["name"], p["version"]): p for p in packages}
-        return tpl.render(linked, set(unlinked))
+        return tpl.render(linked, set(unlinked), holders)
 
     def test_identical_texts_are_reproduced_once_for_every_crate_they_cover(self):
         text = b"Permission is hereby granted\r\n"
@@ -98,6 +98,89 @@ class GeneratorTests(unittest.TestCase):
             " and no repository is declared",
             self.render([crate]),
         )
+
+    def test_a_checked_in_holder_names_the_holder_for_a_crate_with_no_authors(self):
+        crate = package(
+            self.root, "bare", "0.1.0", "MIT", {}, repository="https://example.invalid/bare"
+        )
+        holders = {
+            "https://example.invalid/bare": {
+                "holder": "Sam Roe",
+                "commit": "0123456789abcdef0123456789abcdef01234567",
+                "sources": [],
+            }
+        }
+        output = self.render([crate], holders=holders)
+        self.assertIn(
+            "| authors: none declared | holder: Sam Roe (named by the licence files at"
+            " https://example.invalid/bare, commit 01234567; the published crate omits them)",
+            output,
+        )
+        self.assertNotIn("not named in the published source", output)
+
+    def test_a_repository_with_a_trailing_slash_or_git_suffix_matches_its_holder(self):
+        holders = {
+            "https://example.invalid/bare": {"holder": "Sam Roe", "commit": "a" * 40, "sources": []}
+        }
+        for repository in ("https://example.invalid/bare/", "https://example.invalid/bare.git"):
+            crate = package(self.root, "bare" + str(len(repository)), "0.1.0", "MIT", {}, repository=repository)
+            self.assertIn("holder: Sam Roe", self.render([crate], holders=holders))
+
+    def test_a_crate_outside_the_holder_table_keeps_the_repository_pointer(self):
+        crate = package(
+            self.root, "bare", "0.1.0", "MIT", {}, repository="https://example.invalid/other"
+        )
+        holders = {
+            "https://example.invalid/bare": {"holder": "Sam Roe", "commit": "a" * 40, "sources": []}
+        }
+        self.assertIn(
+            "holder: not named in the published source; see https://example.invalid/other",
+            self.render([crate], holders=holders),
+        )
+
+    def test_a_holder_table_entry_with_a_bad_digest_or_no_holder_is_refused(self):
+        good = {"holder": "Sam Roe", "commit": "a" * 40, "sources": [{"url": "https://x.invalid/a", "sha256": "0" * 64}]}
+        tpl.validate_holders({"https://x.invalid/r": good})
+        for broken in (
+            {**good, "holder": ""},
+            {**good, "commit": "xyz"},
+            {**good, "sources": []},
+            {**good, "sources": [{"url": "https://x.invalid/a", "sha256": "abc"}]},
+            {**good, "sources": [{"url": "http://x.invalid/a", "sha256": "0" * 64}]},
+        ):
+            with self.assertRaises(tpl.GenerationError):
+                tpl.validate_holders({"https://x.invalid/r": broken})
+
+    def test_the_checked_in_holder_table_is_valid_and_covers_the_objc2_repository(self):
+        holders = tpl.load_holders()
+        self.assertEqual(holders["https://github.com/madsmtm/objc2"]["holder"], "Mads Marquart")
+
+    def test_verifying_holders_compares_every_source_digest(self):
+        import hashlib
+
+        body = b"Copyright 2026 Sam Roe\n"
+        entry = {
+            "holder": "Sam Roe",
+            "commit": "a" * 40,
+            "sources": [{"url": "https://x.invalid/a", "sha256": hashlib.sha256(body).hexdigest()}],
+        }
+        self.assertEqual(tpl.verify_holders({"https://x.invalid/r": entry}, lambda url: body), [])
+        problems = tpl.verify_holders({"https://x.invalid/r": entry}, lambda url: body + b"x")
+        self.assertEqual(len(problems), 1)
+        self.assertIn("https://x.invalid/a", problems[0])
+
+    def test_a_source_that_does_not_name_the_holder_is_a_problem(self):
+        import hashlib
+
+        body = b"Copyright 2026 Someone Else\n"
+        entry = {
+            "holder": "Sam Roe",
+            "commit": "a" * 40,
+            "sources": [{"url": "https://x.invalid/a", "sha256": hashlib.sha256(body).hexdigest()}],
+        }
+        problems = tpl.verify_holders({"https://x.invalid/r": entry}, lambda url: body)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("Sam Roe", problems[0])
 
     def test_declared_authors_need_no_holder_note(self):
         crate = package(

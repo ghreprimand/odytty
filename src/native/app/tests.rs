@@ -2584,3 +2584,54 @@ fn kitty_associated_text_missing_payload_keeps_each_logical_scalar() {
         assert_eq!(bytes.lock().expect("recorded bytes").as_slice(), expected);
     }
 }
+
+/// The App hands the platform's produced text to the Win32 encoder. After an
+/// uncombinable dead key Windows reports logical x with produced text U+00B4
+/// then x; both characters reach the PTY on the key-down and on a repeat,
+/// while the release and a Ctrl chord stay one record. Win32 input mode is
+/// honoured only on Windows, so this route runs on that CI leg.
+#[cfg(windows)]
+#[test]
+fn win32_input_writes_the_generated_text_after_a_dead_key() {
+    let (mut app, bytes) = build_recording_app().expect("headless app");
+    app.terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"\x1b[?9001h");
+    let physical = PhysicalKey::Code(winit::keyboard::KeyCode::KeyX);
+    let record =
+        |unit: u16, down: u8, ctrl: u16| format!("\x1b[88;45;{unit};{down};{ctrl};1_").into_bytes();
+    let drive = |app: &mut App, event_type: KeyEventType, text: Option<&str>| {
+        bytes.lock().expect("recorded bytes").clear();
+        app.handle_key_event_with_text(
+            WinitKey::Character("x".into()),
+            WinitKey::Character("x".into()),
+            physical,
+            event_type,
+            text,
+        );
+        bytes.lock().expect("recorded bytes").clone()
+    };
+    let accent_x = [record(0xB4, 1, 0), record(0x78, 1, 0)].concat();
+    assert_eq!(
+        drive(&mut app, KeyEventType::Press, Some("\u{b4}x")),
+        accent_x
+    );
+    assert_eq!(
+        drive(&mut app, KeyEventType::Repeat, Some("\u{b4}x")),
+        accent_x
+    );
+    assert_eq!(
+        drive(&mut app, KeyEventType::Press, Some("\u{1F600}")),
+        [record(0xD83D, 1, 0), record(0xDE00, 1, 0)].concat()
+    );
+    assert_eq!(
+        drive(&mut app, KeyEventType::Release, None),
+        record(0x78, 0, 0)
+    );
+    app.modifiers = Modifiers::CTRL;
+    assert_eq!(
+        drive(&mut app, KeyEventType::Press, Some("\u{18}")),
+        record(0x18, 1, 8)
+    );
+}

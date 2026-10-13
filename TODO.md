@@ -1138,7 +1138,8 @@ not a stretch goal.
         are appended under an OdyTTY settings-panel section.
   - [x] Saves use a same-directory temp file plus rename, create the config
         directory when missing, and surface non-fatal in-panel errors on write
-        failure.
+        failure. Config writes follow up to 40 links, including a missing final
+        target; unresolved chains and link-read errors leave links untouched.
 - [x] Theme picker with live preview.
   - [x] `Ctrl+Shift+H` opens a built-in theme picker; the settings panel's
         theme row also opens it with `Left`/`Right` while `Enter` remains the

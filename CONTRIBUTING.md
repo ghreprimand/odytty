@@ -472,6 +472,8 @@ Before every commit, run through this gate and stop if anything is unclear:
    `RUST_TEST_THREADS=1 cargo test --locked`, then with
    `RUST_TEST_THREADS=4 cargo test --locked` to expose shared-state failures at
    CI parallelism. Run touched test groups five times at `RUST_TEST_THREADS=4`.
+   `python3 scripts/ci-validation-test.py` also checks that pushed temporary
+   `ci/**` branches enter CI and that this guide retains both parallel checks.
    Every executed assertion must pass. `--locked` keeps a
    dependency bump from silently rewriting `Cargo.lock` and passing locally while
    CI fails. Record unavailable, skipped, and ignored cases separately. If you
