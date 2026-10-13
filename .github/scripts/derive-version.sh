@@ -13,9 +13,7 @@ if [ "${GITHUB_REF_TYPE:-}" = tag ]; then
   fi
   version="${GITHUB_REF_NAME#v}"
 else
-  # Only the [package] table: a dependency table before it can carry its own
-  # `version = ` line.
-  version="$(sed -n '/^\[package\]$/,/^\[/{s/^version = "\([^"]*\)"$/\1/p;}' Cargo.toml | head -n 1)"
+  version="$(bash "$(dirname "$0")/manifest-version.sh")"
 fi
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo 'invalid release version: expected X.Y.Z' >&2

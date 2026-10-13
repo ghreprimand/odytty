@@ -115,6 +115,7 @@ def parse_baseline(text: str) -> list[BaselineRow]:
     an error, because a silently dropped row is a silently removed ceiling."""
     rows: list[BaselineRow] = []
     seen: set[tuple[str, str, str, str]] = set()
+    scope_kinds: dict[tuple[str, str, str], str] = {}
     for lineno, raw in enumerate(text.splitlines(), start=1):
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -134,6 +135,17 @@ def parse_baseline(text: str) -> list[BaselineRow]:
         key = (environment_class, rss_source, geometry, field)
         if key in seen:
             raise GuardError(f"baseline line {lineno}: duplicate ceiling for {key}")
+        # One field has either a single geometry-independent ceiling or
+        # per-geometry ceilings, never both: `check` would report the field
+        # twice against two different ceilings.
+        scope = (environment_class, rss_source, field)
+        if scope_kinds.setdefault(scope, "any" if geometry == "any" else "concrete") != (
+            "any" if geometry == "any" else "concrete"
+        ):
+            raise GuardError(
+                f"baseline line {lineno}: {scope} mixes a geometry-independent ceiling "
+                "with a per-geometry ceiling"
+            )
         seen.add(key)
         rows.append(
             BaselineRow(environment_class, rss_source, geometry, field, int(ceiling), basis)
@@ -382,6 +394,14 @@ def self_test() -> list[str]:
         (
             "c\tproc_status\tany\tf\t1\tbasis\nc\tproc_status\tany\tf\t2\tbasis\n",
             "a duplicate ceiling",
+        ),
+        (
+            "c\tproc_status\tany\tf\t1\tbasis\nc\tproc_status\t10x10\tf\t2\tbasis\n",
+            "a field with both a geometry-independent and a per-geometry ceiling",
+        ),
+        (
+            "c\tproc_status\t10x10\tf\t1\tbasis\nc\tproc_status\tany\tf\t2\tbasis\n",
+            "a per-geometry field later given a geometry-independent ceiling",
         ),
     ):
         try:

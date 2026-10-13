@@ -349,23 +349,20 @@ fn malformed_theme_file_warns_but_still_loads_valid_lines() {
 
 #[test]
 fn resolve_theme_file_reads_path_like_values() {
-    let dir = std::env::temp_dir().join(format!("odytty-th2-path-{}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-th2-path-");
+    let dir = scratch.path().to_path_buf();
     let path = dir.join("custom.theme");
     fs::write(&path, "background = #0a0b0c\n").unwrap();
 
     // A `.theme` path is read directly (theme_dir irrelevant).
     let contents = resolve_theme_file(path.to_str().unwrap(), None);
     assert_eq!(contents.as_deref(), Some("background = #0a0b0c\n"));
-
-    let _ = fs::remove_file(&path);
-    let _ = fs::remove_dir(&dir);
 }
 
 #[test]
 fn resolve_theme_file_looks_up_names_in_theme_dir() {
-    let dir = std::env::temp_dir().join(format!("odytty-th2-dir-{}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-th2-dir-");
+    let dir = scratch.path().to_path_buf();
     fs::write(dir.join("solar.theme"), "background = #112233\n").unwrap();
 
     // A bare name resolves to `<dir>/<name>.theme`.
@@ -373,9 +370,6 @@ fn resolve_theme_file_looks_up_names_in_theme_dir() {
     assert_eq!(contents.as_deref(), Some("background = #112233\n"));
     // An unknown name resolves to nothing.
     assert_eq!(resolve_theme_file("missing", Some(dir.as_path())), None);
-
-    let _ = fs::remove_file(dir.join("solar.theme"));
-    let _ = fs::remove_dir(&dir);
 }
 
 #[test]

@@ -743,8 +743,8 @@ fn config_reload_poller_uses_injected_time_and_fingerprint_changes() {
 
 #[test]
 fn config_reload_preserves_startup_env_precedence() {
-    let dir = std::env::temp_dir().join(format!("odytty-cf2-{}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-cf2-");
+    let dir = scratch.path().to_path_buf();
     let path = dir.join("reload.conf");
     fs::write(&path, "font_size = 16\ntheme = plain\n").unwrap();
     let t0 = Instant::now();
@@ -759,9 +759,6 @@ fn config_reload_preserves_startup_env_precedence() {
     assert!(warnings.is_empty(), "a clean rewrite carries no warnings");
     assert_eq!(settings.font_size_px, 21.0);
     assert_eq!(settings.theme, Theme::ODYSSEY);
-
-    let _ = fs::remove_file(path);
-    let _ = fs::remove_dir(dir);
 }
 
 #[test]
@@ -769,8 +766,8 @@ fn config_reload_applies_usable_values_and_surfaces_warnings() {
     // A rewrite with an out-of-range value must not discard the whole
     // reload. The bad value falls back (matching the startup path) and the
     // warning is surfaced rather than blocking the live reload.
-    let dir = std::env::temp_dir().join(format!("odytty-cf2-bad-{}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-cf2-bad-");
+    let dir = scratch.path().to_path_buf();
     let path = dir.join("reload.conf");
     fs::write(&path, "font_size = 16\n").unwrap();
     let t0 = Instant::now();
@@ -785,9 +782,6 @@ fn config_reload_applies_usable_values_and_surfaces_warnings() {
     assert!(warnings[0].contains(FONT_SIZE_ENV));
     // The unusable value fell back to the default rather than discarding.
     assert_eq!(settings.font_size_px, Settings::default().font_size_px);
-
-    let _ = fs::remove_file(path);
-    let _ = fs::remove_dir(dir);
 }
 
 #[test]
@@ -795,8 +789,8 @@ fn config_reload_applies_a_real_edit_despite_an_unknown_key() {
     // An unknown, future or misspelled key must not block a live
     // edit to a real setting. The real value reloads; the unknown key is a
     // surfaced-but-non-fatal notice.
-    let dir = std::env::temp_dir().join(format!("odytty-cf2-unknown-{}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-cf2-unknown-");
+    let dir = scratch.path().to_path_buf();
     let path = dir.join("reload.conf");
     fs::write(&path, "font_size = 16\n").unwrap();
     let t0 = Instant::now();
@@ -812,15 +806,12 @@ fn config_reload_applies_a_real_edit_despite_an_unknown_key() {
         warnings.iter().any(|w| w.contains("not_a_real_key")),
         "the unknown key is surfaced as a non-fatal notice"
     );
-
-    let _ = fs::remove_file(path);
-    let _ = fs::remove_dir(dir);
 }
 
 #[test]
 fn writeback_preserves_comments_unknown_keys_and_roundtrips_edits() {
-    let dir = temp_test_dir("writeback-roundtrip");
-    fs::create_dir_all(&dir).unwrap();
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-writeback-roundtrip-");
+    let dir = scratch.path().to_path_buf();
     let path = dir.join(CONFIG_FILE_NAME);
     let original = "\
 # hand-written header
@@ -855,14 +846,12 @@ theme = plain
     assert_eq!(reloaded.font_size_px, 22.0);
     assert_eq!(reloaded.theme, Theme::ODYSSEY);
     assert_eq!(reloaded.font_path, None);
-
-    let _ = fs::remove_file(path);
-    let _ = fs::remove_dir(dir);
 }
 
 #[test]
 fn writeback_creates_missing_config_atomically_in_injected_dir() {
-    let dir = temp_test_dir("writeback-create");
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-writeback-create-");
+    let dir = scratch.path().to_path_buf();
     let path = dir.join("nested").join(CONFIG_FILE_NAME);
     let changes = [SettingEdit {
         key: "visual",
@@ -886,9 +875,6 @@ fn writeback_creates_missing_config_atomically_in_injected_dir() {
             0o644
         );
     }
-
-    let _ = fs::remove_file(path);
-    let _ = fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -1060,10 +1046,6 @@ fn render_quality_plain_suppresses_ambient_crt() {
         !settings.effective_crt_enabled(),
         "non-ambient crt still obeys the plain gate"
     );
-}
-
-fn temp_test_dir(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("odytty-{name}-{}", std::process::id()))
 }
 
 #[test]

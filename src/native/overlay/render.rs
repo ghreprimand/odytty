@@ -788,7 +788,7 @@ impl OverlayUi {
                     Some((host, _)) => replace_tab_prompt(&host.alias, body_width.max(1)),
                     None => "A program is running in this tab.".to_owned(),
                 };
-                let prompt: String = prompt.chars().take(body_width.max(1)).collect();
+                let prompt = fit_chars(&prompt, body_width.max(1));
                 vec![
                     OverlayLine {
                         text: prompt,
@@ -1430,20 +1430,20 @@ pub(super) fn dim_attrs() -> Attrs {
     attrs
 }
 
-/// The replace-tab confirmation line for `alias`, fitted to `width` cells. A
-/// long alias is shortened with an ellipsis so the closing question mark of
-/// this destructive confirmation always stays visible; only when the fixed
-/// wording itself does not fit is the line cut at the width.
+/// Fit the replace-tab confirmation in terminal-owner cells. At least 45 cells
+/// retain the ellipsis and closing question for a shortened alias, including
+/// a zero-cell alias budget. Narrower bodies keep a cell-fitted prefix.
 pub(super) fn replace_tab_prompt(alias: &str, width: usize) -> String {
     const LEAD: &str = "A program is running here. Replace it with ";
+    const SUFFIX: &str = "\u{2026}?";
     let full = format!("{LEAD}{alias}?");
-    if full.chars().count() <= width {
+    if text_display_width(&full) <= width {
         return full;
     }
-    let room = width.saturating_sub(LEAD.chars().count() + 2);
-    if room == 0 {
-        return full.chars().take(width).collect();
+    let fixed_width = text_display_width(LEAD) + text_display_width(SUFFIX);
+    if width < fixed_width {
+        return fit_chars(&full, width);
     }
-    let shortened: String = alias.chars().take(room).collect();
-    format!("{LEAD}{shortened}\u{2026}?")
+    let shortened = fit_chars(alias, width - fixed_width);
+    format!("{LEAD}{shortened}{SUFFIX}")
 }

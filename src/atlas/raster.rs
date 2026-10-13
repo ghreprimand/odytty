@@ -499,8 +499,7 @@ fn scan_coverage_bounds(
     let mut max_y = i32::MIN;
     for ay in y_lo..y_hi {
         for ax in x_lo..x_hi {
-            let base =
-                (ay as u32 * width + ax as u32) as usize * subpixel.bytes_per_pixel() as usize;
+            let base = pixel_index(width, ax as u32, ay as u32, subpixel.bytes_per_pixel());
             let inked = match subpixel {
                 SubpixelMode::Off => data[base] > 0,
                 SubpixelMode::Rgb | SubpixelMode::Bgr => {
@@ -540,8 +539,7 @@ pub(super) fn lcd_filter_subpixel_region(
     for row in 0..region_h {
         let y = y0 + row;
         for dx in 0..region_w {
-            let x = x0 + dx;
-            let base = ((y * width + x) * 4) as usize;
+            let base = pixel_index(width, x0 + dx, y, 4);
             for physical in 0..3 {
                 let channel = physical_channel(subpixel, physical);
                 src[dx as usize * 3 + physical] = data[base + channel];
@@ -560,8 +558,7 @@ pub(super) fn lcd_filter_subpixel_region(
         }
 
         for dx in 0..region_w {
-            let x = x0 + dx;
-            let base = ((y * width + x) * 4) as usize;
+            let base = pixel_index(width, x0 + dx, y, 4);
             let mut any = false;
             for physical in 0..3 {
                 let channel = physical_channel(subpixel, physical);
@@ -572,6 +569,16 @@ pub(super) fn lcd_filter_subpixel_region(
             data[base + 3] = if any { 255 } else { 0 };
         }
     }
+}
+
+/// Byte offset of pixel `(x, y)` in an atlas bitmap `width` pixels wide.
+///
+/// Every factor widens to `usize` before multiplying, matching
+/// `atlas_byte_len`, so the offset stays exact even when the pixel index
+/// passes `u32::MAX`. `MAX_ATLAS_BYTES` keeps today's bitmaps far below that
+/// point; the helper keeps indexing correct independently of that budget.
+pub(super) fn pixel_index(width: u32, x: u32, y: u32, bytes_per_pixel: u32) -> usize {
+    (y as usize * width as usize + x as usize) * bytes_per_pixel as usize
 }
 
 fn physical_channel(subpixel: SubpixelMode, physical: usize) -> usize {
@@ -647,7 +654,7 @@ fn write_coverage(
     channel: Option<usize>,
     value: u8,
 ) {
-    let base = (ay * width + ax) as usize * subpixel.bytes_per_pixel() as usize;
+    let base = pixel_index(width, ax, ay, subpixel.bytes_per_pixel());
     match subpixel {
         SubpixelMode::Off => {
             if value > data[base] {
@@ -681,10 +688,10 @@ pub(super) fn draw_fallback_box(
         if x < cw && y < ch {
             match subpixel {
                 SubpixelMode::Off => {
-                    data[((oy + y) * width + ox + x) as usize] = 255;
+                    data[pixel_index(width, ox + x, oy + y, 1)] = 255;
                 }
                 SubpixelMode::Rgb | SubpixelMode::Bgr => {
-                    let idx = ((oy + y) * width + ox + x) as usize * 4;
+                    let idx = pixel_index(width, ox + x, oy + y, 4);
                     data[idx..idx + 4].copy_from_slice(&[255, 255, 255, 255]);
                 }
             }

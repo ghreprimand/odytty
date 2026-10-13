@@ -38,7 +38,7 @@ ARCH=x86_64
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
-VERSION="${1:-$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)}"
+VERSION="${1:-$(bash .github/scripts/manifest-version.sh)}"
 if [ -z "$VERSION" ]; then
   echo "error: could not determine version" >&2
   exit 1

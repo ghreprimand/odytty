@@ -39,7 +39,10 @@ published markers, stale latest-release claims, unfinished target milestones,
 and the regression that lists the entire shipped profile system as a gap. With
 `--release-version` it also checks that no `Release candidate:` marker remains
 once that version is the published one, and that `Cargo.lock`, the fuzz
-lockfile and the newest AppStream release entry carry the target version.
+lockfile and the newest AppStream release entry carry the target version. At
+the published version it also requires the badged
+`## YYYY-MM-DD -- Release vX.Y.Z -- ` devlog heading in an indexed archive and a
+`Shipped vX.Y.Z` roadmap checkpoint.
 It does not establish test success, verify remote publication, or replace
 review of prose and retained evidence.
 

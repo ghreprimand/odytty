@@ -11,6 +11,7 @@ import tomllib
 VERSION = r"[0-9]+\.[0-9]+\.[0-9]+"
 LOCKFILES = ("Cargo.lock", "fuzz/parser_graphics/Cargo.lock")
 APPSTREAM = "dist/linux/io.unfinished_works.odytty.metainfo.xml"
+ROADMAP = "docs/full-build-roadmap.md"
 
 
 def lockfile_version(text: str, name: str) -> str:
@@ -123,6 +124,14 @@ def check(root: Path, release_version: str | None = None) -> None:
             for name, content in {**docs, "docs/releases/README.md": index}.items():
                 if re.search(r"^Release candidate: \*\*v", content, re.MULTILINE):
                     raise ValueError(f"{name}: a release candidate marker remains at the published version")
+            # The website badges a release from the heading text alone, and the
+            # roadmap records the checkpoint as shipped in the same commit.
+            heading = re.compile(rf"^## [0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}} -- Release v{re.escape(release_version)} -- ", re.MULTILINE)
+            archives = re.findall(r"\]\((devlog/[0-9]{4}-[0-9]{2}\.md)\)", read(root, "DEVLOG.md"))
+            if not any(heading.search(read(root, archive)) for archive in archives):
+                raise ValueError(f"devlog: no '## YYYY-MM-DD -- Release v{release_version} -- ' heading in an indexed archive")
+            if not re.search(rf"\*\*Shipped v{re.escape(release_version)} ", read(root, ROADMAP)):
+                raise ValueError(f"{ROADMAP}: no 'Shipped v{release_version}' checkpoint")
         for lockfile in LOCKFILES:
             if lockfile_version(read(root, lockfile), lockfile) != release_version:
                 raise ValueError(f"{lockfile}: odytty version differs from the release version")

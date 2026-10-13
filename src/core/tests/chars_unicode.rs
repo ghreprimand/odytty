@@ -441,3 +441,41 @@ fn combining_mark_in_pending_wrap_attaches_to_last_column() {
     // No premature wrap onto row 1.
     assert_eq!(terminal.screen().cell(1, 0).unwrap().ch, ' ');
 }
+
+#[test]
+fn del_in_ground_writes_no_cell_and_does_not_move_the_cursor() {
+    // xterm and the VT100 ignore DEL (0x7F) in Ground: it is not padding that
+    // occupies a column. A stray DEL must neither write a cell nor advance
+    // the cursor, and the text around it stays contiguous.
+    let mut terminal = Terminal::new(8, 2);
+    terminal.advance(b"a\x7fb");
+    let row: String = (0..4)
+        .map(|col| terminal.screen().cell(0, col).unwrap().ch)
+        .collect();
+    assert_eq!(row, "ab  ");
+    assert_eq!(terminal.screen().cursor().column, 2);
+
+    // A DEL alone, at column 0, and one in pending wrap, change nothing.
+    let mut terminal = Terminal::new(3, 2);
+    terminal.advance(b"\x7f");
+    assert_eq!(terminal.screen().cursor().column, 0);
+    assert_eq!(terminal.screen().cell(0, 0).unwrap().ch, ' ');
+    terminal.advance(b"abc\x7f");
+    assert_eq!(
+        terminal.screen().cursor().row,
+        0,
+        "DEL must not trigger the pending wrap"
+    );
+    terminal.advance(b"d");
+    assert_eq!(terminal.screen().cell(1, 0).unwrap().ch, 'd');
+}
+
+#[test]
+fn del_does_not_become_the_repeat_character() {
+    let mut terminal = Terminal::new(8, 2);
+    terminal.advance(b"a\x7f\x1b[2b");
+    let row: String = (0..4)
+        .map(|col| terminal.screen().cell(0, col).unwrap().ch)
+        .collect();
+    assert_eq!(row, "aaa ");
+}

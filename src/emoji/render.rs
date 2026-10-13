@@ -590,7 +590,8 @@ fn is_emoji_variation_selector(ch: char) -> bool {
 /// deliberate exception, the text-default media controls U+23F8..U+23FA, so
 /// other text-default symbols keep the monochrome path. Tightening the blocks
 /// would change which glyph source a scalar uses on machines whose colour face
-/// covers it, so it needs its own measured change, not a table edit.
+/// covers it, so it is a deliberate behaviour change: it needs its own routing
+/// decision and failing-before routing and fallback tests, not a table edit.
 fn is_default_emoji_presentation(ch: char) -> bool {
     matches!(
         ch as u32,

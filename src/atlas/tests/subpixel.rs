@@ -85,6 +85,20 @@ fn lcd_filter_off_mode_is_byte_identical() {
 }
 
 #[test]
+#[cfg(target_pointer_width = "64")]
+fn pixel_index_stays_exact_past_the_u32_boundary() {
+    // 65,536 pixels wide, row 16,384: the RGBA byte offset is exactly 2^32,
+    // where `(y * width + x) * 4` in u32 overflows (debug panic, release wrap).
+    let width = 1u32 << 16;
+    let y = 1u32 << 14;
+    assert_eq!(pixel_index(width, 0, y - 1, 4), (1usize << 32) - (1 << 18));
+    assert_eq!(pixel_index(width, width - 1, y - 1, 4), (1usize << 32) - 4);
+    assert_eq!(pixel_index(width, 0, y, 4), 1usize << 32);
+    assert_eq!(pixel_index(width, 3, y, 4), (1usize << 32) + 12);
+    assert_eq!(pixel_index(width, 3, y, 1), (1usize << 30) + 3);
+}
+
+#[test]
 fn subpixel_filter_keeps_atlas_geometry_unchanged() {
     let font = test_font();
     let gray = GlyphAtlas::build(&font, 24.0);

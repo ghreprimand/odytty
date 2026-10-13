@@ -399,27 +399,7 @@ fn graphics_fuzz_apc_preserves_text_state_smoke() {
 
 /// Build a base64 string from arbitrary bytes (transports carry a base64 path).
 fn b64_encode(data: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::new();
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
-        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
-        let triple = (b0 << 16) | (b1 << 8) | b2;
-        out.push(TABLE[((triple >> 18) & 0x3F) as usize] as char);
-        out.push(TABLE[((triple >> 12) & 0x3F) as usize] as char);
-        out.push(if chunk.len() > 1 {
-            TABLE[((triple >> 6) & 0x3F) as usize] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            TABLE[(triple & 0x3F) as usize] as char
-        } else {
-            '='
-        });
-    }
-    out
+    super::kitty::encode_base64_bytes(data)
 }
 
 /// Generate a SAFE adversarial path: nonexistent, traversal soup, over-long, or

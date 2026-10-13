@@ -115,7 +115,7 @@ jobs:
 
       - name: Assemble and ad-hoc sign OdyTTY.app
         run: |
-          version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          version="$(bash .github/scripts/manifest-version.sh)"
           mkdir -p dist/build
           cp target/release/odytty dist/build/odytty
           bash dist/macos/make-app.sh "$version"

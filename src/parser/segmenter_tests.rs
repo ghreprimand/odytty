@@ -250,9 +250,10 @@ fn an_invalid_continuation_after_a_carried_lead_consumes_one_new_byte() {
 }
 
 #[test]
-fn del_in_ground_is_printed_not_ignored() {
+fn del_in_ground_executes_as_an_ignored_control_not_a_print() {
     let (r, result, consumed) = run(b"a\x7fb");
     assert_eq!(result, GroundResult::Drained);
     assert_eq!(consumed, 3);
-    assert_eq!(r.prints, vec!['a', '\u{7f}', 'b']);
+    assert_eq!(r.prints, vec!['a', 'b']);
+    assert_eq!(r.executes, vec![0x7f]);
 }

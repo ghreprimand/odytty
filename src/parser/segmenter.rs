@@ -271,11 +271,15 @@ fn dispatch_run<D: VtDispatch>(sink: &mut D, text: &str) {
 ///   **C1** (`U+0080..=U+009F`) execute as the corresponding raw control byte.
 ///   The C1 branch is the accepted uniform-execute divergence: it
 ///   applies to both whole-buffer and partial-completion arrival paths.
+/// - **DEL** (`U+007F`) executes as the ignored control `0x7F`: xterm and the
+///   VT100 drop it in Ground, so it writes no cell and moves no cursor. The
+///   sink still sees an execute, which ends any open grapheme cluster like
+///   every other ignored control.
 /// - Everything else prints.
 #[inline]
 fn dispatch_scalar<D: VtDispatch>(sink: &mut D, ch: char) {
     match ch {
-        '\u{00}'..='\u{1F}' | '\u{80}'..='\u{9F}' => sink.execute(ch as u8),
+        '\u{00}'..='\u{1F}' | '\u{7F}' | '\u{80}'..='\u{9F}' => sink.execute(ch as u8),
         _ => sink.print(ch),
     }
 }

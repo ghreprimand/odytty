@@ -81,9 +81,8 @@ fn reload_publishes_font_zero_without_changing_other_settings() {
 
 #[test]
 fn font_zero_writes_back_under_its_canonical_key() {
-    let dir =
-        std::env::temp_dir().join(format!("odytty-font-zero-writeback-{}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
+    let scratch = crate::test_dirs::ScratchDir::new("odytty-font-zero-writeback-");
+    let dir = scratch.path().to_path_buf();
     let path = dir.join(CONFIG_FILE_NAME);
     fs::write(&path, "# kept\n").unwrap();
     let mut edits = SettingsEditOverlay::new(&Settings::default());
@@ -95,8 +94,6 @@ fn font_zero_writes_back_under_its_canonical_key() {
     let (reloaded, warnings) = settings_from_config(&saved);
     assert!(reloaded.font_zero);
     assert!(warnings.is_empty());
-    let _ = fs::remove_file(path);
-    let _ = fs::remove_dir(dir);
 }
 
 /// A settings apply that publishes its switches and then fails restores the

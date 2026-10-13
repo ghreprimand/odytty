@@ -868,6 +868,12 @@ impl App {
     /// byte-identical. Uses `pointer_px`, the same cached coordinates the
     /// SGR-pixel report path relies on (button events carry no coordinates).
     pub(super) fn scrollbar_hit_test(&self) -> Option<f32> {
+        // A split tab draws no scroll thumb (the thumb is a window-grid
+        // overlay of the single-pane frame), so there is nothing to grab; the
+        // window-grid geometry below would otherwise invent one over a pane.
+        if !self.sessions.active_is_single_pane() {
+            return None;
+        }
         let (x_px, y_px) = self.pointer_px?;
         let cell = self.resolved_cell()?;
         let padding = self

@@ -1367,6 +1367,20 @@ def _create_font_isolation(root: Path, expected_identity: object) -> dict:
     return isolation
 
 
+def _redact_root(value: str, root: str, token: str) -> str:
+    """Replace `root` with `token` where it is a whole path prefix.
+
+    A match must start at the beginning of the value or after a character that
+    cannot continue a name, and end at the value's end or at a path or list
+    separator, so a sibling directory that shares the root's leading characters
+    is left alone instead of being mangled into `$REPOSITORY2`.
+    """
+    if not root:
+        return value
+    pattern = r"(?<![\w.\-])" + re.escape(root) + r"(?=$|[/\\:;,\s\"'])"
+    return re.sub(pattern, lambda _match: token, value)
+
+
 class RealLauncher:
     """Launch and observe real terminals. Replaced by a fake in the self-tests."""
 
@@ -2026,8 +2040,8 @@ class RealLauncher:
         sanitized = []
         for raw in argv:
             value = str(raw)
-            value = value.replace(str(evidence_root), "$PROBE_EVIDENCE")
-            value = value.replace(str(repo_root), "$REPOSITORY")
+            value = _redact_root(value, str(evidence_root), "$PROBE_EVIDENCE")
+            value = _redact_root(value, str(repo_root), "$REPOSITORY")
             if value == sys.executable:
                 value = "$PYTHON"
             sanitized.append(value)
@@ -2050,10 +2064,10 @@ class RealLauncher:
         sanitized = {}
         for key in sorted(keys & environment.keys()):
             value = environment[key]
-            value = value.replace(font_path, "$FONT_ISOLATION_FILE")
-            value = value.replace(config_path, "$FONT_ISOLATION_CONFIG")
-            value = value.replace(isolation_root, "$FONT_ISOLATION_ROOT")
-            value = value.replace(str(repo_root), "$REPOSITORY")
+            value = _redact_root(value, font_path, "$FONT_ISOLATION_FILE")
+            value = _redact_root(value, config_path, "$FONT_ISOLATION_CONFIG")
+            value = _redact_root(value, isolation_root, "$FONT_ISOLATION_ROOT")
+            value = _redact_root(value, str(repo_root), "$REPOSITORY")
             sanitized[key] = value
         return sanitized
 
@@ -6655,6 +6669,20 @@ def _self_test() -> list[str]:
                     "FONTCONFIG_PATH": "$FONT_ISOLATION_ROOT",
                 } or str(private_root) in json.dumps(sanitized, sort_keys=True):
                     failures.append("font isolation: sanitized controls leaked a private root")
+                root = str(private_root / "logs")
+                for value, expected in (
+                    (root, "$X"),
+                    (root + "/a.log", "$X/a.log"),
+                    ("--out=" + root + "/a", "--out=$X/a"),
+                    ("a:" + root + ":b", "a:$X:b"),
+                    (root + "2/a", root + "2/a"),
+                    (root + "-old", root + "-old"),
+                    ("x" + root, "x" + root),
+                ):
+                    if _redact_root(value, root, "$X") != expected:
+                        failures.append(
+                            f"sanitizer: path root redaction mishandled {value!r}"
+                        )
                 for reference in profiles.LAPTOP_REFERENCE_IMPLEMENTATIONS:
                     calibration = profiles.calibration_configurations(reference)[0]
                     argv, environment = _synthetic_launch_controls(

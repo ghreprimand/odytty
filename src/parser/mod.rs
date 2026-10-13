@@ -61,6 +61,9 @@
 //!    prefix on termination after overflow. APC is bounded at 1 MiB and drops
 //!    the entire command on overflow. DCS remains streaming passthrough with
 //!    no parser buffer.
+//! 4. **DEL in Ground is ignored** - `0x7F` executes as an ignored control
+//!    (xterm and VT100 behavior): it writes no cell, moves no cursor, and does
+//!    not become the REP character.
 //!
 //! ## APC routing
 //!

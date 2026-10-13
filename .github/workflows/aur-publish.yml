@@ -88,7 +88,7 @@ jobs:
           if [ -n "$in" ]; then
             version="${in#v}"
           else
-            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+            version="$(bash .github/scripts/manifest-version.sh)"
           fi
           # LOW-10: validate the normalized version against the release grammar
           # BEFORE writing any workflow record. A malformed or newline-bearing

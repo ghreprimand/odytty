@@ -117,9 +117,12 @@ pub use button::{
 pub(crate) use char_width::char_display_width;
 pub(crate) use char_width::is_default_ignorable;
 pub(crate) use emoji_width::has_two_cell_footprint as emoji_owner_is_two_cells;
+// Test fixtures outside core encode payloads with the production encoder.
 pub use encoding::{encode_focus_event, encode_mouse_event, encode_mouse_event_pixel};
 pub use hyperlink::{Hyperlink, MAX_URI_BYTES, uri_has_openable_scheme};
 pub use input_region::{EditRegionSignal, InputCertainty, InputRegion, RowJoin};
+#[cfg(test)]
+pub(crate) use kitty::encode_base64_bytes;
 pub use notifications::{
     MAX_NOTIFICATION_PAYLOAD_BYTES, MAX_PENDING_NOTIFICATIONS, NotificationSource, ProgressKind,
     TerminalNotification, TerminalProgress,

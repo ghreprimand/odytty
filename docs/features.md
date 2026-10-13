@@ -1930,6 +1930,12 @@ For a one-session override:
 ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager" odytty
 ```
 
+The replace-tab confirmation fits its host alias in terminal cells, keeping
+combining owners whole. Bodies at least 45 cells wide retain the closing
+question mark and shortening ellipsis even with no room for alias text.
+Narrower bodies display a cell-fitted prefix. The rendering rule is shared by
+Linux Wayland, Linux X11, macOS and Windows.
+
 Hosts come from OdyTTY's `hosts.conf`. When `ssh_config_hosts = on`, the manager
 also shows name-only entries from the OpenSSH config; while it is off, OdyTTY
 does not reference `~/.ssh`. As in OpenSSH, the first value of a keyword wins

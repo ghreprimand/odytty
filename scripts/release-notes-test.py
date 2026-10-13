@@ -57,6 +57,26 @@ class ReleaseNotesTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     release_notes.description(self.root, "1.2.3")
 
+    def test_symlinked_notes_fail(self):
+        target = self.root / "elsewhere.md"
+        target.write_text(self.notes.read_text())
+        self.notes.unlink()
+        try:
+            self.notes.symlink_to(target)
+        except (OSError, NotImplementedError):
+            self.skipTest("symbolic links are not available here")
+        with self.assertRaisesRegex(ValueError, "matching release notes are required"):
+            release_notes.description(self.root, "1.2.3")
+
+    def test_notes_at_the_size_limit_pass_and_one_byte_over_fails(self):
+        head = "# OdyTTY v1.2.3\n\nA concise summary.\n\n"
+        self.notes.write_text(head + "x" * (64 * 1024 - len(head)))
+        self.assertEqual(self.notes.stat().st_size, 64 * 1024)
+        release_notes.description(self.root, "1.2.3")
+        self.notes.write_text(head + "x" * (64 * 1024 - len(head) + 1))
+        with self.assertRaisesRegex(ValueError, "exceed 64 KiB"):
+            release_notes.description(self.root, "1.2.3")
+
     def test_unindexed_notes_fail(self):
         (self.root / "docs/releases/README.md").write_text("No releases.\n")
         with self.assertRaisesRegex(ValueError, "must be linked"):

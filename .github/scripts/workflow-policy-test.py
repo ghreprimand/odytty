@@ -212,6 +212,28 @@ class WorkflowContracts(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "1.2.3")
 
+    def test_every_manifest_version_read_uses_the_package_table(self):
+        # Four sibling steps used to take the first `version` line of the whole
+        # manifest. They all read it through the one helper now.
+        pattern = re.compile(r"grep[^\n]*\^version[^\n]*Cargo\.toml")
+        paths = sorted((ROOT / ".github/workflows").glob("*.yml"))
+        paths += sorted((ROOT / ".github/scripts").glob("*.sh"))
+        paths += sorted((ROOT / "dist").rglob("*.sh"))
+        self.assertTrue(paths)
+        offenders = [str(p.relative_to(ROOT)) for p in paths if pattern.search(p.read_text())]
+        self.assertEqual(offenders, [])
+
+    def test_manifest_version_helper_reads_only_the_package_table(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            Path(scratch, "Cargo.toml").write_text(
+                '[dependencies.foo]\nversion = "9.9.9"\n\n'
+                '[package]\nname = "x"\nversion = "1.2.3"\n\n'
+                '[dependencies.bar]\nversion = "8.8.8"\n')
+            result = subprocess.run(["bash", str(ROOT / ".github/scripts/manifest-version.sh")],
+                                    cwd=scratch, text=True, capture_output=True, timeout=10,
+                                    env=clean_environment())
+            self.assertEqual((result.returncode, result.stdout), (0, "1.2.3\n"), result.stderr)
+
     def test_demo_files_live_in_one_private_fresh_directory(self):
         text = (ROOT / "scripts/make-demo.sh").read_text()
         self.assertEqual(re.findall(r"/tmp/odytty", text), [], "a fixed /tmp name remains")

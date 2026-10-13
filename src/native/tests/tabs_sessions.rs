@@ -2035,18 +2035,96 @@ fn tab_bar_input_writers_leave_inherited_config_untouched() {
             String::from_utf8_lossy(&output.stderr)
         );
         assert!(!stdout.contains("skipping:"), "PTY fixture must execute");
+        assert_inherited_dirs_untouched(&inherited, test);
     }
-    for (key, path) in inherited.vars() {
-        if key != "HISTFILE" {
-            assert!(
-                std::fs::read_dir(path)
-                    .expect("inherited directory")
-                    .next()
-                    .is_none(),
-                "App input writer changed inherited {key}"
-            );
+}
+
+/// Entries under `root` as relative paths, breadth first and sorted by name,
+/// without following links. Bounded so a runaway writer cannot flood a failure.
+fn written_entries(root: &std::path::Path) -> Vec<String> {
+    const MAX_ENTRIES: usize = 40;
+    const MAX_DEPTH: usize = 8;
+    let mut found = Vec::new();
+    let mut pending = std::collections::VecDeque::from([(root.to_path_buf(), 0usize)]);
+    while let Some((dir, depth)) = pending.pop_front() {
+        let Ok(read) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut children: Vec<_> = read.flatten().collect();
+        children.sort_by_key(std::fs::DirEntry::file_name);
+        for child in children {
+            if found.len() >= MAX_ENTRIES {
+                found.push("...".to_owned());
+                return found;
+            }
+            let path = child.path();
+            let is_dir = child.file_type().is_ok_and(|kind| kind.is_dir());
+            let relative = path.strip_prefix(root).unwrap_or(&path);
+            found.push(format!(
+                "{}{}",
+                relative.display(),
+                if is_dir { "/" } else { "" }
+            ));
+            if is_dir && depth < MAX_DEPTH {
+                pending.push_back((path, depth + 1));
+            }
         }
     }
+    found
+}
+
+/// Panic naming `writer` and every entry found when a directory the fixture
+/// handed to a child is no longer empty. `HISTFILE` is a file path, not a
+/// directory, and is exempt.
+fn assert_inherited_dirs_untouched(inherited: &crate::test_dirs::ChildEnv, writer: &str) {
+    let mut seen = std::collections::BTreeSet::new();
+    for (key, path) in inherited.vars() {
+        if key == "HISTFILE" || !seen.insert(path.clone()) {
+            continue;
+        }
+        let entries = written_entries(&path);
+        assert!(
+            entries.is_empty(),
+            "{writer} changed inherited {key}; entries found: {entries:?}"
+        );
+    }
+}
+
+#[test]
+#[should_panic(expected = "fake_writer changed inherited HOME; entries found")]
+fn an_inherited_directory_write_is_reported_with_the_writer_and_the_path() {
+    let inherited = crate::test_dirs::ChildEnv::new();
+    assert_inherited_dirs_untouched(&inherited, "quiet_writer");
+    let nested = inherited.vars()[0].1.join("AppData").join("Local");
+    std::fs::create_dir_all(&nested).expect("nested directory");
+    std::fs::write(nested.join("startup.bin"), b"x").expect("write");
+    assert_inherited_dirs_untouched(&inherited, "fake_writer");
+}
+
+#[test]
+fn written_entries_lists_nested_files_in_order_and_bounds_a_flood() {
+    let scratch = crate::test_dirs::ScratchDir::new("owe");
+    assert!(written_entries(scratch.path()).is_empty());
+    std::fs::create_dir_all(scratch.path().join("a").join("b")).unwrap();
+    std::fs::write(scratch.path().join("a").join("b").join("f.txt"), b"x").unwrap();
+    std::fs::write(scratch.path().join("z.txt"), b"x").unwrap();
+    let sep = std::path::MAIN_SEPARATOR;
+    assert_eq!(
+        written_entries(scratch.path()),
+        vec![
+            "a/".to_owned(),
+            "z.txt".to_owned(),
+            format!("a{sep}b/"),
+            format!("a{sep}b{sep}f.txt"),
+        ]
+    );
+    let flood = crate::test_dirs::ScratchDir::new("owf");
+    for index in 0..60 {
+        std::fs::write(flood.path().join(format!("f{index:02}")), b"x").unwrap();
+    }
+    let listed = written_entries(flood.path());
+    assert_eq!(listed.len(), 41, "40 entries plus the elision marker");
+    assert_eq!(listed.last().map(String::as_str), Some("..."));
 }
 
 #[test]

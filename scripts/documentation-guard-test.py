@@ -25,6 +25,14 @@ class DocumentationGuardTests(unittest.TestCase):
         self.write("docs/releases/0.14.0.md", "# OdyTTY v0.14.0\n\nProfiles.\n")
         self.write("Cargo.toml", '[package]\nversion = "0.14.0"\n')
         self.set_release_files("0.14.0")
+        self.set_release_records("0.14.0")
+
+    def set_release_records(self, version):
+        """The badged devlog heading and shipped roadmap checkpoint a tagged commit carries."""
+        (self.root / "devlog").mkdir(exist_ok=True)
+        self.write("DEVLOG.md", "# Devlog\n\n- [October 2026](devlog/2026-10.md)\n")
+        self.write("devlog/2026-10.md", f"## 2026-10-01 -- Release v{version} -- Profiles\n\nText.\n")
+        self.write("docs/full-build-roadmap.md", f"- **Shipped v{version} - Profiles.** Done.\n")
 
     def set_release_files(self, version):
         """The lockfiles and AppStream entry a tagged commit carries."""
@@ -171,6 +179,24 @@ class DocumentationGuardTests(unittest.TestCase):
         guard.check(self.root, "0.15.0")
         # Cargo still claims 0.15.0 but request tags 0.14.0: refuse silent mismatch.
         with self.assertRaisesRegex(ValueError, "differs from Cargo.toml"):
+            guard.check(self.root, "0.14.0")
+
+    def test_published_release_needs_a_badged_devlog_heading(self):
+        for heading in ("## 2026-10-01 -- v0.14.0 -- Profiles", "## 2026-10-01 -- Release v0.14.1 -- Profiles",
+                        "### 2026-10-01 -- Release v0.14.0 -- Profiles"):
+            with self.subTest(heading=heading):
+                self.write("devlog/2026-10.md", heading + "\n")
+                with self.assertRaisesRegex(ValueError, "Release v0.14.0"):
+                    guard.check(self.root, "0.14.0")
+        # An archive the index does not link does not count.
+        self.write("devlog/2026-10.md", "text\n")
+        self.write("devlog/2026-09.md", "## 2026-09-01 -- Release v0.14.0 -- Profiles\n")
+        with self.assertRaisesRegex(ValueError, "Release v0.14.0"):
+            guard.check(self.root, "0.14.0")
+
+    def test_published_release_needs_a_shipped_roadmap_checkpoint(self):
+        self.write("docs/full-build-roadmap.md", "- **Planned v0.14.0 - Profiles.** Later.\n- **Shipped v0.14.1 - Other.** Done.\n")
+        with self.assertRaisesRegex(ValueError, "Shipped v0.14.0"):
             guard.check(self.root, "0.14.0")
 
     def test_new_version_cannot_reuse_old_public_status(self):

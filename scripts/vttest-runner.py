@@ -3059,16 +3059,42 @@ class SelfTest(unittest.TestCase):
                 build_trust_root(Path(tmp), key, "0" * 40)
 
     def test_signature_check_always_names_an_explicit_keyring(self) -> None:
-        source = Path(__file__).read_text(encoding="utf-8")
-        body = source[source.index("def verify_signature("):source.index("# Safe extraction")]
-        self.assertIn("--keyring", body)
-        self.assertIn("--no-default-keyring", body)
-        self.assertIn("GNUPGHOME", body)
-        # Both branches name a keyring: the dedicated verifier takes one
-        # positionally-scoped keyring, and the general tool additionally has
-        # its default keyring switched off. Neither can fall back to whatever
+        # Run both verifier branches against a recording stand-in and read the
+        # argv and environment they pass: neither may fall back to a keyring
         # the invoking user already trusts.
-        self.assertEqual(body.count("\"--keyring\","), 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive, signature, keyring = root / "a.tar", root / "a.sig", root / "ring" / "pub.kbx"
+            for path in (archive, signature):
+                path.write_bytes(b"x")
+            keyring.parent.mkdir()
+            fingerprint = "A" * 40
+            for tool_name, expected_flags in (
+                ("gpgv", ["--keyring"]),
+                ("gpg", ["--no-default-keyring", "--keyring"]),
+            ):
+                with self.subTest(tool=tool_name):
+                    recorded: dict[str, Any] = {}
+
+                    def fake_which(name: str) -> str | None:
+                        return "/stub/" + name if name == tool_name else None
+
+                    def fake_run(argv: list[str], **kwargs: Any) -> Any:
+                        recorded["argv"], recorded["env"] = argv, kwargs["env"]
+                        return mock.Mock(stdout=f"[GNUPG:] VALIDSIG {fingerprint} x".encode())
+
+                    with (
+                        mock.patch.object(shutil, "which", fake_which),
+                        mock.patch.object(subprocess, "run", fake_run),
+                    ):
+                        state = verify_signature(archive, signature, fingerprint, keyring)
+                    self.assertEqual(state, "verified")
+                    argv = recorded["argv"]
+                    for flag in expected_flags:
+                        self.assertIn(flag, argv)
+                    self.assertEqual(argv[argv.index("--keyring") + 1], str(keyring))
+                    self.assertEqual(recorded["env"]["GNUPGHOME"], str(keyring.parent))
+                    self.assertEqual(recorded["env"]["HOME"], str(keyring.parent))
 
     def test_upstream_manifest_requires_an_isolated_trust_root(self) -> None:
         manifest = load_toml(UPSTREAM_MANIFEST)

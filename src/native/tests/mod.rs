@@ -255,6 +255,7 @@ mod copy_mode_wide_offscreen;
 mod ctrl_click_open;
 mod cursor_icon;
 mod cvd_wiring;
+mod split_pointer_bounds;
 // App-route file-drop tests use Unix paths and Unix shell quoting. Windows
 // refuses insertion at PtySession::file_drop_shell (src/pty/windows.rs); its
 // quoting coverage is the platform-neutral unit suite in native::tests::file_drop.
@@ -310,6 +311,7 @@ mod profile_manager_ui;
 mod rail_progress;
 mod read_only_label;
 mod read_only_pane;
+mod replace_prompt;
 mod replay_isolation;
 mod resize_retry_app;
 mod restore_theme;

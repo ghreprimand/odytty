@@ -2132,6 +2132,12 @@ that closed while the picker was open, including when names are duplicated.
   or not it is active. With the opt-in off, the overlay shows OdyTTY-owned hosts
   only and OdyTTY never reads or references `~/.ssh`.
 
+  Replace-tab confirmation measures host aliases in terminal cells and retains
+  whole combining owners. A body of at least 45 cells reserves the closing
+  question mark and ellipsis for a shortened alias, including a zero-cell
+  alias budget. Narrower bodies display a cell-fitted prefix. This rendering
+  rule is shared by Linux Wayland, Linux X11, macOS and Windows.
+
   Beyond quick-connect, the
   overlay reaches saved hosts several ways: typing a `[user@]host[:port]` that
   matches no saved host offers an ad-hoc **Connect to: …** row, including

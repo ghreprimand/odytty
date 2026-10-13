@@ -91,7 +91,7 @@ use raster::{
 };
 #[cfg(test)]
 use raster::{
-    SYMBOL_CELL_FILL, apply_stem_darken, lcd_filter_subpixel_region, overflow_margin,
+    SYMBOL_CELL_FILL, apply_stem_darken, lcd_filter_subpixel_region, overflow_margin, pixel_index,
     stem_darken_strength, symbol_fit_scale_v2,
 };
 

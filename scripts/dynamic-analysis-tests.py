@@ -73,7 +73,12 @@ exit 0
         grace = max(map(int, re.findall(r'--kill-after=(\d+)', source)))
         miri_job = workflow.split("  miri:\n", 1)[1].split("  address:\n", 1)[0]
         job_minutes = int(re.search(r'timeout-minutes: (\d+)', miri_job)[1])
-        self.assertLessEqual(setup + grace + 6 * (per_filter + grace), (job_minutes - 23) * 60)
+        # The workflow comment budgets the minutes left for the install and
+        # artifact-upload steps that surround the lane; read it, so the figure
+        # has one source.
+        surrounding = int(re.search(r"leaving (\d+) minutes", miri_job)[1])
+        self.assertLessEqual(setup + grace + 6 * (per_filter + grace),
+                             (job_minutes - surrounding) * 60)
         self.assertIn("fail-fast: false", miri_job)
         self.assertIn("max-parallel: 1", miri_job)
 
