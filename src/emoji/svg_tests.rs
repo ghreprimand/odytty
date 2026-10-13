@@ -453,6 +453,86 @@ fn filters_masks_and_markers_are_refused_before_conversion() {
     assert!(rendered.is_empty(), "cases {rendered:?} rendered");
 }
 
+/// Style text is read as CSS declarations with the parser `usvg` applies, so
+/// every declaration of a filter, mask, or marker property is refused,
+/// including the separator-free form that parser accepts, upper-case names,
+/// and the `marker-*` longhands.
+#[test]
+fn refused_css_declarations_are_refused_in_every_style_form() {
+    let marker = r##"<marker id="k" markerWidth="4" markerHeight="4"><rect width="4" height="4" fill="#00c"/></marker>"##;
+    let path = r##"d="M0 0 L100 0 L100 50" stroke="#c00" stroke-width="4" fill="none""##;
+    let mut refused = Vec::new();
+    for declaration in [
+        "filter: blur(2)",
+        "FILTER: blur(2)",
+        "fill: #c00; filter: blur(2)",
+        "fill: #c00 !important filter: blur(2)",
+        "/* note */ filter /* x */ : blur(2)",
+        "*filter: blur(2)",
+    ] {
+        refused.push(format!(
+            r#"{SVG_OPEN}<g id="glyph1" style="{declaration}">{RED_RECT}</g></svg>"#
+        ));
+        refused.push(format!(
+            r#"{SVG_OPEN}<style>@media screen {{ g {{ fill: red }} }} g {{ {declaration} }}</style><g id="glyph1">{RED_RECT}</g></svg>"#
+        ));
+    }
+    for property in ["marker", "marker-start", "marker-mid", "marker-end"] {
+        refused.push(format!(
+            r#"{SVG_OPEN}{marker}<path id="glyph1" {path} style="{property}: url(#k)"/></svg>"#
+        ));
+    }
+    refused.push(format!(
+        r##"{SVG_OPEN}<mask id="m"><rect width="50" height="50" fill="#fff"/></mask><g id="glyph1" style="mask: url(#m)">{RED_RECT}</g></svg>"##
+    ));
+    let accepted: Vec<usize> = refused
+        .iter()
+        .enumerate()
+        .filter(|(_, document)| parsed_within_limits(document.as_bytes()))
+        .map(|(case, _)| case)
+        .collect();
+    assert!(accepted.is_empty(), "cases {accepted:?} passed the limits");
+}
+
+/// Fails before the exact parse: a refused word anywhere in style text,
+/// including a selector, a value, or a comment, refused the document.
+#[test]
+fn refused_words_outside_declarations_render() {
+    let allowed = [
+        format!(
+            r#"{SVG_OPEN}<style>.filter-free {{ fill: #c00 }}</style><g id="glyph1" class="filter-free">{RED_RECT}</g></svg>"#
+        ),
+        format!(
+            r#"{SVG_OPEN}<style>/* no filter, mask or marker */ g {{ opacity: 1 }}</style><g id="glyph1">{RED_RECT}</g></svg>"#
+        ),
+        format!(
+            r#"{SVG_OPEN}<g id="glyph1" style="opacity: 1 /* filter: blur(2) */; font-family: masked-marker">{RED_RECT}</g></svg>"#
+        ),
+        format!(
+            r#"{SVG_OPEN}<style>mask, marker {{ opacity: 1 }}</style><g id="glyph1">{RED_RECT}</g></svg>"#
+        ),
+    ];
+    let refused: Vec<usize> = allowed
+        .iter()
+        .enumerate()
+        .filter(|(_, document)| super::render(&document_table(document), 1, 16, 16).is_none())
+        .map(|(case, _)| case)
+        .collect();
+    assert!(refused.is_empty(), "cases {refused:?} did not render");
+}
+
+/// The limits read style text with the same `simplecss` that `usvg` links;
+/// a second version in the build would let the two parsers disagree.
+#[test]
+fn one_simplecss_version_serves_the_limits_and_usvg() {
+    let lock = include_str!("../../Cargo.lock");
+    assert_eq!(
+        lock.matches("name = \"simplecss\"\n").count(),
+        1,
+        "Cargo.lock resolves exactly one simplecss"
+    );
+}
+
 /// `parts` elements of `depth` nested opacity groups each, every part ending
 /// in a reference to the next and the last in a rect: `parts * depth` nested
 /// layers, each about the size of the canvas.

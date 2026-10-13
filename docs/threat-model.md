@@ -703,7 +703,10 @@ the most deliberate omissions.
   most 20,000 XML nodes, and refused before conversion when nesting exceeds 64,
   reference expansion exceeds 80,000 nodes, a reference cycle exists, or the
   document uses patterns, filters (including CSS filter functions), masks,
-  markers, or stylesheet `url(` references. The converted tree is then costed
+  markers, or stylesheet `url(` references. Style text is read as CSS
+  declarations with the `simplecss` parser `usvg` itself uses, so a filter,
+  mask, or marker declaration is refused while the same words in a selector,
+  value, or comment are not. The converted tree is then costed
   the way resvg renders it (nested isolation layers, clip buffers and masks,
   path coverage, and dashes) and refused when its raster work would exceed
   2^30 pixels or its live buffers 256 MiB at the slot size. Every image

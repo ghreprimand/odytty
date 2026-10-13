@@ -138,8 +138,14 @@ fn decode(bytes: &[u8]) -> Result<Response, ErrorCode> {
         },
         1 => {
             let count = u16::from_le_bytes(cursor.array()?) as usize;
-            if count > MAX_OBJECTS || count.saturating_mul(27) > cursor.0.len() {
+            if count > MAX_OBJECTS {
                 return Err(ErrorCode::TooLarge);
+            }
+            // Each object takes at least 27 bytes (a 25-byte id, the parent
+            // flag and the status flags). A count the remaining bytes cannot
+            // hold is a truncated reply, refused before any allocation.
+            if count.saturating_mul(27) > cursor.0.len() {
+                return Err(ErrorCode::InvalidRequest);
             }
             let mut objects = Vec::with_capacity(count);
             for _ in 0..count {
@@ -258,5 +264,28 @@ mod tests {
         .unwrap();
         body[15..17].copy_from_slice(&u16::MAX.to_le_bytes());
         assert_eq!(decode(&body), Err(ErrorCode::TooLarge));
+    }
+
+    #[test]
+    fn a_count_the_body_cannot_hold_is_a_truncated_reply_not_an_oversized_one() {
+        let mut body = encode(&Response {
+            request_id: 0,
+            reply: Reply::Objects(vec![object()]),
+        })
+        .unwrap();
+        body.truncate(body.len() - 1);
+        assert_eq!(decode(&body), Err(ErrorCode::InvalidRequest));
+        let mut body = encode(&Response {
+            request_id: 0,
+            reply: Reply::Objects(vec![]),
+        })
+        .unwrap();
+        let count = u16::try_from(MAX_OBJECTS).unwrap();
+        body[15..17].copy_from_slice(&count.to_le_bytes());
+        assert_eq!(
+            decode(&body),
+            Err(ErrorCode::InvalidRequest),
+            "the largest allowed count with no objects is truncated"
+        );
     }
 }

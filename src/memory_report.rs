@@ -32,12 +32,25 @@ static INTERVAL: OnceLock<Option<Duration>> = OnceLock::new();
 /// Monotonic per-process sample counter, included in every line so captures are
 /// orderable without relying on the clock.
 static SEQ: AtomicU64 = AtomicU64::new(0);
-/// Whether this process has written the header line, so repeated samples
-/// append data lines without re-emitting the legend. Held across the header and
+/// What this process has written to the report log. Held across the header and
 /// the data line, so concurrent appends cannot write a data line ahead of the
-/// header, and set only after the header write succeeds, so a failed header is
-/// retried with the next sample.
-static HEADER_WRITTEN: Mutex<bool> = Mutex::new(false);
+/// header. See [`ReportLog`].
+static REPORT_LOG: Mutex<ReportLog> = Mutex::new(ReportLog {
+    header_written: false,
+    line_open: false,
+});
+
+/// Write progress of the report log across samples.
+///
+/// `header_written` is set only once the whole header reached the file, so a
+/// failed header is written again with the next sample. `line_open` records
+/// that a failed write stopped inside a line; the next write first ends that
+/// fragment with a newline, so a torn header or data line never runs into the
+/// following one.
+struct ReportLog {
+    header_written: bool,
+    line_open: bool,
+}
 
 /// Cached sampling period, or `None` when disabled. Reads the environment once.
 pub fn sample_interval() -> Option<Duration> {
@@ -342,9 +355,7 @@ gpu_graphics_textures={g5} gpu_vertex_buffers={g6}",
 /// Append one enabled sample to the state log. I/O errors are ignored;
 /// callers use the cached sampling gate before building a report.
 pub fn append_report(report: &MemoryReport) {
-    let mut header_written = HEADER_WRITTEN
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner);
+    let mut log = REPORT_LOG.lock().unwrap_or_else(PoisonError::into_inner);
     let seq = SEQ.fetch_add(1, Ordering::Relaxed);
     let epoch_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -363,28 +374,70 @@ pub fn append_report(report: &MemoryReport) {
         return;
     };
 
-    let _ = write_report(&mut file, &mut header_written, seq, epoch_ms, report);
+    let _ = write_report(&mut file, &mut log, seq, epoch_ms, report);
 }
 
-/// Write the header first when `header_written` is unset, then one data line.
-/// The flag is set only once the header write succeeded; a failed header
-/// writes no data line, so the next sample writes the header again.
+/// Write the header first when it has not been written, then one data line,
+/// as one buffer. A write that fails part-way updates `log` from the bytes
+/// that reached `out`: the header counts as written only when all of it did,
+/// and a write that stopped inside a line leaves `line_open` set, so the next
+/// call starts with a newline before repeating whatever is still missing.
 fn write_report(
     out: &mut impl std::io::Write,
-    header_written: &mut bool,
+    log: &mut ReportLog,
     seq: u64,
     epoch_ms: u128,
     report: &MemoryReport,
 ) -> std::io::Result<()> {
-    if !*header_written {
-        writeln!(
-            out,
-            "# odytty-memory-report v{} start_epoch_ms={epoch_ms}\n# {LEGEND}",
-            env!("CARGO_PKG_VERSION"),
-        )?;
-        *header_written = true;
+    let mut payload = String::new();
+    if log.line_open {
+        payload.push('\n');
     }
-    writeln!(out, "{}", format_report_line(seq, epoch_ms, report))
+    let header_end = if log.header_written {
+        None
+    } else {
+        payload.push_str(&format!(
+            "# odytty-memory-report v{} start_epoch_ms={epoch_ms}\n# {LEGEND}\n",
+            env!("CARGO_PKG_VERSION"),
+        ));
+        Some(payload.len())
+    };
+    payload.push_str(&format_report_line(seq, epoch_ms, report));
+    payload.push('\n');
+
+    use std::io::Write as _;
+    let mut counted = CountingWriter {
+        inner: out,
+        written: 0,
+    };
+    let result = counted.write_all(payload.as_bytes());
+    let written = counted.written.min(payload.len());
+    if header_end.is_some_and(|end| written >= end) {
+        log.header_written = true;
+    }
+    if written > 0 {
+        log.line_open = !payload.as_bytes()[..written].ends_with(b"\n");
+    }
+    result
+}
+
+/// Counts the bytes the inner writer accepted, so a failed `write_all` can
+/// tell how much of its buffer landed.
+struct CountingWriter<'a, W> {
+    inner: &'a mut W,
+    written: usize,
+}
+
+impl<W: std::io::Write> std::io::Write for CountingWriter<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let accepted = self.inner.write(buf)?;
+        self.written = self.written.saturating_add(accepted);
+        Ok(accepted)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
 }
 
 /// Parse one `Name: <n> kB` line of a Linux `/proc/<pid>/status` file into
@@ -528,29 +581,138 @@ mod tests {
         }
     }
 
+    /// Accepts `limit` bytes in total, then refuses every write.
+    struct PartialWriter {
+        accepted: Vec<u8>,
+        limit: usize,
+    }
+
+    impl std::io::Write for PartialWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let room = self.limit - self.accepted.len();
+            if room == 0 {
+                return Err(std::io::Error::other("refused"));
+            }
+            let take = room.min(buf.len());
+            self.accepted.extend_from_slice(&buf[..take]);
+            Ok(take)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn fresh_log() -> ReportLog {
+        ReportLog {
+            header_written: false,
+            line_open: false,
+        }
+    }
+
+    fn header_len() -> usize {
+        let mut out = Vec::new();
+        let mut log = fresh_log();
+        write_report(&mut out, &mut log, 0, 1, &MemoryReport::default()).expect("written");
+        let text = String::from_utf8(out).expect("utf-8");
+        text.match_indices('\n').nth(1).expect("two header lines").0 + 1
+    }
+
     #[test]
     fn a_failed_header_is_written_again_before_the_next_data_line() {
         let report = MemoryReport::default();
-        let mut header_written = false;
-        assert!(write_report(&mut FailingWriter, &mut header_written, 0, 1, &report).is_err());
+        let mut log = fresh_log();
+        assert!(write_report(&mut FailingWriter, &mut log, 0, 1, &report).is_err());
         assert!(
-            !header_written,
+            !log.header_written,
             "a failed header is not recorded as written"
         );
+        assert!(!log.line_open, "nothing reached the file");
         let mut out = Vec::new();
-        write_report(&mut out, &mut header_written, 1, 2, &report).expect("written");
+        write_report(&mut out, &mut log, 1, 2, &report).expect("written");
         let text = String::from_utf8(out).expect("utf-8");
         assert!(
             text.starts_with("# odytty-memory-report v"),
             "the retry starts with the header: {text:?}"
         );
-        assert!(header_written);
+        assert!(log.header_written);
         let mut out = Vec::new();
-        write_report(&mut out, &mut header_written, 2, 3, &report).expect("written");
+        write_report(&mut out, &mut log, 2, 3, &report).expect("written");
         let text = String::from_utf8(out).expect("utf-8");
         assert!(
             !text.starts_with('#'),
             "the header is written once: {text:?}"
         );
+    }
+
+    #[test]
+    fn a_torn_header_is_closed_before_the_whole_header_is_written_again() {
+        let report = MemoryReport::default();
+        let mut log = fresh_log();
+        let mut torn = PartialWriter {
+            accepted: Vec::new(),
+            limit: 10,
+        };
+        assert!(write_report(&mut torn, &mut log, 0, 1, &report).is_err());
+        assert!(
+            !log.header_written,
+            "a torn header is not recorded as written"
+        );
+        let mut out = torn.accepted;
+        write_report(&mut out, &mut log, 1, 2, &report).expect("written");
+        let text = String::from_utf8(out).expect("utf-8");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 4, "fragment, header, legend, data: {text:?}");
+        assert_eq!(
+            lines[0].len(),
+            10,
+            "the fragment ends its own line: {text:?}"
+        );
+        assert!(lines[1].starts_with("# odytty-memory-report v"), "{text:?}");
+        assert!(lines[2].starts_with("# seq "), "{text:?}");
+        assert!(lines[3].starts_with("seq=1 "), "{text:?}");
+        assert!(log.header_written && !log.line_open);
+    }
+
+    #[test]
+    fn a_torn_data_line_is_closed_without_repeating_a_written_header() {
+        let report = MemoryReport::default();
+        let mut log = fresh_log();
+        let mut torn = PartialWriter {
+            accepted: Vec::new(),
+            limit: header_len() + 5,
+        };
+        assert!(write_report(&mut torn, &mut log, 0, 1, &report).is_err());
+        assert!(log.header_written, "the whole header reached the file");
+        assert!(log.line_open, "the data line stopped part-way");
+        let mut out = torn.accepted;
+        write_report(&mut out, &mut log, 1, 2, &report).expect("written");
+        let text = String::from_utf8(out).expect("utf-8");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 4, "header, legend, fragment, data: {text:?}");
+        assert_eq!(lines[2], "seq=0", "{text:?}");
+        assert!(lines[3].starts_with("seq=1 "), "{text:?}");
+        assert_eq!(
+            text.matches("# odytty-memory-report").count(),
+            1,
+            "the header is not repeated: {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_write_that_ends_on_a_line_boundary_adds_no_blank_line() {
+        let report = MemoryReport::default();
+        let mut log = fresh_log();
+        let mut torn = PartialWriter {
+            accepted: Vec::new(),
+            limit: header_len(),
+        };
+        assert!(write_report(&mut torn, &mut log, 0, 1, &report).is_err());
+        assert!(log.header_written && !log.line_open);
+        let mut out = torn.accepted;
+        write_report(&mut out, &mut log, 1, 2, &report).expect("written");
+        let text = String::from_utf8(out).expect("utf-8");
+        assert!(!text.contains("\n\n"), "no blank line: {text:?}");
+        assert_eq!(text.lines().count(), 3, "{text:?}");
     }
 }

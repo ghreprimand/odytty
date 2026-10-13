@@ -20,6 +20,7 @@ fn words(text: &str) -> String {
 
 /// Every generated table that cites the Unicode License.
 const GENERATED_TABLES: &[&str] = &[
+    "src/atlas/marks.rs",
     "src/core/bidi/classes.rs",
     "src/core/bidi/brackets.rs",
     "src/core/bidi/mirrored.rs",
@@ -35,6 +36,7 @@ const LICENSE_FIXTURES: &[&str] = &[
     "tests/fixtures/unicode-emoji/LICENSE-UNICODE.txt",
     "tests/fixtures/unicode-indic/LICENSE-UNICODE.txt",
     "tests/fixtures/unicode-legacy-computing/LICENSE-UNICODE.txt",
+    "tests/fixtures/unicode-marks/LICENSE-UNICODE.txt",
 ];
 
 #[test]

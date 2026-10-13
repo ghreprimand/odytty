@@ -195,7 +195,7 @@ pub fn normalize_absolute_range(
 }
 
 /// Union two absolute selection ranges into the smallest range that covers
-/// both : the selection spans from the earliest
+/// both: the selection spans from the earliest
 /// start to the latest end of the anchored unit and the unit under the pointer,
 /// in row-major order. Unlike [`normalize_absolute_range`] this accepts
 /// degenerate single-cell ranges (`start == end`) so a word-drag over

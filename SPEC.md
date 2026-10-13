@@ -2747,6 +2747,7 @@ OdyTTY is a Linux-first Rust application built around these primary crates:
 | `unicode-width` | Terminal cell widths |
 | `unicode-bidi` | UAX #9 levels for the bidi display plan the renderer uses while `bidi_reorder` is on; built without its bundled Unicode 16.0.0 tables |
 | `resvg` | SVG-in-OpenType color glyphs (with its `usvg` parser), built without text layout, system fonts, or raster image decoding |
+| `simplecss` | Reads SVG style declarations with the parser `usvg` uses, so the filter, mask, and marker refusal checks the declarations that would render |
 | `arboard` | Clipboard integration |
 | `rustix` | Unix PTY and termios access |
 | `png` | PNG decoding for Kitty `f=100` |

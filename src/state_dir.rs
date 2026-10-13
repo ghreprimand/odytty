@@ -277,7 +277,9 @@ fn follow_config_link(path: &Path) -> io::Result<PathBuf> {
 /// behavior, while export creates an owner-restricted sibling and moves that
 /// security descriptor with the file. The Unix mode-preservation step is a
 /// no-op there; parent-directory fsync remains best-effort because opening a
-/// directory handle for `File::sync_all` is unsupported.
+/// directory handle for `File::sync_all` is unsupported. On Unix a failed
+/// parent-directory fsync is logged at debug level and does not fail the
+/// write, because the rename has already replaced the target.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8], mode: WriteMode) -> io::Result<()> {
     use std::io::Write as _;
 
@@ -378,10 +380,13 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8], mode: WriteMode) -> io::Re
             repair_existing_sensitive(path)?;
         }
         // fsync the parent directory so the rename itself survives a crash.
+        // Best effort: the replacement already happened, so a failed sync does
+        // not fail the write, but on Unix it is logged rather than silently
+        // weakening the durability this function documents.
         if let Some(parent) = parent
-            && let Ok(dir) = File::open(parent)
+            && let Err(error) = sync_parent_dir(parent)
         {
-            let _ = dir.sync_all();
+            log_parent_sync_failure(&error);
         }
         Ok(())
     })();
@@ -391,6 +396,21 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8], mode: WriteMode) -> io::Re
     }
     Ok(())
 }
+
+/// Open `parent` and `sync_all` it, so a rename inside it is durable.
+fn sync_parent_dir(parent: &Path) -> io::Result<()> {
+    File::open(parent)?.sync_all()
+}
+
+/// Windows cannot open a directory handle for `File::sync_all`, so the
+/// failure there is expected on every write and not logged.
+#[cfg(not(windows))]
+fn log_parent_sync_failure(error: &io::Error) {
+    tracing::debug!(%error, "state file parent directory fsync failed; the write itself completed");
+}
+
+#[cfg(windows)]
+fn log_parent_sync_failure(_error: &io::Error) {}
 
 /// Reserve a uniquely-named sibling temp next to `path` and return it with an
 /// open write handle. The name mixes pid, a nanosecond timestamp, a
@@ -726,6 +746,23 @@ mod tests {
     #[cfg(unix)]
     fn mode(path: &Path) -> u32 {
         fs::metadata(path).expect("metadata").permissions().mode() & 0o777
+    }
+
+    /// The parent sync reports its result instead of discarding it, so the
+    /// caller can log a failure.
+    #[cfg(unix)]
+    #[test]
+    fn parent_directory_sync_reports_success_and_failure() {
+        let root = temp_dir("parent-sync");
+        sync_parent_dir(&root).expect("an existing directory syncs");
+        let missing = root.join("missing");
+        assert_eq!(
+            sync_parent_dir(&missing)
+                .expect_err("a missing directory fails")
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]

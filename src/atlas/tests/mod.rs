@@ -12,6 +12,7 @@ mod fallback;
 mod fit;
 mod geometry;
 mod glyph_quad;
+mod marks;
 mod metrics;
 mod scaling;
 mod stem_darken;

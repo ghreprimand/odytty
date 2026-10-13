@@ -1259,7 +1259,8 @@ a floor; surpassing it is the standing ambition.
         Grid and native paths unchanged; box-drawing seams and bg-then-glyph
         order preserved. Tests: font-independent clip-width proof (always runs)
         + CJK-gated full-path + pixel_smoke seam-continuity / no-double-draw /
-        narrow-neighbour checks. Color emoji (RGBA atlas) remains out of scope.
+        narrow-neighbour checks. Color emoji (RGBA atlas) was outside this
+        item and shipped separately.
 - [x] Subpixel anti-aliasing behind a setting (R2 finding C).
 - [x] Image/graphics protocol decision spike (Kitty graphics + Sixel) -
       sequenced after the owned parser.

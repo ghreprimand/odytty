@@ -114,7 +114,7 @@ pub(super) const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" 
     printf '\e]7;file://%s\a' "$__ODYTTY_OSC7_ENC"
     printf '\e]133;A;click_events=1\a'
     unset __ODYTTY_PROMPT_EXECUTING
-    # Prompt-scoped key enhancement : while the prompt owns the line, add
+    # Prompt-scoped key enhancement: while the prompt owns the line, add
     # Kitty keyboard flag 0x1 (disambiguate). PS0 removes exactly that flag after
     # readline accepts a real command and before the command starts. Unlike the
     # DEBUG trap, PS0 is not confused by commands a Fedora prompt executes while
@@ -231,7 +231,7 @@ pub(super) const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" 
     printf '\e]133;P;odytty-button;invalidate%s\a' "${1:+;code=$1}"
   }
 
-  # Default key-enhancement bindings : give the prompt-scoped CSI-u keys
+  # Default key-enhancement bindings: give the prompt-scoped CSI-u keys
   # visible out-of-box behavior when OdyTTY advertises ODYTTY_KEY_ENHANCE. These
   # are ordinary readline (process-global) binds, but the sequences only ever
   # arrive while the prompt owns the line and the 0x1 flag is pushed, so binding
@@ -371,7 +371,7 @@ pub(super) const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" 
   fi
   zle -N zle-line-pre-redraw __odytty_line_pre_redraw
 
-  # Prompt-scoped key enhancement : when OdyTTY advertises
+  # Prompt-scoped key enhancement: when OdyTTY advertises
   # ODYTTY_KEY_ENHANCE, push Kitty keyboard flag 0x1 (disambiguate) while the
   # line editor owns the prompt, popped when the line is accepted or aborted.
   # line-init/line-finish pair once per prompt, so push/pop stay balanced even on
@@ -408,7 +408,7 @@ pub(super) const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" 
     fi
     zle -N zle-line-finish __odytty_line_finish
 
-    # Default key bindings : give the prompt-scoped CSI-u keys visible
+    # Default key bindings: give the prompt-scoped CSI-u keys visible
     # out-of-box behavior. Each bind is skipped when the user has already bound
     # the sequence (a ~/.zshrc `bindkey`, sourced before this snippet, wins); to
     # override afterwards, rebind with `bindkey '\e[127;5u' <widget>`.

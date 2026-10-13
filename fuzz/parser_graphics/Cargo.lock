@@ -1759,6 +1759,7 @@ dependencies = [
  "resvg",
  "rfd",
  "rustix 1.1.4",
+ "simplecss",
  "skrifa 0.42.1",
  "swash",
  "thiserror 2.0.20",

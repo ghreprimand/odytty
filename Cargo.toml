@@ -71,6 +71,12 @@ resvg = { version = "=0.45.1", default-features = false }
 # native platform implementations. Exact pin and minimal feature set keep the
 # reviewed dependency surface stable.
 rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
+# CSS parser that `usvg` uses for SVG `style` elements and attributes.
+# Apache-2.0 OR MIT, already in the build through `usvg`. The SVG glyph limits
+# read declarations with the same parser and version, so the filter, mask, and
+# marker refusal sees exactly the declarations `usvg` would apply; a test keeps
+# the lockfile at one `simplecss` version.
+simplecss = "=0.2.2"
 # Direct use of the already-transitive Fontations stack evaluates guarded COLR
 # v1 Paint graphs. `swash` remains the shaping and bitmap/COLR v0 rasterizer.
 skrifa = "0.42.1"

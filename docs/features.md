@@ -608,7 +608,7 @@ The support boundary is explicit:
 | Khmer/Myanmar terminal widths | Dependent spacing signs and coeng/invisible-stacker-linked consonants share bounded two-cell source owners; Khmer U+17A4 and U+17D8 occupy one cell | ZWJ preserves linking, ZWNJ breaks it; font-backed shaping is the separate Khmer/Myanmar shaping row |
 | Additional measured script widths | Chakma, Javanese, Grantha, and Tai Tham spacing signs and measured linked consonants share bounded two-cell owners | Chakma U+11134 links directly but keeps separate owners with ZWJ; Javanese/Grantha viramas alone keep one cell; font-backed shaping stays within each owner |
 | Emoji cluster rendering | Unicode 17 listed VS16 bases, fully qualified RGI ZWJ sequences, modifier-base skin tones, VS16 keycaps, and regional-indicator pairs share bounded two-cell source owners | Color glyphs remain font-dependent; VS15 does not demote, standalone regional indicators and keycaps without VS16 stay one cell, and non-RGI joins keep separate owners |
-| SVG-in-OpenType | SVG documents draw glyphs that no bitmap, COLR v0, or COLR v1 source covers, in the same one- or two-cell color slot | Documents over the size, node, nesting, reference-expansion, pixel-work, or live-buffer limits, and documents with patterns, filters, masks, markers, or stylesheet `url(` references, use monochrome fallback; no file, network, or embedded image loads, and SVG text is not drawn |
+| SVG-in-OpenType | SVG documents draw glyphs that no bitmap, COLR v0, or COLR v1 source covers, in the same one- or two-cell color slot | Documents over the size, node, nesting, reference-expansion, pixel-work, or live-buffer limits, and documents with patterns, filters, masks, markers (as elements, attributes, or CSS declarations; the words elsewhere in style text are allowed), or stylesheet `url(` references, use monochrome fallback; no file, network, or embedded image loads, and SVG text is not drawn |
 
 Reordering and owner shaping change presentation only: cursor addressing,
 selection, search, and copy keep the logical text, and no display order or
@@ -644,7 +644,10 @@ are still not retained. They extend source text when an eligible owner exists.
 Decomposed combining marks stay attached to their base glyph in the monochrome
 text path. Wrapped and rectangular selection copy the base followed by its marks
 in stored order. If the active font lacks a combining mark, OdyTTY omits that
-mark instead of drawing a tofu box over the base glyph.
+mark instead of drawing a tofu box over the base glyph. The glyph atlas treats
+exactly the Unicode 17.0.0 nonspacing and enclosing marks (General_Category
+Mn and Me) as marks drawn over the base cell; spacing marks (Mc) draw from
+their own pen position like other glyphs.
 
 Supported box-drawing, block and shade elements, Braille, Powerline separators,
 and Symbols for Legacy Computing sextants, octants, diagonal-edged blocks

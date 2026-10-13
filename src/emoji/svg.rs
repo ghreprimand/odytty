@@ -195,7 +195,9 @@ fn decode_document(raw: &[u8]) -> Option<Vec<u8>> {
 /// raster cost is outside the `svg_budget` model.
 const REFUSED_ELEMENTS: [&str; 4] = ["pattern", "filter", "mask", "marker"];
 /// Properties that apply a filter (including CSS filter functions), a mask, or
-/// markers, refused for the same reason in attributes and style text.
+/// markers, refused for the same reason as attributes and as CSS declarations.
+/// A name matches when it starts with one of these, which covers `marker-start`,
+/// `marker-mid`, `marker-end`, and the `mask` and `filter` longhands.
 const REFUSED_PROPERTIES: [&str; 3] = ["filter", "mask", "marker"];
 
 /// Structural limits checked on the parsed XML before usvg converts it:
@@ -215,7 +217,10 @@ pub(super) fn document_within_limits(xml: &roxmltree::Document) -> bool {
             }
             if name == "style"
                 && node.descendants().any(|child| {
-                    text_has_url(child.text()) || child.text().is_some_and(names_refused_property)
+                    text_has_url(child.text())
+                        || child
+                            .text()
+                            .is_some_and(stylesheet_declares_refused_property)
                 })
             {
                 return false;
@@ -246,21 +251,33 @@ fn sets_refused_property(node: roxmltree::Node) -> bool {
     node.attributes().any(|attribute| {
         let name = attribute.name();
         if name == "style" {
-            return names_refused_property(attribute.value());
+            return simplecss::DeclarationTokenizer::from(attribute.value())
+                .any(|declaration| is_refused_property(declaration.name));
         }
-        REFUSED_PROPERTIES
-            .iter()
-            .any(|property| name.starts_with(property))
-            && attribute.value().trim() != "none"
+        is_refused_property(name) && attribute.value().trim() != "none"
     })
 }
 
-/// Conservative: any mention of a refused property name in style text.
-fn names_refused_property(text: &str) -> bool {
-    let text = text.to_ascii_lowercase();
+/// Whether any rule in the stylesheet `text` declares a refused property.
+///
+/// The text is parsed by `simplecss`, the parser `usvg` applies to `style`
+/// elements and attributes, so exactly the declarations that could reach the
+/// renderer are checked. A refused word that appears only in a selector,
+/// a value, or a comment is not a declaration and is allowed.
+fn stylesheet_declares_refused_property(text: &str) -> bool {
+    simplecss::StyleSheet::parse(text)
+        .rules
+        .iter()
+        .flat_map(|rule| &rule.declarations)
+        .any(|declaration| is_refused_property(declaration.name))
+}
+
+/// Case-insensitive prefix match, broader than the exact names `usvg` reads.
+fn is_refused_property(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
     REFUSED_PROPERTIES
         .iter()
-        .any(|property| text.contains(property))
+        .any(|property| name.starts_with(property))
 }
 
 /// Memoized expanded node count with cycle detection. `None` means a cycle, a
