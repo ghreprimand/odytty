@@ -440,29 +440,40 @@ This selection rule is shared by Linux, macOS, and Windows.
 On Linux and other fontconfig hosts, runtime fallback resolves
 missing glyphs off the render path. A resolver panic or a helper deadline or
 output-limit failure disables runtime fallback for that session and wakes the
-windows, so later requests settle without a face. macOS uses its static
-fallback chain and does not run this worker. Windows runs the same worker for
-script faces, described next.
+windows, so later requests settle without a face. Windows and macOS run the
+same worker for script faces, described next.
 
-Windows script fallback. After the static chain misses (bundled faces, host
-Nerd face, and the Segoe UI Symbol, Segoe MDL2 Assets and Cambria Math tail,
-whose providers do not change), the codepoint's script selects stock Windows
-faces by filename stem under the Windows font folders, and the first that maps
-the codepoint with a monochrome outline wins. Hebrew and Arabic consult Segoe UI
-then Arial; Armenian and Georgian, Segoe UI then Sylfaen; Devanagari through
-Sinhala and Chakma, Nirmala UI; Thai, Lao and Khmer, Leelawadee UI; Myanmar,
-Myanmar Text; Tibetan, Microsoft Himalaya; Javanese, Javanese Text; Ethiopic,
-N'Ko, Tifinagh and Vai, Ebrima then Nyala; Cherokee and Canadian syllabics,
-Gadugi; Grantha, Tai Tham and the Vedic extensions, the Sans Serif Collection
-that Windows 11 ships. A face absent from a Windows edition leaves its script
-boxed there, and a script outside these ranges keeps the box. Faces are read on
-first need on the runtime worker thread, never at startup or on the render
-path, each at most once per run (a failed load is not retried), and the font
-folders are scanned once, on that thread. Complex-script clusters take the same
-faces through the same fallback call, so a shaped run is fitted to the em size
-of the face that resolves its base. Disabling symbol fallback turns this off
-with the rest of the chain. Linux fontconfig fallback and the macOS fixed tail
-(Menlo, Apple Symbols, STIX Two Math, with no per-script lookup) are unchanged.
+Windows and macOS script fallback. After the static chain misses (bundled
+faces, host Nerd face, and the platform symbol tail: Segoe UI Symbol, Segoe
+MDL2 Assets and Cambria Math on Windows; Menlo, Apple Symbols and STIX Two Math
+on macOS; whose providers do not change), the codepoint's script selects stock
+system faces by filename stem under the platform font folders, and the first
+that maps the codepoint with a monochrome outline wins. On Windows, Hebrew and
+Arabic consult Segoe UI then Arial; Armenian and Georgian, Segoe UI then
+Sylfaen; Devanagari through Sinhala and Chakma, Nirmala UI; Thai, Lao and Khmer,
+Leelawadee UI; Myanmar, Myanmar Text; Tibetan, Microsoft Himalaya; Javanese,
+Javanese Text; Ethiopic, N'Ko, Tifinagh and Vai, Ebrima then Nyala; Cherokee
+and Canadian syllabics, Gadugi; Grantha, Tai Tham and the Vedic extensions, the
+Sans Serif Collection that Windows 11 ships. On macOS (System, Supplemental and
+Library font folders), Hebrew uses SF Hebrew then Arial Hebrew, Arabic SF Arabic
+then Geeza Pro, Armenian SF Armenian, Georgian SF Georgian; Devanagari uses
+Kohinoor then Devanagari Sangam MN; Bengali, Gurmukhi, Gujarati, Odia, Tamil,
+Telugu, Kannada, Malayalam and Sinhala use Kohinoor Bangla, Mukta Mahee,
+Kohinoor Gujarati, Noto Sans Oriya, Tamil Sangam MN then InaiMathi, Kohinoor
+Telugu, Noto Sans Kannada, Malayalam Sangam MN and Sinhala Sangam MN, each
+followed by its Sangam MN face where it has one; Thai uses Thonburi, Lao Lao
+Sangam MN, Khmer Khmer Sangam MN, Myanmar Noto Sans Myanmar then Myanmar Sangam
+MN, Tibetan Kailasa, Javanese, Chakma, Tai Tham, N'Ko, Tifinagh and Vai their
+Noto Sans faces, Ethiopic Kefa, Cherokee Plantagenet Cherokee, and Canadian
+syllabics Euphemia CAS then Noto Sans Canadian Aboriginal. macOS ships no
+Grantha face, so Grantha keeps the box there. A face absent from a given system
+leaves its script boxed, and a script outside these ranges keeps the box. Faces
+are read on first need on the runtime worker thread, never at startup or on the
+render path, each at most once per run (a failed load is not retried), and the
+font folders are scanned once, on that thread. Complex-script clusters take the
+same faces through the same fallback call, so a shaped run is fitted to the em
+size of the face that resolves its base. Disabling symbol fallback turns this
+off with the rest of the chain. Linux fontconfig fallback is unchanged.
 
 Collection faces load independently under the 256 MiB retained
 font limit, including discovery in larger collections. Extracted faces repair
@@ -492,8 +503,8 @@ provider hint. Unloadable candidates still fall through under the same attempt
 limit. Runtime fontconfig fallback on Linux requests a sorted Regular-style
 preference, filters it by `fc-list` coverage before the cap, and discards
 malformed UTF-8 records individually. macOS keeps its fixed
-system-tail order and shares the host Nerd-face preference; Windows does not
-run fontconfig queries.
+system-tail order and shares the host Nerd-face preference; Windows and macOS
+do not run fontconfig queries.
 
 Font-family, weight, proportional-face rejection and symbol
 precedence regressions use embedded licensed fixtures on every platform.

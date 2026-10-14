@@ -69,7 +69,6 @@ const SYSTEM_SYMBOL_FALLBACK_FONTS: &[(&str, u32)] = &[
 /// One static symbol-tail entry: a normalized filename-stem fragment and the
 /// face index to load from the matching file (non-zero only for a collection
 /// whose symbol coverage is not face 0).
-#[cfg(any(windows, test, all(unix, not(target_os = "macos"))))]
 pub(super) type SymbolHint = (&'static str, u32);
 
 /// Linux/Unix (non-macOS) symbol-fallback tail: normalized filename-stem hints
@@ -166,7 +165,6 @@ fn hinted_fallback_faces(
 /// The files a static-tail hint may load, best first: normalized stems that
 /// contain `hint`, explicit Regular variants before others, then the shortest
 /// stem, capped at [`MAX_SYMBOL_FONT_CANDIDATES`].
-#[cfg(any(windows, test, all(unix, not(target_os = "macos"))))]
 pub(super) fn hint_matches<'a>(inventory: &'a FontFileInventory, hint: &str) -> Vec<&'a PathBuf> {
     let mut matches: Vec<_> = inventory
         .files()
@@ -434,33 +432,36 @@ pub(super) struct FontconfigStalled;
 #[cfg(all(unix, not(target_os = "macos")))]
 pub(super) type ResolverStall = FontconfigStalled;
 
-/// Windows resolves from local font files, so no helper can stall; the type
-/// only gives the shared worker one error shape.
-#[cfg(windows)]
+/// Windows and macOS resolve from local font files, so no helper can stall;
+/// the type only gives the shared worker one error shape.
+#[cfg(any(windows, target_os = "macos"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 pub(super) struct ResolverStall;
 
-/// Runtime per-script glyph fallback on Windows.
+/// Runtime per-script glyph fallback on Windows and macOS.
 ///
 /// The atlas calls this when a printable spacing codepoint misses the static
 /// chain, which already holds the symbol tail. The answer comes from the
-/// stock Windows script faces in [`super::script_fallback`], loaded lazily on
+/// stock system script faces in [`super::script_fallback`], loaded lazily on
 /// the [`super::runtime_fallback`] worker thread, never on the render path:
 /// a codepoint without an answer is [`RuntimeSymbol::Pending`](crate::atlas::RuntimeSymbol)
 /// until the worker has one, then the windows rebuild.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub fn runtime_resolve_symbol_font(ch: char) -> crate::atlas::RuntimeSymbol {
-    // A codepoint outside every script group has no candidate face: settle it
-    // at once instead of queueing the worker and rebuilding every window.
-    if super::script_fallback::script_faces(ch).is_none() {
+    // A codepoint outside every script group, or one whose script has no face
+    // on this platform, has no candidate: settle it at once instead of queueing
+    // the worker and rebuilding every window.
+    if super::script_fallback::candidate_faces(ch, super::script_fallback::Platform::system())
+        .is_none()
+    {
         return crate::atlas::RuntimeSymbol::Ready(None);
     }
     super::runtime_fallback::request(ch)
 }
 
 /// The blocking resolution the worker thread runs for one codepoint.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub(super) fn resolve_symbol_font_blocking(
     ch: char,
 ) -> Result<Option<std::sync::Arc<FontHandle>>, ResolverStall> {

@@ -419,7 +419,6 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     host.set_automation_proxy(event_loop.create_proxy());
     // Runtime glyph fallback resolves on a worker thread; it wakes the loop so
     // every window rebuilds with the resolved faces.
-    #[cfg(any(windows, all(unix, not(target_os = "macos"))))]
     {
         let proxy = std::sync::Mutex::new(event_loop.create_proxy());
         crate::text::set_runtime_symbol_waker(move || {

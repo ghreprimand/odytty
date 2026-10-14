@@ -3053,26 +3053,37 @@ rules apply on Linux, macOS, and Windows; missing styles use the regular face.
 Runtime symbol discovery on Linux and other fontconfig hosts runs on one
 bounded background worker. Resolver panics and helper deadline or output-limit
 failures disable runtime fallback for that session, clear pending work, and
-wake windows; subsequent requests return no runtime face. macOS uses a static
-fallback chain without this worker. Windows runs the same worker to resolve
-script faces (see Windows script fallback below); it has no helper process to
-stall.
+wake windows; subsequent requests return no runtime face. Windows and macOS run
+the same worker to resolve script faces (see Windows and macOS script fallback
+below); they have no helper process to stall.
 
-Windows script fallback consults, only after the static chain (bundled faces,
-host Nerd face, Segoe UI Symbol, Segoe MDL2 Assets, Cambria Math) misses, the
-stock Windows face groups for the codepoint's script: Segoe UI then Arial for
-Hebrew and Arabic; Segoe UI then Sylfaen for Armenian and Georgian; Nirmala UI
-for the Devanagari through Sinhala blocks and Chakma; Leelawadee UI for Thai,
-Lao and Khmer; Myanmar Text; Microsoft Himalaya for Tibetan; Javanese Text;
-Ebrima then Nyala for Ethiopic, N'Ko, Tifinagh and Vai; Gadugi for Cherokee and
-Canadian syllabics; and the Sans Serif Collection (Windows 11) for Grantha,
-Tai Tham and the Vedic extensions. Candidates are filename-stem hints under the
-Windows font roots with the symbol tail's Regular-first ranking and
-eight-candidate cap. A face counts only if it maps the codepoint with a
-monochrome outline. The font roots are scanned and each face read on first need
-on the worker thread, each at most once per run, failures included, so startup
-and the render path do not wait. Codepoints outside these script ranges keep the
-box and settle at once without queueing the worker. A face absent from a Windows edition leaves its script boxed there.
+Windows and macOS script fallback consults, only after the static chain
+(bundled faces, host Nerd face, and the platform symbol tail: Segoe UI Symbol,
+Segoe MDL2 Assets, Cambria Math on Windows; Menlo, Apple Symbols, STIX Two Math
+on macOS) misses, the stock face list for the codepoint's script. Windows: Segoe
+UI then Arial for Hebrew and Arabic; Segoe UI then Sylfaen for Armenian and
+Georgian; Nirmala UI for the Devanagari through Sinhala blocks and Chakma;
+Leelawadee UI for Thai, Lao and Khmer; Myanmar Text; Microsoft Himalaya for
+Tibetan; Javanese Text; Ebrima then Nyala for Ethiopic, N'Ko, Tifinagh and Vai;
+Gadugi for Cherokee and Canadian syllabics; and the Sans Serif Collection
+(Windows 11) for Grantha, Tai Tham and the Vedic extensions. macOS: SF Hebrew
+then Arial Hebrew; SF Arabic then Geeza Pro; SF Armenian; SF Georgian; Kohinoor
+then Devanagari Sangam MN; Kohinoor Bangla, Mukta Mahee, Kohinoor Gujarati,
+Noto Sans Oriya, Tamil Sangam MN then InaiMathi, Kohinoor Telugu, Noto Sans
+Kannada, Malayalam Sangam MN and Sinhala Sangam MN, each followed by its Sangam
+MN face where it has one; Thonburi; Lao, Khmer and Myanmar Sangam MN (Noto Sans
+Myanmar first for Myanmar); Kailasa; Noto Sans for Javanese, Chakma, Tai Tham,
+N'Ko, Tifinagh and Vai; Kefa; Plantagenet Cherokee; and Euphemia CAS then Noto
+Sans Canadian Aboriginal. macOS has no Grantha face. Candidates are
+filename-stem hints under the platform font roots (macOS: System, its
+Supplemental folder and Library) with the symbol tail's Regular-first ranking
+and eight-candidate cap; a hint that prefixes a sibling script's stem relies on
+that ranking and on the coverage check. A face counts only if it maps the
+codepoint with a monochrome outline. The font roots are scanned and each face
+read on first need on the worker thread, each at most once per run, failures
+included, so startup and the render path do not wait. Codepoints outside these
+script ranges, and Grantha on macOS, keep the box and settle at once without
+queueing the worker. A face absent from a system leaves its script boxed there.
 Complex-script owners use the same call, so the chosen face must map every
 scalar of the owner and is fitted by the owner em-size rule.
 
@@ -3096,7 +3107,7 @@ directories are not included in this scan.
 Host symbol selection preserves provider-hint priority and prefers explicit
 Regular variants, then shorter normalized filename stems within a hint. The
 Linux and Windows static symbol tails use the same preference; macOS keeps its
-fixed system-tail paths. Unloadable faces fall through under the existing
+fixed system-tail paths, and its script faces use the same preference. Unloadable faces fall through under the existing
 eight-candidate cap. Linux runtime fontconfig candidates use the sorted
 fallback list with a Regular-style preference request, filtered by `fc-list`
 coverage before the cap, and omit malformed UTF-8 records individually,

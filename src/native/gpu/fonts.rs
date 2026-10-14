@@ -347,28 +347,16 @@ fn resolve_startup_fonts_with(
 
 /// Install the runtime per-codepoint glyph fallback resolver on `atlas`, or
 /// clear it. On Linux/Unix (non-macOS) the resolver is a `fc-match :charset`
-/// query ([`text::runtime_resolve_symbol_font`]); on Windows it is the
-/// stock-script-face lookup in `text::script_fallback`, which only runs after
-/// the static chain (bundled faces and the Segoe symbol tail) misses. Both are
-/// consulted only on a static-chain miss, and the atlas caches each codepoint,
-/// so the lookup runs at most once per distinct missing codepoint. It is
-/// installed only when symbol fallback is `enabled`, so disabling the feature
-/// leaves both the static chain and the runtime query off. On macOS there is no
-/// runtime query (the static system tail covers the platform), so the resolver
-/// is always cleared and the path stays byte-identical to the pre-feature
-/// renderer.
+/// query; on Windows and macOS it is the stock script-face lookup in
+/// `text::script_fallback`. Both ([`text::runtime_resolve_symbol_font`]) are
+/// consulted only after the static chain (bundled faces and the platform symbol
+/// tail) misses, and the atlas caches each codepoint, so the lookup runs at most
+/// once per distinct missing codepoint. It is installed only when symbol
+/// fallback is `enabled`, so disabling the feature leaves both the static chain
+/// and the runtime query off.
 pub(super) fn install_runtime_symbol_resolver(atlas: &mut text::GlyphAtlas, enabled: bool) {
-    #[cfg(any(windows, all(unix, not(target_os = "macos"))))]
-    let resolver = if enabled {
-        Some(text::runtime_resolve_symbol_font as crate::atlas::RuntimeSymbolResolver)
-    } else {
-        None
-    };
-    #[cfg(not(any(windows, all(unix, not(target_os = "macos")))))]
-    let resolver = {
-        let _ = enabled;
-        None
-    };
+    let resolver =
+        enabled.then_some(text::runtime_resolve_symbol_font as crate::atlas::RuntimeSymbolResolver);
     atlas.set_runtime_symbol_resolver(resolver);
 }
 
@@ -647,11 +635,12 @@ mod tests {
         assert!(zeroed.font_for(FontStyle::Bold).has_zero_alternate());
     }
 
-    /// Windows end to end: the installed resolver, the runtime worker thread and
-    /// the real system fonts. A Latin-only primary face has no Hebrew, so the
-    /// cluster path starts `Pending` and settles on a face that maps the letter
-    /// instead of leaving the box. Segoe UI ships with every Windows install.
-    #[cfg(windows)]
+    /// Windows and macOS end to end: the installed resolver, the runtime worker
+    /// thread and the real system fonts. A Latin-only primary face has no
+    /// Hebrew, so the cluster path starts `Pending` and settles on a face that
+    /// maps the letter instead of leaving the box. Segoe UI (Windows) and SF
+    /// Hebrew (macOS) ship with every install.
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn windows_hebrew_cluster_settles_on_a_system_script_face() {
         let primary = text::load_font().expect("bundled face loads");

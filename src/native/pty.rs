@@ -64,8 +64,6 @@ pub(super) enum UserEvent {
     /// The runtime glyph-fallback worker resolved codepoints the atlases drew
     /// as pending fallback boxes. Not session-scoped: the host rebuilds every
     /// window so those cells re-rasterize with the resolved faces.
-    // Only the fontconfig hosts run the runtime glyph-fallback worker.
-    #[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
     GlyphFallbackResolved,
     /// v0.15.0 A: the deferred, post-readiness global-shortcut registration
     /// finished on its worker thread. Not session-scoped: the host records the

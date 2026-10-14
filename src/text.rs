@@ -34,8 +34,8 @@
 //! | [`metrics`] | raster and advance probes on a loaded face |
 //! | [`color`] | default/ANSI palettes, runtime overrides, sRGB and linear math |
 //! | [`symbol_map`] | SYMMAP codepoint-range rules |
-//! | `runtime_fallback` | Unix except macOS and Windows: the per-codepoint worker (fontconfig on Unix, `script_fallback` on Windows), its answer table, and the window waker set through `set_runtime_symbol_waker` |
-//! | `script_fallback` | the stock Windows script faces (Hebrew, Arabic, Indic, Southeast Asian and others) and the lazy resolver over them; its ordering logic is also compiled for tests on every platform |
+//! | `runtime_fallback` | the per-codepoint worker (fontconfig on Linux and other Unix, `script_fallback` on Windows and macOS), its answer table, and the window waker set through `set_runtime_symbol_waker` |
+//! | `script_fallback` | the stock Windows and macOS script faces (Hebrew, Arabic, Indic, Southeast Asian and others) and the lazy resolver over them; its ordering logic is also compiled for tests on every platform |
 //!
 //! Dependencies run one way: `resolve` reads `discovery` and `face_meta`,
 //! `symbols` reads `discovery`, `bundled` and `metrics`, `bundled`/`metrics`
@@ -56,9 +56,8 @@ mod font_handle;
 mod glyph_geom;
 mod metrics;
 mod resolve;
-#[cfg(any(windows, all(unix, not(target_os = "macos"))))]
 mod runtime_fallback;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "macos", test))]
 mod script_fallback;
 mod symbol_map;
 mod symbols;
@@ -71,7 +70,6 @@ pub use font_handle::*;
 pub use glyph_geom::*;
 pub use metrics::*;
 pub use resolve::*;
-#[cfg(any(windows, all(unix, not(target_os = "macos"))))]
 pub use runtime_fallback::set_runtime_symbol_waker;
 pub use symbol_map::*;
 pub use symbols::*;
