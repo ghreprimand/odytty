@@ -172,6 +172,24 @@ pub(crate) fn wait_until_socket_refuses(path: &Path) {
 mod tests {
     use super::*;
 
+    fn whitespace_free_scratch() -> ScratchDir {
+        let mut bases = vec![std::env::temp_dir()];
+        if cfg!(windows) {
+            bases.extend(std::env::var_os("PUBLIC").map(std::path::PathBuf::from));
+        } else {
+            bases.extend(["/tmp", "/var/tmp"].map(std::path::PathBuf::from));
+        }
+        for base in bases {
+            if base.display().to_string().contains(char::is_whitespace) {
+                continue;
+            }
+            if let Ok(path) = try_fresh_dir(&base, "ottpd") {
+                return ScratchDir(path);
+            }
+        }
+        panic!("no writable whitespace-free temporary base");
+    }
+
     fn spaced_base(scratch: &ScratchDir) -> std::path::PathBuf {
         let spaced = scratch.path().join("has space");
         std::fs::create_dir(&spaced).expect("spaced base");
@@ -180,7 +198,7 @@ mod tests {
 
     #[test]
     fn an_absent_program_skips_a_spaced_base_and_stays_in_an_owned_folder() {
-        let scratch = ScratchDir::new("ottad");
+        let scratch = whitespace_free_scratch();
         let spaced = spaced_base(&scratch);
         let plain = scratch.path().to_path_buf();
         let absent = AbsentProgram::in_bases(&[spaced.clone(), plain.clone()], &spaced);
@@ -197,7 +215,7 @@ mod tests {
 
     #[test]
     fn an_absent_program_with_no_usable_base_never_names_an_occupied_path() {
-        let scratch = ScratchDir::new("ottad");
+        let scratch = whitespace_free_scratch();
         let spaced = spaced_base(&scratch);
         let root = scratch.path().join("root");
         std::fs::create_dir(&root).expect("root");
@@ -222,7 +240,7 @@ mod tests {
 
     #[test]
     fn an_absent_program_skips_a_base_that_cannot_hold_a_folder() {
-        let scratch = ScratchDir::new("ottad");
+        let scratch = whitespace_free_scratch();
         let missing = scratch.path().join("missing");
         let plain = scratch.path().to_path_buf();
         let absent = AbsentProgram::in_bases(&[missing, plain.clone()], &plain);
@@ -239,6 +257,30 @@ mod tests {
         let absent = AbsentProgram::new();
         assert!(!absent.program.contains(char::is_whitespace));
         assert!(!std::path::Path::new(&absent.program).exists());
+    }
+
+    #[test]
+    fn an_absent_program_skips_a_spaced_platform_temp_candidate() {
+        let scratch = whitespace_free_scratch();
+        let platform_temp = std::env::temp_dir();
+        let spaced_path = try_fresh_dir(&platform_temp, "has space").expect("spaced temp child");
+        let spaced = ScratchDir(spaced_path.clone());
+        let plain = scratch.path().to_path_buf();
+        assert!(
+            spaced
+                .path()
+                .display()
+                .to_string()
+                .contains(char::is_whitespace)
+        );
+
+        let absent = AbsentProgram::in_bases(&[spaced.path().to_path_buf(), plain.clone()], &plain);
+        let program = std::path::Path::new(&absent.program);
+        assert!(!absent.program.contains(char::is_whitespace));
+        let owned = program.parent().expect("owned folder");
+        assert_eq!(owned.parent(), Some(plain.as_path()));
+        assert!(owned.is_dir());
+        assert!(!program.exists());
     }
 
     #[cfg(unix)]

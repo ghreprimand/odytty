@@ -35,19 +35,30 @@ pub(crate) fn join_within<T>(handle: JoinHandle<T>, limit: Duration, stage: &str
 
 /// The stage a [`run_staged`] body has reached, shown when it stalls.
 #[derive(Clone)]
-pub(crate) struct Stage(Arc<Mutex<&'static str>>);
+pub(crate) struct Stage {
+    current: Arc<Mutex<&'static str>>,
+    first_entry: Arc<Mutex<Option<std::sync::mpsc::Sender<()>>>>,
+}
 
 impl Stage {
     pub(crate) fn enter(&self, name: &'static str) {
         *self
-            .0
+            .current
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = name;
+        if let Some(sender) = self
+            .first_entry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
+            let _ = sender.send(());
+        }
     }
 
     fn current(&self) -> &'static str {
         *self
-            .0
+            .current
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
@@ -57,9 +68,35 @@ impl Stage {
 /// body entered, when it has not finished within `limit`. A panic in the body
 /// is re-raised unchanged. A stalled worker is abandoned.
 pub(crate) fn run_staged(limit: Duration, body: impl FnOnce(&Stage) + Send + 'static) {
-    let stage = Stage(Arc::new(Mutex::new("start")));
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let stage = Stage {
+        current: Arc::new(Mutex::new("start")),
+        first_entry: Arc::new(Mutex::new(Some(entered_tx))),
+    };
     let worker_stage = stage.clone();
     let worker = std::thread::spawn(move || body(&worker_stage));
+    let worker_entry_deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        if worker.is_finished() {
+            if let Err(payload) = worker.join() {
+                std::panic::resume_unwind(payload);
+            }
+            return;
+        }
+        match entered_rx.recv_timeout(POLL) {
+            Ok(()) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                if let Err(payload) = worker.join() {
+                    std::panic::resume_unwind(payload);
+                }
+                return;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => assert!(
+                Instant::now() < worker_entry_deadline,
+                "worker did not enter a stage within 15s"
+            ),
+        }
+    }
     let deadline = Instant::now() + limit;
     while !worker.is_finished() {
         assert!(
@@ -147,6 +184,39 @@ mod tests {
         }));
         assert!(text.contains("`write probe`"), "{text}");
         drop(release);
+    }
+
+    #[test]
+    fn a_stall_deadline_starts_after_the_worker_enters_its_probe_stage() {
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (entry_tx, entry_rx) = mpsc::channel();
+        let (stall_tx, stall_rx) = mpsc::channel();
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let runner = std::thread::spawn(move || {
+            panic_text(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                || {
+                    run_staged(Duration::from_millis(150), move |stage| {
+                        ready_tx.send(()).expect("test is waiting");
+                        entry_rx.recv().expect("test releases worker entry");
+                        stage.enter("write probe");
+                        let _ = stall_rx.recv();
+                        let _ = finished_tx.send(());
+                    });
+                },
+            )))
+        });
+
+        ready_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("worker reached its controlled pre-entry wait");
+        std::thread::sleep(Duration::from_millis(200));
+        entry_tx.send(()).expect("worker is waiting");
+        let failure = runner.join().expect("test runner");
+        stall_tx.send(()).expect("release stalled worker");
+        finished_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("worker cleanup");
+        assert!(failure.contains("`write probe`"), "{failure}");
     }
 
     #[test]
