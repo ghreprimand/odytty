@@ -81,6 +81,7 @@ These are the notable active defaults rather than every setting whose value is
 | Clickable URLs | Opens printed allowlisted URLs on modifier-click; output never opens a URL by itself. | `interactive_urls = off` |
 | Programming ligatures | Draws compatible operator sequences such as `->` with the font's ligatures while every terminal cell keeps its place. | `ligatures = off` |
 | Script shaping | Shapes Arabic and the supported complex scripts with the font's own forms, independently of ligatures. | `script_shaping = off` |
+| Live tab drag | Dragging a tab out of the strip shows its new window following the pointer where supported; release commits the move and Escape restores the tab. On X11 the window is created on release. Settings > Layout. | `live_tab_drag = off` creates the window only on release everywhere |
 | Cursor motion, scroll glide, bloom, and ambient CRT | Supplies the default motion and post-process character while preserving individual opt-outs and the plain render profile. | Use the corresponding Motion or Post-process rows, or `render_quality = plain` for the direct path |
 
 ## Useful Opt-In Settings
@@ -112,6 +113,17 @@ zero) when the font has one. Both apply live. See the
 ```conf
 bidi_reorder = on
 font_zero = on
+```
+
+`ambiguous_width` ships `narrow`. Set it to `wide` (Settings > Fonts >
+Ambiguous character width) to draw East Asian Ambiguous characters, such as
+`±` and `★`, in two columns. It applies from the first window and to every new
+session, and changing it reflows existing scrollback; Greek and Cyrillic stay
+one column. See
+[`features.md`](features.md#ambiguous-character-width).
+
+```conf
+ambiguous_width = wide
 ```
 
 ### Clipboard Choices

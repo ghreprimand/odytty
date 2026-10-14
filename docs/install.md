@@ -199,6 +199,10 @@ a slow last resort. Wayland is the primary display target. X11 works through the
 current `winit` and GPU stack, with some window-manager-dependent behavior for
 borderless windows and OS theme detection.
 
+Indic, Southeast Asian, Hebrew and Arabic text needs an installed font that
+covers those scripts, such as the distribution's Noto packages; OdyTTY finds it
+through fontconfig.
+
 ### Installer and verified manual download
 
 Install or update with one command - the same command does both, in any shell

@@ -127,7 +127,8 @@ sessions.
 - **Owned terminal foundation:** PTY integration (Unix backend and Windows
   ConPTY), DEC/xterm parser, bounded terminal model, input mapping, render
   geometry, and shaders are OdyTTY's own.
-- **GPU text and inline media:** bundled and system fonts, fallback chains,
+- **GPU text and inline media:** bundled and system fonts, fallback chains
+  (Windows and macOS fill missing script letters from stock system fonts),
   HiDPI rebuilds, color emoji with device-bounded atlas admission where a color
   font is available, Kitty graphics, and Sixel share the `wgpu` renderer.
   Atlas bitmap budgets bound cache residency, not total GPU memory; see the
@@ -158,9 +159,11 @@ sessions.
 
 ## Status
 
-OdyTTY is a broad pre-1.0 terminal. The published v0.16.x line adds read-only
-panes, broadcast input, moving tabs and panes between windows, stacked and
-floating layouts, scrollback export, and AppImage update information; see the
+OdyTTY is a broad pre-1.0 terminal. The published v0.17.0 release keeps
+script clusters and emoji sequences in their cells, shapes complex scripts with
+the font, adds opt-in right-to-left display order, stock-font script fallback on
+Windows and macOS, an alternate zero, SVG color glyphs, Legacy Computing
+diagonals, and live tab drag, while selection and copy stay logical; see the
 [release notes](docs/releases/README.md). In development for the next release:
 see [TODO.md](TODO.md) and the [full roadmap](docs/full-build-roadmap.md).
 
@@ -171,10 +174,14 @@ see [TODO.md](TODO.md) and the [full roadmap](docs/full-build-roadmap.md).
 Known gaps include the following:
 
 - Windows detached and resumable session hosting.
-- Complex-script shaping for script groups not yet enabled.
+- Font shaping for Brahmic scripts outside the enabled blocks; they keep
+  per-cell drawing.
 - Right-to-left paragraph levels and alternate-screen bidirectional
   reordering (reordering is an opt-in, off-by-default setting for the primary
   screen).
+- Live tab drag follow on X11 (the window appears on release).
+- Chinese, Japanese and Korean text on Windows and macOS needs a terminal font
+  that includes it; the stock-font fallback does not cover those scripts.
 
 Performance evidence is in the [published benchmarks](docs/benchmark-results.md).
 The terminal core and visual layer are deliberately separate; see the
