@@ -5,6 +5,7 @@
 #[cfg(unix)]
 pub mod app;
 pub mod atlas;
+pub(crate) mod atomic_update;
 pub mod automation;
 pub(crate) mod bounded_io;
 pub mod boxdraw;

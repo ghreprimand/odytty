@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use super::SettingsPanelLine;
 use super::pointer::{RowHit, RowZone};
+use crate::atomic_update::AtomicUpdate;
 use crate::native::overlay::{OverlayInput, fit_chars, fit_chars_tail, text_display_width};
 
 const MAX_DIR_ENTRIES: usize = 1024;
@@ -163,7 +164,7 @@ impl ReadLimiter {
 
     fn acquire(&'static self) -> Option<ReadSlot> {
         self.active
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            .fetch_update_compat(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active < self.max).then_some(active + 1)
             })
             .ok()

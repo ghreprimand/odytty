@@ -548,6 +548,13 @@ newer stable compiler is supported for ordinary development, but it neither
 verifies the 1.96 floor nor guarantees identical rustfmt and Clippy output; use
 the rustup-managed pin or the blocking CI matrix for exact-floor verification.
 
+A newer compiler can deprecate a standard-library name that the 1.96 floor still
+needs. Do not move the floor to silence it. Keep the 1.96 spelling behind one
+narrowly scoped `allow(deprecated)` and a comment that names the version which
+removes the need. Checked atomic updates already do this: call
+`fetch_update_compat` from `src/atomic_update.rs` instead of `fetch_update`, and
+switch that module to `try_update` in the commit that moves the floor to 1.99.
+
 ## Public repository safety
 
 This is a hard publishing boundary. Never commit, push, paste, or summarize

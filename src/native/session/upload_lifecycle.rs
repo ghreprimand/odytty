@@ -34,6 +34,8 @@ use std::process::{Child, ExitStatus};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::atomic_update::AtomicUpdate;
+
 /// Longest a single upload may run. The upload cap is 10 MiB, so this allows
 /// roughly 85 KiB/s before a transfer is abandoned.
 #[cfg_attr(test, allow(dead_code))] // used by the non-test upload worker
@@ -268,7 +270,7 @@ impl UploadSlots {
         });
         let unresolved = parked.len();
         self.active
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            .fetch_update_compat(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active.saturating_add(unresolved) < self.max).then_some(active + 1)
             })
             .ok()

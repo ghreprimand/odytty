@@ -18,6 +18,8 @@ use skrifa::outline::pen::PathStyle;
 use skrifa::outline::{DrawSettings, OutlinePen};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::atomic_update::AtomicUpdate;
+
 /// Face generations distinguish replacements even when allocators reuse the
 /// same address. Clones retain their generation, including a clone whose `'0'`
 /// mapping [`FontHandle::with_zero_feature`] changed: the generation names the
@@ -69,7 +71,7 @@ impl FontHandle {
     pub fn from_vec_and_index(bytes: Vec<u8>, index: u32) -> Result<Self, FontParseError> {
         skrifa::FontRef::from_index(&bytes, index).map_err(|_| FontParseError)?;
         let generation = NEXT_FACE_GENERATION
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            .fetch_update_compat(Ordering::Relaxed, Ordering::Relaxed, |value| {
                 value.checked_add(1)
             })
             .map_err(|_| FontParseError)?;

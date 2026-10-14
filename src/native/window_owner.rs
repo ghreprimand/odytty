@@ -35,6 +35,7 @@ use winit::window::WindowId;
 use super::app::{App, NewWindowRequest};
 use super::pty::UserEvent;
 use super::session::{MergeError, MergePlan};
+use crate::atomic_update::AtomicUpdate;
 
 /// A process-stable window identity. Allocated once per window from a monotonic
 /// counter and never reused for the process lifetime, so a merge target picker
@@ -63,7 +64,7 @@ pub(in crate::native) fn next_window_id() -> Option<ProcessWindowId> {
 /// the production arithmetic on a private atomic.
 fn take_window_id(counter: &AtomicU64) -> Option<u64> {
     counter
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |cur| {
+        .fetch_update_compat(Ordering::Relaxed, Ordering::Relaxed, |cur| {
             cur.checked_add(1)
         })
         .ok()
@@ -96,7 +97,7 @@ pub(in crate::native) fn next_surface_generation() -> Option<u64> {
     // Some(1)). `checked_add` on the stored value fails closed at the ceiling so
     // the atomic never wraps and no generation is ever reissued.
     NEXT_SURFACE_GENERATION
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |cur| {
+        .fetch_update_compat(Ordering::Relaxed, Ordering::Relaxed, |cur| {
             cur.checked_add(1)
         })
         .ok()
@@ -143,7 +144,7 @@ pub(in crate::native) fn next_window_token_base() -> Option<u64> {
 /// tests drive the production arithmetic on a private atomic.
 fn take_token_base(counter: &AtomicU64) -> Option<u64> {
     counter
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |cur| {
+        .fetch_update_compat(Ordering::Relaxed, Ordering::Relaxed, |cur| {
             if cur > MAX_WINDOW_TOKEN_BASE {
                 // Exhausted: leave the counter pinned and refuse.
                 None

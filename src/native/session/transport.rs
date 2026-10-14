@@ -144,9 +144,10 @@ impl HeadlessSession {
     /// [`Self::record_resize`] unless a refusal is pending; `false` when the
     /// resize was refused and nothing was recorded.
     pub(in crate::native) fn try_record_resize(&self, dimensions: crate::core::Dimensions) -> bool {
+        use crate::atomic_update::AtomicUpdate;
         let refused = self
             .resize_failures
-            .fetch_update(
+            .fetch_update_compat(
                 std::sync::atomic::Ordering::Relaxed,
                 std::sync::atomic::Ordering::Relaxed,
                 |pending| pending.checked_sub(1),
