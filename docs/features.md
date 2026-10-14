@@ -610,6 +610,10 @@ The support boundary is explicit:
 | Emoji cluster rendering | Unicode 17 listed VS16 bases, fully qualified RGI ZWJ sequences, modifier-base skin tones, VS16 keycaps, and regional-indicator pairs share bounded two-cell source owners | Color glyphs remain font-dependent; VS15 does not demote, standalone regional indicators and keycaps without VS16 stay one cell, and non-RGI joins keep separate owners |
 | SVG-in-OpenType | SVG documents draw glyphs that no bitmap, COLR v0, or COLR v1 source covers, in the same one- or two-cell color slot | Documents over the size, node, nesting, reference-expansion, pixel-work, or live-buffer limits, and documents with patterns, filters, masks, markers (as elements, attributes, or CSS declarations; the words elsewhere in style text are allowed), or stylesheet `url(` references, use monochrome fallback; no file, network, or embedded image loads, and SVG text is not drawn |
 
+Complex-script fallback owners start at the primary em size regardless of fallback
+line metrics. One ink fit uses the fixed cell span and vertical overflow
+allowance, with a 0.6 scale floor and clipping beyond it.
+
 Reordering and owner shaping change presentation only: cursor addressing,
 selection, search, and copy keep the logical text, and no display order or
 shaping is applied outside the bounds above. The detailed prerequisites, acceptance boundaries, and

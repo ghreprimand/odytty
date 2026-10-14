@@ -311,10 +311,12 @@ requests in these scripts. The face is the first that maps every scalar: a
 `symbol_map` override, the style face, then the fallback chain and runtime
 resolver. On Linux, both Wayland and X11 runtime candidates are filtered by
 fontconfig coverage before the eight-face load cap; macOS and Windows retain
-their static fallback chains. Shaped glyphs keep their pen positions; the run
-is centered in the
-owner's span when it fits, otherwise scaled uniformly to fit down to a 0.6
-floor, then clipped at the span edges. An owner with no covering face, a
+their static fallback chains. Fallback owner runs start at the primary em
+size; tall fallback line metrics do not shrink them beforehand. Shaped glyphs
+keep their pen positions; the run is centered in the owner's span when it
+fits, otherwise fitted once using actual ink and the vertical overflow
+allowance, scaled uniformly down to a 0.6 floor, then clipped at the span
+edges. An owner with no covering face, a
 pending runtime answer, a `.notdef` result, or no atlas room keeps the
 per-cell path. A stray mark that starts an owner is shaped with a dotted
 circle when the face maps U+25CC, and alone otherwise. The cursor block redraws per-cell glyphs, as it

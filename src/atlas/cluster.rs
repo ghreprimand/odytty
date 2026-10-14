@@ -200,8 +200,20 @@ impl GlyphAtlas {
         if self.shaped.contains_key(&key) {
             return (self.cluster_runs.get(&key) == Some(&identity)).then_some(key);
         }
-        let units = face.px_per_unit(self.px);
-        if units <= 0.0 {
+        // `px` is a line-height scale, not an em size. A fallback with tall
+        // ascenders/descenders must start at the primary em size, then receive
+        // exactly one ink fit. Own style faces retain their existing scale.
+        let px = if own_face {
+            self.px
+        } else {
+            let face_em = face.em_size(self.px);
+            if !face_em.is_finite() || face_em <= 0.0 {
+                return None;
+            }
+            self.px * (self.cluster_em_px / face_em)
+        };
+        let units = face.px_per_unit(px);
+        if !units.is_finite() || units <= 0.0 {
             return None;
         }
         let mut ink = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
@@ -249,7 +261,7 @@ impl GlyphAtlas {
         let ink = rasterize_glyph_run(
             face,
             Pen {
-                px: self.px * fit.scale,
+                px: px * fit.scale,
                 baseline,
             },
             &run,

@@ -492,6 +492,8 @@ pub struct GlyphAtlas {
     cluster_runs: HashMap<ShapedGlyphKey, cluster::ClusterRun>,
     /// Physical pixel size new glyphs are rasterized at (matches the ASCII block).
     px: f32,
+    /// Primary face em size for complex-script fallback runs only.
+    cluster_em_px: f32,
     /// Monotonic counter bumped whenever pixels or dimensions change. The native
     /// layer compares this to decide when to re-upload the atlas texture.
     revision: u64,

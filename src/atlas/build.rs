@@ -134,6 +134,7 @@ impl GlyphAtlas {
             shaped: HashMap::new(),
             cluster_runs: HashMap::new(),
             px,
+            cluster_em_px: font.em_size(px),
             revision: 0,
             dirty: false,
             subpixel,

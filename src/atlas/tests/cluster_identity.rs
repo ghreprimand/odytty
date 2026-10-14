@@ -92,3 +92,33 @@ fn distinct_runs_keep_distinct_slots_and_repeat_as_hits() {
     assert_eq!(draw(&first), a);
     assert_eq!(draw(&second), b);
 }
+
+#[test]
+fn tall_fallback_line_metrics_do_not_shrink_cluster_ink() {
+    let primary = FontHandle::try_from_vec(
+        include_bytes!("../../../tests/fixtures/fonts/cluster-size-primary.ttf").to_vec(),
+    )
+    .expect("project-authored primary face");
+    let fallback = FontHandle::try_from_vec(
+        include_bytes!("../../../tests/fixtures/fonts/cluster-size-tall.ttf").to_vec(),
+    )
+    .expect("project-authored tall-metric face");
+    let mut atlas = GlyphAtlas::build(&primary, PX);
+    let reference = atlas.glyph_quad('M').expect("primary ink");
+    let glyphs = [ClusterGlyph {
+        id: fallback.glyph_id('\u{b95}').0,
+        x: 0,
+        y: 0,
+    }];
+    let key = atlas
+        .ensure_cluster(&fallback, 91, FontStyle::Regular, false, 1, &glyphs)
+        .expect("fallback cluster ink");
+    let ink = atlas.shaped_glyph_quad(key).expect("cluster quad");
+    assert!(
+        ink.height as f32 >= reference.height as f32 * 0.9,
+        "equal outlines must retain at least 90% of primary height: {ink:?} vs {reference:?}"
+    );
+    assert_eq!(ink.height, reference.height);
+    assert_eq!(ink.width, reference.width);
+    assert_eq!(atlas.cell, GlyphAtlas::build(&primary, PX).cell);
+}

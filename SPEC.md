@@ -2857,7 +2857,11 @@ joining and complex-script owner forms follow the separate default-on
 `script_shaping` setting (`ODYTTY_SCRIPT_SHAPING`). Each setting applies live
 from Settings > Rendering, reachable from the right-click menu. Script shaping
 off restores per-cell glyphs for its scripts. Arabic joining and complex-script
-owner forms are independent of `ligatures`. Optional stylistic sets `ss01` and
+owner forms are independent of `ligatures`. Complex-script fallback owner runs start
+at the primary face's em size, then fit their actual ink once to the reserved
+span and vertical overflow allowance, with a 0.6 scale floor and clipping
+beyond it. Tall fallback line metrics do not impose an earlier reduction.
+Optional stylistic sets `ss01` and
 `ss02` (off by default) apply to ligature shaping. Both switches share the same
 paths on Linux Wayland, Linux X11, macOS, and Windows.
 

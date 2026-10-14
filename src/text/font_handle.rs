@@ -203,6 +203,16 @@ impl FontHandle {
         }
     }
 
+    /// Em size in pixels at the ascent-minus-descent scale `px`.
+    /// Owner-run fallback uses the primary face's em size so tall line metrics
+    /// cannot shrink a run before its ink is fitted to the terminal span.
+    pub(crate) fn em_size(&self, px: f32) -> f32 {
+        use skrifa::raw::TableProvider;
+
+        let units = self.font_ref().head().map_or(0, |head| head.units_per_em());
+        f32::from(units) * self.px_per_unit(px)
+    }
+
     /// Outline `glyph` at its scale and position, or `None` when the face has no
     /// drawable outline for it. Mirrors `ab_glyph::Font::outline_glyph`; the
     /// returned handle answers [`OutlinedGlyph::px_bounds`] and

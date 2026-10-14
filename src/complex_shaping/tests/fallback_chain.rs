@@ -36,3 +36,56 @@ fn every_enabled_group_shapes_from_the_fallback_chain_under_a_monospace_face() {
         assert!(compared >= group.owner_floor, "{}: {compared}", group.name);
     }
 }
+
+#[test]
+fn tall_metric_fallback_owner_keeps_primary_ink_height_and_logical_cells() {
+    let _guard = crate::test_lock::render_globals_lock();
+    let primary = FontHandle::try_from_vec(
+        include_bytes!("../../../tests/fixtures/fonts/cluster-size-primary.ttf").to_vec(),
+    )
+    .expect("project-authored primary face");
+    let fallback = Arc::new(
+        FontHandle::try_from_vec(
+            include_bytes!("../../../tests/fixtures/fonts/cluster-size-tall.ttf").to_vec(),
+        )
+        .expect("project-authored tall-metric face"),
+    );
+    let text = "\u{b95}\u{bcd}";
+    let terminal = terminal(text, 4);
+    let snapshot = terminal.snapshot();
+    assert_eq!(snapshot.cells[0].grapheme(), text);
+    assert_eq!(single_owner(&snapshot), Some(1));
+    let mut atlas = GlyphAtlas::build(&primary, PX);
+    let primary_height = atlas.glyph_quad('M').expect("primary ink").height;
+    let geometry = atlas.cell;
+    atlas.set_fallback_fonts(vec![fallback]);
+    let fonts = Fonts(primary);
+    let mut shaper = ComplexShaper::new();
+    assert!(
+        shaper
+            .build_runs(false, &snapshot, &fonts, &mut atlas, &[])
+            .is_empty()
+    );
+    let runs = shaper.build_runs(true, &snapshot, &fonts, &mut atlas, &[]);
+    assert_eq!(runs.len(), 1);
+    assert_eq!((runs[0].start, runs[0].end), (0, 1));
+    let ink = atlas
+        .shaped_glyph_quad(runs[0].glyphs[0].key)
+        .expect("owner ink");
+    assert_eq!(
+        ink.height, primary_height,
+        "equal outlines keep equal height"
+    );
+    assert_eq!(atlas.cell, geometry);
+    assert_eq!(terminal.snapshot().cells, snapshot.cells);
+    assert_eq!(
+        selected_text(
+            &snapshot,
+            SelectionRange {
+                start: CellPoint { row: 0, column: 0 },
+                end: CellPoint { row: 0, column: 0 }
+            }
+        ),
+        text
+    );
+}
