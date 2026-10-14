@@ -238,6 +238,16 @@ Clipboard consent owns consumed physical keys through their releases, so held
 keys do not leak into the shell when the prompt closes. Only fresh presses
 make consent decisions. About diagnostics copy shows the clipboard result.
 
+A mouse drag selects the cells between its ends, a double-click selects a
+word, and a triple-click selects the whole logical line under the pointer:
+every row the terminal joined by wrapping one long line, including rows
+scrolled above or below the window, up to the line breaks around it. Copying
+it gives the line without inserted newlines, the same text a drag across the
+wrap gives, with bidirectional reordering on or off. Dragging after a
+double-click or triple-click grows the selection by whole words or lines.
+Rows a program separated with its own line breaks stay separate lines, as in
+xterm. Linux, macOS, and Windows share this behavior.
+
 ### Paste Safety
 
 OdyTTY's risky-paste confirmation is a structural safeguard for text entering

@@ -336,6 +336,7 @@ mod synchronized_output;
 mod tab_tear_out;
 mod tabs_sessions;
 mod theme_capture;
+mod triple_click_logical_line;
 mod ui_state_sync;
 mod viewport;
 mod wheel_zoom;

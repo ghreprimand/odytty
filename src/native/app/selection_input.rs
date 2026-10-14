@@ -144,16 +144,97 @@ impl App {
     }
 
     fn select_line(&mut self, point: CellPoint) {
-        let scrollback_len = self.scrollback_len();
-        let Some(range) = selection::line_range_at(point, self.focused_grid()) else {
+        let Some(absolute) = self.logical_line_range_at(point) else {
             return;
         };
-
-        let absolute =
-            selection::absolute_range_from_visible(range, self.viewport.offset(), scrollback_len);
         self.selection.set_range(absolute);
         self.finalize_or_arm_unit_drag(SelectGranularity::Line, absolute);
         self.request_selection_redraw();
+    }
+
+    /// The whole logical line under visible cell `point`, as an absolute range
+    /// from its first row's column 0 to its last row's last column: every
+    /// physical row joined by soft wraps (rows the terminal wrapped itself),
+    /// above and below the viewport as well, stopping at hard line breaks.
+    /// The line-selection unit for a triple-click and a line drag, matching
+    /// drag selection across a wrap. The rows come from the terminal's own
+    /// wrap flags, so the unit is the same with bidi reordering on or off.
+    fn logical_line_range_at(&self, point: CellPoint) -> Option<AbsoluteSelectionRange> {
+        let grid = self.focused_grid();
+        let range = selection::line_range_at(point, grid)?;
+        let scrollback_len = self.scrollback_len();
+        let row =
+            selection::absolute_range_from_visible(range, self.viewport.offset(), scrollback_len)
+                .start
+                .row;
+        let (first, last) = self.logical_line_rows(row);
+        Some(AbsoluteSelectionRange {
+            start: selection::AbsoluteCellPoint {
+                row: first,
+                column: 0,
+            },
+            end: selection::AbsoluteCellPoint {
+                row: last,
+                column: grid.columns.saturating_sub(1),
+            },
+        })
+    }
+
+    /// First and last absolute rows of the logical line holding absolute row
+    /// `row`. Reads the wrap flags a viewport-sized window at a time, so a
+    /// line of any length costs work proportional to its rows, like copying it.
+    fn logical_line_rows(&self, row: usize) -> (usize, usize) {
+        let terminal = crate::native::lock_recover(&self.terminal);
+        let rows = terminal.screen().dimensions().rows;
+        let scrollback_len = terminal.screen().scrollback_len();
+        if rows == 0 {
+            return (row, row);
+        }
+        let last_live = scrollback_len + rows - 1;
+        let row = row.min(last_live);
+        // Wrap flags of the window whose top is `top` (clamped the way the
+        // viewport clamps), with the absolute row of its first entry.
+        let window = |top: usize| -> (usize, Vec<bool>) {
+            let offset = scrollback_len.saturating_sub(top);
+            let first = scrollback_len - offset;
+            let flags = terminal
+                .screen()
+                .visible_search_rows(offset)
+                .iter()
+                .map(|line| line.wrapped)
+                .collect();
+            (first, flags)
+        };
+        let mut first = row;
+        'up: while first > 0 {
+            let (top, flags) = window((first - 1).saturating_sub(rows - 1));
+            let below_window = first;
+            for above in (top..below_window).rev() {
+                if !flags.get(above - top).copied().unwrap_or(false) {
+                    break 'up;
+                }
+                first = above;
+            }
+            // The whole window joined: continue above it, if anything is.
+            if top == 0 {
+                break;
+            }
+        }
+        let mut last = row;
+        'down: while last < last_live {
+            let (top, flags) = window(last);
+            let from = last;
+            for below in from..top + flags.len() {
+                if !flags.get(below - top).copied().unwrap_or(false) || below >= last_live {
+                    break 'down;
+                }
+                last = below + 1;
+            }
+            if flags.is_empty() {
+                break;
+            }
+        }
+        (first, last)
     }
 
     /// MOUSE-EXTEND: after a double/triple-click sets a word/line range, either
@@ -228,12 +309,9 @@ impl App {
         let Some(anchor) = self.drag_anchor_unit else {
             return;
         };
-        let scrollback_len = self.scrollback_len();
-        let offset = self.viewport.offset();
-        let Some(range) = selection::line_range_at(point, self.focused_grid()) else {
+        let Some(focus_unit) = self.logical_line_range_at(point) else {
             return;
         };
-        let focus_unit = selection::absolute_range_from_visible(range, offset, scrollback_len);
         self.selection
             .set_range(selection::union_absolute_ranges(anchor, focus_unit));
     }

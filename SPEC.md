@@ -1312,8 +1312,9 @@ remain one command per prefix transaction.
 
 - Scrollback search with match navigation and highlights
 
-- Refined selection: double-click word, triple-click line, drag-scroll,
-  scrollback-aware anchors
+- Refined selection: double-click word, triple-click logical line (every
+  soft-wrapped row of the line under the pointer, in or out of the viewport),
+  drag-scroll, scrollback-aware anchors
 
 - Clipboard hardening: atomic bracketed paste with an 8 MiB ceiling, chunked
   plain paste, PRIMARY selection, consent-gated OSC 52 write support, and
