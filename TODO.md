@@ -1,6 +1,6 @@
 # OdyTTY TODO
 
-Published release: **v0.16.1**.
+Published release: **v0.17.0**.
 
 Living delivery record and forward backlog for OdyTTY. Each release section
 below records what shipped in that cycle; historical stage sections preserve
@@ -18,7 +18,7 @@ development record, [`SPEC.md`](SPEC.md) for durable decisions, and
 [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) for the full build
 roadmap.
 
-## v0.17.0: International Text (in development)
+## v0.17.0: International Text (published)
 
 Saved-layout names preserve non-ASCII text on Linux, macOS and Windows, within
 96 UTF-8 bytes. ASCII letters, digits, spaces, hyphens and underscores remain;

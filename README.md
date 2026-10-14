@@ -1,6 +1,6 @@
 # OdyTTY
 
-Published release: **v0.16.1**.
+Published release: **v0.17.0**.
 
 **A from-scratch, GPU-rendered Rust terminal with an Odyssey visual identity.**
 

@@ -107,9 +107,10 @@ its cross-platform or evidence gate is not met.
 - **Shipped v0.16.1 - AppImage update information.** The AppImage embeds its
   latest-release update channel and ships an alias-addressed zsync control
   file, covered by signed checksums and provenance. Terminal behavior is unchanged.
-- **v0.17.0 - International text and display correctness.** Bounded bidi and
-  complex-script work, remaining grapheme/width fixtures, SVG-in-OpenType color
-  glyphs, legacy-symbol fallback, and HiDPI validation.
+- **Shipped v0.17.0 - International text and display correctness.** Bounded
+  grapheme and width ownership, font-backed script shaping, optional primary-screen
+  bidi display, alternate zero, SVG-in-OpenType color glyphs and legacy-symbol
+  fallback retain terminal-cell metrics and logical selection and copy.
 - **v0.18.0 - Windows parity.** Supported default-terminal registration and a
   secure ConPTY detached/resumable-session path, with Linux and macOS regression
   coverage kept intact.
@@ -386,11 +387,12 @@ labels, and visible font-load failure reporting all ship today.
 
 Sharp, stable, comfortable text is a primary product pillar.
 
-- **Planned v0.17.0 - International text correctness.** Close the documented
-  Brahmic and Southeast Asian grapheme/width failures, then add bounded bidi and
-  complex-script reordering with explicit cursor, hit-testing, selection, copy,
-  wrapping, and reflow behavior. SVG-in-OpenType color glyphs, remaining legacy
-  symbol geometry, and HiDPI validation travel with the same correctness gate.
+- **Shipped v0.17.0 - International text correctness.** Bounded Brahmic and
+  Southeast Asian grapheme/width ownership and font-backed script shaping retain
+  terminal-cell spans. Optional primary-screen bidi display keeps cursor movement,
+  selection and copy logical. SVG-in-OpenType color glyphs and legacy-symbol
+  diagonals use bounded rendering paths. Deliberate limits are recorded in the
+  [shaping reference](shaping-roadmap.md).
 
 - **Next - Effect default-tuning pass.** Once a human-eye baseline exists,
   revisit the conservative default strengths of stem darkening, standalone
@@ -446,19 +448,19 @@ Sharp, stable, comfortable text is a primary product pillar.
   platform-specific surface.
 - **Shipped - Stem-darkening default activation.** The rasterization machinery
   ships default-on at `0.7`, with `0.0` as the byte-identical opt-out.
-- **Planned v0.17.0 - Legibility font features.** Add named, bounded visual
-  controls for an alternate zero form (`zero`, rendered as the selected font
-  provides it) and other explicitly selected legibility features that preserve
-  terminal-cell metrics. Ligature coverage already spans the ASCII contextual
+- **Shipped v0.17.0 - Legibility font features.** A named Settings control
+  selects the font's alternate zero form (`zero`) while preserving terminal-cell
+  metrics. Ligature coverage already spans the ASCII contextual
   path, a curated non-ASCII operator/arrow allowlist, Latin `liga` alongside
   `calt`, and explicit `ss01`/`ss02` settings (see
   [`docs/shaping-roadmap.md`](shaping-roadmap.md)). These controls belong in the
   in-app settings surface; open-ended stylistic sets and arbitrary raw feature
   tags remain deferred.
-- **Planned v0.17.0 - SVG-in-OpenType color-font expansion.** Add bounded,
-  non-networked SVG glyph rasterization after the shipped bitmap, COLR/CPAL v0,
-  and COLR v1 Paint-graph paths, with portable SVG-only fixtures, deterministic
-  fallback, and explicit document, raster, cache, and GPU resource limits.
+- **Shipped v0.17.0 - SVG-in-OpenType color-font expansion.** Bounded SVG glyph
+  rasterization follows the bitmap, COLR/CPAL v0 and COLR v1 paths, with portable
+  SVG-only fixtures, monochrome fallback, and document, raster, cache and GPU
+  resource limits. SVG processing loads no network or file resources and runs
+  no scripts.
 
 ## Track 3 - Readability And Perceptual Color
 
@@ -959,7 +961,7 @@ ship:
    reliability patch, the v0.15.6 cursor-glide regression fix, the v0.15.7
    Wayland stall-prevention and merge-autosave patch, and the v0.15.8 macOS
    idle-CPU patch. Version 0.16.0 publishes pane and window workflows;
-   v0.17.0 is the next planned feature checkpoint.
+   v0.17.0 is published; v0.18.0 is the next planned feature checkpoint.
    Do not hold a completed checkpoint for later roadmap work, and
    do not pull a later feature forward without its platform, security,
    documentation, and evidence gates.

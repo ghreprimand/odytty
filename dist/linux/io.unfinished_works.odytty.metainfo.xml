@@ -44,6 +44,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.17.0" date="2026-10-14">
+      <description>
+        <p>This release improves international text ownership and font-backed script shaping, adds optional bidirectional display and an alternate zero setting, and expands bounded SVG color glyph and legacy-symbol rendering while retaining terminal-cell metrics and logical copied text.</p>
+      </description>
+    </release>
     <release version="0.16.1" date="2026-10-03">
       <description>
         <p>The only change is AppImage update information and the companion zsync asset for AppImage update tools such as AppImageUpdate. Every other package is rebuilt at version 0.16.1 with no behavior change from version 0.16.0.</p>
