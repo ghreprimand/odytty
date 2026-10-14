@@ -87,6 +87,14 @@ pub enum ErrorCode {
     StaleIdentity,
     Busy,
     TimedOut,
+    /// A bound was exceeded: a frame length prefix outside the valid window
+    /// (zero and any prefix shorter than the smallest valid frame as well as
+    /// one above [`MAX_MESSAGE_BYTES`]), an oversized body, or a reply object
+    /// count above [`MAX_OBJECTS`]. The server sends this label on the wire
+    /// with request id 0 for a rejected frame, so it is not split: the length
+    /// prefix is all that has been read when a frame is refused, and a new
+    /// code would decode as `invalid_request` on older clients. A body that is
+    /// shorter than the contents it declares is `InvalidRequest`, never this.
     TooLarge,
     /// The owner already started a request when its caller stopped waiting.
     /// Retrying a structural mutation could duplicate it.

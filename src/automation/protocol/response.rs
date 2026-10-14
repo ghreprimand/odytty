@@ -266,6 +266,45 @@ mod tests {
         assert_eq!(decode(&body), Err(ErrorCode::TooLarge));
     }
 
+    /// The two ways a reply can be too big or too short, pinned through the
+    /// framed reader a client uses: a length prefix outside the window is
+    /// `TooLarge`, an object count above the cap is `TooLarge`, and a count the
+    /// body cannot hold is `InvalidRequest`.
+    #[test]
+    fn framed_replies_classify_prefix_count_and_truncation_separately() {
+        fn code_of(error: std::io::Error) -> ErrorCode {
+            *error
+                .get_ref()
+                .and_then(|cause| cause.downcast_ref::<ErrorCode>())
+                .expect("a protocol error code")
+        }
+        fn framed(body: &[u8]) -> Vec<u8> {
+            let mut bytes = (body.len() as u32).to_le_bytes().to_vec();
+            bytes.extend_from_slice(body);
+            bytes
+        }
+        for length in [0u32, 14, MAX_MESSAGE_BYTES as u32 + 1, u32::MAX] {
+            let error = read_response(&mut length.to_le_bytes().as_slice()).unwrap_err();
+            assert_eq!(code_of(error), ErrorCode::TooLarge, "prefix {length}");
+        }
+        let mut body = encode(&Response {
+            request_id: 0,
+            reply: Reply::Objects(vec![]),
+        })
+        .unwrap();
+        body[15..17].copy_from_slice(&u16::MAX.to_le_bytes());
+        let error = read_response(&mut framed(&body).as_slice()).unwrap_err();
+        assert_eq!(code_of(error), ErrorCode::TooLarge, "count above the cap");
+        let mut body = encode(&Response {
+            request_id: 0,
+            reply: Reply::Objects(vec![object()]),
+        })
+        .unwrap();
+        body.truncate(body.len() - 1);
+        let error = read_response(&mut framed(&body).as_slice()).unwrap_err();
+        assert_eq!(code_of(error), ErrorCode::InvalidRequest, "truncated body");
+    }
+
     #[test]
     fn a_count_the_body_cannot_hold_is_a_truncated_reply_not_an_oversized_one() {
         let mut body = encode(&Response {
