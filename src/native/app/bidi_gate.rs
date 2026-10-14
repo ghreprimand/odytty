@@ -27,12 +27,11 @@ use crate::core::Snapshot;
 use crate::grid::BidiDisplayMap;
 
 impl App {
-    /// Keep window-level overlay text out of the terminal display plan. The
-    /// surface shares the split-frame builder and remains fixed in window space.
-    pub(super) fn build_bidi_overlay_top(
-        &mut self,
-        cell: CellSize,
-    ) -> Option<(Snapshot, [f32; 2])> {
+    /// Keep window-level overlay text out of the terminal display plan: each
+    /// open modal surface (an overlay, then the rename or name prompt over it)
+    /// is its own opaque layer fixed in window space, so turning reordering on
+    /// shows the same surfaces as the single-pane frame without it.
+    pub(super) fn build_bidi_overlay_top(&mut self, cell: CellSize) -> Vec<(Snapshot, [f32; 2])> {
         let reserve = self.tab_reserve();
         let padding = self
             .resolved_surface()
@@ -45,7 +44,7 @@ impl App {
             self.grid.columns as f32 * cell.width as f32,
             self.grid.rows as f32 * cell.height as f32,
         );
-        self.build_overlay_top(content, cell)
+        self.build_modal_layers(content, cell)
     }
 
     /// Whether frames plan a bidi display map: the `bidi_reorder` setting, or
@@ -370,9 +369,11 @@ impl App {
             ambiguous_wide,
             plan.is_some(),
         );
-        let overlay_top = plan
-            .as_ref()
-            .and_then(|_| self.build_bidi_overlay_top(cell));
+        let overlay_top = if plan.is_some() {
+            self.build_bidi_overlay_top(cell)
+        } else {
+            Vec::new()
+        };
         let map = plan.map(|(mut map, planned)| {
             map.reset_rows_changed_between(&planned, &snapshot);
             map
@@ -469,7 +470,7 @@ impl App {
 #[cfg(test)]
 pub(in crate::native) struct BidiFrameProbe {
     pub(in crate::native) painted: Snapshot,
-    pub(in crate::native) overlay_top: Option<(Snapshot, [f32; 2])>,
+    pub(in crate::native) overlay_top: Vec<(Snapshot, [f32; 2])>,
     pub(in crate::native) params: CursorRenderParams,
     pub(in crate::native) streak: Option<crate::native::gpu::CursorStreakRequest>,
     pub(in crate::native) trail: Vec<SolidQuad>,

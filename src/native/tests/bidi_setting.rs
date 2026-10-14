@@ -264,7 +264,7 @@ fn right_click_keeps_bidi_placement_while_the_menu_is_open() {
     let frame = app.present_bidi_frame_for_test(Instant::now());
     assert_eq!(app.bidi_frame_map_for_test(), Some(&before));
     assert!(
-        frame.overlay_top.is_some(),
+        !frame.overlay_top.is_empty(),
         "the menu has its own opaque layer"
     );
     assert_eq!(
@@ -316,7 +316,7 @@ fn window_overlay_siblings_keep_the_terminal_bidi_plan() {
         open(&mut app);
         let frame = app.present_bidi_frame_for_test(Instant::now());
         assert!(
-            frame.overlay_top.is_some(),
+            !frame.overlay_top.is_empty(),
             "overlay {index} has a separate layer"
         );
         assert_eq!(
@@ -325,6 +325,96 @@ fn window_overlay_siblings_keep_the_terminal_bidi_plan() {
             "overlay {index}"
         );
     }
+}
+
+/// With reordering on, a rename band opened over an open overlay shows both
+/// surfaces, cell for cell the same as the frame with reordering off, which
+/// paints both into the grid (the overlay, then the band over it). Each is
+/// its own opaque layer above the reordered terminal, in that order.
+#[test]
+fn bidi_shows_the_rename_band_and_the_overlay_like_the_unreordered_frame() {
+    let mut frames = Vec::new();
+    for bidi_reorder in [false, true] {
+        let (mut app, _) = app();
+        // The window grid and the terminal agree, as in a live window.
+        app.resize_grid(
+            CELL,
+            (COLUMNS as u32) * CELL.width,
+            (ROWS as u32) * CELL.height,
+        );
+        app.apply_overlay_settings_for_test(Settings {
+            bidi_reorder,
+            ..Settings::default()
+        });
+        app.open_settings_overlay_for_test();
+        let _ = app.present_bidi_frame_for_test(Instant::now());
+        let (overlay_only, _) = app.redraw_single_pane_probe_for_test().expect("frame");
+        assert!(app.begin_rename_tab_for_test(0));
+        assert!(app.overlay_open_for_test(), "the overlay stays open");
+        let (both, _) = app.redraw_single_pane_probe_for_test().expect("frame");
+        assert_ne!(
+            both, overlay_only,
+            "bidi_reorder={bidi_reorder}: opening the band re-keys the frame"
+        );
+        frames.push(app.present_bidi_frame_for_test(Instant::now()));
+    }
+    let (plain, reordered) = (&frames[0], &frames[1]);
+    assert!(
+        plain.overlay_top.is_empty(),
+        "without reordering both paint into the grid"
+    );
+    let layers: Vec<_> = reordered.overlay_top.iter().collect();
+    assert_eq!(
+        layers.len(),
+        2,
+        "the overlay layer, then the rename band layer"
+    );
+    // The band is centered on the content grid, which places every layer:
+    // a layer's grid cell is the band's plus their whole-cell origin offset.
+    let grid = plain.painted.dimensions;
+    assert_eq!(grid, reordered.painted.dimensions);
+    let band_width = grid.columns.clamp(8, 48);
+    let band_cell = (
+        ((grid.rows - 3) / 2) as f32,
+        ((grid.columns - band_width) / 2) as f32,
+    );
+    let band_origin = layers[1].1;
+    let grid_cell = |origin: [f32; 2]| {
+        let row = band_cell.0 + (origin[1] - band_origin[1]) / CELL.height as f32;
+        let column = band_cell.1 + (origin[0] - band_origin[0]) / CELL.width as f32;
+        assert_eq!((row.fract(), column.fract()), (0.0, 0.0), "whole cells");
+        (row as usize, column as usize)
+    };
+    // Composite the layers in order, then compare every covered cell.
+    let mut composite = vec![None; grid.columns * grid.rows];
+    for (layer, origin) in layers {
+        let (row, column) = grid_cell(*origin);
+        assert!(
+            row + layer.dimensions.rows <= grid.rows
+                && column + layer.dimensions.columns <= grid.columns,
+            "layer {:?} at {origin:?} -> ({row}, {column}); band at {band_origin:?}",
+            layer.dimensions
+        );
+        for r in 0..layer.dimensions.rows {
+            for c in 0..layer.dimensions.columns {
+                composite[(row + r) * grid.columns + column + c] =
+                    Some(layer.cells[r * layer.dimensions.columns + c]);
+            }
+        }
+    }
+    let mut covered = 0;
+    for (index, cell) in composite.iter().enumerate() {
+        if let Some(cell) = cell {
+            let painted = plain.painted.cells[index];
+            assert_eq!(
+                (cell.ch, cell.attrs),
+                (painted.ch, painted.attrs),
+                "cell {index}"
+            );
+            covered += 1;
+        }
+    }
+    assert!(covered > grid.columns, "both surfaces were compared");
 }
 
 #[test]

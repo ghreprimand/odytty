@@ -618,6 +618,8 @@ tags are not exposed.
 
 Window-level menus, panels, pickers, dialogs, and rename fields keep the
 terminal display map beneath them. Their own text draws in logical order.
+Turning reordering on changes none of them: a rename field opened over a menu
+or panel shows both, the field on top, as it does with reordering off.
 Inline IME pre-edit, the search query band, and status text keeps the painted
 row in logical order.
 

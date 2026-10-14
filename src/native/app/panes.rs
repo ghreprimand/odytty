@@ -323,6 +323,15 @@ fn pane_clamped_cell(
     })
 }
 
+/// A window-level modal surface drawn as its own opaque layer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ModalLayer {
+    /// The open overlay: a menu, panel, picker or dialog.
+    Overlay,
+    /// The tab rename or name prompt band.
+    Rename,
+}
+
 /// Copy a rectangular sub-region of `src` into a new snapshot of size
 /// `width`×`height`, starting at cell `(top, left)`. Used to crop a painted
 /// window-overlay snapshot down to the panel's opaque rect so it composites as
@@ -565,12 +574,13 @@ impl App {
         Some((inner, origin, cell))
     }
 
-    /// Build the topmost window-level modal surface for split and bidi frames:
-    /// a window-content-grid snapshot with either the rename/name prompt
-    /// or the open overlay painted into it, cropped to the surface's rect so it
-    /// composites as an opaque box. Rename wins when both states are present,
-    /// matching the single-pane paint order. Returns the cropped snapshot plus
-    /// its physical-pixel window-space origin, or `None` when neither surface is
+    /// Build the topmost window-level modal surface for split frames: a
+    /// window-content-grid snapshot with either the rename/name prompt or the
+    /// open overlay painted into it, cropped to the surface's rect so it
+    /// composites as an opaque box. Rename wins when both states are present:
+    /// one cropped box cannot hold two surfaces without blank cells between
+    /// them covering the panes. Returns the cropped snapshot plus its
+    /// physical-pixel window-space origin, or `None` when neither surface is
     /// open. The cell math matches [`Self::overlay_grid_dims`] /
     /// [`Self::overlay_pointer_cell`] so render and hit-test agree exactly.
     pub(super) fn build_overlay_top(
@@ -578,8 +588,39 @@ impl App {
         content: PaneRect,
         cell: CellSize,
     ) -> Option<(Snapshot, [f32; 2])> {
-        if !self.overlay.is_open() && self.rename_state.is_none() {
-            return None;
+        self.build_modal_layer(content, cell, ModalLayer::Rename)
+            .or_else(|| self.build_modal_layer(content, cell, ModalLayer::Overlay))
+    }
+
+    /// Every open window-level modal surface as its own opaque layer, in paint
+    /// order: the open overlay, then the rename/name prompt over it. This is
+    /// the single-pane paint order, so a single-pane frame drawing these layers
+    /// above a reordered terminal shows the same surfaces as one painting them
+    /// into the terminal snapshot.
+    pub(super) fn build_modal_layers(
+        &mut self,
+        content: PaneRect,
+        cell: CellSize,
+    ) -> Vec<(Snapshot, [f32; 2])> {
+        [ModalLayer::Overlay, ModalLayer::Rename]
+            .into_iter()
+            .filter_map(|layer| self.build_modal_layer(content, cell, layer))
+            .collect()
+    }
+
+    /// One window-level modal surface, painted into a window-content-grid
+    /// snapshot and cropped to its rect, or `None` when that surface is not
+    /// open or the grid is empty.
+    fn build_modal_layer(
+        &mut self,
+        content: PaneRect,
+        cell: CellSize,
+        layer: ModalLayer,
+    ) -> Option<(Snapshot, [f32; 2])> {
+        match layer {
+            ModalLayer::Overlay if !self.overlay.is_open() => return None,
+            ModalLayer::Rename if self.rename_state.is_none() => return None,
+            _ => {}
         }
         let (cols, rows) = grid_dims_for_rect(content, cell.width, cell.height);
         if cols == 0 || rows == 0 {
@@ -606,15 +647,15 @@ impl App {
             colors: overlay_colors,
             cells: vec![crate::core::Cell::default(); cols * rows],
         };
-        // The rename/name prompt is painted after ordinary overlays in the
-        // single-pane path and therefore owns the visible modal surface while
-        // it is active. Preserve that precedence here. This is also the path
-        // for workspace-layout name prompts, which share `rename_state`.
-        let (left, top, width, height) =
-            if let Some(rect) = self.rename_band_rect_for_dims(cols, rows) {
+        // Workspace-layout name prompts share `rename_state`, so they take the
+        // rename layer too.
+        let (left, top, width, height) = match layer {
+            ModalLayer::Rename => {
+                let rect = self.rename_band_rect_for_dims(cols, rows)?;
                 self.paint_rename_tab_cells(&mut overlay_snap);
                 rect
-            } else {
+            }
+            ModalLayer::Overlay => {
                 apply_overlay(&mut overlay_snap, &mut self.overlay);
                 // Crop to the COMPOSITE rect, not the plain overlay rect: a
                 // menu-over-overlay context menu (navigator-row / connection-row)
@@ -626,7 +667,8 @@ impl App {
                 // rect keeps both render paths visually identical.
                 let rect = overlay_composite_rect(&mut self.overlay, cols, rows)?;
                 (rect.left, rect.top, rect.width, rect.height)
-            };
+            }
+        };
         // Crop to the modal rect so only opaque surface cells are composited
         // (blank cells outside the box would otherwise overdraw the panes).
         let cropped = crop_snapshot(&overlay_snap, left, top, width, height);
@@ -1493,7 +1535,7 @@ impl App {
                 &panes,
                 cursor_params,
                 &frame_quads,
-                overlay,
+                overlay.as_slice(),
                 PanelFrameQuads {
                     base_gaps: &tab_bg_quads.base_gaps,
                     overlays: &tab_bg_quads.overlays,

@@ -619,9 +619,11 @@ impl App {
                     ambiguous_wide,
                     bidi_plan.is_some(),
                 );
-                let overlay_top = bidi_plan
-                    .as_ref()
-                    .and_then(|_| self.build_bidi_overlay_top(cell));
+                let overlay_top = if bidi_plan.is_some() {
+                    self.build_bidi_overlay_top(cell)
+                } else {
+                    Vec::new()
+                };
                 // BIDI: overlay-painted rows draw in logical
                 // order; the pointer maps through the presented content map.
                 // The cursor effects settle on the final drawn cursor, which
@@ -847,7 +849,7 @@ impl App {
                 // Separate window panels also occupy the trailing segment.
                 // Keep the full-frame route while either surface is visible.
                 let update = update
-                    .retaining_rail_overlay(rail_overlay_data.is_some() || overlay_top.is_some());
+                    .retaining_rail_overlay(rail_overlay_data.is_some() || !overlay_top.is_empty());
                 #[cfg(test)]
                 {
                     self.single_pane_frame_probe_for_test = Some((signature.clone(), update));
@@ -865,7 +867,7 @@ impl App {
                 // below full opacity, hold the open overlay panel, rename
                 // band, or HUD chip opaque so it matches the split path's
                 // opaque top layer without resealing the whole window.
-                let overlay_opaque_region = if overlay_top.is_some() {
+                let overlay_opaque_region = if !overlay_top.is_empty() {
                     None
                 } else {
                     self.single_pane_opaque_region_for_frame(win_bg_alpha)
@@ -902,13 +904,14 @@ impl App {
                     gpu.set_overlay_opaque_region(overlay_opaque_region);
                     gpu.set_row_fade(row_fade_spec);
                     gpu.set_bidi_display(bidi_frame);
-                    let overlay_top = overlay_top.as_ref().map(|(snapshot, origin)| {
-                        crate::native::gpu::OverlayTop {
+                    let overlay_top: Vec<crate::native::gpu::OverlayTop> = overlay_top
+                        .iter()
+                        .map(|(snapshot, origin)| crate::native::gpu::OverlayTop {
                             snapshot,
                             origin: *origin,
                             treatment: background_treatment,
-                        }
-                    });
+                        })
+                        .collect();
                     match update {
                         GeometryUpdate::Full => {
                             gpu.update_image_layer(
@@ -921,7 +924,7 @@ impl App {
                             if overlays.is_empty()
                                 && tab_bg_quads.is_empty()
                                 && rail_overlay.is_none()
-                                && overlay_top.is_none()
+                                && overlay_top.is_empty()
                             {
                                 gpu.update_from_snapshot(
                                     &snapshot,
@@ -947,7 +950,7 @@ impl App {
                                         overlays: &tab_bg_quads.overlays,
                                     },
                                     rail_overlay,
-                                    overlay_top,
+                                    &overlay_top,
                                 );
                             }
                         }

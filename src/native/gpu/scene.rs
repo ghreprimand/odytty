@@ -462,7 +462,7 @@ impl GpuState {
                 overlays: &[],
             },
             None,
-            None,
+            &[],
         );
     }
 
@@ -484,7 +484,8 @@ impl GpuState {
     /// vertices (background **and** glyphs) are appended last so the panel draws
     /// opaquely over every pane - a `PaneRender` could not, since its background
     /// quads would land in the shared background segment behind other panes'
-    /// glyphs. `None` leaves the multi-pane frame unchanged.
+    /// glyphs. Layers draw in slice order; an empty slice leaves the
+    /// multi-pane frame unchanged.
     ///
     /// Glyph caching is done in two passes: every pane's glyphs are ensured in
     /// the atlas *before* any pane's vertices are built, so a later pane growing
@@ -499,7 +500,7 @@ impl GpuState {
         panes: &[PaneRender],
         cursor_params: CursorRenderParams,
         dividers: &[SolidQuad],
-        overlay_top: Option<OverlayTop>,
+        overlay_top: &[OverlayTop],
         panel: PanelFrameQuads,
         rail_overlay: Option<RailOverlay>,
     ) {
@@ -528,7 +529,7 @@ impl GpuState {
         // mono glyphs must be in the atlas before any vertices are built. It
         // carries no color glyphs (overlays never render emoji), so it is
         // excluded with an empty run list.
-        if let Some(overlay) = overlay_top.as_ref() {
+        for overlay in overlay_top {
             ensure_snapshot_glyphs_excluding_color_runs(
                 &mut self.atlas,
                 &self.fonts,
@@ -790,9 +791,7 @@ impl GpuState {
         // the panel draws opaquely over every pane in the final
         // `[cell_vertex_count..vertex_count]` segment. The panel snapshot fills
         // its whole rect (no transparent cells), so this is a clean opaque box.
-        if let Some(overlay) = overlay_top.as_ref() {
-            self.push_overlay_top(overlay);
-        }
+        self.push_overlay_tops(overlay_top);
         // The revealed rail overlay strip is the very last thing drawn -
         // over the panes, dividers, per-pane overlays, and any window overlay -
         // so the floating rail sits atop the live multi-pane content.
@@ -929,11 +928,23 @@ impl GpuState {
         self.image_layer.overlay_image_fit_rect()
     }
 
-    /// Append opaque window-level text after terminal glyphs and cursor layers.
-    fn push_overlay_top(&mut self, overlay: &OverlayTop) {
+    /// Append opaque window-level layers after terminal glyphs and cursor
+    /// layers, in order, so a later layer draws over an earlier one where they
+    /// overlap.
+    fn push_overlay_tops(&mut self, overlays: &[OverlayTop]) {
         self.retained_overlay_top.clear();
+        let mut layer = Vec::new();
+        for overlay in overlays {
+            self.build_overlay_top_layer(overlay, &mut layer);
+            self.retained_overlay_top.extend_from_slice(&layer);
+        }
+        self.vertices.extend_from_slice(&self.retained_overlay_top);
+    }
+
+    /// The opaque cell vertices of one window-level layer.
+    fn build_overlay_top_layer(&self, overlay: &OverlayTop, out: &mut Vec<grid::Vertex>) {
         grid::build_cell_vertices_with_focus_dim_and_origin_into(
-            &mut self.retained_overlay_top,
+            out,
             overlay.snapshot,
             &self.atlas,
             &[],
@@ -950,7 +961,6 @@ impl GpuState {
             None,
             grid::ChromePin::NONE,
         );
-        self.vertices.extend_from_slice(&self.retained_overlay_top);
     }
 
     /// Rebuild the cell vertex buffer from a fresh terminal snapshot plus
@@ -968,7 +978,7 @@ impl GpuState {
         treatment: grid::BackgroundTreatmentParams,
         panel: PanelFrameQuads,
         rail_overlay: Option<RailOverlay>,
-        overlay_top: Option<OverlayTop>,
+        overlay_top: &[OverlayTop],
     ) {
         self.retained_overlay_top.clear();
         let mut color_glyph_runs = std::mem::take(&mut self.color_glyph_runs);
@@ -990,7 +1000,7 @@ impl GpuState {
         );
         self.ensure_ligature_glyphs(&mut ligature_runs);
         self.add_complex_runs(snapshot, &color_glyph_runs, &mut ligature_runs);
-        if let Some(overlay) = overlay_top.as_ref() {
+        for overlay in overlay_top {
             ensure_snapshot_glyphs_excluding_color_runs(
                 &mut self.atlas,
                 &self.fonts,
@@ -1141,9 +1151,7 @@ impl GpuState {
         self.retained_cursor_overlays.extend_from_slice(overlays);
         self.retained_cursor_glow = cursor_glow;
         self.retained_cursor_streak = cursor_streak;
-        if let Some(overlay) = overlay_top.as_ref() {
-            self.push_overlay_top(overlay);
-        }
+        self.push_overlay_tops(overlay_top);
         // The revealed rail overlay strip draws topmost - after the
         // cursor and every overlay - so the floating band sits over the live
         // content it reveals atop. `None` leaves the frame byte-identical.
