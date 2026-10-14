@@ -2186,7 +2186,9 @@ stopped; its remote file is still cleaned up.
 On Unix, detached sessions can be managed inside the window as well as from the
 CLI. Opt-in navigator previews redact shell-quoted Authorization credentials
 and all Cookie and Set-Cookie header pairs using the same rules as unquoted
-headers, with or without a space after the colon.
+headers, with or without a space after the colon. A Digest or AWS4 credential
+is redacted through the end of its comma-separated parameter list even when a
+quoted value holds an escaped quote and a space.
 The `session-attach` action, `Ctrl+Shift+A`, and **Manage Sessions** all open the
 Session Navigator, whose rows include the live detached-session registry
 alongside workspaces, tabs, and panes (see

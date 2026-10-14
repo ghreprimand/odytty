@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Off-render-path runtime glyph fallback (fontconfig hosts and Windows).
+//! Off-render-path runtime glyph fallback (fontconfig hosts, Windows and macOS).
 //!
 //! The glyph atlas asks for a covering face while it prepares a frame. Asking
 //! fontconfig means two helper processes and font loads per codepoint, which
@@ -18,6 +18,11 @@
 //! switches runtime fallback off for the rest of the run and every later request answers
 //! "no face" at once, so a broken fontconfig costs one deadline, not one per
 //! glyph.
+//!
+//! Only fontconfig hosts (Unix other than macOS) start helper processes and so
+//! can stall. Windows and macOS resolve from local script faces on the same
+//! worker and never report a stall, so the stall warning does not name
+//! fontconfig there.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, LazyLock, Mutex, OnceLock, PoisonError};
@@ -33,6 +38,14 @@ pub(super) const MAX_ANSWERS: usize = 8192;
 /// Longest the worker runs before waking windows with a partial batch, so a
 /// long queue shows glyphs progressively instead of all at the end.
 const WAKE_BATCH_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Logged when the resolver reports a stall. The fontconfig text applies only
+/// where a fontconfig helper exists; Windows and macOS have none to name.
+const STALL_WARNING: &str = if cfg!(all(unix, not(target_os = "macos"))) {
+    "glyph fallback: fontconfig helper exceeded its deadline or output cap; runtime fallback disabled for this run"
+} else {
+    "glyph fallback: font resolver stalled; runtime fallback disabled for this run"
+};
 
 type Waker = Box<dyn Fn() + Send + Sync>;
 #[cfg(test)]
@@ -128,9 +141,7 @@ fn run_worker(shared: &Mutex<State>, wake: fn()) {
                     state.answers.insert(ch, answer);
                 }
                 Ok(Err(_)) => {
-                    tracing::warn!(
-                        "glyph fallback: fontconfig helper exceeded its deadline or output cap; runtime fallback disabled for this run"
-                    );
+                    tracing::warn!("{STALL_WARNING}");
                     disable(&mut state);
                 }
                 Err(_) => {
@@ -158,3 +169,15 @@ fn wake() {
 #[cfg(all(test, unix, not(target_os = "macos")))]
 #[path = "runtime_fallback_liveness_tests.rs"]
 mod liveness_tests;
+
+#[cfg(test)]
+mod stall_warning_tests {
+    use super::STALL_WARNING;
+
+    #[test]
+    fn the_stall_warning_names_fontconfig_only_where_a_fontconfig_helper_exists() {
+        let fontconfig_host = cfg!(all(unix, not(target_os = "macos")));
+        assert_eq!(STALL_WARNING.contains("fontconfig"), fontconfig_host);
+        assert!(STALL_WARNING.contains("runtime fallback disabled"));
+    }
+}

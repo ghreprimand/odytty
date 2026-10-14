@@ -403,21 +403,56 @@ fn redact_label_value(label: &str, following: &[&str], redacted: &mut Vec<String
         redacted.push("[redacted]".to_owned());
         // A parameter list continues while the last word taken ends in a comma
         // (or the next one starts with it) and while a quoted value is still
-        // open, since a quoted value may hold spaces.
+        // open, since a quoted value may hold spaces. A quote preceded by a
+        // backslash is ambiguous: inside a value it is part of the value
+        // (`username="a\" b"`), but in a header pasted inside a shell string
+        // it is the shell's escape for a real delimiter. The scan tracks both
+        // readings and stays in the list while either says a value is open, so
+        // it can only redact more words than either reading alone.
         let mut consumed = 2;
-        let mut in_quote = following[1].matches('"').count() % 2 == 1;
+        let (mut raw_open, mut unescaped_open) = quote_parities(following[1]);
         while consumed < following.len()
-            && (in_quote
+            && (raw_open
+                || unescaped_open
                 || following[consumed - 1].ends_with(',')
                 || following[consumed].starts_with(','))
         {
-            in_quote ^= following[consumed].matches('"').count() % 2 == 1;
+            let (raw, unescaped) = quote_parities(following[consumed]);
+            raw_open ^= raw;
+            unescaped_open ^= unescaped;
             consumed += 1;
         }
         return consumed;
     }
     redacted.push("[redacted]".to_owned());
     1
+}
+
+/// Whether `word` flips the open-quote state of a header value, read two ways:
+/// counting every `"` (the shell-escaped reading, where `\"` still delimits) and
+/// counting only quotes not escaped by a backslash (the in-value reading, where
+/// `\"` belongs to the value and `\\` is an escaped backslash).
+fn quote_parities(word: &str) -> (bool, bool) {
+    let mut raw = false;
+    let mut unescaped = false;
+    let mut chars = word.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' => {
+                // The escaped character is data, so a quote after a backslash
+                // flips only the raw reading.
+                if chars.next() == Some('"') {
+                    raw = !raw;
+                }
+            }
+            '"' => {
+                raw = !raw;
+                unescaped = !unescaped;
+            }
+            _ => {}
+        }
+    }
+    (raw, unescaped)
 }
 
 /// An HTTP authentication scheme word: a letter followed by letters, digits or
@@ -671,6 +706,60 @@ mod tests {
         assert_eq!(
             redact_preview("Authorization: Bearer hidden https://example.invalid/x"),
             "Authorization: Bearer [redacted] https://example.invalid/x"
+        );
+    }
+
+    /// A quoted parameter value may hold an escaped quote and a space. The
+    /// scan must not read the escaped quote as the end of the value, or the
+    /// words after it (nonce, response) would reach the preview.
+    #[test]
+    fn preview_authorization_scan_ignores_escaped_quotes_inside_values() {
+        let mut leaks = Vec::new();
+        for line in [
+            r#"Authorization: Digest username="a\" b", realm="r", nonce="n0nce", response="0123456789abcdef""#,
+            r#"Authorization: Digest username="a\"", nonce="n0nce", response="0123456789abcdef""#,
+            r#"Authorization: Digest username="a\" \" b", nonce="n0nce", response="0123456789abcdef""#,
+            r#"Authorization: AWS4-HMAC-SHA256 Credential="a\" b", SignedHeaders=host, Signature=abc123"#,
+        ] {
+            let preview = redact_preview(line);
+            assert!(preview.contains("[redacted]"), "{preview:?}");
+            if [
+                "n0nce",
+                "0123456789abcdef",
+                "abc123",
+                "realm",
+                "SignedHeaders",
+            ]
+            .iter()
+            .any(|secret| preview.contains(secret))
+            {
+                leaks.push(preview);
+            }
+        }
+        assert!(leaks.is_empty(), "credential words survived: {leaks:?}");
+    }
+
+    /// An escaped backslash does not escape the quote after it, so a value that
+    /// ends in a backslash still closes, and the next word stays visible.
+    #[test]
+    fn preview_authorization_scan_closes_after_an_escaped_backslash() {
+        assert_eq!(
+            redact_preview(
+                r#"Authorization: Digest username="a\\", nonce="n0nce" https://example.invalid/x"#
+            ),
+            "Authorization: Digest [redacted] https://example.invalid/x"
+        );
+    }
+
+    /// A header inside a shell string reaches the preview with its quotes
+    /// escaped by the shell. Those escapes delimit values, so they still count.
+    #[test]
+    fn preview_authorization_scan_counts_shell_escaped_quotes() {
+        assert_eq!(
+            redact_preview(
+                r#"curl -H "Authorization: Digest username=\"a b\", nonce=\"n0nce\", response=\"0123456789abcdef\"""#
+            ),
+            r#"curl -H "Authorization: Digest [redacted]"#
         );
     }
 
