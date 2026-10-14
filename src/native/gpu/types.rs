@@ -528,15 +528,15 @@ pub(in crate::native) fn cursor_glow_falloff(outside: f32, radius: f32) -> f32 {
     2.0_f32.powf(-4.0 * normalized * normalized)
 }
 
-/// A window-level overlay drawn **topmost** over a multi-pane composite
+/// A window-level overlay drawn **topmost** over terminal content
 /// (context menu / settings / palette / connections / replay). Unlike a
 /// [`PaneRender`] - whose background quads land in the shared background segment
 /// and so would be overdrawn by other panes' glyphs - an `OverlayTop`'s full
 /// cell vertices (background **and** glyphs) are appended after the dividers and
 /// per-pane overlays, so the panel composites opaquely on top of everything.
-/// The snapshot is sized and positioned in window space by the caller; in the
-/// single-pane path the overlay is painted into the terminal snapshot instead,
-/// so this type is never used there.
+/// The snapshot is sized and positioned in window space by the caller. The
+/// single-pane bidi path also uses this layer to preserve the terminal map.
+/// With reordering off, single-pane overlays paint into the terminal snapshot.
 pub(in crate::native) struct OverlayTop<'a> {
     /// The overlay panel snapshot (its own grid, fully opaque within its rect).
     pub(in crate::native) snapshot: &'a Snapshot,

@@ -612,7 +612,16 @@ impl App {
                     snapshot.cursor_visible,
                     now,
                 );
-                self.paint_single_pane_cells(&mut snapshot, &ctx, &visible_buttons, ambiguous_wide);
+                self.paint_single_pane_cells(
+                    &mut snapshot,
+                    &ctx,
+                    &visible_buttons,
+                    ambiguous_wide,
+                    bidi_plan.is_some(),
+                );
+                let overlay_top = bidi_plan
+                    .as_ref()
+                    .and_then(|_| self.build_bidi_overlay_top(cell));
                 // BIDI: overlay-painted rows draw in logical
                 // order; the pointer maps through the presented content map.
                 // The cursor effects settle on the final drawn cursor, which
@@ -835,7 +844,10 @@ impl App {
                 // touches the buffer, so the rail persists), and the
                 // plain / no-autohide path (`None`) keeps its classification
                 // exactly, so nothing off the revealed-rail path changes.
-                let update = update.retaining_rail_overlay(rail_overlay_data.is_some());
+                // Separate window panels also occupy the trailing segment.
+                // Keep the full-frame route while either surface is visible.
+                let update = update
+                    .retaining_rail_overlay(rail_overlay_data.is_some() || overlay_top.is_some());
                 #[cfg(test)]
                 {
                     self.single_pane_frame_probe_for_test = Some((signature.clone(), update));
@@ -853,7 +865,11 @@ impl App {
                 // below full opacity, hold the open overlay panel, rename
                 // band, or HUD chip opaque so it matches the split path's
                 // opaque top layer without resealing the whole window.
-                let overlay_opaque_region = self.single_pane_opaque_region_for_frame(win_bg_alpha);
+                let overlay_opaque_region = if overlay_top.is_some() {
+                    None
+                } else {
+                    self.single_pane_opaque_region_for_frame(win_bg_alpha)
+                };
                 // VE4 new-output fade: map the content-row multipliers
                 // captured above into decorated-snapshot coordinates -
                 // chrome band rows above and rail columns beside the
@@ -886,6 +902,13 @@ impl App {
                     gpu.set_overlay_opaque_region(overlay_opaque_region);
                     gpu.set_row_fade(row_fade_spec);
                     gpu.set_bidi_display(bidi_frame);
+                    let overlay_top = overlay_top.as_ref().map(|(snapshot, origin)| {
+                        crate::native::gpu::OverlayTop {
+                            snapshot,
+                            origin: *origin,
+                            treatment: background_treatment,
+                        }
+                    });
                     match update {
                         GeometryUpdate::Full => {
                             gpu.update_image_layer(
@@ -898,6 +921,7 @@ impl App {
                             if overlays.is_empty()
                                 && tab_bg_quads.is_empty()
                                 && rail_overlay.is_none()
+                                && overlay_top.is_none()
                             {
                                 gpu.update_from_snapshot(
                                     &snapshot,
@@ -923,6 +947,7 @@ impl App {
                                         overlays: &tab_bg_quads.overlays,
                                     },
                                     rail_overlay,
+                                    overlay_top,
                                 );
                             }
                         }

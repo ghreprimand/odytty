@@ -235,3 +235,111 @@ fn the_setting_maps_the_pointer_to_the_logical_cell_drawn_under_it() {
         "screen column 5 draws alef, logical column 3"
     );
 }
+
+/// A right-click menu may cover a reordered run without changing the content
+/// map. The terminal cells below it remain terminal cells, not menu text.
+#[test]
+fn right_click_keeps_bidi_placement_while_the_menu_is_open() {
+    let (mut app, terminal) = app();
+    app.apply_overlay_settings_for_test(Settings {
+        bidi_reorder: true,
+        ..Settings::default()
+    });
+    let _ = app.present_bidi_frame_for_test(Instant::now());
+    let before = app.bidi_frame_map_for_test().expect("display map").clone();
+    assert_eq!(before.visual_column(0, 3), 5);
+    let (signature_before, _) = app.redraw_single_pane_probe_for_test().expect("frame");
+    app.set_pointer_cell_for_test(0, 1);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+    assert!(app.context_menu_open_for_test());
+    let (signature_open, _) = app.redraw_single_pane_probe_for_test().expect("menu frame");
+    assert_eq!(
+        signature_open.content.bidi_placement,
+        signature_before.content.bidi_placement
+    );
+    assert_ne!(
+        signature_open.content.overlay,
+        signature_before.content.overlay
+    );
+    let frame = app.present_bidi_frame_for_test(Instant::now());
+    assert_eq!(app.bidi_frame_map_for_test(), Some(&before));
+    assert!(
+        frame.overlay_top.is_some(),
+        "the menu has its own opaque layer"
+    );
+    assert_eq!(
+        frame.painted.cells,
+        terminal.lock().expect("terminal").snapshot().cells
+    );
+    key(&mut app, WinitKey::Named(NamedKey::Escape), false);
+    let _ = app.present_bidi_frame_for_test(Instant::now());
+    assert_eq!(app.bidi_frame_map_for_test(), Some(&before));
+}
+
+#[test]
+fn window_overlay_siblings_keep_the_terminal_bidi_plan() {
+    let openers: &[fn(&mut App)] = &[
+        App::open_settings_overlay_for_test,
+        |app| app.open_palette_with_synthetic_history_for_test(0),
+        App::open_theme_builder_for_test,
+        App::open_key_bindings_overlay_for_test,
+        App::open_confirm_close_for_test,
+        |app| {
+            let token = app.active_session_token_for_test();
+            app.open_move_tab_workspace_picker_for_test(token);
+        },
+        |app| {
+            assert!(app.begin_rename_tab_for_test(0));
+        },
+        |app| app.enter_rename_workspace_for_test(0),
+        App::enter_save_all_layout_prompt_for_test,
+    ];
+    for (index, open) in openers.iter().enumerate() {
+        let (mut app, terminal) = app();
+        app.apply_overlay_settings_for_test(Settings {
+            bidi_reorder: true,
+            ..Settings::default()
+        });
+        app.push_headless_workspace_for_test(
+            terminal.clone(),
+            crate::native::test_support::headless_writer(),
+            Dimensions::new(COLUMNS, ROWS),
+        );
+        // Put the same run on every row, so centered panels and rename bands
+        // exercise changed rows as well as the context menu's top rows.
+        terminal
+            .lock()
+            .expect("terminal")
+            .advance(format!("\r\n{LINE}").repeat(ROWS - 1).as_bytes());
+        let _ = app.present_bidi_frame_for_test(Instant::now());
+        let before = app.bidi_frame_map_for_test().expect("display map").clone();
+        open(&mut app);
+        let frame = app.present_bidi_frame_for_test(Instant::now());
+        assert!(
+            frame.overlay_top.is_some(),
+            "overlay {index} has a separate layer"
+        );
+        assert_eq!(
+            app.bidi_frame_map_for_test(),
+            Some(&before),
+            "overlay {index}"
+        );
+    }
+}
+
+#[test]
+fn search_highlights_keep_bidi_placement_outside_the_inline_query_band() {
+    let (mut app, _) = app();
+    app.apply_overlay_settings_for_test(Settings {
+        bidi_reorder: true,
+        ..Settings::default()
+    });
+    let _ = app.present_bidi_frame_for_test(Instant::now());
+    let before = app.bidi_frame_map_for_test().expect("display map").clone();
+    app.open_search_for_test();
+    key(&mut app, WinitKey::Character("ab".into()), false);
+    let _ = app.present_bidi_frame_for_test(Instant::now());
+    let after = app.bidi_frame_map_for_test().expect("display map");
+    assert_eq!(after.visual_column(0, 3), before.visual_column(0, 3));
+    assert!(after.row_is_reordered(0));
+}

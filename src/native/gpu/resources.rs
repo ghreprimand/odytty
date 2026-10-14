@@ -452,6 +452,8 @@ pub(in crate::native) struct GpuState {
     /// builds while `bidi_reorder` is on; `None` otherwise, the unchanged
     /// logical-column path.
     pub(super) bidi_display: Option<crate::grid::BidiDisplayMap>,
+    /// Opaque window overlay vertices preserved across synchronized cursor frames.
+    pub(super) retained_overlay_top: Vec<grid::Vertex>,
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
     /// live PTY output arrives.
     pub(in crate::native) atlas: GlyphAtlas,
@@ -1167,6 +1169,7 @@ impl GpuState {
             overlay_opaque_region: None,
             row_fade: None,
             bidi_display: None,
+            retained_overlay_top: Vec::new(),
             atlas,
             color_glyph_atlas,
             emoji_rasterizer,

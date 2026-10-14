@@ -5,8 +5,9 @@
 //! While the setting is on, the single-pane frame and each content pane of a
 //! split frame showing the primary screen plan a [`BidiDisplayMap`] for their
 //! content grid (with the paragraph context above the viewport and a
-//! left-to-right paragraph level), reset every row an overlay painter changed
-//! back to the identity layout, and hand the map to the renderer. The
+//! left-to-right paragraph level), reset rows changed by inline text painters
+//! back to identity, and hand the map to the renderer. Window-level panels and
+//! rename fields composite above the terminal without changing its map. The
 //! alternate screen is never planned. The single-pane map is placed inside the
 //! decorated frame, so chrome stays in identity layout; split chrome strips
 //! never take a map. The pointer maps a content cell under the pointer to the
@@ -26,6 +27,27 @@ use crate::core::Snapshot;
 use crate::grid::BidiDisplayMap;
 
 impl App {
+    /// Keep window-level overlay text out of the terminal display plan. The
+    /// surface shares the split-frame builder and remains fixed in window space.
+    pub(super) fn build_bidi_overlay_top(
+        &mut self,
+        cell: CellSize,
+    ) -> Option<(Snapshot, [f32; 2])> {
+        let reserve = self.tab_reserve();
+        let padding = self
+            .resolved_surface()
+            .map_or(WindowPadding::ZERO, |(_, _, padding)| padding);
+        let pad = padding.as_f32();
+        let gap = reserve.chrome_gap(padding);
+        let content = crate::native::layout::PaneRect::new(
+            pad + reserve.left_reserved_cols() as f32 * cell.width as f32 + gap.left,
+            pad + reserve.top_rows as f32 * cell.height as f32 + gap.top,
+            self.grid.columns as f32 * cell.width as f32,
+            self.grid.rows as f32 * cell.height as f32,
+        );
+        self.build_overlay_top(content, cell)
+    }
+
     /// Whether frames plan a bidi display map: the `bidi_reorder` setting, or
     /// the test override.
     pub(super) fn bidi_reorder_on(&self) -> bool {
@@ -341,7 +363,16 @@ impl App {
             snapshot.cursor_visible,
             now,
         );
-        self.paint_single_pane_cells(&mut snapshot, &ctx, &visible_buttons, ambiguous_wide);
+        self.paint_single_pane_cells(
+            &mut snapshot,
+            &ctx,
+            &visible_buttons,
+            ambiguous_wide,
+            plan.is_some(),
+        );
+        let overlay_top = plan
+            .as_ref()
+            .and_then(|_| self.build_bidi_overlay_top(cell));
         let map = plan.map(|(mut map, planned)| {
             map.reset_rows_changed_between(&planned, &snapshot);
             map
@@ -368,6 +399,7 @@ impl App {
         comparison.cursor = effect_cursor;
         self.last_cursor_comparison_snapshot = Some(comparison);
         BidiFrameProbe {
+            overlay_top,
             params: self.cursor_render_params(),
             painted: snapshot,
             streak,
@@ -437,6 +469,7 @@ impl App {
 #[cfg(test)]
 pub(in crate::native) struct BidiFrameProbe {
     pub(in crate::native) painted: Snapshot,
+    pub(in crate::native) overlay_top: Option<(Snapshot, [f32; 2])>,
     pub(in crate::native) params: CursorRenderParams,
     pub(in crate::native) streak: Option<crate::native::gpu::CursorStreakRequest>,
     pub(in crate::native) trail: Vec<SolidQuad>,

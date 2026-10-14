@@ -120,7 +120,9 @@ are still not retained. They extend source text when an eligible owner exists.
 The `bidi_reorder` setting (off by default; Settings > Rendering and the
 right-click menu) draws right-to-left runs in display order from a
 presentation-only map: cells, cursor position, selection, copy, search, and
-export stay logical. The `font_zero` setting (off by default) selects a body
+export stay logical. Window-level overlays keep that map beneath their own
+logical text; inline IME, search-query, and status text retains the row
+exception. The `font_zero` setting (off by default) selects a body
 face's OpenType `zero` glyph for `0` without changing cell metrics; other
 open-ended stylistic sets and raw feature tags remain unsupported. Homebrew cask quarantine
 removal uses `postflight_steps` for Homebrew 7.0 or newer. Dependency

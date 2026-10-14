@@ -602,6 +602,11 @@ Glyphs drawn from symbol-fallback, symbol-map, or color emoji faces are
 unaffected. Stylistic sets other than `ss01`/`ss02` and raw OpenType feature
 tags are not exposed.
 
+Window-level menus, panels, pickers, dialogs, and rename fields keep the
+terminal display map beneath them. Their own text draws in logical order.
+Inline IME pre-edit, the search query band, and status text keeps the painted
+row in logical order.
+
 Bidirectional text is an opt-in display setting. `bidi_reorder = on`
 (Settings > Rendering > Bidirectional text, the right-click **Reorder
 Right-to-Left Text** toggle, or `ODYTTY_BIDI_REORDER=on`) draws right-to-left

@@ -2903,8 +2903,11 @@ with a check mark while on) draws right-to-left runs in display order. Each
 frame of the primary screen plans a display map from the visible rows and the
 soft-wrapped paragraph above them, with the paragraph level forced to left to
 right and the plan's row and owner caps; an over-cap paragraph keeps the
-identity layout. The alternate screen is never planned. Rows an overlay writes
-text into, the tab bar, the rail, and split-pane chrome draw in logical order.
+identity layout. The alternate screen is never planned. Window-level menus,
+panels, pickers, dialogs, and rename fields composite in logical order above
+the terminal without changing its display map. Inline text such as IME
+pre-edit, the search query band, and status labels returns its painted row to
+logical order. The tab bar, the rail, and split-pane chrome draw in logical order.
 The map is presentation only: cells, the cursor position, selection
 endpoints, copy, search, scrollback export, and every protocol value stay
 logical. The pointer, mouse reports, hyperlink hover, the input method

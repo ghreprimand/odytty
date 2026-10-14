@@ -462,6 +462,7 @@ impl GpuState {
                 overlays: &[],
             },
             None,
+            None,
         );
     }
 
@@ -502,6 +503,7 @@ impl GpuState {
         panel: PanelFrameQuads,
         rail_overlay: Option<RailOverlay>,
     ) {
+        self.retained_overlay_top.clear();
         // Pass A: ensure all panes' glyphs in both atlases, capturing each
         // pane's color-glyph runs for the build pass.
         let mut pane_runs: Vec<Vec<ColorGlyphRun>> = Vec::with_capacity(panes.len());
@@ -789,33 +791,7 @@ impl GpuState {
         // `[cell_vertex_count..vertex_count]` segment. The panel snapshot fills
         // its whole rect (no transparent cells), so this is a clean opaque box.
         if let Some(overlay) = overlay_top.as_ref() {
-            let mut overlay_buf: Vec<Vertex> = Vec::new();
-            grid::build_cell_vertices_with_focus_dim_and_origin_into(
-                &mut overlay_buf,
-                overlay.snapshot,
-                &self.atlas,
-                &[],
-                0.0,
-                overlay.origin,
-                overlay.treatment,
-                // A window-level overlay panel is chrome, not
-                // terminal content, so its background is fully opaque regardless of
-                // `cell_bg_opacity` or window transparency -- exactly what the
-                // single-pane path guarantees by forcing `overlay_opaque_region`
-                // to `1.0`. Building at `self.cell_bg_opacity` (default `0.8`) let
-                // the panes behind the panel bleed through only in the multi-pane
-                // path; `1.0` restores single/multi parity while the surrounding
-                // panes keep their own translucency.
-                1.0,
-                // Overlay panel text lifts with the rest of
-                // the window's ink (`1.0` = identity).
-                self.text_brightness,
-                // The overlay-top snapshot IS the panel; its own opaque layer is
-                // composited last, so no per-cell force is needed here.
-                None,
-                grid::ChromePin::NONE,
-            );
-            self.vertices.extend_from_slice(&overlay_buf);
+            self.push_overlay_top(overlay);
         }
         // The revealed rail overlay strip is the very last thing drawn -
         // over the panes, dividers, per-pane overlays, and any window overlay -
@@ -953,6 +929,30 @@ impl GpuState {
         self.image_layer.overlay_image_fit_rect()
     }
 
+    /// Append opaque window-level text after terminal glyphs and cursor layers.
+    fn push_overlay_top(&mut self, overlay: &OverlayTop) {
+        self.retained_overlay_top.clear();
+        grid::build_cell_vertices_with_focus_dim_and_origin_into(
+            &mut self.retained_overlay_top,
+            overlay.snapshot,
+            &self.atlas,
+            &[],
+            0.0,
+            overlay.origin,
+            overlay.treatment,
+            // Window-level chrome stays opaque over translucent content.
+            1.0,
+            // Overlay panel text lifts with the rest of
+            // the window's ink (`1.0` = identity).
+            self.text_brightness,
+            // The overlay-top snapshot IS the panel; its own opaque layer is
+            // composited last, so no per-cell force is needed here.
+            None,
+            grid::ChromePin::NONE,
+        );
+        self.vertices.extend_from_slice(&self.retained_overlay_top);
+    }
+
     /// Rebuild the cell vertex buffer from a fresh terminal snapshot plus
     /// presentation-only solid overlays, drawing the cursor in `cursor_style`.
     #[allow(clippy::too_many_arguments)]
@@ -968,7 +968,9 @@ impl GpuState {
         treatment: grid::BackgroundTreatmentParams,
         panel: PanelFrameQuads,
         rail_overlay: Option<RailOverlay>,
+        overlay_top: Option<OverlayTop>,
     ) {
+        self.retained_overlay_top.clear();
         let mut color_glyph_runs = std::mem::take(&mut self.color_glyph_runs);
         self.emoji_rasterizer.build_color_glyph_runs_into(
             snapshot,
@@ -988,6 +990,14 @@ impl GpuState {
         );
         self.ensure_ligature_glyphs(&mut ligature_runs);
         self.add_complex_runs(snapshot, &color_glyph_runs, &mut ligature_runs);
+        if let Some(overlay) = overlay_top.as_ref() {
+            ensure_snapshot_glyphs_excluding_color_runs(
+                &mut self.atlas,
+                &self.fonts,
+                overlay.snapshot,
+                &[],
+            );
+        }
         // The revealed rail overlay strip's mono glyphs must join the
         // atlas before any texture refresh, alongside the terminal snapshot's.
         if let Some(rail) = rail_overlay.as_ref() {
@@ -1131,6 +1141,9 @@ impl GpuState {
         self.retained_cursor_overlays.extend_from_slice(overlays);
         self.retained_cursor_glow = cursor_glow;
         self.retained_cursor_streak = cursor_streak;
+        if let Some(overlay) = overlay_top.as_ref() {
+            self.push_overlay_top(overlay);
+        }
         // The revealed rail overlay strip draws topmost - after the
         // cursor and every overlay - so the floating band sits over the live
         // content it reveals atop. `None` leaves the frame byte-identical.
@@ -1366,7 +1379,8 @@ impl GpuState {
     /// Rebuild the cursor layer, aura, and follower. The vertex buffer is
     /// truncated to `cell_vertex_count` and the cursor vertices are appended,
     /// so any other geometry built after the cell segment (the rail overlay,
-    /// overlay panels, multi-pane dividers) is discarded.
+    /// multi-pane dividers) is discarded. The opaque window overlay is retained
+    /// and appended after the live cursor, including during synchronized output.
     fn update_cursor_and_overlays_inner(
         &mut self,
         snapshot: &Snapshot,
@@ -1404,6 +1418,8 @@ impl GpuState {
         );
         self.rebuild_cursor_streak(snapshot, origin, cursor_streak);
 
+        self.cursor_vertices
+            .extend_from_slice(&self.retained_overlay_top);
         let cell_vertices = self.cell_vertex_count as usize;
         let needed_vertices = cell_vertices + self.cursor_vertices.len();
         let needed = (needed_vertices * std::mem::size_of::<Vertex>()) as u64;

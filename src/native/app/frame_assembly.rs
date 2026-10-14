@@ -9,13 +9,14 @@ impl App {
     /// The single-pane frame's cell-paint manifest: every overlay painter
     /// that writes into the content snapshot, in paint precedence order.
     /// Shared by the frame and its headless test seam so both paint the same
-    /// cells (the bidi gate resets every row whose text this changes).
+    /// cells. With a bidi plan, window-level surfaces use a separate top layer.
     pub(super) fn paint_single_pane_cells(
         &mut self,
         snapshot: &mut Snapshot,
         ctx: &super::overlay_registry::OverlayCtx,
         visible_buttons: &[crate::core::SnapshotButton],
         ambiguous_wide: bool,
+        separate_modal: bool,
     ) {
         self.paint_selection_cells(snapshot, ctx);
         self.paint_search_cells(snapshot, ctx);
@@ -29,11 +30,15 @@ impl App {
         // The point-chip content-end scan also depends on this
         // spot: it must read terminal content, not panel cells.
         button_chip::paint_button_cells(snapshot, visible_buttons, self.hovered_button_key());
-        self.paint_overlay_cells(snapshot, ctx);
+        if !separate_modal {
+            self.paint_overlay_cells(snapshot, ctx);
+        }
         self.paint_hyperlink_cells(snapshot, ctx);
         self.paint_hints_cells(snapshot, ctx);
         self.paint_copy_mode_cells(snapshot, ctx);
-        self.paint_rename_tab_cells(snapshot);
+        if !separate_modal {
+            self.paint_rename_tab_cells(snapshot);
+        }
         // IME pre-edit: paint the in-progress composition inline
         // at the cursor; empty on the no-composition path.
         self.paint_ime_preedit_cells(snapshot, ambiguous_wide);

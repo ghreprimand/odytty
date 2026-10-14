@@ -9,10 +9,11 @@
 //! between panes. When two or more *tabs* exist the tab strip is drawn as an
 //! extra one-row pane along the top.
 //!
-//! Hard boundary: the **single-pane** path never reaches this module - the
+//! The **single-pane** path never calls the multi-pane rebuild - the
 //! caller only calls [`App::rebuild_multipane`] when `active_is_single_pane()`
-//! is false - so the byte-identical fast path is wholly untouched. This path is
-//! deliberately the only new behaviour.
+//! is false, so the reordering-off single-pane fast path is untouched. This path is
+//! deliberately separate. The single-pane bidi frame shares the window-overlay
+//! builder so panels do not overwrite terminal display maps.
 //!
 //! Every pane paints its own selection and search-match highlights, keyed to
 //! that pane's own grid/scrollback/viewport rather than the focused pane's.
@@ -564,8 +565,8 @@ impl App {
         Some((inner, origin, cell))
     }
 
-    /// Build the topmost window-level modal surface for the multi-pane render
-    /// path: a window-content-grid snapshot with either the rename/name prompt
+    /// Build the topmost window-level modal surface for split and bidi frames:
+    /// a window-content-grid snapshot with either the rename/name prompt
     /// or the open overlay painted into it, cropped to the surface's rect so it
     /// composites as an opaque box. Rename wins when both states are present,
     /// matching the single-pane paint order. Returns the cropped snapshot plus

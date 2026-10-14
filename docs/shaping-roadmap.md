@@ -218,6 +218,11 @@ right-to-left input is stored and drawn in logical cell order, exactly as
 before; Arabic joining forms are then shaped within that order. The menu
 toggle applies to the running window; Save in Settings persists it.
 
+Window-level menus, panels, pickers, dialogs, and rename fields keep the
+terminal display map beneath them. Their own text draws in logical order.
+Inline IME pre-edit, the search query band, and status text keeps the painted
+row in logical order.
+
 The setting changes presentation only. Cells, cursor addressing and movement,
 selection endpoints, copy, search results, scrollback export, and every
 terminal protocol value stay logical. Plain limits: the alternate screen
