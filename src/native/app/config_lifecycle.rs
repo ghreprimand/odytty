@@ -626,6 +626,8 @@ impl App {
             .set_recording_enabled(self.settings.session_replay);
         self.sessions
             .set_shell_integration_enabled(self.settings.shell_integration);
+        self.sessions
+            .set_birth_ambiguous_wide(self.settings.ambiguous_width.is_wide());
         // Shell-integration hooks are injected only at spawn time, so enabling
         // the setting mid-session cannot retroactively integrate the shell that
         // is already running - only new tabs/panes pick it up. Surface an honest

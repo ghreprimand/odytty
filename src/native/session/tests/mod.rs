@@ -20,6 +20,7 @@ use std::ffi::OsString;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+mod birth_width;
 mod floating_layout;
 mod lifecycle;
 mod persistence;

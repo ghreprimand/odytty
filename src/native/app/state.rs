@@ -1058,6 +1058,8 @@ impl App {
                 .set_recording_enabled(app.settings.session_replay);
             app.sessions
                 .set_shell_integration_enabled(app.settings.shell_integration);
+            app.sessions
+                .set_birth_ambiguous_wide(app.settings.ambiguous_width.is_wide());
         }
         // The first window establishes the process wish from its settings.
         // A sibling adopts the wish already in force instead of writing the

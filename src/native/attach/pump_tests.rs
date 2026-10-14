@@ -110,6 +110,18 @@ fn a_later_snapshot_that_decodes_still_restores_and_redraws() {
 }
 
 #[test]
+fn a_mirror_lays_out_query_bytes_but_never_answers_them() {
+    // The host already answered the query against its own terminal; the
+    // mirror's reply would be a second answer, so the pump drops it.
+    let (events, mut terminal) = pump_events(|host| {
+        write_host_frame(host, &HostFrame::Output("x\x1b[6n".as_bytes().to_vec())).expect("output");
+    });
+    assert_eq!(events, vec!["redraw", "exited"]);
+    assert_eq!(terminal.screen().cursor().column, 1);
+    assert!(terminal.take_host_output().is_empty());
+}
+
+#[test]
 fn write_timeout_setup_propagates_failures_on_a_live_socket() {
     let (ours, _theirs) = UnixStream::pair().expect("socketpair");
     assert!(settle_write_timeout(&ours, Ok(())).is_ok());

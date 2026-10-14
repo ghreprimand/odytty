@@ -460,6 +460,9 @@ impl WorkspaceSet {
             recording_enabled: source.recording_enabled,
             local_hostname: source.local_hostname.clone(),
             shell_integration_enabled: source.shell_integration_enabled,
+            ambiguous_wide: source.ambiguous_wide,
+            #[cfg(test)]
+            pump_started_hook: None,
             launch_geometry_settled: false,
             held_launches_pending: true,
             held_fallback_armed: false,

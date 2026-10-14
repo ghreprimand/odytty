@@ -471,6 +471,36 @@ fn del_in_ground_writes_no_cell_and_does_not_move_the_cursor() {
 }
 
 #[test]
+fn an_unchanged_ambiguous_width_keeps_the_open_owner() {
+    // Session initialization and the settings sweep repeat the width already
+    // in force between reads. That changes nothing, so a mark in the next
+    // read still joins its base, under either policy.
+    for wide in [false, true] {
+        let mut terminal = Terminal::new(8, 2);
+        terminal.set_ambiguous_wide(wide);
+        terminal.advance(b"e");
+        terminal.set_ambiguous_wide(wide);
+        terminal.advance("\u{0301}".as_bytes());
+        let cell = terminal.screen().cell(0, 0).unwrap();
+        assert_eq!(cell.combining(), &['\u{0301}'], "wide={wide}");
+        assert_eq!(terminal.screen().cursor().column, 1, "wide={wide}");
+    }
+}
+
+#[test]
+fn a_changed_ambiguous_width_still_ends_the_open_owner() {
+    // A real policy change reflows the grid and, like a resize, ends the
+    // open owner: a following mark starts its own cell.
+    let mut terminal = Terminal::new(8, 2);
+    terminal.advance(b"e");
+    terminal.set_ambiguous_wide(true);
+    terminal.advance("\u{0301}".as_bytes());
+    assert!(terminal.screen().cell(0, 0).unwrap().combining().is_empty());
+    assert_eq!(terminal.screen().cell(0, 1).unwrap().ch, '\u{0301}');
+    assert_eq!(terminal.screen().cursor().column, 2);
+}
+
+#[test]
 fn a_combining_mark_after_del_joins_the_base_before_it() {
     // xterm drops DEL entirely, so it does not end the cluster: the mark joins
     // the "e" instead of starting a cell of its own.

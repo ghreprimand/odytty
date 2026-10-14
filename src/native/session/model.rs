@@ -443,6 +443,10 @@ pub(super) fn default_workspace_name(index: usize) -> String {
     format!("Workspace {}", index + 1)
 }
 
+/// Test-only observer of a fresh local model whose read pump just started.
+#[cfg(test)]
+pub(in crate::native) type PumpStartedHook = Box<dyn FnMut(&Arc<Mutex<Terminal>>) + Send>;
+
 /// The workspace list and the session arena that backs it (design doc §3.1).
 ///
 /// The hierarchy is `WorkspaceSet` -> [`Workspace`] -> [`Tab`] -> pane. Sessions
@@ -483,6 +487,17 @@ pub(in crate::native) struct WorkspaceSet {
     /// Whether newly spawned local default shells should receive OdyTTY's OSC
     /// 133 integration wrapper. Existing sessions are not modified.
     pub(super) shell_integration_enabled: bool,
+    /// East Asian Ambiguous width policy a fresh plain local or ssh model is
+    /// born with, before its read pump starts, so the first bytes a child
+    /// prints are laid out (and cursor reports answered) at the window's
+    /// policy. A profile launch carries its own merged value instead.
+    /// Existing sessions are not modified.
+    pub(super) ambiguous_wide: bool,
+    /// Test-only observer run on a fresh local model right after its read
+    /// pump started and before the session is inserted, which is the point
+    /// where the App's post-spawn initialization has not run yet.
+    #[cfg(test)]
+    pub(in crate::native) pump_started_hook: Option<PumpStartedHook>,
     /// Whether the owning window has applied a surface-derived grid yet.
     /// Until then a local spawn only knows the placeholder grid, so it is
     /// held (see `crate::pty::spawn_held`) and released by
@@ -537,6 +552,9 @@ impl WorkspaceSet {
             recording_enabled: false,
             local_hostname: None,
             shell_integration_enabled: false,
+            ambiguous_wide: false,
+            #[cfg(test)]
+            pump_started_hook: None,
             launch_geometry_settled: false,
             held_launches_pending: true,
             held_fallback_armed: false,

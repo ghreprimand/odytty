@@ -668,6 +668,13 @@ impl WorkspaceSet {
         self.shell_integration_enabled = on;
     }
 
+    /// The East Asian Ambiguous width policy fresh plain local and ssh models
+    /// are born with (the window's global value). Existing sessions keep
+    /// theirs; live changes reach them through the App's settings sweep.
+    pub(in crate::native) fn set_birth_ambiguous_wide(&mut self, wide: bool) {
+        self.ambiguous_wide = wide;
+    }
+
     /// A decoupled clone of the **focused** session's recorded frames, oldest
     /// first, for the replay overlay to scrub. Empty when recording is off or
     /// nothing has been recorded yet.
@@ -1052,7 +1059,8 @@ impl WorkspaceSet {
     ) -> Result<SessionToken, std::io::Error> {
         let shell_integration = self.shell_integration_enabled;
         let spawn_cwd = cwd.clone();
-        self.insert_local_session_with(grid, cwd, move |grid| {
+        let ambiguous_wide = self.ambiguous_wide;
+        self.insert_local_session_with(grid, cwd, ambiguous_wide, move |grid| {
             let settings = crate::settings::Settings {
                 shell_integration,
                 ..crate::settings::Settings::default()
@@ -1078,13 +1086,16 @@ impl WorkspaceSet {
         plan.settings.shell_integration = self.shell_integration_enabled;
         let seed_cwd = cwd.clone().or(plan.working_directory.clone());
         let spawn_cwd = seed_cwd.clone();
-        let token = self.insert_local_session_with(grid, seed_cwd, move |grid| {
-            let mut plan = plan;
-            if spawn_cwd.is_some() {
-                plan.working_directory = spawn_cwd;
-            }
-            crate::profiles::spawn_local_plan(grid, &plan)
-        })?;
+        // The profile's own width, already merged over the global value.
+        let ambiguous_wide = plan.settings.ambiguous_width.is_wide();
+        let token =
+            self.insert_local_session_with(grid, seed_cwd, ambiguous_wide, move |grid| {
+                let mut plan = plan;
+                if spawn_cwd.is_some() {
+                    plan.working_directory = spawn_cwd;
+                }
+                crate::profiles::spawn_local_plan(grid, &plan)
+            })?;
         if let Some(name) = effective.profile_name.clone()
             && let Some(session) = self.sessions.get_mut(&token)
         {
@@ -1130,7 +1141,8 @@ impl WorkspaceSet {
         program: OsString,
         args: Vec<OsString>,
     ) -> Result<SessionToken, std::io::Error> {
-        self.insert_local_session_with(grid, None, |grid| {
+        let ambiguous_wide = self.ambiguous_wide;
+        self.insert_local_session_with(grid, None, ambiguous_wide, |grid| {
             PtySession::spawn_exec(grid, program, args, None)
         })
     }
@@ -1168,10 +1180,15 @@ impl WorkspaceSet {
         Ok(session_id)
     }
 
+    /// Spawn a local child through `spawn` and insert its session. The model
+    /// takes `ambiguous_wide` before its read pump starts, so no byte the
+    /// child prints is laid out, and no cursor report answered, under a
+    /// different width policy than the session's.
     pub(super) fn insert_local_session_with(
         &mut self,
         grid: crate::core::Dimensions,
         seed_cwd: Option<std::path::PathBuf>,
+        ambiguous_wide: bool,
         spawn: impl FnOnce(crate::core::Dimensions) -> anyhow::Result<PtySession>,
     ) -> Result<SessionToken, std::io::Error> {
         let Some(proxy) = self.proxy.clone() else {
@@ -1198,6 +1215,9 @@ impl WorkspaceSet {
         )?));
         let mut model = Terminal::new(grid.columns, grid.rows);
         model.set_local_hostname(self.local_hostname.clone());
+        // Empty model: no reflow work. The App's post-spawn initialization
+        // repeats the same value, which keeps any owner the pump has opened.
+        model.set_ambiguous_wide(ambiguous_wide);
         seed_initial_working_directory(&mut model, seed_cwd.as_deref());
         // Defer resize cursor placement to the shell when the backend repaints
         // absolutely (ConPTY on Windows). The POSIX PTY backend returns false,
@@ -1221,6 +1241,10 @@ impl WorkspaceSet {
             recorder.clone(),
             diagnostic,
         )?;
+        #[cfg(test)]
+        if let Some(hook) = self.pump_started_hook.as_mut() {
+            hook(&terminal);
+        }
         let pty = Arc::new(Mutex::new(session));
         self.sessions.insert(
             session_id,

@@ -524,11 +524,16 @@ impl Screen {
     /// recounted, and the prompt input anchor is re-derived. A prompt-start
     /// collapse is not applied, because no shell repaint follows a policy
     /// change that leaves the PTY size alone.
+    ///
+    /// Setting the value already in force changes nothing, so it keeps the
+    /// open owner: session initialization and the settings sweep repeat the
+    /// current value between reads, and a mark in the next read must still
+    /// join its base. A real change ends the open owner, as a resize does.
     pub(crate) fn set_ambiguous_wide(&mut self, wide: bool) {
-        self.cluster_owner = None;
         if self.ambiguous_wide == wide {
             return;
         }
+        self.cluster_owner = None;
         let had_prompt_marks = self.has_any_prompt_mark();
         self.ambiguous_wide = wide;
         self.scrollback.set_ambiguous_wide(wide);
