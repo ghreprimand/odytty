@@ -3053,8 +3053,28 @@ rules apply on Linux, macOS, and Windows; missing styles use the regular face.
 Runtime symbol discovery on Linux and other fontconfig hosts runs on one
 bounded background worker. Resolver panics and helper deadline or output-limit
 failures disable runtime fallback for that session, clear pending work, and
-wake windows; subsequent requests return no runtime face. macOS and Windows
-use static fallback chains without this worker.
+wake windows; subsequent requests return no runtime face. macOS uses a static
+fallback chain without this worker. Windows runs the same worker to resolve
+script faces (see Windows script fallback below); it has no helper process to
+stall.
+
+Windows script fallback consults, only after the static chain (bundled faces,
+host Nerd face, Segoe UI Symbol, Segoe MDL2 Assets, Cambria Math) misses, the
+stock Windows face groups for the codepoint's script: Segoe UI then Arial for
+Hebrew and Arabic; Segoe UI then Sylfaen for Armenian and Georgian; Nirmala UI
+for the Devanagari through Sinhala blocks and Chakma; Leelawadee UI for Thai,
+Lao and Khmer; Myanmar Text; Microsoft Himalaya for Tibetan; Javanese Text;
+Ebrima then Nyala for Ethiopic, N'Ko, Tifinagh and Vai; Gadugi for Cherokee and
+Canadian syllabics; and the Sans Serif Collection (Windows 11) for Grantha,
+Tai Tham and the Vedic extensions. Candidates are filename-stem hints under the
+Windows font roots with the symbol tail's Regular-first ranking and
+eight-candidate cap. A face counts only if it maps the codepoint with a
+monochrome outline. The font roots are scanned and each face read on first need
+on the worker thread, each at most once per run, failures included, so startup
+and the render path do not wait. Codepoints outside these script ranges keep the
+box and settle at once without queueing the worker. A face absent from a Windows edition leaves its script boxed there.
+Complex-script owners use the same call, so the chosen face must map every
+scalar of the owner and is fitted by the owner em-size rule.
 
 Monochrome glyph coverage validates finite positive scales and finite
 positions, and refuses pixel bounds larger than 4,096 pixels on either axis

@@ -15,6 +15,7 @@ mod glyph_quad;
 mod marks;
 mod metrics;
 mod scaling;
+mod script_runtime;
 mod stem_darken;
 mod subpixel;
 mod symbol_map;

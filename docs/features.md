@@ -440,8 +440,29 @@ This selection rule is shared by Linux, macOS, and Windows.
 On Linux and other fontconfig hosts, runtime fallback resolves
 missing glyphs off the render path. A resolver panic or a helper deadline or
 output-limit failure disables runtime fallback for that session and wakes the
-windows, so later requests settle without a face. macOS and Windows use their
-static fallback chains and do not run this worker.
+windows, so later requests settle without a face. macOS uses its static
+fallback chain and does not run this worker. Windows runs the same worker for
+script faces, described next.
+
+Windows script fallback. After the static chain misses (bundled faces, host
+Nerd face, and the Segoe UI Symbol, Segoe MDL2 Assets and Cambria Math tail,
+whose providers do not change), the codepoint's script selects stock Windows
+faces by filename stem under the Windows font folders, and the first that maps
+the codepoint with a monochrome outline wins. Hebrew and Arabic consult Segoe UI
+then Arial; Armenian and Georgian, Segoe UI then Sylfaen; Devanagari through
+Sinhala and Chakma, Nirmala UI; Thai, Lao and Khmer, Leelawadee UI; Myanmar,
+Myanmar Text; Tibetan, Microsoft Himalaya; Javanese, Javanese Text; Ethiopic,
+N'Ko, Tifinagh and Vai, Ebrima then Nyala; Cherokee and Canadian syllabics,
+Gadugi; Grantha, Tai Tham and the Vedic extensions, the Sans Serif Collection
+that Windows 11 ships. A face absent from a Windows edition leaves its script
+boxed there, and a script outside these ranges keeps the box. Faces are read on
+first need on the runtime worker thread, never at startup or on the render
+path, each at most once per run (a failed load is not retried), and the font
+folders are scanned once, on that thread. Complex-script clusters take the same
+faces through the same fallback call, so a shaped run is fitted to the em size
+of the face that resolves its base. Disabling symbol fallback turns this off
+with the rest of the chain. Linux fontconfig fallback and the macOS fixed tail
+(Menlo, Apple Symbols, STIX Two Math, with no per-script lookup) are unchanged.
 
 Collection faces load independently under the 256 MiB retained
 font limit, including discovery in larger collections. Extracted faces repair

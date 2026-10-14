@@ -94,9 +94,10 @@ impl GlyphAtlas {
     /// Install (or clear) the runtime per-codepoint glyph fallback resolver.
     /// When `Some`, a printable spacing codepoint that misses the static
     /// [`Self::fallback_chain`] triggers a single, cached call to the resolver
-    /// (the native layer wires this to a `fc-match :charset` query -- see
+    /// (the native layer wires this to a `fc-match :charset` query on Linux and to the
+    /// stock script-face lookup on Windows -- see
     /// [`crate::text::runtime_resolve_symbol_font`]). `None` (the default, and
-    /// the only state on macOS/non-Unix) disables the runtime query; the static
+    /// the only state on macOS) disables the runtime query; the static
     /// chain resolves the same either way.
     /// Switching the resolver clears the per-codepoint cache. A codepoint that
     /// `ensure` has already placed (or pinned to the fallback slot) stays there
@@ -141,7 +142,7 @@ impl GlyphAtlas {
         if let Some(fb) = self.fallback_chain.iter().find(|fb| font_has_glyph(fb, ch)) {
             return SymbolFallback::Settled(Some(Arc::clone(fb)));
         }
-        // Static chain missed. Consult the runtime resolver (Linux fontconfig),
+        // Static chain missed. Consult the runtime resolver (Linux fontconfig, Windows script faces),
         // caching its final answer -- including a negative one -- per codepoint.
         // A pending answer is not cached: the resolver works off the render
         // path, and the next rebuild asks again.

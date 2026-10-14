@@ -70,7 +70,7 @@ const SYSTEM_SYMBOL_FALLBACK_FONTS: &[(&str, u32)] = &[
 /// face index to load from the matching file (non-zero only for a collection
 /// whose symbol coverage is not face 0).
 #[cfg(any(windows, test, all(unix, not(target_os = "macos"))))]
-type SymbolHint = (&'static str, u32);
+pub(super) type SymbolHint = (&'static str, u32);
 
 /// Linux/Unix (non-macOS) symbol-fallback tail: normalized filename-stem hints
 /// for the broad-coverage system symbol faces that commonly backfill standard
@@ -115,8 +115,9 @@ fn linux_symbol_fallback_faces_in_inventory(
 /// Windows symbol-fallback tail: normalized **filename-stem** hints (on-disk
 /// file names, not family names) matched under [`font_search_dirs`]' Windows
 /// roots, for always-present system faces covering standard Unicode symbols
-/// the Nerd faces lack. Windows has no per-codepoint runtime resolver, so this
-/// static tail is the floor. `seguisym` (Segoe UI Symbol) is broadest;
+/// the Nerd faces lack. This static tail is the symbol floor; letters of
+/// scripts the primary face lacks come from [`super::script_fallback`] after it
+/// misses. `seguisym` (Segoe UI Symbol) is broadest;
 /// `segmdl2` (MDL2 assets) and `cambria` at face 1 (Cambria Math; face 0 is
 /// the text face) backstop it with monochrome outlines. Each is skipped if
 /// absent, and none shadows the body font because glyph fallback is only
@@ -162,6 +163,21 @@ fn hinted_fallback_faces(
     hinted_fallback_faces_with(inventory, hints, load_font_face_at)
 }
 
+/// The files a static-tail hint may load, best first: normalized stems that
+/// contain `hint`, explicit Regular variants before others, then the shortest
+/// stem, capped at [`MAX_SYMBOL_FONT_CANDIDATES`].
+#[cfg(any(windows, test, all(unix, not(target_os = "macos"))))]
+pub(super) fn hint_matches<'a>(inventory: &'a FontFileInventory, hint: &str) -> Vec<&'a PathBuf> {
+    let mut matches: Vec<_> = inventory
+        .files()
+        .iter()
+        .filter(|f| normalize_family(&file_stem(f)).contains(hint))
+        .collect();
+    matches.sort_by_key(|path| symbol_style_rank(path));
+    matches.truncate(MAX_SYMBOL_FONT_CANDIDATES);
+    matches
+}
+
 #[cfg(any(windows, all(unix, not(target_os = "macos"))))]
 fn hinted_fallback_faces_with(
     inventory: &FontFileInventory,
@@ -171,13 +187,7 @@ fn hinted_fallback_faces_with(
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for (hint, face) in hints {
-        let mut matches: Vec<_> = inventory
-            .files()
-            .iter()
-            .filter(|f| normalize_family(&file_stem(f)).contains(hint))
-            .collect();
-        matches.sort_by_key(|path| symbol_style_rank(path));
-        for path in matches.into_iter().take(MAX_SYMBOL_FONT_CANDIDATES) {
+        for path in hint_matches(inventory, hint) {
             if seen.contains(&(path.clone(), *face)) {
                 break;
             }
@@ -373,8 +383,9 @@ pub(crate) fn resolve_symbol_fonts_with_inventory(
     // Unicode dingbats/symbols/Miscellaneous-Technical glyphs TUIs emit. Append
     // the always-present Segoe UI Symbol tail (see
     // [`WINDOWS_SYMBOL_FALLBACK_HINTS`]) so glyphs like the check `U+2714` and
-    // the result-branch `U+23BF` render instead of tofu. Static floor only -
-    // Windows has no cheap `fc-match` runtime-resolver analog.
+    // the result-branch `U+23BF` render instead of tofu. Script letters the tail
+    // misses are resolved lazily by the runtime worker (see
+    // [`super::script_fallback`]), not here, so startup reads no script face.
     #[cfg(windows)]
     for (source, font) in windows_symbol_fallback_faces_in_inventory(inventory) {
         sources.push(source);
@@ -407,7 +418,7 @@ pub fn runtime_resolve_symbol_font(ch: char) -> crate::atlas::RuntimeSymbol {
 #[cfg(all(unix, not(target_os = "macos")))]
 pub(super) fn resolve_symbol_font_blocking(
     ch: char,
-) -> Result<Option<std::sync::Arc<FontHandle>>, FontconfigStalled> {
+) -> Result<Option<std::sync::Arc<FontHandle>>, ResolverStall> {
     Ok(resolve_symbol_font_from_candidates(
         ch,
         symbol_font_candidates(ch)?,
@@ -418,6 +429,49 @@ pub(super) fn resolve_symbol_font_blocking(
 #[cfg(all(unix, not(target_os = "macos")))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct FontconfigStalled;
+
+/// Failure shape of the blocking resolver the runtime worker drives.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub(super) type ResolverStall = FontconfigStalled;
+
+/// Windows resolves from local font files, so no helper can stall; the type
+/// only gives the shared worker one error shape.
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(super) struct ResolverStall;
+
+/// Runtime per-script glyph fallback on Windows.
+///
+/// The atlas calls this when a printable spacing codepoint misses the static
+/// chain, which already holds the symbol tail. The answer comes from the
+/// stock Windows script faces in [`super::script_fallback`], loaded lazily on
+/// the [`super::runtime_fallback`] worker thread, never on the render path:
+/// a codepoint without an answer is [`RuntimeSymbol::Pending`](crate::atlas::RuntimeSymbol)
+/// until the worker has one, then the windows rebuild.
+#[cfg(windows)]
+pub fn runtime_resolve_symbol_font(ch: char) -> crate::atlas::RuntimeSymbol {
+    // A codepoint outside every script group has no candidate face: settle it
+    // at once instead of queueing the worker and rebuilding every window.
+    if super::script_fallback::script_faces(ch).is_none() {
+        return crate::atlas::RuntimeSymbol::Ready(None);
+    }
+    super::runtime_fallback::request(ch)
+}
+
+/// The blocking resolution the worker thread runs for one codepoint.
+#[cfg(windows)]
+pub(super) fn resolve_symbol_font_blocking(
+    ch: char,
+) -> Result<Option<std::sync::Arc<FontHandle>>, ResolverStall> {
+    use super::script_fallback::ScriptFaceResolver;
+    static RESOLVER: std::sync::LazyLock<std::sync::Mutex<ScriptFaceResolver>> =
+        std::sync::LazyLock::new(|| std::sync::Mutex::new(ScriptFaceResolver::system()));
+    let mut resolver = RESOLVER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(resolver.resolve(ch))
+}
 
 /// Longest one `fc-match`/`fc-list` query may run.
 #[cfg(all(unix, not(target_os = "macos")))]

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Off-render-path runtime glyph fallback (Linux and other fontconfig hosts).
+//! Off-render-path runtime glyph fallback (fontconfig hosts and Windows).
 //!
 //! The glyph atlas asks for a covering face while it prepares a frame. Asking
 //! fontconfig means two helper processes and font loads per codepoint, which
@@ -36,7 +36,7 @@ const WAKE_BATCH_INTERVAL: Duration = Duration::from_millis(100);
 
 type Waker = Box<dyn Fn() + Send + Sync>;
 #[cfg(test)]
-type Resolver = fn(char) -> Result<Option<Arc<FontHandle>>, super::symbols::FontconfigStalled>;
+type Resolver = fn(char) -> Result<Option<Arc<FontHandle>>, super::symbols::ResolverStall>;
 
 static WAKER: OnceLock<Waker> = OnceLock::new();
 static STATE: LazyLock<Mutex<State>> = LazyLock::new(|| Mutex::new(State::default()));
@@ -155,6 +155,6 @@ fn wake() {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix, not(target_os = "macos")))]
 #[path = "runtime_fallback_liveness_tests.rs"]
 mod liveness_tests;

@@ -345,24 +345,26 @@ fn resolve_startup_fonts_with(
     }
 }
 
-/// Install the runtime per-codepoint symbol fallback resolver on `atlas` (RV6
-/// Linux backfill), or clear it. On Linux/Unix (non-macOS) the resolver is a
-/// `fc-match :charset` query ([`text::runtime_resolve_symbol_font`]) consulted
-/// only when the static chain misses a symbol codepoint; the atlas caches each
-/// codepoint, so the subprocess runs at most once per distinct missing symbol.
-/// It is installed only when symbol fallback is `enabled`, so disabling the
-/// feature leaves both the static chain and the runtime query off. On macOS and
-/// non-Unix targets there is no runtime query (the static system tail covers the
-/// platform), so the resolver is always cleared and the path stays byte-identical
-/// to the pre-feature renderer.
+/// Install the runtime per-codepoint glyph fallback resolver on `atlas`, or
+/// clear it. On Linux/Unix (non-macOS) the resolver is a `fc-match :charset`
+/// query ([`text::runtime_resolve_symbol_font`]); on Windows it is the
+/// stock-script-face lookup in `text::script_fallback`, which only runs after
+/// the static chain (bundled faces and the Segoe symbol tail) misses. Both are
+/// consulted only on a static-chain miss, and the atlas caches each codepoint,
+/// so the lookup runs at most once per distinct missing codepoint. It is
+/// installed only when symbol fallback is `enabled`, so disabling the feature
+/// leaves both the static chain and the runtime query off. On macOS there is no
+/// runtime query (the static system tail covers the platform), so the resolver
+/// is always cleared and the path stays byte-identical to the pre-feature
+/// renderer.
 pub(super) fn install_runtime_symbol_resolver(atlas: &mut text::GlyphAtlas, enabled: bool) {
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(any(windows, all(unix, not(target_os = "macos"))))]
     let resolver = if enabled {
         Some(text::runtime_resolve_symbol_font as crate::atlas::RuntimeSymbolResolver)
     } else {
         None
     };
-    #[cfg(not(all(unix, not(target_os = "macos"))))]
+    #[cfg(not(any(windows, all(unix, not(target_os = "macos")))))]
     let resolver = {
         let _ = enabled;
         None
@@ -643,5 +645,43 @@ mod tests {
         let zeroed = shared.with_zero_feature(true);
         assert_eq!(zeroed.synthetic_mask(), (true, true, true));
         assert!(zeroed.font_for(FontStyle::Bold).has_zero_alternate());
+    }
+
+    /// Windows end to end: the installed resolver, the runtime worker thread and
+    /// the real system fonts. A Latin-only primary face has no Hebrew, so the
+    /// cluster path starts `Pending` and settles on a face that maps the letter
+    /// instead of leaving the box. Segoe UI ships with every Windows install.
+    #[cfg(windows)]
+    #[test]
+    fn windows_hebrew_cluster_settles_on_a_system_script_face() {
+        let primary = text::load_font().expect("bundled face loads");
+        assert_eq!(primary.glyph_id('\u{05D0}').0, 0, "premise: no Hebrew");
+        let mut atlas = text::GlyphAtlas::build(&primary, 20.0);
+        atlas.set_fallback_fonts(Vec::new());
+        install_runtime_symbol_resolver(&mut atlas, true);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        loop {
+            match atlas.cluster_face(&primary, &['\u{05D0}']) {
+                crate::atlas::ClusterFace::Pending => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "the worker never answered"
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                crate::atlas::ClusterFace::Fallback(face) => {
+                    assert_ne!(face.glyph_id('\u{05D0}').0, 0);
+                    break;
+                }
+                other => panic!("Hebrew did not resolve to a system face: {other:?}"),
+            }
+        }
+        // With symbol fallback off the resolver is cleared, as for the chain.
+        let mut off = text::GlyphAtlas::build(&primary, 20.0);
+        install_runtime_symbol_resolver(&mut off, false);
+        assert!(matches!(
+            off.cluster_face(&primary, &['\u{05D0}']),
+            crate::atlas::ClusterFace::Unavailable
+        ));
     }
 }
