@@ -486,6 +486,10 @@ pub(in crate::native) struct App {
     /// be exercised against live App state without a compositor. Linux tests.
     #[cfg(all(test, target_os = "linux"))]
     pub(super) wayland_surface_present_for_test: Option<bool>,
+    /// Test-only override of the X11 backend check, which reads the winit
+    /// window handle a headless test App does not have. Linux tests.
+    #[cfg(all(test, target_os = "linux"))]
+    pub(super) x11_client_for_test: Option<bool>,
     /// v0.15.0 D keyboard window merge seam: a captured request to open the
     /// merge target picker in a direction, set when the user picks "Merge this
     /// window into..." / "Pull window ... into this one" from the command
@@ -958,6 +962,8 @@ impl App {
             surface_generation: 0,
             #[cfg(all(test, target_os = "linux"))]
             wayland_surface_present_for_test: None,
+            #[cfg(all(test, target_os = "linux"))]
+            x11_client_for_test: None,
             pending_merge_picker: None,
             pending_move: None,
             #[cfg(target_os = "linux")]

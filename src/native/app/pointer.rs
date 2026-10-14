@@ -1461,7 +1461,7 @@ impl App {
         }
         self.top_tab_drag = Some(drag);
         if drag.tear_out
-            && self.settings.live_tab_drag
+            && self.live_tab_follow_enabled()
             && self.live_tab_transport_supported()
             && self.pending_move.is_none()
             && let Some(tab) = drag.origin_token
@@ -1504,7 +1504,7 @@ impl App {
 
     /// Preserve the release-time path exactly when live following is disabled.
     pub(super) fn clear_top_tab_drag_for_transition(&mut self) {
-        if self.settings.live_tab_drag {
+        if self.live_tab_follow_enabled() {
             let _ = self.cancel_top_tab_drag();
         } else {
             self.top_tab_drag = None;

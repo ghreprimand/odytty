@@ -1491,8 +1491,10 @@ that closed while the picker was open, including when names are duplicated.
   reorder. A lone tab can tear out and transfers the saved-layout role when
   its source closes; the menu's lone-tab refusal remains unchanged. Pane
   tear-out is unsupported, and workspace rail slot drags only reorder
-  workspaces. On X11, Hyprland, macOS and Windows, the default-on `live_tab_drag`
-  setting creates a provisional window while the pointer is held outside.
+  workspaces. On Hyprland, macOS and Windows, the default-on `live_tab_drag`
+  setting creates a provisional window while the pointer is held outside. X11,
+  including Xwayland, never does: its window is created once, on release, as
+  before, and the setting is kept as written with no effect there.
   Its grabbed tab follows the pointer with scale-aware offsets and monitor
   clamping. The source, including a sole-tab source, survives until release
   commits once. Escape, returning to the strip, source or destination close,

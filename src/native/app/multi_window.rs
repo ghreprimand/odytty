@@ -189,6 +189,12 @@ impl App {
         self.wayland_surface_present_for_test = Some(present);
     }
 
+    /// Test-only: model an X11 client (including Xwayland). Linux tests.
+    #[cfg(all(test, target_os = "linux"))]
+    pub(in crate::native) fn set_x11_client_for_test(&mut self, x11: bool) {
+        self.x11_client_for_test = Some(x11);
+    }
+
     #[cfg(all(test, target_os = "linux"))]
     pub(in crate::native) fn set_live_tab_drag_for_test(&mut self, enabled: bool) {
         self.settings.live_tab_drag = enabled;

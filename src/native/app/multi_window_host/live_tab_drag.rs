@@ -92,7 +92,7 @@ impl MultiWindowHost {
         #[cfg(target_os = "linux")]
         let wayland_bridge = self.wayland_bridge();
         let source = &mut self.windows[index];
-        if !source.settings.live_tab_drag || !source.sessions.owns_session(tab) {
+        if !source.live_tab_follow_enabled() || !source.sessions.owns_session(tab) {
             return false;
         }
         let Some(drag) = source
@@ -913,6 +913,30 @@ mod tests {
             terminal.lock().expect("terminal").snapshot().dimensions,
             before.dimensions
         );
+    }
+
+    /// The host refuses to open a provisional window for an X11 source even
+    /// when a request reaches it, and leaves the source untouched.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn live_tab_is_refused_for_an_x11_source_and_creates_no_window() {
+        let (mut host, tab, terminal) = armed(true);
+        let source = host.windows[0].process_window_id();
+        host.windows[0].set_x11_client_for_test(true);
+        let mut opened = false;
+        assert!(!host.begin_live_tab(source, tab, |_| {
+            opened = true;
+            Ok(())
+        }));
+        assert!(!opened, "the window factory is never called");
+        assert_eq!(host.windows.len(), 1);
+        assert!(!host.windows[0].live_drag_source);
+        assert!(host.windows[0].sessions.owns_session(tab));
+        assert!(Arc::ptr_eq(
+            &terminal,
+            &host.windows[0].sessions.get(tab).expect("kept").terminal
+        ));
+        assert!(!host.cancel_live_tab(), "no custody was taken");
     }
 
     #[test]

@@ -391,3 +391,65 @@ fn wayland_tab_advertised_live_drag_arms_through_the_real_pointer_path() {
         assert!(app.take_move_request().is_none());
     }
 }
+
+/// X11 (including Xwayland) never follows the pointer: the live-drag provisional
+/// window is a managed top-level that tiling window managers map and refocus
+/// mid-drag. With the setting at its default, a drag outside requests nothing
+/// until release, and release requests exactly one new window.
+#[cfg(target_os = "linux")]
+#[test]
+fn x11_never_arms_live_follow_and_release_outside_requests_one_window() {
+    for backend_is_x11 in [true, false] {
+        let mut app = app();
+        app.set_x11_client_for_test(backend_is_x11);
+        let token = app.active_session_token_for_test();
+        app.set_pointer_px_for_test(12.0, 8.0);
+        app.mouse_left_press_for_test();
+        app.pointer_move_for_test(-60.0, -80.0);
+        app.pointer_move_for_test(-80.0, -90.0);
+        assert_eq!(
+            app.take_move_request().is_some(),
+            !backend_is_x11,
+            "live follow armed on a non-X11 backend only (x11 = {backend_is_x11})"
+        );
+        app.mouse_left_release_for_test();
+        let release = app.take_move_request();
+        if backend_is_x11 {
+            assert!(release.is_some(), "release outside creates the window");
+            assert!(app.take_move_request().is_none(), "exactly one request");
+        }
+        assert_eq!(app.active_session_token_for_test(), token);
+        assert_eq!(app.top_tab_drag_for_test(), None);
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn x11_escape_cancels_the_drag_without_a_window_request() {
+    let mut app = app();
+    app.set_x11_client_for_test(true);
+    app.set_pointer_px_for_test(12.0, 8.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(-60.0, -80.0);
+    assert!(app.take_move_request().is_none(), "nothing before release");
+    app.drive_named_key_for_test(NamedKey::Escape);
+    app.mouse_left_release_for_test();
+    assert!(app.take_move_request().is_none(), "cancelled: no window");
+    assert_eq!(app.top_tab_drag_for_test(), None);
+}
+
+/// Turning the setting off on X11 is the same release-time path as leaving it
+/// on (the default, covered above).
+#[cfg(target_os = "linux")]
+#[test]
+fn x11_setting_is_kept_as_written_and_changes_nothing() {
+    let mut app = app();
+    app.set_x11_client_for_test(true);
+    app.set_live_tab_drag_for_test(false);
+    app.set_pointer_px_for_test(12.0, 8.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(-60.0, -80.0);
+    assert!(app.take_move_request().is_none());
+    app.mouse_left_release_for_test();
+    assert!(app.take_move_request().is_some());
+}

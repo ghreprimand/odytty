@@ -194,8 +194,9 @@ claim acceptance on other platforms. The release notes are in
       window. The commands remain available alongside horizontal tab
       tear-out in the v0.17.0 development work. Individual pane tear-out
       remains unsupported. The default-on Live tab drag setting follows the
-      pointer on X11, Hyprland, macOS, Windows and Wayland with advertised
-      xdg-toplevel-drag, with reversible provisional custody;
+      pointer on Hyprland, macOS, Windows and Wayland with advertised
+      xdg-toplevel-drag, with reversible provisional custody; X11 creates the
+      window on release;
       cancellation preserves source order, active identity and split ownership.
       Returning to the strip resumes reorder; source resizing, modifiers and
       read-only automation polling keep custody alive.

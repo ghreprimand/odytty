@@ -17,7 +17,43 @@ pub(in crate::native) struct TearOutRelease {
 }
 
 impl App {
+    /// Whether this window is an X11 client (including Xwayland). The X11
+    /// provisional window is a managed top-level that tiling and focusing
+    /// window managers map and refocus mid-drag, so X11 keeps release-time
+    /// tear-out and never follows the pointer. Always false off Linux.
+    #[cfg(target_os = "linux")]
+    pub(super) fn is_x11_client(&self) -> bool {
+        use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        #[cfg(test)]
+        if let Some(present) = self.x11_client_for_test {
+            return present;
+        }
+        self.window
+            .as_ref()
+            .and_then(|window| window.window_handle().ok())
+            .is_some_and(|handle| {
+                matches!(
+                    handle.as_raw(),
+                    RawWindowHandle::Xlib(_) | RawWindowHandle::Xcb(_)
+                )
+            })
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub(super) fn is_x11_client(&self) -> bool {
+        false
+    }
+
+    /// Whether live follow is in force: the setting is on and the backend
+    /// supports it. The setting is kept as written on X11 and has no effect.
+    pub(super) fn live_tab_follow_enabled(&self) -> bool {
+        self.settings.live_tab_drag && !self.is_x11_client()
+    }
+
     pub(super) fn live_tab_transport_supported(&self) -> bool {
+        if self.is_x11_client() {
+            return false;
+        }
         let supported = !self.is_wayland_client() || self.hyprland_live_requested();
         #[cfg(target_os = "linux")]
         {
