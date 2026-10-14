@@ -76,6 +76,7 @@ scaling behavior.
 - [Parser and graphics fuzzing guide](../fuzz/parser_graphics/README.md)
 - [Native decomposition record](native-decomposition.md)
 - [Comparative benchmark protocol](benchmark-protocol.md)
+- [Internal regression measurement protocol](internal-benchmark-protocol.md)
 - [Benchmark harness and operator guide](../scripts/bench-protocol/README.md)
 - [Comparative benchmark apparatus statement](benchmark-apparatus.md)
 - [Comparative benchmark results: W6 idle and software endpoints](benchmark-results.md)

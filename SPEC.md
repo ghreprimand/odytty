@@ -1105,6 +1105,14 @@ input methods and compose-key/dead-key accents work.
 With no composition in progress the pre-edit is empty and the render path is
 unchanged.
 
+## Internal regression measurement
+
+The [internal measurement protocol](docs/internal-benchmark-protocol.md) keeps
+headless model, snapshot, CPU geometry, bidi, script-shaping and local tooling
+samples separate from comparative product benchmarks. Per-row thresholds are
+frozen from a baseline noise pass before a candidate is measured. Missing
+native GPU, launch and platform measurements remain explicit limitations.
+
 ## Scope
 
 Release preparation validates that indexed versioned notes match the package

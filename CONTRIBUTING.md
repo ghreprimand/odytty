@@ -646,3 +646,9 @@ cargo bench --bench perf
 
 Any change to the terminal core or parser that might affect throughput should
 include a before/after bench comparison in the commit message or linked notes.
+
+The [internal regression protocol](docs/internal-benchmark-protocol.md) retains
+single-shot samples and freezes per-row noise thresholds before measuring a
+candidate. Use it for adoption decisions; the ordinary best-of harness remains
+a quick hotspot probe. Comparative product results follow the separate
+[comparative protocol](docs/benchmark-protocol.md).

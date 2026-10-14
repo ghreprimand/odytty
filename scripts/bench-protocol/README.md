@@ -495,3 +495,14 @@ because each one exists to prevent a specific, tempting mistake.
     different pipeline, so pooling them would compare two quantities under one
     name. The default is exclusion with the reason recorded; including it
     requires an explicit opt-in and is itself published as a deviation.
+
+## Internal regression samples
+
+`internal.py` runs the separate [internal regression protocol](../../docs/internal-benchmark-protocol.md).
+It retains single-shot headless rows and local script/guard timings, freezes
+thresholds from thirty paired baseline noise blocks, and compares thirty
+interleaved A/B blocks. These samples are not comparative product results.
+
+```sh
+python3 scripts/bench-protocol/internal.py --self-test
+```

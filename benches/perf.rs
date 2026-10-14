@@ -26,6 +26,9 @@
 //! numbers are coarse single-process timings meant to rank hotspots and back
 //! optimization proposals, not micro-benchmark-grade statistics.
 
+#[path = "perf/protocol.rs"]
+mod protocol;
+
 use std::hint::black_box;
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
@@ -162,6 +165,9 @@ fn time_once<T>(mut f: impl FnMut() -> T) -> Duration {
 /// minimum is the most stable estimate of intrinsic cost under OS noise.
 fn best_of<T>(runs: u32, mut f: impl FnMut() -> T) -> Duration {
     black_box(f()); // warm-up
+    if protocol::enabled() {
+        return time_once(f);
+    }
     let mut best = Duration::MAX;
     for _ in 0..runs {
         let d = time_once(&mut f);
@@ -183,6 +189,7 @@ fn secs(d: Duration) -> f64 {
 
 /// Print a feed-style row: a byte workload with a MB/s rate.
 fn report_feed(name: &str, bytes: usize, d: Duration) {
+    protocol::record(name, d, 1);
     let mb = bytes as f64 / (1024.0 * 1024.0);
     let mbps = mb / secs(d);
     println!(
@@ -194,6 +201,7 @@ fn report_feed(name: &str, bytes: usize, d: Duration) {
 
 /// Print an ops-style row: `ops` repetitions with a per-op time and ops/sec.
 fn report_ops(name: &str, ops: usize, d: Duration) {
+    protocol::record(name, d, ops);
     let per = secs(d) / ops as f64;
     let ops_per_s = ops as f64 / secs(d);
     println!(
@@ -539,8 +547,12 @@ fn main() {
         run_se_isolation();
         return;
     }
-    println!("odytty perf - {COLS}x{ROWS} grid, best-of timings\n");
-    let font = load_font().ok();
+    println!("odytty perf - {COLS}x{ROWS} grid, internal timings\n");
+    let font = if protocol::enabled() {
+        Some(odytty::text::load_bundled_font().expect("bundled benchmark font"))
+    } else {
+        load_font().ok()
+    };
     if font.is_none() {
         println!("(no font could be loaded: geometry benchmarks will be skipped)\n");
     }
@@ -903,4 +915,7 @@ fn main() {
     report_ops("resize reflow (height-only, deep)", deep_ops, d);
 
     println!("\ndone.");
+    if protocol::enabled() {
+        protocol::run();
+    }
 }

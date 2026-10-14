@@ -228,6 +228,7 @@ paths. None of this replaces wider third-party soak exposure.
 - [Accessibility](docs/accessibility.md)
 - [Diagnostics](docs/diagnostics.md)
 - [Benchmarks: protocol, apparatus, and results](docs/benchmark-results.md)
+- [Internal regression measurement](docs/internal-benchmark-protocol.md)
 - [Architecture specification](SPEC.md)
 - [Complete documentation index](docs/README.md)
 

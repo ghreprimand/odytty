@@ -18,6 +18,10 @@ development record, [`SPEC.md`](SPEC.md) for durable decisions, and
 [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) for the full build
 roadmap.
 
+Internal regression work uses the [frozen sampling protocol](docs/internal-benchmark-protocol.md).
+Windows/macOS bidi cost, native first-frame startup and GPU presentation costs
+still require controlled measurement apparatus.
+
 ## v0.17.0: International Text (published)
 
 Saved-layout names preserve non-ASCII text on Linux, macOS and Windows, within
