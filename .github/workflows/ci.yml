@@ -100,6 +100,11 @@ jobs:
       - name: Compatibility corpus validation
         run: python scripts/compatibility-corpus.py validate
 
+      # The temp-leak runner decides pass or fail for the test steps below, so
+      # its own detection is exercised first on every OS.
+      - name: Temp-directory leak check self-test
+        run: python tests/check_temp_dir_leaks.py --self-test
+
       - name: Format check
         run: cargo fmt --check
 
@@ -172,10 +177,15 @@ jobs:
       # full-suite test steps finish in ~2-3 min here (windows ~153s is the
       # slowest), so 15 min is ~6x headroom over green while tripping quickly on
       # a hang. macOS is handled by the separate auto-retry step below.
+      #
+      # The suite runs through tests/check_temp_dir_leaks.py, which points the
+      # platform temp location (TMPDIR on Linux, TMP and TEMP on Windows) at a
+      # private directory and fails the step when anything is left in it, so a
+      # test that stops cleaning up its scratch folders turns the leg red.
       - name: Test (Linux/Windows)
         if: matrix.os != 'macos-latest'
         timeout-minutes: 15
-        run: cargo test --locked
+        run: python tests/check_temp_dir_leaks.py -- cargo test --locked
 
       # macOS: the runner intermittently deadlocked (~1 in 6-7 runs) during
       # PTY teardown in the single-threaded test sweep - the tests run clean,
@@ -250,7 +260,7 @@ jobs:
           for attempt in $(seq 1 "$max_attempts"); do
             echo "macOS test attempt ${attempt}/${max_attempts}"
             rc=0
-            run_with_timeout "$attempt_timeout" cargo test --locked -- --test-threads=1 || rc=$?
+            run_with_timeout "$attempt_timeout" python3 tests/check_temp_dir_leaks.py -- cargo test --locked -- --test-threads=1 || rc=$?
             if [ "$rc" -eq 0 ]; then
               echo "Test attempt ${attempt} succeeded."
               break

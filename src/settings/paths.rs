@@ -88,13 +88,40 @@ pub(crate) fn spawn_config_file_path() -> Option<PathBuf> {
 /// One scratch directory owned by this test process, created on first use.
 /// Test-build writers that would otherwise resolve a location from the live
 /// environment without the shared environment lock use it instead. The test
-/// harness has no process-exit hook, so the directory is not removed: each
-/// test process that reaches it leaves one `odytty-test-config-*` directory in
-/// the system temp directory.
+/// harness has no process-exit hook, so the directory is removed by a C
+/// `atexit` handler registered when it is created. That runs on a normal
+/// return from `main` and on `process::exit` (a failed suite), on every
+/// platform. A killed or aborted test process (timeout, SIGKILL, a crash) runs
+/// no handler and still leaves its directory behind.
 #[cfg(test)]
 pub(crate) fn test_process_base() -> &'static Path {
-    static PROCESS_OWNED: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    PROCESS_OWNED.get_or_init(|| crate::test_dirs::fresh_temp_dir("odytty-test-config-"))
+    PROCESS_OWNED.get_or_init(|| {
+        let dir = crate::test_dirs::fresh_temp_dir("odytty-test-config-");
+        // SAFETY: `remove_process_base_at_exit` is a plain `extern "C"` function
+        // that touches only the static below and the file system.
+        unsafe {
+            atexit(remove_process_base_at_exit);
+        }
+        dir
+    })
+}
+
+#[cfg(test)]
+static PROCESS_OWNED: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+#[cfg(test)]
+unsafe extern "C" {
+    /// C runtime exit hook; present in the CRT on Unix, macOS, and Windows.
+    fn atexit(callback: extern "C" fn()) -> std::ffi::c_int;
+}
+
+/// Best effort: a child that still holds the directory (Windows) or a racing
+/// writer only leaves the directory for the next sweep, never an abort.
+#[cfg(test)]
+extern "C" fn remove_process_base_at_exit() {
+    if let Some(dir) = PROCESS_OWNED.get() {
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
 
 /// The home directory every child a test build spawns receives: `HOME` and

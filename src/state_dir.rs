@@ -737,10 +737,10 @@ mod tests {
     use super::*;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-    use std::path::PathBuf;
 
-    fn temp_dir(tag: &str) -> PathBuf {
-        crate::test_dirs::fresh_temp_dir(&format!("odytty-state-dir-{tag}-"))
+    /// Removed when dropped, including when an assertion panics.
+    fn temp_dir(tag: &str) -> crate::test_dirs::ScratchDir {
+        crate::test_dirs::ScratchDir::new(&format!("odytty-state-dir-{tag}-"))
     }
 
     #[cfg(unix)]
@@ -762,7 +762,6 @@ mod tests {
                 .kind(),
             io::ErrorKind::NotFound
         );
-        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
@@ -783,7 +782,6 @@ mod tests {
         assert_eq!(mode(&leaf), PRIVATE_DIR_MODE);
         assert_eq!(mode(&file), PRIVATE_FILE_MODE);
         assert_eq!(fs::read_to_string(&file).expect("read file"), "unchanged");
-        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
@@ -801,7 +799,6 @@ mod tests {
             drop(create_new_sensitive(&file).expect("create private state file"));
             assert_eq!(mode(&leaf), PRIVATE_DIR_MODE);
             assert_eq!(mode(&file), PRIVATE_FILE_MODE);
-            let _ = fs::remove_dir_all(root);
             return;
         }
 
@@ -840,7 +837,6 @@ mod tests {
             fs::read_to_string(&target_file).expect("target contents"),
             "keep"
         );
-        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
@@ -852,7 +848,6 @@ mod tests {
 
         assert!(prepare_private_dir(&leaf).is_err());
         assert_eq!(fs::read_to_string(&leaf).expect("leaf contents"), "keep");
-        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
@@ -870,7 +865,6 @@ mod tests {
             directory_at_file_path.is_dir(),
             "wrong type stays untouched"
         );
-        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
@@ -980,7 +974,6 @@ mod tests {
                 .file_type()
                 .is_symlink()
         );
-        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
@@ -1003,7 +996,6 @@ mod tests {
             fs::read_to_string(root.join("elsewhere/odytty.conf")).expect("created target"),
             "first = 1\n"
         );
-        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
@@ -1020,7 +1012,6 @@ mod tests {
 
         assert_eq!(mode(&path), 0o600, "stricter existing mode must survive");
         assert_eq!(fs::read_to_string(&path).expect("read"), "new = 2\n");
-        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
@@ -1053,7 +1044,6 @@ mod tests {
             );
             assert_eq!(fs::read_to_string(&path).expect("read"), "new = 2\n");
         }
-        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
@@ -1068,7 +1058,6 @@ mod tests {
 
         assert_eq!(mode(&path), 0o644);
         assert_eq!(fs::read_to_string(&path).expect("read"), "a = 1\n");
-        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
@@ -1084,7 +1073,6 @@ mod tests {
 
         assert_eq!(mode(&path), PRIVATE_FILE_MODE);
         assert_eq!(fs::read_to_string(&path).expect("read"), "{}");
-        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
@@ -1111,7 +1099,6 @@ mod tests {
             })
             .collect();
         assert!(residue.is_empty(), "unexpected temp residue: {residue:?}");
-        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(windows)]
@@ -1128,7 +1115,6 @@ mod tests {
         let snap = leaf.join("snapshot.json");
         write_atomic(&snap, b"{}", WriteMode::Sensitive).expect("sensitive write");
         assert_eq!(fs::read_to_string(&snap).expect("read snap"), "{}");
-        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(windows)]
@@ -1140,6 +1126,5 @@ mod tests {
         let file = leaf.join("state.json");
         drop(open_read_write_sensitive(&file).expect("create state file"));
         assert!(file.exists());
-        let _ = fs::remove_dir_all(root);
     }
 }

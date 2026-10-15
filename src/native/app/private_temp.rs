@@ -66,29 +66,27 @@ mod tests {
 
     #[test]
     fn a_failed_staging_write_removes_the_created_temp() {
-        let dir = crate::test_dirs::fresh_temp_dir("odytty-image-stage-");
+        let dir = crate::test_dirs::ScratchDir::new("odytty-image-stage-");
         let path = dir.join("staged.png");
         std::fs::write(&path, b"").expect("created by the exclusive open");
         assert!(write_staged(FailingWriter, &path, b"png").is_err());
         assert!(!path.exists(), "the partial temp is removed");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn staging_never_replaces_an_existing_file() {
-        let dir = crate::test_dirs::fresh_temp_dir("odytty-image-stage-");
+        let dir = crate::test_dirs::ScratchDir::new("odytty-image-stage-");
         let path = dir.join("planted.png");
         std::fs::write(&path, b"planted").expect("planted file");
         assert!(write_private_temp(&path, b"png").is_err());
         assert_eq!(std::fs::read(&path).expect("still there"), b"planted");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[cfg(unix)]
     #[test]
     fn staging_creates_the_file_private_to_its_owner() {
         use std::os::unix::fs::PermissionsExt as _;
-        let dir = crate::test_dirs::fresh_temp_dir("odytty-image-stage-");
+        let dir = crate::test_dirs::ScratchDir::new("odytty-image-stage-");
         let path = dir.join("private.png");
         write_private_temp(&path, b"png").expect("staged");
         let mode = std::fs::metadata(&path)
@@ -96,12 +94,11 @@ mod tests {
             .permissions()
             .mode();
         assert_eq!(mode & 0o777, 0o600, "mode is {mode:o}");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn a_name_collision_is_reported_as_one_not_as_a_disk_fault() {
-        let dir = crate::test_dirs::fresh_temp_dir("odytty-image-stage-");
+        let dir = crate::test_dirs::ScratchDir::new("odytty-image-stage-");
         let path = dir.join("planted.png");
         std::fs::write(&path, b"planted").expect("planted file");
         let err = write_private_temp(&path, b"png").expect_err("exists");
@@ -110,15 +107,13 @@ mod tests {
             temp_write_message(std::io::Error::other("disk full")),
             "temp write: disk full"
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn staging_writes_a_new_file() {
-        let dir = crate::test_dirs::fresh_temp_dir("odytty-image-stage-");
+        let dir = crate::test_dirs::ScratchDir::new("odytty-image-stage-");
         let path = dir.join("fresh.png");
         write_private_temp(&path, b"png").expect("staged");
         assert_eq!(std::fs::read(&path).expect("staged file"), b"png");
-        let _ = std::fs::remove_dir_all(dir);
     }
 }

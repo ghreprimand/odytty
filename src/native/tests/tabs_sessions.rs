@@ -1511,17 +1511,13 @@ fn click_right_of_the_rail_is_not_a_tab_hit() {
 
 /// A hermetic temp `odytty.conf` for a persistence test (unique per process +
 /// test thread, seeded with a comment to prove non-destructive rewrite).
-fn temp_rail_conf(tag: &str) -> std::path::PathBuf {
-    let thread = std::thread::current()
-        .name()
-        .unwrap_or("test")
-        .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
-    let base = std::env::temp_dir().join(format!("odytty-{tag}-{}-{}", std::process::id(), thread));
-    let _ = std::fs::remove_dir_all(&base);
-    std::fs::create_dir_all(&base).unwrap();
-    let path = base.join("odytty.conf");
+/// A config file in a scratch folder. Keep the folder guard alive for the
+/// test; it removes the folder when dropped, including on a panic.
+fn temp_rail_conf(tag: &str) -> (crate::test_dirs::ScratchDir, std::path::PathBuf) {
+    let dir = crate::test_dirs::ScratchDir::new(&format!("odytty-{tag}-"));
+    let path = dir.join("odytty.conf");
     std::fs::write(&path, "# kept\n").unwrap();
-    path
+    (dir, path)
 }
 
 #[test]
@@ -1538,7 +1534,7 @@ fn rail_seam_drag_sets_and_persists_a_manual_width() {
     // Pin a manual width so the seam is deterministic: left rail band [0, 128),
     // so the inner seam sits at x = 16*8 = 128 (headless origin at 0).
     app.set_tab_rail_width_manual_for_test(16);
-    let conf = temp_rail_conf("seam-drag");
+    let (_conf_dir, conf) = temp_rail_conf("seam-drag");
     app.set_config_path_for_test(conf.clone());
 
     // A press ON the seam arms the drag; no width change yet (fails-before: the
@@ -1574,7 +1570,6 @@ fn rail_seam_drag_sets_and_persists_a_manual_width() {
         written.contains("tab_rail_width = 10"),
         "the dragged manual width persisted; got: {written:?}"
     );
-    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
 }
 
 #[test]
@@ -1590,7 +1585,7 @@ fn double_click_rail_seam_resets_to_auto_and_persists() {
     app.set_workspace_rail_for_test("always");
     // Start from a manual width (seam at x = 20*8 = 160).
     app.set_tab_rail_width_manual_for_test(20);
-    let conf = temp_rail_conf("seam-dblclick");
+    let (_conf_dir, conf) = temp_rail_conf("seam-dblclick");
     app.set_config_path_for_test(conf.clone());
     assert_eq!(app.tab_rail_width_for_test(), TabRailWidth::Manual(20));
 
@@ -1614,7 +1609,6 @@ fn double_click_rail_seam_resets_to_auto_and_persists() {
         written.contains("tab_rail_width = auto"),
         "the auto reset persisted; got: {written:?}"
     );
-    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
 }
 
 #[test]
@@ -1935,7 +1929,7 @@ fn tab_bar_seam_drag_sets_and_persists_a_manual_height() {
     // Default top-bar placement; two sessions => the bar shows. Start on the
     // classic one-row bar, so its bottom seam sits at y = 1*16 = 16 (headless
     // origin 0).
-    let conf = temp_rail_conf("tabbar-seam-drag");
+    let (_conf_dir, conf) = temp_rail_conf("tabbar-seam-drag");
     app.set_config_path_for_test(conf.clone());
 
     // A press ON the seam arms the drag; no height change yet.
@@ -1970,7 +1964,6 @@ fn tab_bar_seam_drag_sets_and_persists_a_manual_height() {
         written.contains("tab_bar_height = 3"),
         "the dragged manual height persisted; got: {written:?}"
     );
-    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
 }
 
 #[test]
@@ -1982,7 +1975,7 @@ fn tab_bar_seam_drag_rebases_the_settings_panel_snapshot() {
         return;
     };
     app.set_test_cell_for_test(cell(8, 16));
-    let conf = temp_rail_conf("tabbar-panel-rebase");
+    let (_conf_dir, conf) = temp_rail_conf("tabbar-panel-rebase");
     app.set_config_path_for_test(conf.clone());
 
     // Resize through the production seam path before opening Settings.
@@ -2009,8 +2002,6 @@ fn tab_bar_seam_drag_rebases_the_settings_panel_snapshot() {
     // Saving with no panel edit must not write the pre-drag snapshot back.
     app.drive_overlay_key_for_test(WinitKey::Character("s".into()), true, false);
     assert_eq!(app.tab_bar_height_for_test(), TabBarHeight::Manual(3));
-
-    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
 }
 
 #[test]
@@ -2225,7 +2216,7 @@ fn double_click_tab_bar_seam_resets_to_auto_and_persists() {
     app.set_test_cell_for_test(cell(8, 16));
     // Start from a manual height (seam at y = 3*16 = 48).
     app.set_tab_bar_height_manual_for_test(3);
-    let conf = temp_rail_conf("tabbar-seam-dblclick");
+    let (_conf_dir, conf) = temp_rail_conf("tabbar-seam-dblclick");
     app.set_config_path_for_test(conf.clone());
     assert_eq!(app.tab_bar_height_for_test(), TabBarHeight::Manual(3));
 
@@ -2249,7 +2240,6 @@ fn double_click_tab_bar_seam_resets_to_auto_and_persists() {
         written.contains("tab_bar_height = auto"),
         "the auto reset persisted; got: {written:?}"
     );
-    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
 }
 
 #[test]
@@ -2518,7 +2508,7 @@ fn rail_autohide_control_click_toggles_and_persists() {
     app.set_tab_bar_placement_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
     add_workspace(&mut app);
-    let conf = temp_rail_conf("autohide-ctl");
+    let (_conf_dir, conf) = temp_rail_conf("autohide-ctl");
     app.set_config_path_for_test(conf.clone());
     assert!(
         !app.tab_rail_autohide_setting_for_test(),
@@ -2568,7 +2558,6 @@ fn rail_autohide_control_click_toggles_and_persists() {
         written.contains("tab_rail_autohide = off"),
         "auto-hide-off persisted; got: {written:?}"
     );
-    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
 }
 
 #[test]
@@ -2590,7 +2579,7 @@ fn rail_autohide_chevron_toggle_keeps_settings_panel_row_in_sync() {
     app.set_tab_bar_placement_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
     add_workspace(&mut app);
-    let conf = temp_rail_conf("autohide-panel-a");
+    let (_conf_dir, conf) = temp_rail_conf("autohide-panel-a");
     app.set_config_path_for_test(conf.clone());
 
     app.open_settings_overlay_for_test();
@@ -2616,7 +2605,6 @@ fn rail_autohide_chevron_toggle_keeps_settings_panel_row_in_sync() {
         Some("off".to_owned()),
         "(a) the open panel's row tracks the reverse toggle too"
     );
-    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
 
     // Direction (b): toggle first (panel closed), then open the panel.
     let Some(mut app) = tab_bar_app() else {
@@ -2626,7 +2614,7 @@ fn rail_autohide_chevron_toggle_keeps_settings_panel_row_in_sync() {
     app.set_tab_bar_placement_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
     add_workspace(&mut app);
-    let conf = temp_rail_conf("autohide-panel-b");
+    let (_conf_dir, conf) = temp_rail_conf("autohide-panel-b");
     app.set_config_path_for_test(conf.clone());
 
     assert!(
@@ -2641,7 +2629,6 @@ fn rail_autohide_chevron_toggle_keeps_settings_panel_row_in_sync() {
         Some("on".to_owned()),
         "(b) a panel opened after the toggle shows the current value, not a stale copy"
     );
-    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
 }
 
 #[test]
@@ -3054,7 +3041,7 @@ fn autohide_seam_resizes_only_while_the_floating_rail_is_revealed() {
     app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16); // floating seam at x=128
     app.set_tab_rail_autohide_for_test(true);
-    let conf = temp_rail_conf("autohide-seam-drag");
+    let (_conf_dir, conf) = temp_rail_conf("autohide-seam-drag");
     app.set_config_path_for_test(conf.clone());
 
     assert_eq!(
@@ -3105,7 +3092,6 @@ fn autohide_seam_resizes_only_while_the_floating_rail_is_revealed() {
     app.mouse_left_press_at_for_test(t0 + std::time::Duration::from_millis(50));
     assert_eq!(app.tab_rail_width_for_test(), TabRailWidth::Auto);
     assert!(!app.rail_seam_dragging_for_test());
-    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
 }
 
 #[test]

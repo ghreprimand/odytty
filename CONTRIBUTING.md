@@ -351,6 +351,18 @@ that those directories stay untouched. This fixture policy applies on Linux,
 macOS and Windows. Windows subprocesses use the console-window suppression
 helper; production settings paths remain unchanged.
 
+Test-owned scratch folders live under the platform temp directory and are
+removed by a guard on every path, including a panic. The one folder shared by a
+whole test process (its config, state, and child home base) cannot have a
+guard, so the process removes it from a C `atexit` handler on a normal exit or
+a failed run. A process killed by a timeout or signal still leaves that one
+folder behind. CI runs the suite through `tests/check_temp_dir_leaks.py`, which
+points `TMPDIR` (Linux, macOS) or `TMP` and `TEMP` (Windows) at a private
+directory and fails when anything remains in it afterwards; run
+`python3 tests/check_temp_dir_leaks.py -- cargo test --locked` to reproduce. On
+macOS the private directory sits under `/tmp`, because the per-user temp path
+leaves little room for a socket path.
+
 Linux CI also installs Xvfb, xauth and the X11 keyboard runtime
 `libxkbcommon-x11-0` and runs `bash scripts/ci-display.sh`.
 The separate virtual-display check requires the event-loop proof population to

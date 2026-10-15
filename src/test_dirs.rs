@@ -40,6 +40,20 @@ impl ScratchDir {
     }
 }
 
+impl std::ops::Deref for ScratchDir {
+    type Target = std::path::Path;
+
+    fn deref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl AsRef<std::path::Path> for ScratchDir {
+    fn as_ref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
 impl Drop for ScratchDir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
