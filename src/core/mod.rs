@@ -22,6 +22,10 @@ mod button;
 mod char_width;
 mod emoji_width;
 mod encoding;
+// Consumed by cell owner formation in the next text stage; until then only
+// its conformance tests reach it.
+#[cfg_attr(not(test), allow(dead_code))]
+mod grapheme;
 mod graphics_routing;
 mod hyperlink;
 mod indic;

@@ -28,12 +28,14 @@ const GENERATED_TABLES: &[&str] = &[
     "src/core/emoji_width/data.rs",
     "src/core/emoji_width/zwj_first.rs",
     "src/core/emoji_width/zwj_second.rs",
+    "src/core/grapheme/data.rs",
     "src/core/indic/data.rs",
 ];
 
 const LICENSE_FIXTURES: &[&str] = &[
     "tests/fixtures/unicode-bidi/LICENSE-UNICODE.txt",
     "tests/fixtures/unicode-emoji/LICENSE-UNICODE.txt",
+    "tests/fixtures/unicode-grapheme/LICENSE-UNICODE.txt",
     "tests/fixtures/unicode-indic/LICENSE-UNICODE.txt",
     "tests/fixtures/unicode-legacy-computing/LICENSE-UNICODE.txt",
     "tests/fixtures/unicode-marks/LICENSE-UNICODE.txt",
