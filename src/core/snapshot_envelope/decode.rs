@@ -6,6 +6,7 @@
 //! payload could actually encode, and any unconsumed trailing byte fails the
 //! section rather than being ignored.
 
+use crate::core::paragraph_bidi::ParagraphBidi;
 use crate::core::prompt_marks::PromptKind;
 use crate::core::types::{
     CharsetModes, Color, CursorStyle, Dimensions, DynamicColors, KeyboardModes, MouseEncoding,
@@ -19,12 +20,13 @@ use super::compat::{
 use super::error::SnapshotEnvelopeError;
 use super::format::{
     MAX_PENDING_UTF8_BYTES, MIN_CELL_WIRE_BYTES, SECTION_DYNAMIC_COLORS, SECTION_FLAG_REQUIRED,
-    SECTION_LAYOUT_STATE, SECTION_METADATA, SECTION_PROMPT_MARKS, SECTION_TABLE_ENTRY_WIRE_BYTES,
-    SECTION_TERMINAL_STATE, SNAPSHOT_MAGIC, SectionHeader,
+    SECTION_LAYOUT_STATE, SECTION_METADATA, SECTION_PARAGRAPH_BIDI, SECTION_PROMPT_MARKS,
+    SECTION_TABLE_ENTRY_WIRE_BYTES, SECTION_TERMINAL_STATE, SNAPSHOT_MAGIC, SectionHeader,
 };
 use super::model::{
     SnapshotAttrs, SnapshotBasicModes, SnapshotCell, SnapshotEnvelope, SnapshotLayoutState,
-    SnapshotMetadata, SnapshotPromptMark, SnapshotRow, SnapshotScrollRegion, SnapshotTerminalState,
+    SnapshotMetadata, SnapshotParagraphBidi, SnapshotPromptMark, SnapshotRow, SnapshotScrollRegion,
+    SnapshotTerminalState,
 };
 
 impl SnapshotEnvelope {
@@ -81,6 +83,7 @@ impl SnapshotEnvelope {
         let mut metadata = None;
         let mut prompt_marks = None;
         let mut layout = None;
+        let mut paragraph_bidi = None;
         for section in table {
             let payload = reader.read_bytes(section.len)?;
             match section.id {
@@ -99,6 +102,9 @@ impl SnapshotEnvelope {
                 }
                 SECTION_LAYOUT_STATE => {
                     layout = Some(SnapshotLayoutState::decode(payload, caps, format_version)?);
+                }
+                SECTION_PARAGRAPH_BIDI => {
+                    paragraph_bidi = Some(decode_paragraph_bidi(payload, caps)?);
                 }
                 _ if section.flags & SECTION_FLAG_REQUIRED != 0 => {
                     return Err(SnapshotEnvelopeError::UnknownRequiredSection(section.id));
@@ -119,6 +125,8 @@ impl SnapshotEnvelope {
             layout.unwrap_or_else(|| SnapshotLayoutState::defaults_for(terminal.dimensions));
         layout.validate(terminal.dimensions)?;
         layout.validate_streaming_owner(&terminal)?;
+        let paragraph_bidi = paragraph_bidi.unwrap_or_default();
+        paragraph_bidi.validate(&terminal)?;
 
         Ok(Self {
             producer_version,
@@ -128,6 +136,7 @@ impl SnapshotEnvelope {
             metadata: metadata.unwrap_or_default(),
             prompt_marks: prompt_marks.unwrap_or_default(),
             layout,
+            paragraph_bidi,
         })
     }
 }
@@ -479,6 +488,47 @@ fn decode_dynamic_colors(bytes: &[u8]) -> Result<DynamicColors, SnapshotEnvelope
         cursor,
         palette,
     })
+}
+
+fn read_paragraph_bidi(reader: &mut Reader<'_>) -> Result<ParagraphBidi, SnapshotEnvelopeError> {
+    let byte = reader.read_u8()?;
+    ParagraphBidi::from_byte(byte).ok_or(SnapshotEnvelopeError::InvalidEnum("paragraph bidi", byte))
+}
+
+/// Paragraph bidi section: current byte, run count, then (row count, value)
+/// runs. Rows are expanded only up to the decoder's row cap; coverage of the
+/// terminal's rows is checked once the terminal section is known.
+pub(super) fn decode_paragraph_bidi(
+    bytes: &[u8],
+    caps: SnapshotEnvelopeCaps,
+) -> Result<SnapshotParagraphBidi, SnapshotEnvelopeError> {
+    let mut reader = Reader::new(bytes);
+    let current = read_paragraph_bidi(&mut reader)?;
+    let runs = reader.read_u32()? as usize;
+    let max = caps.max_scrollback_rows.saturating_add(caps.max_rows);
+    if runs > max {
+        return Err(SnapshotEnvelopeError::TooManyRows { count: runs, max });
+    }
+    let mut rows = Vec::new();
+    for _ in 0..runs {
+        let count = reader.read_u32()? as usize;
+        let value = read_paragraph_bidi(&mut reader)?;
+        if count == 0 {
+            return Err(SnapshotEnvelopeError::InvalidEnum(
+                "paragraph bidi run length",
+                0,
+            ));
+        }
+        let total = rows.len().saturating_add(count);
+        if total > max {
+            return Err(SnapshotEnvelopeError::TooManyRows { count: total, max });
+        }
+        rows.resize(total, value);
+    }
+    if reader.remaining() != 0 {
+        return Err(SnapshotEnvelopeError::TrailingBytes(reader.remaining()));
+    }
+    Ok(SnapshotParagraphBidi { current, rows })
 }
 
 pub(super) fn decode_prompt_marks(

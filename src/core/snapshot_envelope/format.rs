@@ -15,6 +15,8 @@ pub(super) const SECTION_DYNAMIC_COLORS: u16 = 2;
 pub(super) const SECTION_METADATA: u16 = 3;
 pub(super) const SECTION_PROMPT_MARKS: u16 = 4;
 pub(super) const SECTION_LAYOUT_STATE: u16 = 5;
+/// Optional; written only when some paragraph bidi value is not the default.
+pub(super) const SECTION_PARAGRAPH_BIDI: u16 = 6;
 pub(super) const SECTION_FLAG_REQUIRED: u8 = 0x01;
 
 /// Most leading bytes of an unfinished UTF-8 scalar a snapshot carries: a

@@ -2933,6 +2933,25 @@ anchor, and cursor effects map through the presented map, so a report names
 the logical cell drawn under the pointer. The setting applies live and joins
 the frame cache key; with it off, no map is planned and frames are unchanged.
 
+Each paragraph (logical line) also carries the bidi properties of the
+terminal-wg BiDi recommendation: implicit or explicit mode and a direction
+(default, left to right, or right to left). BDSM sets the mode (`CSI 8 h`
+implicit, the default; `CSI 8 l` explicit), and ANSI DECRQM (`CSI 8 $ p`)
+reports 1 or 2. SCP sets the direction (`CSI Ps SP k`: 0 or omitted the
+terminal default, 1 left to right, 2 right to left); a second parameter other
+than 0 is ignored with the sequence, and other first values are ignored. The
+terminal keeps a current value and stamps it as the recommendation describes:
+at once on the cursor's paragraph when the cursor is at the paragraph's first
+position, on a line feed into a new paragraph, and on rows ED 0, 1 or 2, SU,
+SD, IL, DL, reverse index or a scroll create. A wrap that joins two paragraphs
+keeps the first one's value, and an erase that splits one leaves both halves
+with it. The value survives reflow, scrollback, alternate-screen entry and
+exit of the primary rows, and snapshots (an optional section written only when
+some value is not the default). RIS and DECSTR restore implicit mode and the
+default direction. Box mirroring (`?2500`), autodetection (`?2501`), arrow
+swapping (`?1243`), and SPD are not implemented and report 0. The display does
+not read these properties yet: frames are unchanged.
+
 #### Wide-Glyph Wrap Padding
 
 When a two-column owner does not fit at the right edge, the generated blank

@@ -86,8 +86,7 @@ impl Screen {
             self.release_line_buttons(&removed);
         }
 
-        self.rows
-            .push(blank_row_with_bg(self.dimensions.columns, background));
+        self.rows.push(self.fresh_row(background));
         let scrollback_rows =
             if self.primary_screen.is_none() && !self.graphics.placements().is_empty() {
                 self.scrollback.physical_len(self.dimensions.columns)
@@ -113,10 +112,7 @@ impl Screen {
             self.note_prompt_marks_in_rows(region.top, region.bottom);
             let removed = self.rows.remove(region.top);
             self.release_line_buttons(&removed);
-            self.rows.insert(
-                region.bottom,
-                blank_row_with_bg(self.dimensions.columns, background),
-            );
+            self.rows.insert(region.bottom, self.fresh_row(background));
             self.graphics.scroll_region_up(region.top, region.bottom, 1);
             self.mark_dirty();
         }
@@ -147,10 +143,7 @@ impl Screen {
             // so - unlike the discard path - nothing is severed.
             self.scrollback.push_row(removed);
             self.drain_freed_button_refs();
-            self.rows.insert(
-                region.bottom,
-                blank_row_with_bg(self.dimensions.columns, background),
-            );
+            self.rows.insert(region.bottom, self.fresh_row(background));
             // Graphics: rows [0, region.bottom] shift up one; the placement
             // leaving the top feeds scrollback (mirrors `scroll_full_up`),
             // while footer placements below the region stay fixed.
@@ -181,10 +174,7 @@ impl Screen {
         for _ in 0..count {
             let removed = self.rows.remove(top);
             self.release_line_buttons(&removed);
-            self.rows.insert(
-                bottom,
-                blank_row_with_bg(self.dimensions.columns, background),
-            );
+            self.rows.insert(bottom, self.fresh_row(background));
         }
         // C16 bottom seam: the last surviving shifted row (the old region
         // bottom, now at `bottom - count`) sits above a fresh blank; if it
@@ -215,8 +205,7 @@ impl Screen {
         for _ in 0..count {
             let removed = self.rows.remove(bottom);
             self.release_line_buttons(&removed);
-            self.rows
-                .insert(top, blank_row_with_bg(self.dimensions.columns, background));
+            self.rows.insert(top, self.fresh_row(background));
         }
         // C16 bottom seam: the row displaced onto the region bottom lost its
         // successor (the region's last `count` rows were discarded) - without
@@ -294,8 +283,7 @@ impl Screen {
             self.note_prompt_marks_in_rows(top, bottom);
             let removed = self.rows.remove(bottom);
             self.release_line_buttons(&removed);
-            self.rows
-                .insert(top, blank_row_with_bg(self.dimensions.columns, background));
+            self.rows.insert(top, self.fresh_row(background));
             self.sever_soft_wrap(bottom);
             self.graphics.scroll_region_down(top, bottom, 1);
         } else {
@@ -323,10 +311,8 @@ impl Screen {
         for _ in 0..count {
             let removed = self.rows.remove(bottom);
             self.release_line_buttons(&removed);
-            self.rows.insert(
-                self.cursor.row,
-                blank_row_with_bg(self.dimensions.columns, background),
-            );
+            self.rows
+                .insert(self.cursor.row, self.fresh_row(background));
         }
         // C16 bottom seam: the row displaced onto the region bottom lost its
         // successor (rows pushed past the bottom were discarded).
@@ -359,10 +345,7 @@ impl Screen {
         for _ in 0..count {
             let removed = self.rows.remove(self.cursor.row);
             self.release_line_buttons(&removed);
-            self.rows.insert(
-                bottom,
-                blank_row_with_bg(self.dimensions.columns, background),
-            );
+            self.rows.insert(bottom, self.fresh_row(background));
         }
         // C16 bottom seam: the last surviving shifted row now sits above a
         // fresh blank; a wrap into the (unmoved) row below the region is
@@ -609,10 +592,8 @@ impl Screen {
                     .any(|l| l.prompt_mark.is_some());
                 self.erase_line_from_cursor();
                 for row in self.cursor.row + 1..self.dimensions.rows {
-                    let removed = std::mem::replace(
-                        &mut self.rows[row],
-                        blank_row_with_bg(self.dimensions.columns, background),
-                    );
+                    let fresh = self.fresh_row(background);
+                    let removed = std::mem::replace(&mut self.rows[row], fresh);
                     self.release_line_buttons(&removed);
                 }
                 self.prompt_marks_changed |= cleared_mark;
@@ -622,10 +603,8 @@ impl Screen {
                     .iter()
                     .any(|l| l.prompt_mark.is_some());
                 for row in 0..self.cursor.row {
-                    let removed = std::mem::replace(
-                        &mut self.rows[row],
-                        blank_row_with_bg(self.dimensions.columns, background),
-                    );
+                    let fresh = self.fresh_row(background);
+                    let removed = std::mem::replace(&mut self.rows[row], fresh);
                     self.release_line_buttons(&removed);
                 }
                 // NF10 (NF6 sibling): when the cursor is below row 0, row 0
@@ -642,10 +621,8 @@ impl Screen {
                 let cleared_mark = self.rows.iter().any(|l| l.prompt_mark.is_some())
                     || (mode == 3 && self.scrollback.any_prompt_mark());
                 for row in 0..self.dimensions.rows {
-                    let removed = std::mem::replace(
-                        &mut self.rows[row],
-                        blank_row_with_bg(self.dimensions.columns, background),
-                    );
+                    let fresh = self.fresh_row(background);
+                    let removed = std::mem::replace(&mut self.rows[row], fresh);
                     self.release_line_buttons(&removed);
                 }
                 // NF6: the visible screen is replaced wholesale, so
@@ -687,7 +664,10 @@ impl Screen {
                 // references, matching every sibling erase path that replaces
                 // rows wholesale - without the release, an EL2 over a button
                 // row leaks its refcount and the id never frees.
-                let blank_row = self.current_blank_row();
+                // The row stays in its paragraph's properties: a paragraph
+                // an erase splits leaves both halves with the old value.
+                let mut blank_row = self.current_blank_row();
+                blank_row.paragraph_bidi = self.rows[self.cursor.row].paragraph_bidi;
                 let removed = std::mem::replace(&mut self.rows[self.cursor.row], blank_row);
                 self.release_line_buttons(&removed);
                 // C16 seam: the row above must not claim the fresh blank as
@@ -861,6 +841,9 @@ impl Screen {
                 if mode == 4 {
                     // IRM (insert/replace mode).
                     self.insert_mode = action == 'h';
+                } else if mode == 8 {
+                    // BDSM: set is implicit bidi (the default), reset explicit.
+                    self.set_bidi_implicit(action == 'h');
                 }
             }
             return;
@@ -1008,6 +991,8 @@ impl Screen {
         match mode {
             // IRM (insert/replace mode): report the live set/reset state.
             4 => mode_status(self.insert_mode),
+            // BDSM: 1 implicit (set), 2 explicit (reset).
+            8 => self.bidi_mode_report(),
             _ => 0,
         }
     }
@@ -1286,7 +1271,11 @@ impl Screen {
 
         // There is no inactive alternate-buffer store: every transition starts
         // with a fresh text grid, independently of the cursor-reset policy.
-        let alt_rows = vec![blank_row(self.dimensions.columns); self.dimensions.rows];
+        // Each fresh alternate row is a paragraph with the current bidi
+        // properties; the primary rows keep theirs while stored.
+        let mut alt_row = blank_row(self.dimensions.columns);
+        alt_row.paragraph_bidi = self.bidi_current;
+        let alt_rows = vec![alt_row; self.dimensions.rows];
 
         // The alternate screen keeps no scrollback, but carry the configured
         // retention limit onto its (empty) store so a config reload while a TUI
@@ -1440,6 +1429,7 @@ impl Screen {
         // - unlike the OSC 7 cwd below, they do not survive RIS.)
         self.prompt_marks_changed |= self.has_any_prompt_mark();
         self.primary_screen = None;
+        self.reset_paragraph_bidi();
         self.rows = vec![blank_row(self.dimensions.columns); self.dimensions.rows];
         self.scrollback.clear();
         self.cursor = Position::default();
@@ -1517,6 +1507,7 @@ impl Screen {
         self.origin_mode = false;
         self.auto_wrap = true;
         self.insert_mode = false;
+        self.reset_paragraph_bidi();
         self.bracketed_paste = false;
         // Microsoft Terminal preserves W32IM across DECSTR. Conhost relies on
         // that mode for its INPUT_RECORD transport; it re-negotiates only after

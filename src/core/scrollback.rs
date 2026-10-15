@@ -58,6 +58,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 
 use super::button::{ButtonId, ButtonSpan, MAX_BUTTON_SPANS_PER_LINE, SpanReprojector};
+use super::paragraph_bidi::ParagraphBidi;
 use super::prompt_marks::PromptKind;
 use super::reflow::{ReflowOptions, reflow_lines_with_options, resize_keep_width_with_options};
 use super::screen::{Line, blank_row};
@@ -114,6 +115,10 @@ pub(in crate::core) struct LogicalLine {
     /// [`project_line_into`], so buttons survive scroll-out and re-wrap.
     /// Empty for the overwhelmingly common span-free line (no allocation).
     button_spans: Vec<ButtonSpan>,
+    /// Bidi properties of this paragraph, taken from the physical row that
+    /// opened it (a join keeps the first paragraph's value) and stamped on
+    /// every row a projection produces.
+    paragraph_bidi: ParagraphBidi,
 }
 
 /// Slack tolerated on a finalized logical line before its allocation is
@@ -171,6 +176,7 @@ struct LineView<'a> {
     marks: &'a MarkTable,
     prompt_mark: Option<PromptKind>,
     spans: &'a [ButtonSpan],
+    paragraph_bidi: ParagraphBidi,
 }
 
 impl LogicalLine {
@@ -182,6 +188,7 @@ impl LogicalLine {
             marks: &self.marks,
             prompt_mark: self.prompt_mark,
             spans: &self.button_spans,
+            paragraph_bidi: self.paragraph_bidi,
         }
     }
 
@@ -781,6 +788,7 @@ impl Scrollback {
                 open: wrapped,
                 prompt_mark: row.prompt_mark,
                 button_spans: row.button_spans,
+                paragraph_bidi: row.paragraph_bidi,
             };
             // A line adopted whole from a grid row is normally already exact,
             // so this is a no-op under the tolerance; it is applied anyway
@@ -975,6 +983,15 @@ impl Scrollback {
             last.finalize_capacity();
             self.invalidate();
         }
+    }
+
+    /// Bidi properties of the open trailing logical line, which visible row 0
+    /// continues; `None` when the store is empty or its tail is terminated.
+    pub(in crate::core) fn trailing_paragraph_bidi(&self) -> Option<ParagraphBidi> {
+        self.lines
+            .back()
+            .filter(|line| line.open)
+            .map(|line| line.paragraph_bidi)
     }
 
     /// Whether any stored logical line carries an OSC 133 prompt mark.
@@ -1235,6 +1252,7 @@ pub(in crate::core) fn resize_lazy_with_options(
             // single mega-row, and `reflow_lines` re-projects them.
             mega.prompt_mark = line.prompt_mark;
             mega.button_spans = line.button_spans.clone();
+            mega.paragraph_bidi = line.paragraph_bidi;
             subset.push(mega);
         }
     }
@@ -1372,10 +1390,13 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
     let mut current_marks = MarkTable::default();
     let mut current_mark: Option<PromptKind> = None;
     let mut current_spans: Vec<ButtonSpan> = Vec::new();
+    let mut current_bidi = ParagraphBidi::DEFAULT;
     for row in rows {
         if current.is_empty() {
-            // First physical row of a new logical line: capture its mark.
+            // First physical row of a new logical line: capture its mark and
+            // its paragraph bidi properties.
             current_mark = row.prompt_mark;
+            current_bidi = row.paragraph_bidi;
         } else if current_mark.is_none() {
             // Adopt a mark stamped on a continuation row when the first row
             // carried none (first non-`None` mark in the logical line wins).
@@ -1402,6 +1423,7 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
                 open: false,
                 prompt_mark: current_mark.take(),
                 button_spans: std::mem::take(&mut current_spans),
+                paragraph_bidi: current_bidi,
             };
             // Same accumulation as the `push_row` merge path: `current` grew
             // by doubling across the rows that joined into this line, and
@@ -1417,6 +1439,7 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
             open: true,
             prompt_mark: current_mark,
             button_spans: current_spans,
+            paragraph_bidi: current_bidi,
         });
     }
     lines
@@ -1600,6 +1623,7 @@ fn project_line_mode<const MODE: u8>(
         marks,
         prompt_mark: mark,
         spans,
+        paragraph_bidi,
     } = line;
     let plain = StoredCell::from_cell(&Cell::blank());
     // Index of this logical line's first physical row in `out`; the prompt mark
@@ -1776,6 +1800,13 @@ fn project_line_mode<const MODE: u8>(
             )),
             (kind, _) => kind,
         };
+    }
+
+    // Every produced row carries its paragraph's bidi properties.
+    if paragraph_bidi != ParagraphBidi::DEFAULT {
+        for row in out.iter_mut().skip(first_row) {
+            row.paragraph_bidi = paragraph_bidi;
+        }
     }
 
     // Re-anchor button spans onto the produced rows as row-local segments.

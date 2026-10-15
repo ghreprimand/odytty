@@ -43,7 +43,8 @@ pub use error::SnapshotEnvelopeError;
 pub use format::{SNAPSHOT_FORMAT_VERSION, SNAPSHOT_MAGIC, SNAPSHOT_PROTOCOL_VERSION};
 pub use model::{
     SnapshotAttrs, SnapshotBasicModes, SnapshotCell, SnapshotEnvelope, SnapshotLayoutState,
-    SnapshotMetadata, SnapshotPromptMark, SnapshotRow, SnapshotScrollRegion, SnapshotTerminalState,
+    SnapshotMetadata, SnapshotParagraphBidi, SnapshotPromptMark, SnapshotRow, SnapshotScrollRegion,
+    SnapshotTerminalState,
 };
 
 #[cfg(test)]

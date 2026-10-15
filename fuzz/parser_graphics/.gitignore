@@ -9,3 +9,4 @@
 !/corpus/terminal_stream/mode-reset.seed
 !/corpus/kitty_graphics/direct-rgba.seed
 !/corpus/sixel_decode/red-column.seed
+!/corpus/terminal_stream/bidi-paragraph.seed

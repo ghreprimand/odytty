@@ -169,6 +169,48 @@ fn terminal_stream_fixture_is_chunk_invariant_and_resets() {
 }
 
 #[test]
+fn paragraph_bidi_fixture_is_chunk_invariant_and_resets() {
+    let input = decode_hex(include_str!(
+        "fixtures/fuzz/parser_graphics/bidi-paragraph.hex"
+    ));
+    let state = |byte_chunks: bool| {
+        let mut terminal = Terminal::new(80, 24);
+        terminal.set_scrollback_limit(256);
+        if byte_chunks {
+            for byte in &input {
+                terminal.advance(std::slice::from_ref(byte));
+            }
+        } else {
+            terminal.advance(&input);
+        }
+        let observed = (
+            terminal.snapshot_state_with_paragraph_bidi(256),
+            terminal.screen().paragraph_bidi_current(),
+            terminal.take_host_output(),
+        );
+        terminal.advance(b"\x1bc");
+        let reset = terminal.snapshot_state_with_paragraph_bidi(256).1;
+        (observed, reset)
+    };
+    let (whole, reset) = state(false);
+    assert_eq!(whole, state(true).0);
+    // ED 2 stamped the explicit left-to-right value on the screen rows, the
+    // later SCP 0 and BDSM set restored the current value, the one DECRQM is
+    // answered, and the hostile SCP forms changed nothing.
+    assert!(
+        whole.0.1.iter().any(|row| row.explicit()
+            && row.direction() == odytty::core::ParagraphDirection::LeftToRight)
+    );
+    assert_eq!(whole.1, odytty::core::ParagraphBidi::DEFAULT);
+    assert_eq!(whole.2, b"\x1b[8;1$y");
+    assert!(
+        reset
+            .iter()
+            .all(|row| *row == odytty::core::ParagraphBidi::DEFAULT)
+    );
+}
+
+#[test]
 fn kitty_named_transport_stays_disabled_for_windows_style_fixture() {
     let encoded_path =
         include_str!("fixtures/fuzz/parser_graphics/kitty-windows-path.base64").trim();

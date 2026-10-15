@@ -84,6 +84,7 @@ impl Screen {
             chunk.rows.push(VisibleRow {
                 cells: line.cells,
                 wrapped: line.wrapped,
+                paragraph_bidi: line.paragraph_bidi,
             });
         }
         chunk

@@ -67,6 +67,11 @@ pub enum SnapshotEnvelopeError {
         row: usize,
         rows: usize,
     },
+    /// Paragraph bidi rows that do not cover exactly the captured rows.
+    InvalidParagraphBidiRows {
+        count: usize,
+        rows: usize,
+    },
     TooManyRows {
         count: usize,
         max: usize,
@@ -135,6 +140,12 @@ impl fmt::Display for SnapshotEnvelopeError {
             ),
             Self::InvalidRowWidth { width, columns } => {
                 write!(f, "invalid snapshot row width {width}; expected {columns}")
+            }
+            Self::InvalidParagraphBidiRows { count, rows } => {
+                write!(
+                    f,
+                    "invalid paragraph bidi row count {count}; expected {rows}"
+                )
             }
             Self::InvalidVisibleRowCount { count, expected } => {
                 write!(f, "invalid visible row count {count}; expected {expected}")

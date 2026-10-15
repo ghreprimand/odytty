@@ -22,6 +22,7 @@ use super::notifications::{
     MAX_PENDING_NOTIFICATIONS, Osc9Request, TerminalNotification, TerminalProgress, parse_osc9,
     parse_osc777,
 };
+use super::paragraph_bidi::ParagraphBidi;
 use super::placeholder;
 
 use super::prompt_marks::{self, PromptKind};
@@ -40,6 +41,7 @@ mod cluster;
 mod export_rows;
 mod ops;
 mod osc;
+mod paragraph;
 mod query;
 mod rect;
 mod state;
@@ -81,6 +83,10 @@ pub(in crate::core) struct Line {
     /// `visible_button_spans` for rendering and resolved through `button_at`
     /// for clicks. Empty (no allocation) for the common button-free row.
     pub(in crate::core) button_spans: Vec<ButtonSpan>,
+    /// Bidi properties of the paragraph (logical line) this row belongs to.
+    /// Every row of a paragraph carries its first row's value, so a split
+    /// leaves both halves with the old properties (see [`super::paragraph_bidi`]).
+    pub(in crate::core) paragraph_bidi: ParagraphBidi,
 }
 
 /// Heap bytes a slice of physical rows occupies, for memory attribution: the
@@ -115,6 +121,8 @@ pub struct VisibleRow {
     /// Whether this physical row soft-wrapped into the next (the logical-line
     /// continuation flag the scanner joins on).
     pub wrapped: bool,
+    /// Bidi properties of the paragraph this row belongs to.
+    pub paragraph_bidi: ParagraphBidi,
 }
 
 impl VisibleRow {
@@ -173,6 +181,7 @@ impl Line {
             wrapped: false,
             prompt_mark: None,
             button_spans: Vec::new(),
+            paragraph_bidi: ParagraphBidi::DEFAULT,
         }
     }
 
@@ -183,6 +192,7 @@ impl Line {
             wrapped: true,
             prompt_mark: None,
             button_spans: Vec::new(),
+            paragraph_bidi: ParagraphBidi::DEFAULT,
         }
     }
 }
@@ -320,6 +330,9 @@ pub struct Screen {
     /// (notably Apple's `pico`/`nano` on macOS) rely on IRM for incremental line
     /// redraw, so without it their on-screen text is corrupted.
     insert_mode: bool,
+    /// Current paragraph bidi properties (BDSM, SCP), stamped onto paragraphs
+    /// by the rules in [`super::paragraph_bidi`]. Reset by RIS and DECSTR.
+    bidi_current: ParagraphBidi,
     bracketed_paste: bool,
     /// DECSET 1007 (alternate scroll mode). When set and the alternate screen is
     /// active, the host layer translates wheel events into cursor-key presses so
@@ -1220,8 +1233,11 @@ impl Screen {
             self.cursor.row += 1;
             self.mark_dirty();
         } else {
+            // The cursor neither moved nor scrolled: no paragraph was entered.
             self.mark_dirty();
+            return;
         }
+        self.paragraph_bidi_after_line_feed();
     }
 }
 impl TerminalModel for Screen {
@@ -1413,6 +1429,7 @@ impl Screen {
             'q' if intermediates == b">" => self.xtversion_report(params),
             'q' if intermediates == b"\"" => self.set_char_protection(param_or(params, 0, 0)),
             'q' if intermediates == b" " => self.set_cursor_style(param_or(params, 0, 0)),
+            'k' if intermediates == b" " => self.select_character_path(params),
             'r' if intermediates == b"$" => self.change_rect_attrs(params),
             'r' if plain => self.set_scroll_region(params),
             's' if plain => self.save_cursor(),
@@ -1721,6 +1738,7 @@ fn restore_lines_from_snapshot_rows(
             // Buttons are session-local interned state; a restored snapshot
             // starts with no spans (the envelope carries none).
             button_spans: Vec::new(),
+            paragraph_bidi: ParagraphBidi::DEFAULT,
         });
     }
     Ok(restored)

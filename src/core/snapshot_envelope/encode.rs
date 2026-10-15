@@ -15,11 +15,13 @@ use crate::core::types::{
 use super::error::SnapshotEnvelopeError;
 use super::format::{
     SECTION_DYNAMIC_COLORS, SECTION_FLAG_REQUIRED, SECTION_LAYOUT_STATE, SECTION_METADATA,
-    SECTION_PROMPT_MARKS, SECTION_TERMINAL_STATE, SNAPSHOT_FORMAT_VERSION, SNAPSHOT_MAGIC,
+    SECTION_PARAGRAPH_BIDI, SECTION_PROMPT_MARKS, SECTION_TERMINAL_STATE, SNAPSHOT_FORMAT_VERSION,
+    SNAPSHOT_MAGIC,
 };
 use super::model::{
     SnapshotAttrs, SnapshotBasicModes, SnapshotCell, SnapshotEnvelope, SnapshotLayoutState,
-    SnapshotMetadata, SnapshotPromptMark, SnapshotRow, SnapshotTerminalState,
+    SnapshotMetadata, SnapshotParagraphBidi, SnapshotPromptMark, SnapshotRow,
+    SnapshotTerminalState,
 };
 
 impl SnapshotEnvelope {
@@ -37,13 +39,22 @@ impl SnapshotEnvelope {
     /// `direct_encode_matches_the_table_driven_encoder`.
     pub fn encode(&self) -> Result<Vec<u8>, SnapshotEnvelopeError> {
         self.validate_wire_bounds()?;
-        const TABLE: [(u16, u8); 5] = [
+        const FULL_TABLE: [(u16, u8); 6] = [
             (SECTION_TERMINAL_STATE, SECTION_FLAG_REQUIRED),
             (SECTION_DYNAMIC_COLORS, 0),
             (SECTION_METADATA, 0),
             (SECTION_PROMPT_MARKS, 0),
             (SECTION_LAYOUT_STATE, 0),
+            (SECTION_PARAGRAPH_BIDI, 0),
         ];
+        // The paragraph bidi section is optional and absent means all
+        // default, so a snapshot without bidi state keeps its earlier bytes.
+        let sections = if self.paragraph_bidi.is_default() {
+            5
+        } else {
+            6
+        };
+        let table = &FULL_TABLE[..sections];
         // Section table entry wire size: id u16 + flags u8 + reserved u8 +
         // len u64.
         const TABLE_ENTRY_BYTES: usize = 12;
@@ -54,15 +65,15 @@ impl SnapshotEnvelope {
         write_u16(&mut out, SNAPSHOT_FORMAT_VERSION);
         write_u16(&mut out, self.protocol_version);
         write_string(&mut out, &self.producer_version);
-        write_u16(&mut out, TABLE.len() as u16);
+        write_u16(&mut out, table.len() as u16);
         let table_start = out.len();
-        for (id, flags) in TABLE {
+        for &(id, flags) in table {
             write_u16(&mut out, id);
             write_u8(&mut out, flags);
             write_u8(&mut out, 0);
             write_u64(&mut out, 0); // Backpatched once the payload is written.
         }
-        for (index, (id, _)) in TABLE.iter().enumerate() {
+        for (index, (id, _)) in table.iter().enumerate() {
             let payload_start = out.len();
             match *id {
                 SECTION_TERMINAL_STATE => self.terminal.encode_into(&mut out),
@@ -74,6 +85,9 @@ impl SnapshotEnvelope {
                     out.extend_from_slice(&encode_prompt_marks(&self.prompt_marks));
                 }
                 SECTION_LAYOUT_STATE => out.extend_from_slice(&self.layout.encode()),
+                SECTION_PARAGRAPH_BIDI => {
+                    out.extend_from_slice(&encode_paragraph_bidi(&self.paragraph_bidi));
+                }
                 _ => unreachable!("fixed section table"),
             }
             let len = (out.len() - payload_start) as u64;
@@ -297,6 +311,26 @@ pub(super) fn encode_dynamic_colors(colors: &DynamicColors) -> Vec<u8> {
     write_rgb(&mut out, colors.cursor);
     for color in colors.palette {
         write_optional_rgb(&mut out, color);
+    }
+    out
+}
+
+/// Paragraph bidi section: the current byte, then runs of equal row values
+/// as (row count u32, value u8), covering every captured row in order.
+pub(super) fn encode_paragraph_bidi(bidi: &SnapshotParagraphBidi) -> Vec<u8> {
+    let mut runs: Vec<(u32, u8)> = Vec::new();
+    for row in &bidi.rows {
+        match runs.last_mut() {
+            Some((count, value)) if *value == row.to_byte() => *count += 1,
+            _ => runs.push((1, row.to_byte())),
+        }
+    }
+    let mut out = Vec::with_capacity(5 + runs.len() * 5);
+    write_u8(&mut out, bidi.current.to_byte());
+    write_u32(&mut out, runs.len() as u32);
+    for (count, value) in runs {
+        write_u32(&mut out, count);
+        write_u8(&mut out, value);
     }
     out
 }

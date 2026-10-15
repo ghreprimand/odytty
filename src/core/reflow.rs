@@ -18,6 +18,7 @@
 //! the alternate screen (apps repaint, so no re-wrap is needed).
 
 use super::button::{ButtonSpan, SpanReprojector};
+use super::paragraph_bidi::ParagraphBidi;
 use super::prompt_marks::PromptKind;
 use super::screen::{Line, blank_row};
 use super::types::*;
@@ -59,6 +60,9 @@ struct LogicalLine {
     /// re-projected onto the re-wrapped physical rows (the `prompt_mark`
     /// carry extended to column ranges).
     button_spans: Vec<ButtonSpan>,
+    /// Paragraph bidi properties of the first physical row; stamped on every
+    /// re-wrapped row (a join keeps the first paragraph's value).
+    paragraph_bidi: ParagraphBidi,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -155,10 +159,13 @@ pub(in crate::core) fn reflow_lines_with_options(
     let mut current_start_row = 0usize;
     let mut current_mark: Option<PromptKind> = None;
     let mut current_spans: Vec<ButtonSpan> = Vec::new();
+    let mut current_bidi = ParagraphBidi::DEFAULT;
     for (idx, line) in combined.iter().enumerate() {
         if current.is_empty() {
-            // First physical row of a new logical line: capture its mark.
+            // First physical row of a new logical line: capture its mark and
+            // its paragraph bidi properties.
             current_mark = line.prompt_mark;
+            current_bidi = line.paragraph_bidi;
             current_start_row = idx;
         } else if current_mark.is_none() {
             // Adopt a mark stamped on a continuation row when the first row
@@ -201,6 +208,7 @@ pub(in crate::core) fn reflow_lines_with_options(
                 start_row: current_start_row,
                 prompt_mark: current_mark.take(),
                 button_spans: std::mem::take(&mut current_spans),
+                paragraph_bidi: current_bidi,
             });
             current_row_count = 0;
         }
@@ -215,6 +223,7 @@ pub(in crate::core) fn reflow_lines_with_options(
             start_row: current_start_row,
             prompt_mark: current_mark,
             button_spans: current_spans,
+            paragraph_bidi: current_bidi,
         });
     }
 
@@ -279,6 +288,7 @@ pub(in crate::core) fn reflow_lines_with_options(
                     });
                 }
             }
+            row.paragraph_bidi = logical.paragraph_bidi;
             new_combined.push(row);
 
             if logical.start_row == start_row {
@@ -478,6 +488,10 @@ pub(in crate::core) fn reflow_lines_with_options(
                 )),
                 (kind, _) => kind,
             };
+        }
+
+        for row in new_combined.iter_mut().skip(first_row) {
+            row.paragraph_bidi = logical.paragraph_bidi;
         }
 
         // Re-anchor button spans onto the re-wrapped rows as row-local

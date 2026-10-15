@@ -5,7 +5,7 @@ mod support;
 
 use libfuzzer_sys::fuzz_target;
 use odytty::core::{
-    CharsetModes, KeyboardModes, MouseProtocol, Snapshot, SnapshotLayoutState,
+    CharsetModes, KeyboardModes, MouseProtocol, ParagraphBidi, Snapshot, SnapshotLayoutState,
     SnapshotTerminalState, Terminal,
 };
 use odytty::graphics::{ImagePlacement, StoredImage, VirtualPlacement, VisiblePlacement};
@@ -19,6 +19,8 @@ const MAX_INPUT_BYTES: usize = 64 * 1024;
 struct Observable {
     snapshot: Snapshot,
     persistent_state: SnapshotTerminalState,
+    paragraph_bidi_rows: Vec<ParagraphBidi>,
+    paragraph_bidi_current: ParagraphBidi,
     layout_state: SnapshotLayoutState,
     title: Option<String>,
     working_directory: Option<String>,
@@ -47,9 +49,12 @@ fn capture(terminal: &mut Terminal) -> Observable {
         .collect::<Vec<_>>();
     stored_images.sort_by_key(|image| image.id);
 
+    let (persistent_state, paragraph_bidi_rows) = terminal.snapshot_state_with_paragraph_bidi(256);
     Observable {
         snapshot: terminal.snapshot(),
-        persistent_state: terminal.snapshot_state(256),
+        persistent_state,
+        paragraph_bidi_rows,
+        paragraph_bidi_current: terminal.screen().paragraph_bidi_current(),
         layout_state: terminal.snapshot_layout_state(),
         title: terminal.title().map(str::to_owned),
         working_directory: terminal.current_working_directory().map(str::to_owned),

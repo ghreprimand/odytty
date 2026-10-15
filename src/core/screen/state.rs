@@ -23,6 +23,7 @@ impl Screen {
             origin_mode: false,
             auto_wrap: true,
             insert_mode: false,
+            bidi_current: ParagraphBidi::DEFAULT,
             bracketed_paste: false,
             alternate_scroll: true,
             current_attrs: Attrs::default(),

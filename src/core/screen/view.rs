@@ -292,12 +292,26 @@ impl Screen {
     /// scrollback rows and mode state are needed for resumable sessions, but
     /// private `Screen` / `Scrollback` storage remains behind this owned copy.
     pub fn snapshot_state(&self, max_scrollback_rows: usize) -> SnapshotTerminalState {
+        self.snapshot_state_with_paragraph_bidi(max_scrollback_rows)
+            .0
+    }
+
+    /// [`Self::snapshot_state`] plus the paragraph bidi value of each captured
+    /// row (scrollback rows first, then visible rows), from one projection.
+    pub fn snapshot_state_with_paragraph_bidi(
+        &self,
+        max_scrollback_rows: usize,
+    ) -> (SnapshotTerminalState, Vec<ParagraphBidi>) {
         let columns = self.dimensions.columns;
         // Only the trailing `max_scrollback_rows` are persisted, so only they
         // are projected.
-        let scrollback_rows = self
-            .scrollback
-            .physical_tail(columns, max_scrollback_rows)
+        let tail = self.scrollback.physical_tail(columns, max_scrollback_rows);
+        let paragraph_bidi = tail
+            .iter()
+            .chain(self.rows.iter())
+            .map(|row| row.paragraph_bidi)
+            .collect();
+        let scrollback_rows = tail
             .iter()
             .map(|row| snapshot_row_from_line(row, columns))
             .collect();
@@ -307,7 +321,7 @@ impl Screen {
             .map(|row| snapshot_row_from_line(row, columns))
             .collect();
 
-        SnapshotTerminalState {
+        let state = SnapshotTerminalState {
             dimensions: self.dimensions,
             cursor: self.cursor,
             cursor_visible: self.cursor_visible,
@@ -325,7 +339,8 @@ impl Screen {
             },
             scrollback_rows,
             visible_rows,
-        }
+        };
+        (state, paragraph_bidi)
     }
 
     /// Copy layout-affecting terminal state that is not part of the render
@@ -403,6 +418,14 @@ impl Screen {
             &mut visible_rows,
             &envelope.prompt_marks,
         )?;
+        // `validate_wire_bounds` above checked these cover every row.
+        for (row, value) in scrollback_rows
+            .iter_mut()
+            .chain(visible_rows.iter_mut())
+            .zip(&envelope.paragraph_bidi.rows)
+        {
+            row.paragraph_bidi = *value;
+        }
 
         let mut restored = Screen::new(
             envelope.terminal.dimensions.columns,
@@ -432,6 +455,7 @@ impl Screen {
         restored.working_directory = envelope.metadata.working_directory.clone();
         restored.working_directory_changed = envelope.metadata.working_directory.is_some();
         restored.prompt_marks_changed = !envelope.prompt_marks.is_empty();
+        restored.bidi_current = envelope.paragraph_bidi.current;
         restored.scroll_region = envelope.layout.scroll_region.map(|region| ScrollRegion {
             top: region.top,
             bottom: region.bottom,
@@ -1177,6 +1201,7 @@ impl Screen {
             .map(|line| VisibleRow {
                 cells: line.cells.clone(),
                 wrapped: line.wrapped,
+                paragraph_bidi: line.paragraph_bidi,
             })
             .collect()
     }
@@ -1221,6 +1246,7 @@ impl Screen {
                 .map(|line| VisibleRow {
                     cells: line.cells.clone(),
                     wrapped: line.wrapped,
+                    paragraph_bidi: line.paragraph_bidi,
                 })
                 .collect()
         };

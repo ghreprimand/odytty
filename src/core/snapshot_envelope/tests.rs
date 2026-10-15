@@ -608,6 +608,7 @@ fn capture_bounding_truncates_oldest_scrollback_to_the_section_budget() {
         metadata: SnapshotMetadata::default(),
         prompt_marks: Vec::new(),
         layout: SnapshotLayoutState::defaults_for(Dimensions::new(200, 50)),
+        paragraph_bidi: Default::default(),
     };
     let decoded = SnapshotEnvelope::decode(
         &envelope.encode().expect("encode"),

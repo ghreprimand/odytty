@@ -15,6 +15,13 @@ origin = "synthetic terminal control literal"
 privacy = "contains no host-derived data"
 
 [[seed]]
+target = "terminal_stream"
+path = "corpus/terminal_stream/bidi-paragraph.seed"
+sha256 = "a1a6614bd0da25c0f80c23289987a98568cc4ee62fcb88e908146203bc50b583"
+origin = "synthetic paragraph bidi control literal (BDSM, SCP, DECRQM)"
+privacy = "contains no host-derived data"
+
+[[seed]]
 target = "kitty_graphics"
 path = "corpus/kitty_graphics/direct-rgba.seed"
 sha256 = "de1ba9a7ca4a2dac585beed594edeb25a1f2066c93146871d16fc7dc1076dbfe"
@@ -51,3 +58,9 @@ path = "../../tests/fixtures/fuzz/parser_graphics/sixel-red-column.hex"
 sha256 = "0eb4199fd80c7cbf91dabb03f6ba0ddbbd3c42a0f61a829a339d3c4f3c4dbd9d"
 origin = "synthetic Sixel color and data byte sequence"
 privacy = "contains no image or host-derived data"
+
+[[regression_fixture]]
+path = "../../tests/fixtures/fuzz/parser_graphics/bidi-paragraph.hex"
+sha256 = "bebfdca4228df6e052d6556ec2d9efcd00b657dd2c1c06a5f31944f4d8fd4157"
+origin = "synthetic paragraph bidi control byte sequence"
+privacy = "contains no host-derived data"

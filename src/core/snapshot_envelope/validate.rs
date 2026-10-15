@@ -10,7 +10,8 @@ use crate::core::types::Dimensions;
 
 use super::error::SnapshotEnvelopeError;
 use super::model::{
-    SnapshotCell, SnapshotEnvelope, SnapshotLayoutState, SnapshotMetadata, SnapshotTerminalState,
+    SnapshotCell, SnapshotEnvelope, SnapshotLayoutState, SnapshotMetadata, SnapshotParagraphBidi,
+    SnapshotTerminalState,
 };
 
 impl SnapshotEnvelope {
@@ -34,6 +35,25 @@ impl SnapshotEnvelope {
         }
         self.layout.validate_wire_bounds()?;
         self.layout.validate_streaming_owner(&self.terminal)?;
+        self.paragraph_bidi.validate(&self.terminal)?;
+        Ok(())
+    }
+}
+
+impl SnapshotParagraphBidi {
+    /// Row values are either absent (every row default) or cover exactly the
+    /// captured rows, scrollback first.
+    pub(in crate::core) fn validate(
+        &self,
+        terminal: &SnapshotTerminalState,
+    ) -> Result<(), SnapshotEnvelopeError> {
+        let rows = terminal.scrollback_rows.len() + terminal.visible_rows.len();
+        if !self.rows.is_empty() && self.rows.len() != rows {
+            return Err(SnapshotEnvelopeError::InvalidParagraphBidiRows {
+                count: self.rows.len(),
+                rows,
+            });
+        }
         Ok(())
     }
 }

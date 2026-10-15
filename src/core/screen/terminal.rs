@@ -384,6 +384,15 @@ impl Terminal {
         self.screen.snapshot_state(max_scrollback_rows)
     }
 
+    /// See [`Screen::snapshot_state_with_paragraph_bidi`].
+    pub fn snapshot_state_with_paragraph_bidi(
+        &self,
+        max_scrollback_rows: usize,
+    ) -> (SnapshotTerminalState, Vec<ParagraphBidi>) {
+        self.screen
+            .snapshot_state_with_paragraph_bidi(max_scrollback_rows)
+    }
+
     /// Copy layout-affecting terminal state that is not part of the render
     /// [`Snapshot`] surface. See [`Screen::snapshot_layout_state`].
     pub fn snapshot_layout_state(&self) -> SnapshotLayoutState {

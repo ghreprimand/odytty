@@ -8,20 +8,30 @@
 //! survived. Encoding and validation never repair a capture; they only refuse
 //! what capture failed to bound.
 
+use crate::core::paragraph_bidi::ParagraphBidi;
 use crate::core::screen::Terminal;
 
 use super::caps::{DEFAULT_MAX_STRING_BYTES, SnapshotCaptureLimits, SnapshotEnvelopeCaps};
 use super::encode::write_row;
 use super::format::SNAPSHOT_PROTOCOL_VERSION;
 use super::model::{
-    SnapshotBasicModes, SnapshotEnvelope, SnapshotMetadata, SnapshotPromptMark,
-    SnapshotTerminalState,
+    SnapshotBasicModes, SnapshotEnvelope, SnapshotMetadata, SnapshotParagraphBidi,
+    SnapshotPromptMark, SnapshotTerminalState,
 };
 
 impl SnapshotEnvelope {
     pub fn from_terminal(terminal: &Terminal, limits: SnapshotCaptureLimits) -> Self {
-        let mut terminal_state = terminal.snapshot_state(limits.max_scrollback_rows);
-        terminal_state.bound_to_decode_budget();
+        let (mut terminal_state, mut bidi_rows) =
+            terminal.snapshot_state_with_paragraph_bidi(limits.max_scrollback_rows);
+        let shed = terminal_state.bound_to_decode_budget();
+        bidi_rows.drain(..shed.min(bidi_rows.len()));
+        if bidi_rows.iter().all(|row| *row == ParagraphBidi::DEFAULT) {
+            bidi_rows = Vec::new();
+        }
+        let paragraph_bidi = SnapshotParagraphBidi {
+            current: terminal.screen().paragraph_bidi_current(),
+            rows: bidi_rows,
+        };
         // Prompt-mark rows index the terminal's FULL history (row 0 = oldest
         // physical scrollback row), while the captured state holds only the
         // newest rows that survived both the capture limit and the decode
@@ -48,6 +58,7 @@ impl SnapshotEnvelope {
                 })
                 .collect(),
             layout: terminal.snapshot_layout_state(),
+            paragraph_bidi,
         }
     }
 }

@@ -35,6 +35,7 @@ mod kitty;
 mod kitty_animation;
 mod kitty_transport;
 mod notifications;
+mod paragraph_bidi;
 mod placeholder;
 mod prompt_marks;
 mod reflow;
@@ -131,6 +132,7 @@ pub use notifications::{
     MAX_NOTIFICATION_PAYLOAD_BYTES, MAX_PENDING_NOTIFICATIONS, NotificationSource, ProgressKind,
     TerminalNotification, TerminalProgress,
 };
+pub use paragraph_bidi::{ParagraphBidi, ParagraphDirection};
 pub use placeholder::PLACEHOLDER_CHAR;
 pub use prompt_marks::{
     Align, CommandBlock, CommandDirection, CommandOutput, CommandRangeHandle, CommandRangePart,
@@ -151,7 +153,8 @@ pub use snapshot_envelope::{
     SNAPSHOT_FORMAT_VERSION, SNAPSHOT_MAGIC, SNAPSHOT_PROTOCOL_VERSION, SnapshotAttrs,
     SnapshotBasicModes, SnapshotCaptureLimits, SnapshotCell, SnapshotEnvelope,
     SnapshotEnvelopeCaps, SnapshotEnvelopeError, SnapshotLayoutState, SnapshotMetadata,
-    SnapshotPromptMark, SnapshotRow, SnapshotScrollRegion, SnapshotTerminalState,
+    SnapshotParagraphBidi, SnapshotPromptMark, SnapshotRow, SnapshotScrollRegion,
+    SnapshotTerminalState,
 };
 pub(crate) use text_owners::{TextOwnerSpan, pop_text_owner, text_owner_spans, text_owners};
 pub(crate) use types::MAX_COMBINING;

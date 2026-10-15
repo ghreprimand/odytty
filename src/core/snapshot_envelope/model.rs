@@ -8,6 +8,7 @@
 
 use std::num::NonZeroU32;
 
+use crate::core::paragraph_bidi::ParagraphBidi;
 use crate::core::prompt_marks::PromptKind;
 use crate::core::types::{
     Attrs, Cell, CharsetModes, Color, CursorStyle, Dimensions, DynamicColors, KeyboardModes,
@@ -23,6 +24,25 @@ pub struct SnapshotEnvelope {
     pub metadata: SnapshotMetadata,
     pub prompt_marks: Vec<SnapshotPromptMark>,
     pub layout: SnapshotLayoutState,
+    pub paragraph_bidi: SnapshotParagraphBidi,
+}
+
+/// Paragraph bidi properties: the terminal's current value and one value
+/// per captured physical row, scrollback rows first, then visible rows.
+/// `rows` is empty when every row has the default, and the section is
+/// written only when something differs from the default, so a snapshot with
+/// no bidi state is byte-identical to one from before the section existed.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SnapshotParagraphBidi {
+    pub current: ParagraphBidi,
+    pub rows: Vec<ParagraphBidi>,
+}
+
+impl SnapshotParagraphBidi {
+    pub fn is_default(&self) -> bool {
+        self.current == ParagraphBidi::DEFAULT
+            && self.rows.iter().all(|row| *row == ParagraphBidi::DEFAULT)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
