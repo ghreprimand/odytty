@@ -1513,8 +1513,15 @@ that closed while the picker was open, including when names are duplicated.
   gap waits for classification. Cancellation requests source focus only while
   the process already holds focus. Ordinary input at either custody window
   cancels first and routes to the restored source.
-  Returning to the strip resumes the held reorder gesture. Source resizing
-  updates the return bounds without ending custody. Modifier-only events,
+  Returning to the strip resumes the held reorder gesture.
+  During custody the source retains its last presented frame, including when
+  its sole tab leaves an empty arena. Source maintenance and painting pause;
+  session and PTY ownership stay unique in the preview. A provisional App
+  disposed of outside the normal close route returns its sessions into a
+  recovery slot. Cancellation waits while a removed App still owns them and
+  restores them exactly once when it returns custody.
+  Source resizing updates the return bounds without ending custody.
+  Modifier-only events,
   synthetic presses and automation polling preserve the drag; real key
   presses and mutating automation commands cancel. Release requests focus
   only while OdyTTY holds process focus.

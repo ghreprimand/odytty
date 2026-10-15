@@ -638,7 +638,10 @@ impl MultiWindowHost {
     fn select_window_close(&mut self, idx: usize) -> bool {
         let id = self.windows[idx].process_window_id();
         if self.live_tab_contains(id) {
-            self.cancel_live_tab();
+            if !self.cancel_live_tab() && self.live_tab_contains(id) {
+                self.windows[idx].pending_exit = true;
+                return false;
+            }
             let Some(index) = self.index_of(id) else {
                 return false;
             };
@@ -670,7 +673,10 @@ impl MultiWindowHost {
         if let Some(app) = self.windows.get(i) {
             let id = app.process_window_id();
             if self.live_tab_contains(id) {
-                self.cancel_live_tab();
+                if !self.cancel_live_tab() && self.live_tab_contains(id) {
+                    self.windows[i].pending_exit = true;
+                    return;
+                }
                 // Cancellation removes only the provisional destination. A
                 // close of that surface has no remaining window to close.
                 let Some(index) = self.index_of(id) else {

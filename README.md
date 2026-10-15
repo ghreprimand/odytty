@@ -150,6 +150,8 @@ sessions.
   Settings follows the pointer on Hyprland, macOS, Windows and Wayland
   with advertised `xdg-toplevel-drag`, and restores the tab on cancellation; returning to the strip resumes the held reorder gesture.
   On X11 the new window is created when the button is released.
+  The source retains its last frame during live follow; disposing of the preview
+  returns its sessions for cancellation.
 - **Configuration without ceremony:** a live settings panel, command palette,
   145 built-in themes, user themes and a theme builder, backgrounds,
   transparency, and bloom, CRT, and retro effects, with config-file hot reload.

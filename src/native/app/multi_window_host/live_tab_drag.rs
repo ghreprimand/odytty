@@ -7,7 +7,7 @@
 use super::*;
 use crate::native::app::chrome_geometry::{PxPoint, PxRect};
 use crate::native::app::reparent::MovedHold;
-use crate::native::session::{MoveScope, MovedRestore, WorkspaceSet};
+use crate::native::session::{MoveScope, WorkspaceSet};
 
 #[cfg(target_os = "linux")]
 mod hyprland;
@@ -21,7 +21,7 @@ const FOLLOW_INTERVAL: Duration = Duration::from_millis(16);
 pub(super) struct ProvisionalTab {
     source: ProcessWindowId,
     destination: ProcessWindowId,
-    restore: MovedRestore,
+    returned: super::super::reparent::LiveTabReturn,
     hold: MovedHold,
     active: SessionToken,
     restore_focus: bool,
@@ -167,6 +167,11 @@ impl MultiWindowHost {
         );
         let mut destination = (self.adopt)(set, source.settings.clone(), true);
         destination.live_drag_destination = true;
+        let returned = std::rc::Rc::new(std::cell::RefCell::new(None));
+        destination.live_tab_recovery = Some(super::super::reparent::LiveTabRecovery {
+            restore,
+            returned: std::rc::Rc::clone(&returned),
+        });
         #[cfg(target_os = "linux")]
         {
             destination.live_drag_map_blocked = wayland.is_some();
@@ -185,7 +190,7 @@ impl MultiWindowHost {
         self.live_drag = Some(ProvisionalTab {
             source: origin,
             destination: id,
-            restore,
+            returned,
             hold,
             active,
             restore_focus,
@@ -278,18 +283,25 @@ impl MultiWindowHost {
                 return false;
             }
         };
-        let Some(dest) = self.index_of(drag.destination) else {
-            // All surface retirement routes must settle custody first.
-            panic!("provisional destination removed before tab rollback");
+        let content = if let Some(dest) = self.index_of(drag.destination) {
+            let mut destination = self.windows.remove(dest);
+            if destination.focused && !destination.sessions.workspaces.is_empty() {
+                destination.on_window_focus_changed(false);
+            }
+            // Take custody explicitly so Drop cannot return it a second time.
+            destination.return_live_tab_custody();
+            destination.release_surface();
+            drag.returned.borrow_mut().take().expect("returned custody")
+        } else {
+            let content = drag.returned.borrow_mut().take();
+            let Some(content) = content else {
+                // A removed App can remain alive outside the window list. Its
+                // guard returns the unique sessions when it is disposed of.
+                self.live_drag = Some(drag);
+                return false;
+            };
+            content
         };
-        let mut destination = self.windows.remove(dest);
-        if destination.focused {
-            destination.on_window_focus_changed(false);
-        }
-        let content = destination
-            .workspace_set_mut()
-            .release_adopted(drag.restore);
-        destination.release_surface();
         let source = self
             .index_of(drag.source)
             .expect("provisional source retained until completion");
@@ -320,6 +332,12 @@ impl MultiWindowHost {
     }
 
     fn commit_live_tab_with_focus(&mut self, request_focus: impl FnOnce(&App)) -> bool {
+        if self.live_drag.as_ref().is_some_and(|drag| {
+            self.index_of(drag.destination).is_none() || drag.returned.borrow().is_some()
+        }) {
+            self.cancel_live_tab();
+            return false;
+        }
         let request_destination_focus = self.process_has_focus();
         #[cfg(target_os = "linux")]
         if self
@@ -346,6 +364,7 @@ impl MultiWindowHost {
             two_mut(&mut self.windows, source, dest).expect("distinct windows");
         origin.live_drag_source = false;
         destination.live_drag_destination = false;
+        destination.live_tab_recovery = None;
         destination.adopt_moved_hold(drag.hold);
         let tokens: Vec<_> = destination
             .sessions
@@ -467,6 +486,12 @@ impl MultiWindowHost {
         let source_id = drag.source;
         let destination_id = drag.destination;
         let strip = drag.strip;
+        if self.index_of(destination_id).is_none() || drag.returned.borrow().is_some() {
+            self.cancel_live_tab();
+            // A removed App can still hold the only sessions. Consume source
+            // input until its guard returns them; never route into an empty arena.
+            return !source || self.live_drag.is_some();
+        }
         if let WindowEvent::ModifiersChanged(state) = event {
             for owner in [source_id, destination_id] {
                 if let Some(index) = self.index_of(owner) {
@@ -715,6 +740,12 @@ impl MultiWindowHost {
     }
 
     pub(super) fn tick_live_tab(&mut self, now: Instant) {
+        if self.live_drag.as_ref().is_some_and(|drag| {
+            self.index_of(drag.destination).is_none() || drag.returned.borrow().is_some()
+        }) {
+            self.cancel_live_tab();
+            return;
+        }
         self.settle_live_focus(now);
         #[cfg(target_os = "linux")]
         if self.send_hyprland_frame(now) {
@@ -764,6 +795,9 @@ impl MultiWindowHost {
 
     pub(super) fn live_drag_wake(&self) -> Option<Instant> {
         let drag = self.live_drag.as_ref()?;
+        if self.index_of(drag.destination).is_none() {
+            return Some(Instant::now() + FOLLOW_INTERVAL);
+        }
         #[cfg(target_os = "linux")]
         if drag.hyprland.is_some() {
             return Some(
@@ -913,6 +947,82 @@ mod tests {
             terminal.lock().expect("terminal").snapshot().dimensions,
             before.dimensions
         );
+    }
+
+    #[test]
+    fn live_tab_removed_destination_drop_returns_the_same_sessions() {
+        for two_tabs in [false, true] {
+            let (mut host, tab, terminal) = armed(two_tabs);
+            let source = host.windows[0].process_window_id();
+            let before = host.windows[0].tab_tokens_for_test();
+            assert!(host.begin_live_tab(source, tab, |_| Ok(())));
+            drop(host.windows.remove(1));
+            assert!(host.cancel_live_tab());
+            assert!(!host.cancel_live_tab());
+            assert_eq!(host.windows[0].tab_tokens_for_test(), before);
+            assert!(Arc::ptr_eq(
+                &terminal,
+                &host.windows[0]
+                    .sessions
+                    .get(tab)
+                    .expect("restored")
+                    .terminal
+            ));
+            assert!(!host.windows[0].live_drag_source);
+        }
+    }
+
+    #[test]
+    fn live_tab_provisional_teardown_returns_custody_before_session_shutdown() {
+        let (mut host, tab, terminal) = armed(false);
+        let source = host.windows[0].process_window_id();
+        assert!(host.begin_live_tab(source, tab, |_| Ok(())));
+        host.windows[1].on_window_focus_changed_for_test(true);
+        host.windows[1].close_all_sessions();
+        host.tick_live_tab(Instant::now());
+        assert!(host.live_drag.is_none());
+        assert_eq!(host.windows.len(), 1);
+        assert!(Arc::ptr_eq(
+            &terminal,
+            &host.windows[0]
+                .sessions
+                .get(tab)
+                .expect("restored")
+                .terminal
+        ));
+    }
+
+    #[test]
+    fn live_tab_removed_destination_can_return_after_a_deferred_cancel() {
+        let (mut host, tab, terminal) = armed(false);
+        let source = host.windows[0].process_window_id();
+        assert!(host.begin_live_tab(source, tab, |_| Ok(())));
+        let destination = host.windows.remove(1);
+        assert!(!host.cancel_live_tab());
+        assert!(
+            host.live_drag.is_some(),
+            "custody remains until its owner returns it"
+        );
+        assert!(host.route_live_tab_event(
+            0,
+            &WindowEvent::Ime(winit::event::Ime::Commit("x".to_owned()))
+        ));
+        assert!(host.live_drag_wake().is_some());
+        assert!(!host.select_window_close(0));
+        assert!(host.windows[0].pending_exit);
+        host.remove_closed_window(0);
+        assert_eq!(host.windows.len(), 1);
+        drop(destination);
+        host.tick_live_tab(Instant::now());
+        assert!(host.live_drag.is_none());
+        assert!(Arc::ptr_eq(
+            &terminal,
+            &host.windows[0]
+                .sessions
+                .get(tab)
+                .expect("restored")
+                .terminal
+        ));
     }
 
     /// The host refuses to open a provisional window for an X11 source even

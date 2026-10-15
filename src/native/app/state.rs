@@ -464,6 +464,8 @@ pub(in crate::native) struct App {
     pub(super) live_drag_source: bool,
     /// This window is the provisional destination of a live tab drag.
     pub(super) live_drag_destination: bool,
+    /// Returns provisional sessions before unexpected App disposal.
+    pub(super) live_tab_recovery: Option<super::reparent::LiveTabRecovery>,
     /// Withhold the first buffer until ordered Wayland attachment is acknowledged.
     pub(super) live_drag_map_blocked: bool,
     #[cfg(target_os = "linux")]
@@ -953,6 +955,7 @@ impl App {
             // than aliasing a live window's identity.
             live_drag_source: false,
             live_drag_destination: provisional,
+            live_tab_recovery: None,
             live_drag_map_blocked: false,
             #[cfg(target_os = "linux")]
             wayland_live_available: false,

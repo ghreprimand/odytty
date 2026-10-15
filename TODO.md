@@ -202,6 +202,8 @@ claim acceptance on other platforms. The release notes are in
       xdg-toplevel-drag, with reversible provisional custody; X11 creates the
       window on release;
       cancellation preserves source order, active identity and split ownership.
+      A disposed provisional App returns its sessions for exactly-once rollback;
+      the retained source frame needs no replacement shell during custody.
       Returning to the strip resumes reorder; source resizing, modifiers and
       read-only automation polling keep custody alive.
       Wayland without that protocol keeps release-time creation without live

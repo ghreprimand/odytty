@@ -27,6 +27,24 @@
 use super::*;
 use crate::native::session::{MoveError, MoveScope, MovedContent};
 
+/// Main-thread return slot for sessions adopted by a live drag preview.
+/// Removing the App without settling the host must not drop its sessions.
+pub(super) type LiveTabReturn = std::rc::Rc<std::cell::RefCell<Option<MovedContent>>>;
+
+pub(super) struct LiveTabRecovery {
+    pub(super) restore: crate::native::session::MovedRestore,
+    pub(super) returned: LiveTabReturn,
+}
+
+impl App {
+    pub(super) fn return_live_tab_custody(&mut self) {
+        if let Some(recovery) = self.live_tab_recovery.take() {
+            let content = self.sessions.release_adopted(recovery.restore);
+            *recovery.returned.borrow_mut() = Some(content);
+        }
+    }
+}
+
 /// The `--hold` state that travels with a moved pane.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(in crate::native) struct MovedHold {

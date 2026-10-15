@@ -1678,6 +1678,13 @@ source stays alive until commit. The provisional surface leaves terminal
 geometry, PTYs, recorders and saved-layout ownership intact until completion.
 Turning the setting off retains creation on release.
 
+The source retains its last presented frame during custody, including when
+its sole tab leaves the session arena empty. Its maintenance and painting
+pause until settlement; the preview owns the live sessions without duplicating
+PTY or pump ownership. Disposing of a provisional App returns those sessions
+for exactly-once rollback. If a removed App is still alive, cancellation waits
+for it to return custody instead of discarding the transaction.
+
 Placement follows the platform:
 
 | Platform | New-window placement |

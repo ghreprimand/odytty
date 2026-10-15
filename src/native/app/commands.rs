@@ -1115,6 +1115,7 @@ impl App {
     /// wedged, which surfaced as a Super+Q not-responding stall with several
     /// remote workspaces open.
     pub(in crate::native) fn close_all_sessions(&mut self) {
+        self.return_live_tab_custody();
         self.sessions
             .shutdown_all(crate::native::session::SHUTDOWN_REAP_DEADLINE);
     }
