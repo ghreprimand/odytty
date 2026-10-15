@@ -618,32 +618,80 @@ fn proc_stat_pgrp(stat: &str) -> Option<u32> {
     fields.next()?.parse().ok()
 }
 
+/// Where the Linux launch-group scan reads process facts from. Production reads
+/// `/proc`; tests supply a scripted source so every refusal path is reachable
+/// without racing real processes.
 #[cfg(target_os = "linux")]
-fn foreground_group_is_launch_child_only(launch_pid: u32) -> bool {
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return false;
-    };
+trait ProcSource {
+    /// The directory listing: one entry name per item, in listing order. An
+    /// `Err` item is an iteration failure that hides an unobserved entry.
+    fn entries(&self) -> std::io::Result<Box<dyn Iterator<Item = std::io::Result<OsString>> + '_>>;
+    /// The text of `<pid>/stat`.
+    fn read_stat(&self, pid: u32) -> std::io::Result<String>;
+}
+
+#[cfg(target_os = "linux")]
+struct LiveProc;
+
+#[cfg(target_os = "linux")]
+impl ProcSource for LiveProc {
+    fn entries(&self) -> std::io::Result<Box<dyn Iterator<Item = std::io::Result<OsString>> + '_>> {
+        Ok(Box::new(
+            std::fs::read_dir("/proc")?.map(|entry| entry.map(|entry| entry.file_name())),
+        ))
+    }
+
+    fn read_stat(&self, pid: u32) -> std::io::Result<String> {
+        std::fs::read_to_string(format!("/proc/{pid}/stat"))
+    }
+}
+
+/// Why the launch-group scan refused. [`foreground_group_is_launch_child_only`]
+/// collapses every refusal to `false`; the reason is read by tests and by the
+/// churn probe's failure message, so a rare refusal names its cause.
+#[cfg(target_os = "linux")]
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, PartialEq, Eq)]
+enum ScanRefusal {
+    /// The process directory could not be listed.
+    ListFailed(std::io::ErrorKind),
+    /// Directory iteration failed part-way, hiding an unobserved entry.
+    EntryFailed(std::io::ErrorKind),
+    /// More numeric entries than [`MAX_GROUP_SCAN_PIDS`].
+    TooManyEntries,
+    /// A stat read failed with something other than the process having exited.
+    StatUnreadable {
+        pid: u32,
+        kind: std::io::ErrorKind,
+        errno: Option<i32>,
+    },
+    /// This process is another member of the group, or its stat cannot be read
+    /// as one.
+    Refuse { pid: u32 },
+    /// The launch child never appeared in the listing.
+    LaunchNotListed,
+}
+
+#[cfg(target_os = "linux")]
+fn scan_launch_group(source: &dyn ProcSource, launch_pid: u32) -> Result<(), ScanRefusal> {
+    let entries = source
+        .entries()
+        .map_err(|err| ScanRefusal::ListFailed(err.kind()))?;
     let mut numeric_entries = 0usize;
     let mut found_launch = false;
     for entry in entries {
         // A directory iteration error hides an unobserved entry: refuse.
-        let Ok(entry) = entry else {
-            return false;
-        };
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|name| name.parse::<u32>().ok())
-        else {
+        let name = entry.map_err(|err| ScanRefusal::EntryFailed(err.kind()))?;
+        let Some(pid) = name.to_str().and_then(|name| name.parse::<u32>().ok()) else {
             continue;
         };
         numeric_entries = numeric_entries.saturating_add(1);
         if numeric_entries > MAX_GROUP_SCAN_PIDS {
-            return false;
+            return Err(ScanRefusal::TooManyEntries);
         }
-        let stat = match std::fs::read_to_string(entry.path().join("stat")) {
+        let stat = match source.read_stat(pid) {
             Ok(stat) => stat,
-            // The process exited between read_dir and this read (ENOENT or
+            // The process exited between the listing and this read (ENOENT or
             // ESRCH). Any other failure hides a possible group member: refuse.
             Err(err)
                 if err.kind() == std::io::ErrorKind::NotFound
@@ -651,15 +699,30 @@ fn foreground_group_is_launch_child_only(launch_pid: u32) -> bool {
             {
                 continue;
             }
-            Err(_) => return false,
+            Err(err) => {
+                return Err(ScanRefusal::StatUnreadable {
+                    pid,
+                    kind: err.kind(),
+                    errno: err.raw_os_error(),
+                });
+            }
         };
         match stat_group_verdict(&stat, pid, launch_pid) {
             StatGroupVerdict::Outside => {}
             StatGroupVerdict::Launch => found_launch = true,
-            StatGroupVerdict::Refuse => return false,
+            StatGroupVerdict::Refuse => return Err(ScanRefusal::Refuse { pid }),
         }
     }
-    found_launch
+    if found_launch {
+        Ok(())
+    } else {
+        Err(ScanRefusal::LaunchNotListed)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn foreground_group_is_launch_child_only(launch_pid: u32) -> bool {
+    scan_launch_group(&LiveProc, launch_pid).is_ok()
 }
 
 /// How one `/proc/<pid>/stat` entry bears on the launch-group scan.

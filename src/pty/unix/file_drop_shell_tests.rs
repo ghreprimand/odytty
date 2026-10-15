@@ -256,6 +256,180 @@ fn traced_group_members_are_seen_and_unparsable_stats_refuse() {
     );
 }
 
+/// A scripted `/proc`: the listing and every stat read are fixed in advance, so
+/// each refusal path is reached without racing a real process.
+#[cfg(target_os = "linux")]
+struct ScriptedProc {
+    listing: std::io::Result<Vec<Result<String, std::io::ErrorKind>>>,
+    stat: Box<dyn Fn(u32) -> std::io::Result<String>>,
+}
+
+#[cfg(target_os = "linux")]
+const LAUNCH: u32 = 4242;
+
+#[cfg(target_os = "linux")]
+impl ScriptedProc {
+    /// `names` list in order; every pid reads as `stat(pid)`.
+    fn new(names: &[&str], stat: impl Fn(u32) -> std::io::Result<String> + 'static) -> Self {
+        Self {
+            listing: Ok(names.iter().map(|name| Ok((*name).to_owned())).collect()),
+            stat: Box::new(stat),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl ProcSource for ScriptedProc {
+    fn entries(&self) -> std::io::Result<Box<dyn Iterator<Item = std::io::Result<OsString>> + '_>> {
+        match &self.listing {
+            Err(err) => Err(std::io::Error::from(err.kind())),
+            Ok(items) => Ok(Box::new(items.iter().map(|item| match item {
+                Ok(name) => Ok(OsString::from(name)),
+                Err(kind) => Err(std::io::Error::from(*kind)),
+            }))),
+        }
+    }
+
+    fn read_stat(&self, pid: u32) -> std::io::Result<String> {
+        (self.stat)(pid)
+    }
+}
+
+/// The launch child alone in its group; every other pid in group 1.
+#[cfg(target_os = "linux")]
+fn idle_launch_stat(pid: u32) -> std::io::Result<String> {
+    let group = if pid == LAUNCH { LAUNCH } else { 1 };
+    Ok(format!("{pid} (proc) S 1 {group} 3"))
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn scan_accepts_a_sole_launch_member_among_other_groups_and_non_pid_entries() {
+    let proc = ScriptedProc::new(&["self", "1", "4242", "9000", "cpuinfo"], idle_launch_stat);
+    assert_eq!(scan_launch_group(&proc, LAUNCH), Ok(()));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn scan_skips_a_process_that_exits_between_the_listing_and_its_stat_read() {
+    for vanished in [libc::ENOENT, libc::ESRCH] {
+        let proc = ScriptedProc::new(&["1", "4242", "9000"], move |pid| {
+            if pid == 9000 {
+                Err(std::io::Error::from_raw_os_error(vanished))
+            } else {
+                idle_launch_stat(pid)
+            }
+        });
+        assert_eq!(
+            scan_launch_group(&proc, LAUNCH),
+            Ok(()),
+            "errno {vanished}: the normal exit race must not look busy"
+        );
+    }
+}
+
+/// The production scan fails closed: a stat read that fails for any reason but
+/// the process having exited hides a possible group member, so the scan
+/// reports a busy shell. This pins which errors can do that, so a rare
+/// `false` from the live scan is attributable to an unexpected `/proc` error
+/// on the host, never to the ordinary exit race the test above covers.
+#[cfg(target_os = "linux")]
+#[test]
+fn scan_refuses_and_names_an_unexpected_stat_read_error() {
+    for errno in [libc::EACCES, libc::EIO, libc::EINVAL, libc::EAGAIN] {
+        let proc = ScriptedProc::new(&["4242", "9000"], move |pid| {
+            if pid == 9000 {
+                Err(std::io::Error::from_raw_os_error(errno))
+            } else {
+                idle_launch_stat(pid)
+            }
+        });
+        assert_eq!(
+            scan_launch_group(&proc, LAUNCH),
+            Err(ScanRefusal::StatUnreadable {
+                pid: 9000,
+                kind: std::io::Error::from_raw_os_error(errno).kind(),
+                errno: Some(errno),
+            }),
+            "errno {errno}"
+        );
+    }
+    // A stat whose process name is not UTF-8 reads as InvalidData.
+    let proc = ScriptedProc::new(&["4242", "9000"], |pid| {
+        if pid == 9000 {
+            Err(std::io::Error::from(std::io::ErrorKind::InvalidData))
+        } else {
+            idle_launch_stat(pid)
+        }
+    });
+    assert_eq!(
+        scan_launch_group(&proc, LAUNCH),
+        Err(ScanRefusal::StatUnreadable {
+            pid: 9000,
+            kind: std::io::ErrorKind::InvalidData,
+            errno: None,
+        })
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn scan_refuses_a_listing_failure_and_a_failure_part_way_through_it() {
+    let mut proc = ScriptedProc::new(&[], idle_launch_stat);
+    proc.listing = Err(std::io::ErrorKind::PermissionDenied.into());
+    assert_eq!(
+        scan_launch_group(&proc, LAUNCH),
+        Err(ScanRefusal::ListFailed(
+            std::io::ErrorKind::PermissionDenied
+        ))
+    );
+    proc.listing = Ok(vec![
+        Ok("4242".to_owned()),
+        Err(std::io::ErrorKind::Interrupted),
+    ]);
+    assert_eq!(
+        scan_launch_group(&proc, LAUNCH),
+        Err(ScanRefusal::EntryFailed(std::io::ErrorKind::Interrupted)),
+        "an iteration error hides an unobserved entry even after the launch child was seen"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn scan_refuses_a_second_group_member_a_bad_stat_a_missing_launch_and_a_huge_listing() {
+    let member = ScriptedProc::new(&["4242", "4300"], |pid| {
+        Ok(format!("{pid} (proc) S 1 {LAUNCH} 3"))
+    });
+    assert_eq!(
+        scan_launch_group(&member, LAUNCH),
+        Err(ScanRefusal::Refuse { pid: 4300 })
+    );
+    let garbled = ScriptedProc::new(&["4242", "4300"], |pid| {
+        if pid == 4300 {
+            Ok("garbled".to_owned())
+        } else {
+            idle_launch_stat(pid)
+        }
+    });
+    assert_eq!(
+        scan_launch_group(&garbled, LAUNCH),
+        Err(ScanRefusal::Refuse { pid: 4300 })
+    );
+    let absent = ScriptedProc::new(&["1", "9000"], idle_launch_stat);
+    assert_eq!(
+        scan_launch_group(&absent, LAUNCH),
+        Err(ScanRefusal::LaunchNotListed)
+    );
+    let mut huge = ScriptedProc::new(&[], idle_launch_stat);
+    huge.listing = Ok((1..=MAX_GROUP_SCAN_PIDS as u32 + 1)
+        .map(|pid| Ok(pid.to_string()))
+        .collect());
+    assert_eq!(
+        scan_launch_group(&huge, LAUNCH),
+        Err(ScanRefusal::TooManyEntries)
+    );
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn foreground_group_scan_stays_true_for_idle_bash_under_proc_churn() {
@@ -287,11 +461,13 @@ fn foreground_group_scan_stays_true_for_idle_bash_under_proc_churn() {
     });
     let started = Instant::now();
     let mut false_hits = 0usize;
+    let mut first_refusal = None;
     let mut samples = 0usize;
     while started.elapsed() < Duration::from_millis(750) {
         samples += 1;
-        if !foreground_group_is_launch_child_only(launch) {
+        if let Err(refusal) = scan_launch_group(&LiveProc, launch) {
             false_hits += 1;
+            first_refusal.get_or_insert(refusal);
         }
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -307,7 +483,7 @@ fn foreground_group_scan_stays_true_for_idle_bash_under_proc_churn() {
     );
     assert_eq!(
         false_hits, 0,
-        "foreground_group_is_launch_child_only flipped false {false_hits}/{samples} times under /proc churn; check for non-ENOENT/ESRCH scan errors"
+        "the launch-group scan refused {false_hits}/{samples} times under /proc churn; first refusal: {first_refusal:?}"
     );
     assert_eq!(
         shell.session.file_drop_shell(),
