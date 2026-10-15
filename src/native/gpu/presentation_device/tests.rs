@@ -5,6 +5,7 @@ use super::*;
 #[ignore = "requires a working headless EGL/GL adapter; run explicitly on a GL host"]
 fn gl_sibling_release_preserves_drawn_pixels() {
     let _creation = crate::test_lock::device_creation_lock();
+    crate::native::test_support::gpu_cache::isolate_driver_caches();
     let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
     descriptor.backends = wgpu::Backends::GL;
     // This fixture submits direct draws only. A headless GL 3.3 context

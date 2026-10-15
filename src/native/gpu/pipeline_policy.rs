@@ -63,6 +63,8 @@ fn process_instance(
 /// process, so retiring one device cannot tear down an unrelated EGL context.
 #[cfg(test)]
 pub(in crate::native) fn headless_test_instance(backends: wgpu::Backends) -> wgpu::Instance {
+    // Before the first instance: drivers fix their cache location at init.
+    crate::native::test_support::gpu_cache::isolate_driver_caches();
     let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
     descriptor.backends = backends;
     TEST_INSTANCE_OWNER

@@ -2,6 +2,7 @@
 //! Shared helpers for native tests.
 
 pub(in crate::native) mod availability;
+pub(in crate::native) mod gpu_cache;
 pub(in crate::native) mod gpu_device;
 
 use std::sync::{Arc, Mutex};

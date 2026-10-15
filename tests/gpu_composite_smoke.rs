@@ -973,11 +973,26 @@ fn gpu_required() -> bool {
     std::env::var_os(REQUIRE_GPU_TESTS_ENV).is_some_and(|value| value == "1")
 }
 
+/// Point the GPU driver shader caches at a folder under the build output, once,
+/// before the first instance (a driver fixes its cache location when it
+/// initialises). The library's headless fixtures do the same for their own
+/// process; see `native::test_support::gpu_cache` in the library.
+fn isolate_driver_caches() {
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("gpu-cache");
+    std::fs::create_dir_all(&dir).expect("create the test GPU cache directory");
+    for key in ["MESA_SHADER_CACHE_DIR", "__GL_SHADER_DISK_CACHE_PATH"] {
+        // SAFETY: called once from the instance initialiser, before any driver
+        // has initialised in this test process; no test here reads these keys.
+        unsafe { std::env::set_var(key, &dir) };
+    }
+}
+
 fn gpu_instance() -> wgpu::Instance {
     // Keep the EGL backend root alive across successive Vulkan fixtures.
     static INSTANCE: OnceLock<wgpu::Instance> = OnceLock::new();
     INSTANCE
         .get_or_init(|| {
+            isolate_driver_caches();
             let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
             if gpu_required() {
                 descriptor.backends = wgpu::Backends::VULKAN;

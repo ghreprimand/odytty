@@ -363,6 +363,21 @@ directory and fails when anything remains in it afterwards; run
 macOS the private directory sits under `/tmp`, because the per-user temp path
 leaves little room for a socket path.
 
+GPU driver shader caches are isolated the same way. The headless GPU fixtures
+point `MESA_SHADER_CACHE_DIR` and `__GL_SHADER_DISK_CACHE_PATH` at a folder
+inside the test process's own base before the first `wgpu::Instance`, because a
+driver fixes its cache location when it initialises (`XDG_CACHE_HOME` is left
+alone, since fontconfig also reads it); the GPU smoke test binary uses a folder
+under the build output. The same runner snapshots the real cache folders and
+fails the Linux leg if a file there was added or changed: `~/.cache/nvidia`,
+`~/.nv`, and the Mesa `mesa_shader_cache` folders (under `XDG_CACHE_HOME` when
+set). On Windows the drivers use `%LOCALAPPDATA%\D3DSCache` and the NVIDIA
+`DXCache` and `GLCache` folders, and on macOS the Metal compiler cache under
+`getconf DARWIN_USER_CACHE_DIR`; the environment cannot redirect those, so the
+runner reports writes there without failing. Running a bare `cargo test` outside
+the runner still redirects the Mesa and NVIDIA variables from inside the test
+process, but the runner is what proves nothing leaked.
+
 Linux CI also installs Xvfb, xauth and the X11 keyboard runtime
 `libxkbcommon-x11-0` and runs `bash scripts/ci-display.sh`.
 The separate virtual-display check requires the event-loop proof population to
