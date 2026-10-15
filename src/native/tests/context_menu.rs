@@ -15,6 +15,8 @@ use super::super::context_menu_ui::{
 };
 use super::super::session::{Session, SessionToken, WorkspaceSet};
 use super::*;
+#[cfg(unix)]
+use crate::test_dirs::ScratchDir;
 
 fn app_for_test() -> (App, Arc<Mutex<Terminal>>) {
     let dims = Dimensions::new(80, 24);
@@ -1843,6 +1845,30 @@ fn clicking_detach_switch_opens_the_choice_dialog() {
 #[test]
 #[cfg(unix)]
 fn detach_switch_spawn_failure_raises_notice_and_keeps_panes() {
+    // spawn_managed_session creates its runtime directory and sidecar metadata
+    // before invoking the spawner. macOS falls back to TMPDIR when
+    // XDG_RUNTIME_DIR is absent. Linux refuses that fallback, which is why the
+    // old test leaked only on macOS. Give this expected spawn failure an owned
+    // base just like the other session-host tests.
+    let _env = crate::test_lock::test_env_lock();
+    let runtime_base = ScratchDir::for_sockets("cm-runtime-");
+    struct RuntimeBaseRestore(Option<std::ffi::OsString>);
+    impl Drop for RuntimeBaseRestore {
+        fn drop(&mut self) {
+            // SAFETY: the test holds the shared environment lock until this
+            // guard drops, and restores the exact prior value on unwind.
+            unsafe {
+                match self.0.take() {
+                    Some(value) => std::env::set_var("XDG_RUNTIME_DIR", value),
+                    None => std::env::remove_var("XDG_RUNTIME_DIR"),
+                }
+            }
+        }
+    }
+    let _runtime_base_restore = RuntimeBaseRestore(std::env::var_os("XDG_RUNTIME_DIR"));
+    // SAFETY: the shared environment lock covers this redirect and restoration.
+    unsafe { std::env::set_var("XDG_RUNTIME_DIR", runtime_base.path()) };
+
     let (mut app, _terminal) = app_for_test();
     let before = app.session_count_for_test();
     assert!(
@@ -1852,6 +1878,11 @@ fn detach_switch_spawn_failure_raises_notice_and_keeps_panes() {
     // Drive the full orchestration with a spawner that always fails (swap=true,
     // the destructive path - proves the original is NOT closed on failure).
     app.detach_switch_spawn_failure_for_test(true);
+    let runtime_dir = runtime_base.path().join("odytty");
+    assert!(
+        runtime_dir.is_dir(),
+        "the failed spawn creates its metadata under the owned runtime base"
+    );
     assert!(
         app.open_notice_message_for_test().is_some(),
         "a spawn failure raises a transient notice"
@@ -1860,6 +1891,13 @@ fn detach_switch_spawn_failure_raises_notice_and_keeps_panes() {
         app.session_count_for_test(),
         before,
         "a spawn failure adds no session and closes none: original untouched"
+    );
+
+    drop(_runtime_base_restore);
+    drop(runtime_base);
+    assert!(
+        !runtime_dir.exists(),
+        "the scratch owner removes the runtime directory after failure"
     );
 }
 

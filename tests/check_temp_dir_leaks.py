@@ -181,6 +181,9 @@ def run_checked(command: list[str], cwd: Path, caches: list[Path] | None = None)
 
 def self_test() -> int:
     assert prefix_of("odytty-test-config-123-4-5678") == "odytty-test-config"
+    assert prefix_of("odytty") == "odytty"
+    assert prefix_of("odytty-501") == "odytty"
+    assert prefix_of("odytty-123-4-5678") == "odytty"
     assert prefix_of("otce99-1-2") == "otce"
     assert prefix_of("12345") == "<digits>"
     root = Path(tempfile.mkdtemp(prefix="otl-selftest-"))
