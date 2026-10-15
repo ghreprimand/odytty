@@ -14,6 +14,9 @@ present after the command exits is a leak. Only name prefixes and counts are
 printed, never full names or paths. The command's own failure code wins over
 the leak result, so a red suite is not reported as a leak.
 
+On Windows, ignore only PowerShell's execution-policy probe names beginning
+with `__PSScriptPolicyTest_`; all other temp entries remain enforced.
+
 GPU driver caches: the test fixtures redirect the Mesa and NVIDIA shader cache
 variables into the test process's own folder (see native/test_support/
 gpu_cache.rs). This runner snapshots the real cache folders before and after
@@ -46,11 +49,40 @@ def prefix_of(name: str) -> str:
     return stem or "<digits>"
 
 
-def leftovers(root: Path) -> Counter[str]:
+def is_ignored_powershell_probe(
+    name: str, platform: str | None = None, *, is_file: bool = True
+) -> bool:
+    selected_platform = sys.platform if platform is None else platform
+    return (
+        selected_platform.startswith("win")
+        and is_file
+        and name.startswith("__PSScriptPolicyTest_")
+    )
+
+
+def leftovers(root: Path, platform: str | None = None) -> Counter[str]:
     try:
-        return Counter(prefix_of(entry.name) for entry in root.iterdir())
+        entries = list(root.iterdir())
     except OSError as error:
         raise RuntimeError("cannot inspect the private temp directory") from error
+    return Counter(
+        prefix_of(entry.name)
+        for entry in entries
+        if not is_ignored_powershell_probe(
+            entry.name, platform, is_file=entry.is_file()
+        )
+    )
+
+
+def ignored_powershell_probe_count(root: Path, platform: str | None = None) -> int:
+    try:
+        entries = list(root.iterdir())
+    except OSError as error:
+        raise RuntimeError("cannot inspect the private temp directory") from error
+    return sum(
+        is_ignored_powershell_probe(entry.name, platform, is_file=entry.is_file())
+        for entry in entries
+    )
 
 
 def gpu_cache_roots() -> list[Path]:
@@ -151,6 +183,7 @@ def run_checked(command: list[str], cwd: Path, caches: list[Path] | None = None)
         environment["TMP"] = isolated
         result = subprocess.run(command, cwd=cwd, env=environment, check=False)
         remaining = leftovers(Path(isolated))
+        ignored_probes = ignored_powershell_probe_count(Path(isolated))
     finally:
         shutil.rmtree(isolated, ignore_errors=True)
     cache_changes = Counter(
@@ -164,6 +197,8 @@ def run_checked(command: list[str], cwd: Path, caches: list[Path] | None = None)
             print(f"  {prefix}: {count}")
     else:
         print("no temporary entries remain")
+    if ignored_probes:
+        print(f"ignored Windows PowerShell execution-policy probes: {ignored_probes}")
 
     enforced = sys.platform.startswith("linux")
     if cache_changes:
@@ -186,14 +221,40 @@ def self_test() -> int:
     assert prefix_of("odytty-123-4-5678") == "odytty"
     assert prefix_of("otce99-1-2") == "otce"
     assert prefix_of("12345") == "<digits>"
+    probe = "__PSScriptPolicyTest_probe.ps1"
+    assert is_ignored_powershell_probe(probe, "win32")
+    assert not is_ignored_powershell_probe(probe, "linux")
+    assert not is_ignored_powershell_probe("__PSScriptPolicy_probe.ps1", "win32")
     root = Path(tempfile.mkdtemp(prefix="otl-selftest-"))
     try:
         assert not leftovers(root)
         (root / "odytty-sniff-1-2-3").mkdir()
         (root / "odytty-sniff-4-5-6").mkdir()
         (root / "stray.txt").write_text("x")
+        (root / probe).write_text("x")
+        (root / "__PSScriptPolicyTest_directory").mkdir()
         found = leftovers(root)
-        assert found == Counter({"odytty-sniff": 2, "stray.txt": 1}), found
+        assert found == Counter(
+            {
+                "odytty-sniff": 2,
+                "stray.txt": 1,
+                "__PSScriptPolicyTest_probe.ps": 1,
+                "__PSScriptPolicyTest_directory": 1,
+            }
+        ), found
+        windows_found = leftovers(root, "win32")
+        assert windows_found == Counter(
+            {
+                "odytty-sniff": 2,
+                "stray.txt": 1,
+                "__PSScriptPolicyTest_directory": 1,
+            }
+        ), windows_found
+        assert ignored_powershell_probe_count(root, "win32") == 1
+        assert ignored_powershell_probe_count(root, "linux") == 0
+        assert not is_ignored_powershell_probe(
+            "__PSScriptPolicyTest_directory", "win32", is_file=False
+        )
     finally:
         shutil.rmtree(root, ignore_errors=True)
     before = {"a": (1, 1), "b": (2, 2), "gone": (3, 3)}
