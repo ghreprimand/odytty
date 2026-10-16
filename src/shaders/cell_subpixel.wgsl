@@ -8,10 +8,8 @@ enable dual_source_blending;
 struct Viewport {
     // Physical surface size in pixels (x = width, y = height).
     size: vec2<f32>,
-    // Legacy scanline-wash slot (x = strength, y = period). Retained for
-    // uniform layout stability; never sampled - the CRT post-process is the
-    // only scanline implementation now.
-    effect: vec2<f32>,
+    // Reserved uniform slot; never read (see cell.wgsl).
+    reserved: vec2<f32>,
     // Text rendering params: x = glyph coverage gamma.
     text: vec4<f32>,
 };
@@ -79,9 +77,8 @@ fn fs_main(in: VsOut) -> FsOut {
         return out;
     }
 
-    // The scanline look is produced by the unified CRT post-process, so the
-    // background is not modulated by `viewport.effect`. The field stays in the
-    // uniform for layout stability but is never sampled.
+    // Background is unmodulated: the scanline look is the CRT post-process's
+    // job.
     out.color = in.color;
     out.weight = vec4<f32>(in.color.a);
     return out;

@@ -1291,7 +1291,7 @@ fn rail_width_from_pointer_maps_right_rail_from_the_right_edge() {
 
 // Default GEOM: slot_rows=2, slot_gap=1, top_margin=1, stride=3. For N
 // slots, slot i spans rows [1+3i, 3+3i); its vertical midpoint row is
-// 2+3i, i.e. midpoint_y = (2+3i)*CELL.height. CELL.height == 16, so the
+// 2+3i, i.e. midpoint_y = (2+3i)*CELL.height. CELL.height == 16.
 // With origin slot 1 excluded, retained neighbors keep their real-space
 // midpoints y = 32 and 128 px.
 fn drop_index_at(y: f64, src: &dyn TabBarSource) -> Option<usize> {

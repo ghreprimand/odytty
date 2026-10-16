@@ -8,11 +8,9 @@
 struct Viewport {
     // Physical surface size in pixels (x = width, y = height).
     size: vec2<f32>,
-    // Legacy scanline-wash slot (x = strength, y = period in physical
-    // pixels). Retained for uniform layout stability; the unified CRT
-    // post-process is the only scanline implementation now, so this shader
-    // never samples `effect`.
-    effect: vec2<f32>,
+    // Reserved uniform slot; never read. It keeps the layout shared with the
+    // host `ViewportUniform` struct and the other cell and cursor shaders.
+    reserved: vec2<f32>,
     // Text rendering params: x = glyph coverage gamma. A value of 1.0 makes
     // coverage correction exactly the legacy linear blend path.
     text: vec4<f32>,
@@ -61,8 +59,8 @@ fn vs_main(in: VsIn, @builtin(vertex_index) vertex_index: u32) -> VsOut {
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (in.is_glyph > 0.5) {
         // Glyphs stay crisp and full-contrast: the cell shader applies no
-        // background wash (the legacy ambient path was retired into the CRT
-        // post-process, which dims the full composited scene downstream).
+        // background wash. Scanlines and dimming belong to the CRT
+        // post-process, which acts on the whole composited scene.
         let coverage = textureSample(atlas_tex, atlas_sampler, in.uv).r;
         let gamma = max(viewport.text.x, 0.0001);
         var corrected = coverage;
@@ -72,9 +70,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         return vec4<f32>(in.color.rgb, in.color.a * corrected);
     }
 
-    // Background fill. The scanline look is produced by the unified CRT
-    // post-process, so the cell shader does not modulate the background by
-    // `viewport.effect`. The field stays in the uniform for layout stability
-    // but is never sampled.
+    // Background fill, unmodulated: the scanline look is the CRT
+    // post-process's job.
     return in.color;
 }

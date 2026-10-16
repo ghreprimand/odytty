@@ -1312,7 +1312,7 @@ fn image_shader_source() -> String {
         r#"
 struct Viewport {{
     size: vec2<f32>,
-    effect: vec2<f32>,
+    reserved: vec2<f32>,
     text: vec4<f32>,
 }};
 

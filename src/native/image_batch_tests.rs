@@ -34,7 +34,7 @@ fn viewport_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Buff
         label: Some("test-image-batch-viewport"),
         contents: bytemuck::bytes_of(&ViewportUniform {
             size: [width as f32, height as f32],
-            effect: [0.0, 1.0],
+            reserved: [0.0, 1.0],
             text: [1.0, 0.0, 0.0, 0.0],
         }),
         usage: wgpu::BufferUsages::UNIFORM,

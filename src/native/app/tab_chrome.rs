@@ -707,7 +707,7 @@ mod tests {
     fn every_builtin_theme_keeps_phosphor_flat_identifiable() {
         // ODP-6 retarget: for every built-in theme, over BOTH the opaque regime
         // (cell_bg_opacity = 1 → wash alpha 0, pure tint) and a representative
-        // translucent regime (opacity 0.5, strength 0.5 → wash alpha 0.25), the
+        // translucent regime (opacity 0.5, strength 0.5 → wash alpha 0.42), the
         // seven panel-era invariants hold. The active/hover/label treatment is
         // unchanged from v1; the panel + seam sit under it.
         const STRENGTH: f32 = 0.5;

@@ -15,6 +15,39 @@ fn app_for_test() -> (App, Arc<Mutex<Terminal>>) {
     headless_app_for_test()
 }
 
+/// Open Settings and drill into the section holding the row `key`, with the
+/// selection on that row. Selecting by key keeps the test independent of
+/// section order and layout; it panics when no section lists the row.
+fn select_settings_row(app: &mut App, key: &str) {
+    use winit::keyboard::{Key, NamedKey};
+    let press =
+        |app: &mut App, named| app.drive_overlay_key_for_test(Key::Named(named), false, false);
+    app.open_settings_overlay_for_test();
+    for section in 0..24 {
+        for _ in 0..section {
+            press(app, NamedKey::ArrowDown);
+        }
+        press(app, NamedKey::Enter);
+        let signature = app.overlay_signature_for_test();
+        if let Some(target) = signature
+            .panel
+            .entries
+            .iter()
+            .position(|entry| entry.key == key)
+        {
+            for _ in signature.panel.selected..target {
+                press(app, NamedKey::ArrowDown);
+            }
+            return;
+        }
+        press(app, NamedKey::Escape);
+        for _ in 0..section {
+            press(app, NamedKey::ArrowUp);
+        }
+    }
+    panic!("no Settings section lists {key}");
+}
+
 #[test]
 fn overlay_open_press_is_captured_and_neither_selects_nor_reports() {
     let (mut app, _terminal) = app_for_test();
@@ -221,25 +254,7 @@ fn overlay_stepper_click_sets_once_and_cursor_move_is_inert() {
 fn settings_slider_key_repeat_is_coalesced_until_flush() {
     let (mut app, _terminal) = app_for_test();
 
-    app.open_settings_overlay_for_test();
-    // Fonts section, then font_size row.
-    app.drive_overlay_key_for_test(
-        winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
-        false,
-        false,
-    );
-    app.drive_overlay_key_for_test(
-        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter),
-        false,
-        false,
-    );
-    for _ in 0..3 {
-        app.drive_overlay_key_for_test(
-            winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
-            false,
-            false,
-        );
-    }
+    select_settings_row(&mut app, "font_size");
 
     let start = app.font_size_px_for_test();
     app.drive_overlay_key_for_test(
@@ -247,11 +262,9 @@ fn settings_slider_key_repeat_is_coalesced_until_flush() {
         false,
         false,
     );
-    assert_eq!(
-        app.font_size_px_for_test(),
-        start + 1.0,
-        "single key press still applies immediately"
-    );
+    // The row's own step, read from the first press instead of assumed.
+    let step = app.font_size_px_for_test() - start;
+    assert!(step > 0.0, "a single key press still applies immediately");
 
     app.drive_overlay_repeat_key_for_test(
         winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowRight),
@@ -264,7 +277,7 @@ fn settings_slider_key_repeat_is_coalesced_until_flush() {
     );
     assert_eq!(
         app.font_size_px_for_test(),
-        start + 1.0,
+        start + step,
         "repeat updates the panel before applying app font state"
     );
 
@@ -275,7 +288,7 @@ fn settings_slider_key_repeat_is_coalesced_until_flush() {
     );
     assert_eq!(
         app.font_size_px_for_test(),
-        start + 1.0,
+        start + step,
         "idle maintenance leaves the expensive app font state untouched"
     );
 
@@ -286,7 +299,7 @@ fn settings_slider_key_repeat_is_coalesced_until_flush() {
     );
     assert_eq!(
         app.font_size_px_for_test(),
-        start + 2.0,
+        start + 2.0 * step,
         "flush applies the latest repeated font size"
     );
 }

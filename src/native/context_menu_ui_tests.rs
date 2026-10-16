@@ -251,14 +251,9 @@ fn focus_cycles_with_wrap() {
     let mut m = menu(true, true);
     assert_eq!(m.focused, 0);
     m.handle_input(OverlayInput::Up);
-    // Wraps from 0 to the last *visible* item (Detach & switch). With a
-    // selection the single-pane content menu shows 27 items: Copy/Cut/Paste/
-    // Delete/Select All, New Tab/New Tab with Profile/New Window/Close Tab
-    // (Rename Tab dropped), the two splits + Make Pane Read-Only, New/New
-    // with Profile/Rename/Close
-    // Workspace + Bind to Host (unbound) + Save as Layout + Save Workspace as
-    // Layout + Open Layout, Reorder Right-to-Left Text, Settings, and the six
-    // launcher items (Close Pane hidden single-pane).
+    // Wraps from 0 to the last *visible* item. The count asserted below is
+    // the single-pane content menu opened with a selection (Close Pane
+    // hidden); the layout tests list its sections row by row.
     assert_eq!(m.focused, m.item_count() - 1);
     assert_eq!(m.item_count(), 31);
     m.handle_input(OverlayInput::Down);
@@ -372,11 +367,10 @@ fn split_items_always_activate() {
 #[test]
 fn settings_always_activates() {
     let mut m = menu(false, false);
-    // With no selection Settings sits at body row 21 (2 editing anchors +
-    // sep + 4 tab actions + sep + 2 splits + Make Pane Read-Only + sep + 9
-    // workspace (incl. both profile rows + Bind to Host + Save as Layout +
-    // Save Workspace as Layout + Open Layout) + sep + Reorder Right-to-Left
-    // Text = 25).
+    // With no selection Settings sits at body row 25: two editing anchors,
+    // a separator, four tab actions, a separator, two splits and Make Pane
+    // Read-Only, a separator, nine workspace and layout rows, a separator,
+    // and Reorder Right-to-Left Text.
     assert_eq!(
         m.handle_press(25, m.body_row_count(), PointerButton::Left),
         ContextMenuOutcome::Activate(ContextMenuItem::Settings)
@@ -386,12 +380,10 @@ fn settings_always_activates() {
 #[test]
 fn single_pane_menu_hides_close_pane() {
     // Single-pane, no selection: Close Pane is absent; Copy/Cut/Delete are
-    // hidden (no selection) and Rename Tab is dropped, so the content menu is
-    // 24 items / 29 body rows - Paste/Select All · New Tab/New Tab with
-    // Profile/New Window/Close Tab · the two splits + Make Pane Read-Only · New/New with Profile/
-    // Rename/Close Workspace + Bind to Host (unbound) + Save as Layout +
-    // Save Workspace as Layout + Open Layout · Reorder Right-to-Left Text +
-    // Settings · the six launcher items.
+    // hidden (no selection) and Rename Tab is dropped. The asserted item and
+    // row counts are this composition: Paste/Select All, the tab actions, the
+    // two splits and Make Pane Read-Only, the workspace and layout rows,
+    // Reorder Right-to-Left Text and Settings, and the six launcher items.
     let m = menu(false, false);
     assert_eq!(m.item_count(), 28);
     let rows = m.rows();
@@ -802,18 +794,16 @@ fn multi_pane_menu_shows_close_pane_in_the_split_section() {
     // Multi-pane: Close Pane appears after Split Down in the split/pane
     // section; the workspace section, Settings, and the v0.3.1 launcher
     // section follow below.
-    // Multi-pane, no selection: 25 items / 30 body rows. Paste/Select All ·
-    // New Tab/New Tab with Profile/New Window/Close Tab · Split Right/Split
-    // Down/Close Pane/Make Pane Read-Only · New/New with Profile/Rename/Close Workspace + Bind to
-    // Host + Save as Layout + Save Workspace as Layout + Open Layout ·
-    // Settings · six launchers.
+    // Multi-pane, no selection: the single-pane no-selection composition plus
+    // the pane rows that only a multi-pane tab shows (Close Pane and the
+    // arrangement rows), asserted by count below.
     let m = multipane_menu();
     assert_eq!(m.item_count(), 31);
     let rows = m.rows();
     assert_eq!(
         rows.len(),
         37,
-        "one more row than the single-pane content menu"
+        "more rows than the single-pane menu built without a selection"
     );
     assert_eq!(rows[8], item("Split Right", false, true));
     assert_eq!(rows[9], item("Split Down", false, true));
@@ -920,7 +910,7 @@ fn hover_skips_separator() {
         assert_eq!(m.focused, 2, "separator hover is inert");
     }
     // Hovering Settings (body row 28, item index 24 in the with-selection
-    // reference, just below Reorder Right-to-Left Text) focuses it.
+    // menu, the row after Reorder Right-to-Left Text) focuses it.
     m.handle_hover(Some(28), m.body_row_count());
     assert_eq!(m.focused, 24);
     assert_eq!(

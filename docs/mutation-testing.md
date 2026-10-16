@@ -307,6 +307,10 @@ relabelled.
 
 ## Results
 
+The tables below record the original campaign. The 17 `input-win32` survivors
+in them were closed afterwards and are re-measured under [Follow-up
+closure](#follow-up-closure): 0 survived. The other batches stand as listed.
+
 <!-- generated:results -->
 | Batch | Census | Not compiled here | Measured | Killed | Survived | Timeout | Unviable |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -569,7 +573,8 @@ change.
 <!-- claim: functions=win32_event_from_neutral_key,win32_char_identity count=17 -->
 2. Assert the Win32 key record for a representative set of keys and modifier
    combinations, including the digit row and space, with `cfg(windows)` coverage
-   where the record reaches ConPTY. Closes 17 survivors.
+   where the record reaches ConPTY. Done: closed 17 survivors, see
+   Follow-up closure above.
 <!-- claim: functions=checked_shm_size,read_shm_fd_at_size,read_regular_file,read_shm_transport risk=high count=23 -->
 3. Assert the transport cap boundary directly: at the cap, one byte over, and
    growth between the size check and the read, on both the regular-file and

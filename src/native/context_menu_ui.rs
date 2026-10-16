@@ -16,11 +16,12 @@
 //! PTY: the terminal stays live behind it.
 //!
 //! Item gating: Copy is enabled only when a selection exists, Cut and
-//! Delete only when that selection intersects editable prompt input, Paste only
-//! when the clipboard holds text, and Rename Tab only when the menu was opened
-//! from a specific tab; states are snapshotted at open time. Select All, New
-//! Tab, Close Tab, and Settings are always enabled. A disabled item renders dim
-//! and its activation is a no-op.
+//! Delete only when that selection intersects editable prompt input, Paste
+//! whenever the focused pane accepts input (the clipboard is not read when
+//! the menu opens, and a paste with nothing to paste does nothing), and Rename
+//! Tab only when the menu was opened from a specific tab; states are
+//! snapshotted at open time. Select All, New Tab, Close Tab, and Settings are
+//! always enabled. A disabled item renders dim and its activation is a no-op.
 //!
 //! Visual separator lines partition the menu into sections. The section
 //! assignment is owned by [`ContextMenuItem::section`] (see
@@ -61,22 +62,13 @@ use super::overlay::{OverlayInput, PointerButton};
 #[cfg(test)]
 use crate::settings::BindableAction;
 
-/// Number of entries in [`ContextMenuItem::ALL`] (Copy / Cut / Paste / Delete /
-/// Select All / New Tab / New Window / Rename Tab / Close Tab / Split Right /
-/// Split Down / Close Pane / Settings / Connection Manager / Command Palette /
-/// Session Replay / Manage Sessions / Detach & switch / Open / Open in OdyTTY /
-/// Open With… / Copy Path / Copy File / Reveal in File Manager / Connect to
-/// Host / Replace with Host) plus the F3 "Keyboard Shortcuts" launcher item -
-/// the size of the accelerator array the App fills in `ALL` order. NOT the
-/// number of *visible* items: Close Pane is
-/// hidden in a single-pane tab; path-scoped menus show only file actions plus
-/// pinned Copy/Paste text actions; "Open in OdyTTY" is shown only when the
-/// resolved path is an image file; and "Open With…" is shown only when the
-/// resolved path is a regular file. With no path and a selection the
-/// single-pane content menu shows 23 visible items (New / Rename / Close
-/// Workspace sit in their own section after Split, followed by the conditional
-/// Bind-to-Host XOR Unbind row, then Save as Layout / Open Layout); multi-pane
-/// adds Close Pane for 24. The five
+/// Number of entries in [`ContextMenuItem::ALL`]: the size of the accelerator
+/// array the App fills in `ALL` order. NOT the number of *visible* items. What
+/// is visible per surface is composed by [`ContextMenuUi::visible_items`]
+/// from this set and the open-time snapshot: Close Pane and the arrangement
+/// rows depend on the tab's pane count and layout, path-scoped menus show
+/// only file actions plus pinned Copy/Paste text actions, "Open in OdyTTY"
+/// needs an image path, and "Open With…" needs a regular file. The five
 /// Connection-row actions (Open in New Tab / Open in New Workspace / Bind
 /// Current Workspace / Edit / Remove) show ONLY on the `ConnectionRow` surface.
 /// The six navigator-row actions (Focus / Attach / Rename / Duplicate / Move /

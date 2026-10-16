@@ -103,14 +103,14 @@ mod availability_tests {
 }
 
 /// Viewport uniform mirroring `Viewport` in `cell.wgsl`: physical surface size
-/// in pixels plus presentation-only params. `effect` is a vestigial slot kept
-/// for uniform layout stability; the cell shaders never read it. `text.x` is glyph
-/// coverage gamma; `1.0` preserves the legacy linear blend exactly.
+/// in pixels plus presentation-only params. `reserved` is an unused slot kept
+/// so every shader shares one uniform layout; no shader reads it. `text.x` is
+/// glyph coverage gamma; `1.0` preserves the legacy linear blend exactly.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(in crate::native) struct ViewportUniform {
     pub(in crate::native) size: [f32; 2],
-    pub(in crate::native) effect: [f32; 2],
+    pub(in crate::native) reserved: [f32; 2],
     pub(in crate::native) text: [f32; 4],
 }
 
@@ -863,7 +863,7 @@ impl GpuState {
             label: Some("odytty-viewport"),
             contents: bytemuck::bytes_of(&ViewportUniform {
                 size: [config.width as f32, config.height as f32],
-                effect,
+                reserved: effect,
                 text,
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -876,7 +876,7 @@ impl GpuState {
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     // VERTEX uses size for NDC mapping; FRAGMENT reads the
-                    // effect params for the ambient scanline wash.
+                    // text params (coverage gamma).
                     visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,

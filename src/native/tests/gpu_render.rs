@@ -643,7 +643,7 @@ fn cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws() {
 
     let viewport = ViewportUniform {
         size: [96.0, 64.0],
-        effect: [0.0, 1.0],
+        reserved: [0.0, 1.0],
         text: [1.0, 0.0, 0.0, 0.0],
     };
     assert_eq!(std::mem::size_of_val(&viewport), 32);
@@ -849,7 +849,7 @@ fn programming_ligature_vertices_submit_through_the_real_cell_pipeline() {
     });
     let viewport = ViewportUniform {
         size: [64.0, 32.0],
-        effect: [0.0, 1.0],
+        reserved: [0.0, 1.0],
         text: [1.0, 0.0, 0.0, 0.0],
     };
     let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

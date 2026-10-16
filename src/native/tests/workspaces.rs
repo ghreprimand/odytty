@@ -399,7 +399,7 @@ fn move_tab_to_workspace_splices_without_switching() {
     let token = app.active_session_token_for_test();
     app.move_tab_to_workspace_for_test(token, 1);
 
-    // v1: the active workspace does not follow the tab.
+    // The active workspace does not follow the moved tab.
     assert_eq!(app.active_workspace_index_for_test(), 0);
     assert_eq!(
         app.active_workspace_tab_count_for_test(),

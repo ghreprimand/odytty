@@ -623,7 +623,7 @@ fn wheel_accumulator_subnotch_alone_emits_nothing() {
 
 #[test]
 fn wheel_accumulator_direction_reversal_drops_stale_carry() {
-    // T-accum: a built-up carry in one direction must not bleed into a scroll
+    // A built-up carry in one direction must not bleed into a scroll
     // the other way. After accumulating +0.75 notch (3x 4px at a 16px cell),
     // a downward event starts fresh rather than netting against the stale carry.
     let mut accum = WheelAccumulator::default();
@@ -645,7 +645,7 @@ fn wheel_accumulator_direction_reversal_drops_stale_carry() {
 
 #[test]
 fn wheel_accumulator_reset_clears_both_carries() {
-    // T-reset: focus loss / overlay open clears partial carries so a gesture
+    // Focus loss / overlay open clears partial carries so a gesture
     // never resumes against an unrelated surface.
     let mut accum = WheelAccumulator::default();
     let px = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 8.0));
@@ -664,7 +664,7 @@ fn wheel_accumulator_reset_clears_both_carries() {
     assert!(accum.coalesce_zoom(px, 16).is_none());
 }
 
-// --- P1-8 macOS overlay wheel damper (OverlayWheelDamper) ------------------
+// --- macOS overlay wheel damper (OverlayWheelDamper) ------------------
 // The damper is platform-independent and unit-tested directly here; the
 // `cfg!(target_os = "macos")` gate in `handle_overlay_pointer_wheel` only
 // selects whether the handler routes through it, so these run on Linux CI.

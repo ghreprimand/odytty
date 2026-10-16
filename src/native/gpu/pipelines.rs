@@ -256,7 +256,7 @@ pub(in crate::native) fn create_color_glyph_pipeline(
 const COLOR_GLYPH_SHADER: &str = r#"
 struct Viewport {
     size: vec2<f32>,
-    effect: vec2<f32>,
+    reserved: vec2<f32>,
     text: vec4<f32>,
 };
 

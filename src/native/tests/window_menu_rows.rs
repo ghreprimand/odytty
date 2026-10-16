@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! The v0.16 window, layout, export, and merge rows of the right-click menus,
+//! The window, layout, export, and merge rows of the right-click menus,
 //! driven through the production right-click path of a headless App: a tab
 //! right-click, an empty-strip right-click, and a terminal-content right-click.
 //!
@@ -47,7 +47,7 @@ const ALL_ROWS: [&str; 12] = [
     ARRANGE,
 ];
 
-/// The v0.16 rows a menu currently offers, in menu order.
+/// The window, layout, export, and merge rows a menu currently offers, in menu order.
 fn offered(app: &App) -> Vec<&'static str> {
     app.context_menu_labels_for_test()
         .into_iter()

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! CTRL-WHEEL-ZOOM App-level wheel-routing precedence tests. They prove that
+//! App-level wheel-routing precedence tests. They prove that
 //! Ctrl+wheel adjusts the font size only while mouse reporting is off, that a
 //! reporting app's Ctrl+wheel passes through to the PTY (the report gate wins),
 //! that the off switch returns Ctrl+wheel to plain scrollback movement, and
@@ -184,10 +184,11 @@ fn wheel_zoom_off_switch_routes_ctrl_wheel_as_plain_scroll() {
     // to plain scrollback movement - the font is untouched and the viewport
     // scrolls into history exactly as a plain wheel would.
     let mut app = build_app(&b"scrollback line\r\n".repeat(80));
-    if app.scrollback_len_for_test() == 0 {
-        eprintln!("skipping: no scrollback materialized");
-        return;
-    }
+    assert_ne!(
+        app.scrollback_len_for_test(),
+        0,
+        "the fixture output must reach scrollback"
+    );
     let base = app.font_size_px_for_test();
     assert_eq!(app.viewport_offset_for_test(), 0, "starts at the live tail");
 

@@ -727,7 +727,7 @@ fn bloom_scene_offscreen_accepts_live_scene_pipeline_formats() {
         label: Some("odytty-test-viewport"),
         contents: bytemuck::bytes_of(&ViewportUniform {
             size: [config.width as f32, config.height as f32],
-            effect: [0.0, 1.0],
+            reserved: [0.0, 1.0],
             text: [1.0, 0.0, 0.0, 0.0],
         }),
         usage: wgpu::BufferUsages::UNIFORM,
@@ -858,7 +858,7 @@ fn padded_pane_clip_reaches_pixels_for_background_and_glyph() {
         label: Some("padded-pane-clip-viewport"),
         contents: bytemuck::bytes_of(&ViewportUniform {
             size: [W as f32, H as f32],
-            effect: [0.0, 1.0],
+            reserved: [0.0, 1.0],
             text: [1.0, 0.0, 0.0, 0.0],
         }),
         usage: wgpu::BufferUsages::UNIFORM,
@@ -1341,7 +1341,7 @@ fn overlay_draws_image_over_backing_onto_swapchain() {
         label: Some("test-overlay-viewport"),
         contents: bytemuck::bytes_of(&ViewportUniform {
             size: [W as f32, H as f32],
-            effect: [0.0, 1.0],
+            reserved: [0.0, 1.0],
             text: [1.0, 0.0, 0.0, 0.0],
         }),
         usage: wgpu::BufferUsages::UNIFORM,
@@ -1540,7 +1540,7 @@ fn overlay_uses_linear_sampling_for_scaled_images() {
         label: Some("test-linear-viewport"),
         contents: bytemuck::bytes_of(&ViewportUniform {
             size: [W as f32, H as f32],
-            effect: [0.0, 1.0],
+            reserved: [0.0, 1.0],
             text: [1.0, 0.0, 0.0, 0.0],
         }),
         usage: wgpu::BufferUsages::UNIFORM,
@@ -1756,7 +1756,7 @@ fn split_pane_inline_image_renders_clipped_to_its_pane() {
         label: Some("test-split-image-viewport"),
         contents: bytemuck::bytes_of(&ViewportUniform {
             size: [W as f32, H as f32],
-            effect: [0.0, 1.0],
+            reserved: [0.0, 1.0],
             text: [1.0, 0.0, 0.0, 0.0],
         }),
         usage: wgpu::BufferUsages::UNIFORM,
@@ -2377,7 +2377,7 @@ fn image_mode_switch_releases_the_inactive_mode_textures() {
         label: Some("test-image-mode-viewport"),
         contents: bytemuck::bytes_of(&ViewportUniform {
             size: [64.0, 48.0],
-            effect: [0.0, 1.0],
+            reserved: [0.0, 1.0],
             text: [1.0, 0.0, 0.0, 0.0],
         }),
         usage: wgpu::BufferUsages::UNIFORM,

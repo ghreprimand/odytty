@@ -22,8 +22,9 @@ pub(in crate::native) enum ContextMenuItem {
     /// Open the named-profile picker to spawn a new tab (v0.14). Catalog load is
     /// on-demand when the picker opens; plain New Tab stays one-click.
     NewTabWithProfile,
-    /// Launch another top-level OdyTTY window. Same action as the
-    /// `Ctrl+Shift+N` chord; a fresh process instance, not a tab.
+    /// Open another top-level OdyTTY window. Same action as the
+    /// `Ctrl+Shift+N` chord: a same-process sibling window, not a tab and not
+    /// a new process.
     NewWindow,
     RenameTab,
     CloseTab,
@@ -120,12 +121,13 @@ pub(in crate::native) enum ContextMenuItem {
     /// the window's child and cannot be losslessly handed to a survivable host.
     /// Activating it reads the focused pane's cwd and opens a 3-way choice
     /// dialog (Swap / Keep both / Cancel). Placed last in [`Self::ALL`] so the
-    /// file-section indices stay stable; rendered in the session-management
-    /// section (4), right after "Manage Sessions", in the non-path menu.
+    /// file-section indices stay stable; rendered in the launcher
+    /// section (5), right after "Manage Sessions", in the non-path menu.
     DetachSwitch,
     /// Create a fresh workspace (its own single-pane tab) and switch to it.
     /// Workspace-scoped: shown on the `WorkspaceSlot` / `WorkspaceRailEmpty`
-    /// surfaces (rail `+` slot / rail right-click). No default chord.
+    /// surfaces (rail `+` slot / rail right-click). Default chord
+    /// `Ctrl+Shift+Enter`.
     NewWorkspace,
     /// Open the named-profile picker to create a workspace and its first
     /// profile-backed tab atomically (v0.14).
@@ -417,7 +419,9 @@ impl ContextMenuItem {
     /// wherever consecutive *visible* items cross a section boundary, so the
     /// separator placement reflows automatically when Close Pane appears or
     /// disappears: editing (0), tab actions (1), split/pane actions (2),
-    /// workspace actions (3), Settings (4), launchers (5), file/path (6).
+    /// workspace actions (3), Settings (4), launchers (5), file/path (6). The
+    /// layout rows (Stack / Float / Tile Panes, Arrange Floating Pane) form
+    /// their own group, 7, below the pane section.
     pub(super) fn section(self) -> u8 {
         match self {
             Self::Copy

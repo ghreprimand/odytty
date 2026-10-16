@@ -1539,7 +1539,7 @@ impl GpuState {
             0,
             bytemuck::bytes_of(&ViewportUniform {
                 size: [self.config.width as f32, self.config.height as f32],
-                effect: self.effect,
+                reserved: self.effect,
                 text: self.text,
             }),
         );

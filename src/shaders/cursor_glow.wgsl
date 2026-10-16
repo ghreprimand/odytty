@@ -4,7 +4,8 @@
 
 struct Viewport {
     size: vec2<f32>,
-    effect: vec2<f32>,
+    // Reserved uniform slot; never read (see cell.wgsl).
+    reserved: vec2<f32>,
     text: vec4<f32>,
 };
 
