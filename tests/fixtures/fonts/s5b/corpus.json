@@ -212,7 +212,7 @@
             "U+09CD",
             "U+09B0"
           ],
-          "note": "known-diff:harfrust-0.8.4-vs-harfbuzz-14.5;below-base-ra"
+          "note": "below-base-ra"
         },
         {
           "id": "bengali-6",

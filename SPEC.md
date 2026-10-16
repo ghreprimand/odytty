@@ -3078,7 +3078,7 @@ and every mark on that cell; the monochrome path does not draw them again (see
 [`docs/shaping-roadmap.md`](docs/shaping-roadmap.md)).
 
 With script shaping on, each width owner of an enabled script group is
-shaped on its own with `harfrust` 0.8.4 (left to right,
+shaped on its own with `harfrust` 0.14.0 (left to right,
 script from the content, no language, cluster level 0) and drawn as one
 overlay over exactly its one or two cells. The enabled groups are
 Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and
@@ -3102,10 +3102,10 @@ shaped result, or whose slot does not fit in a full atlas keeps the per-cell
 path for that frame. Backgrounds, decorations, selection, search highlights,
 the cursor block (which redraws the per-cell glyphs, as it does under a Latin
 ligature), copy, search, and widths stay cell-owned. Runs never cross owners.
-Bengali ka, virama, ra shapes differently from HarfBuzz 14.5 in `harfrust`
-0.8.4; that difference is asserted at the glyph-position level and kept out
-of conformance claims. Pixel-oracle comparisons use the matching rows. Khmer, Myanmar, Thai, Lao, Tibetan, Sinhala, Chakma, Javanese, Grantha, and Tai Tham fixtures
-match HarfBuzz 14.5 exactly.
+Every Indic, Khmer, Myanmar, Thai, Lao, Tibetan, Sinhala, Chakma, Javanese,
+Grantha, and Tai Tham fixture row matches HarfBuzz 14.5 exactly, including
+Bengali ka, virama, ra, which `harfrust` 0.8.4 shaped differently.
+Pixel-oracle comparisons use every row.
 A stray mark that starts an owner is shaped with a dotted circle when the
 shaping face maps U+25CC and alone otherwise.
 Wrapped and rectangular selection copy the base followed by those stored marks.

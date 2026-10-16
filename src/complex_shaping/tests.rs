@@ -63,7 +63,7 @@ const GROUPS: &[Group] = &[
         reference: include_str!("../../tests/fixtures/fonts/s5b/northern-indic/reference.tsv"),
         faces: FACES,
         count: 49,
-        known_diffs: &["known-diff:harfrust-0.8.4-vs-harfbuzz-14.5;below-base-ra"],
+        known_diffs: &[],
         owner_floor: 40,
         changed_notes: &["reph", "conjunct", "pre-base-matra", "conjunct-pre-base"],
     },
@@ -315,14 +315,13 @@ fn group_rows(group: &Group) -> Vec<Row> {
 
 /// Raw harfrust output for a row: glyph, cluster, offsets, and advance.
 fn shape_raw(face: &FontHandle, text: &str) -> Vec<(u32, u32, i32, i32, i32)> {
-    let font = harfrust::FontRef::from_index(face.as_slice(), face.face_index()).unwrap();
-    let data = ShaperData::new(&font);
-    let shaper = data.shaper(&font).build();
-    let mut buffer = UnicodeBuffer::new();
-    buffer.push_str(text);
-    buffer.guess_segment_properties();
-    buffer.set_direction(Direction::LeftToRight);
-    let output = shaper.shape(buffer, ShapeOptions::new());
+    let data = shaper_data(face).unwrap();
+    let font = ShaperFont::new(&data);
+    let mut output = Buffer::new();
+    output.push_str(text);
+    output.guess_segment_properties();
+    output.set_direction(Direction::LeftToRight);
+    harfrust::shape(&font, &mut output, ShapeOptions::new()).unwrap();
     output
         .glyph_infos()
         .iter()
@@ -362,7 +361,7 @@ fn harfrust_matches_every_enabled_reference_except_recorded_differences() {
                 mismatches.push(row.note.clone());
             }
             let data = shaper_data(&face).unwrap();
-            let placed = shape_owner(&face, &data, &row.text).expect("clean shaping result");
+            let placed = shape_owner(&data, &row.text).expect("clean shaping result");
             if !row.known_diff() {
                 assert_eq!(placed, row.placed(), "{row:?}");
             }
@@ -855,7 +854,7 @@ fn joiners_need_no_glyph_and_missing_scalars_never_shape() {
     assert!(!crate::atlas::face_maps_all(&latin, &['\u{0915}']));
     // A face missing a scalar shapes it to .notdef, which never draws.
     let data = shaper_data(&latin).unwrap();
-    assert_eq!(shape_owner(&latin, &data, "\u{0915}\u{094D}\u{0937}"), None);
+    assert_eq!(shape_owner(&data, "\u{0915}\u{094D}\u{0937}"), None);
 }
 
 #[test]

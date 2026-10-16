@@ -96,8 +96,6 @@ fn subset_faces_parse_and_reference_clusters_use_utf8_byte_boundaries() {
                 );
             }
             if fields[7].starts_with("known-diff:") {
-                assert_eq!(fixture.name, "Bengali-subset.ttf");
-                assert_eq!(fields[1], "U+0995 U+09CD U+09B0");
                 known_differences += 1;
             }
             face_rows += 1;
@@ -110,7 +108,10 @@ fn subset_faces_parse_and_reference_clusters_use_utf8_byte_boundaries() {
     }
     assert_eq!(FIXTURES.len(), 19);
     assert_eq!(rows, 158);
-    assert_eq!(known_differences, 1);
+    assert_eq!(
+        known_differences, 0,
+        "every row matches the HarfBuzz reference"
+    );
 }
 
 #[test]

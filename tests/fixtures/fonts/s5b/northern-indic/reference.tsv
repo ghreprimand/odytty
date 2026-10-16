@@ -19,7 +19,7 @@ Bengali-subset.ttf	U+0995 U+09CD U+09B7	16	0	0	0	859	conjunct
 Bengali-subset.ttf	U+09B0 U+09CD U+0995	5,15	0,0	0,-361	0,0	807,0	reph
 Bengali-subset.ttf	U+0995 U+09BF	11,5	0,0	0,0	0,0	266,807	pre-base-matra
 Bengali-subset.ttf	U+0995 U+09CB	50,5,10	0,0,0	0,0,0	0,0,0	361,807,266	split-vowel
-Bengali-subset.ttf	U+0995 U+09CD U+09B0	17,40,38	0,0,0	0,-200,-370	0,0,0	862,0,0	known-diff:harfrust-0.8.4-vs-harfbuzz-14.5;below-base-ra
+Bengali-subset.ttf	U+0995 U+09CD U+09B0	17,40,38	0,0,0	0,-200,-370	0,0,0	862,0,0	below-base-ra
 Bengali-subset.ttf	U+0995 U+09C7	50,5	0,0	0,0	0,0	361,807	plain-control
 Bengali-subset.ttf	U+0995 U+09CD U+200D U+09B7	5,14,4,8	0,0,0,9	0,-393,0,0	0,0,0,0	807,0,0,626	zwj
 Bengali-subset.ttf	U+0995 U+09CD U+200C U+09B7	5,14,4,8	0,0,6,9	0,-393,0,0	0,0,0,0	807,0,0,626	zwnj

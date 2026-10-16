@@ -34,7 +34,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use harfrust::{Direction, ShapeOptions, ShaperData, UnicodeBuffer};
+use harfrust::{Buffer, Direction, Font, ShapeOptions, ShaperFont};
 
 use crate::atlas::{ClusterFace, ClusterGlyph, FontStyle, GlyphAtlas, ShapedGlyphKey};
 use crate::core::{Cell, Snapshot};
@@ -112,14 +112,14 @@ pub fn owner_is_eligible(cell: &Cell) -> bool {
 /// Shape one owner's text on `face` and return its glyphs with pen positions
 /// in font units, or `None` when the result holds `.notdef`, a glyph id past
 /// `u16`, or more than [`MAX_RUN_GLYPHS`] glyphs.
-pub fn shape_owner(face: &FontHandle, data: &ShaperData, text: &str) -> Option<Vec<ClusterGlyph>> {
-    let font = harfrust::FontRef::from_index(face.as_slice(), face.face_index()).ok()?;
-    let shaper = data.shaper(&font).build();
-    let mut buffer = UnicodeBuffer::new();
+pub fn shape_owner(data: &Font, text: &str) -> Option<Vec<ClusterGlyph>> {
+    let font = ShaperFont::new(data);
+    let mut buffer = Buffer::new();
     buffer.push_str(text);
     buffer.guess_segment_properties();
     buffer.set_direction(Direction::LeftToRight);
-    let output = shaper.shape(buffer, ShapeOptions::new());
+    harfrust::shape(&font, &mut buffer, ShapeOptions::new()).ok()?;
+    let output = buffer;
     if output.len() > MAX_RUN_GLYPHS {
         return None;
     }
@@ -138,9 +138,8 @@ pub fn shape_owner(face: &FontHandle, data: &ShaperData, text: &str) -> Option<V
 }
 
 /// Parsed shaping tables for `face`.
-pub fn shaper_data(face: &FontHandle) -> Option<ShaperData> {
-    let font = harfrust::FontRef::from_index(face.as_slice(), face.face_index()).ok()?;
-    Some(ShaperData::new(&font))
+pub fn shaper_data(face: &FontHandle) -> Option<Font> {
+    Font::new(face.as_slice().to_vec(), face.face_index())
 }
 
 fn fingerprint(face: &FontHandle) -> u64 {
@@ -192,7 +191,7 @@ enum Presentation {
 struct FaceEntry {
     face: Arc<FontHandle>,
     fingerprint: u64,
-    data: Arc<ShaperData>,
+    data: Arc<Font>,
 }
 
 /// Owner-run shaper with bounded caches of shaped glyphs, parsed faces, and
@@ -203,7 +202,7 @@ pub struct ComplexShaper {
     /// result the per-cell path keeps.
     shaped: HashMap<(u64, String), Option<Arc<[ClusterGlyph]>>>,
     /// Style-face fingerprint and shaping tables, by style index.
-    primary: [Option<(u64, Arc<ShaperData>)>; 4],
+    primary: [Option<(u64, Arc<Font>)>; 4],
     fallback: Vec<FaceEntry>,
     presented: HashMap<OwnerKey, Presentation>,
     shape_calls: u64,
@@ -362,7 +361,7 @@ impl ComplexShaper {
             }
         };
         let text: String = owner.scalars().iter().collect();
-        let glyphs = self.shape_cached(face.get(), fp, &data, text);
+        let glyphs = self.shape_cached(fp, &data, text);
         let Some(glyphs) = glyphs else {
             self.remember(owner, Presentation::PerCell);
             return None;
@@ -380,7 +379,7 @@ impl ComplexShaper {
         self.presented.insert(owner, presentation);
     }
 
-    fn fallback_entry(&mut self, face: &Arc<FontHandle>) -> Option<(u64, Arc<ShaperData>)> {
+    fn fallback_entry(&mut self, face: &Arc<FontHandle>) -> Option<(u64, Arc<Font>)> {
         if let Some(entry) = self.fallback.iter().find(|e| Arc::ptr_eq(&e.face, face)) {
             return Some((entry.fingerprint, Arc::clone(&entry.data)));
         }
@@ -398,19 +397,13 @@ impl ComplexShaper {
         Some((fp, data_clone))
     }
 
-    fn shape_cached(
-        &mut self,
-        face: &FontHandle,
-        fp: u64,
-        data: &ShaperData,
-        text: String,
-    ) -> Option<Arc<[ClusterGlyph]>> {
+    fn shape_cached(&mut self, fp: u64, data: &Font, text: String) -> Option<Arc<[ClusterGlyph]>> {
         let key = (fp, text);
         if let Some(cached) = self.shaped.get(&key) {
             return cached.clone();
         }
         self.shape_calls += 1;
-        let result = shape_owner(face, data, &key.1).map(Arc::from);
+        let result = shape_owner(data, &key.1).map(Arc::from);
         if self.shaped.len() >= SHAPE_CACHE_CAPACITY {
             self.shaped.clear();
         }

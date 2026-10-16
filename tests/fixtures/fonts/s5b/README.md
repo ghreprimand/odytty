@@ -4,7 +4,7 @@ The six groups contain 19 minimal OFL Noto faces and project-authored samples fo
 
 Each group has subset fonts, complete OFL notices, source and subset hashes, exact subsetting commands, and reference.tsv. The reference columns are font, codepoints, glyph_ids, clusters, x_offset, y_offset, x_advance, and note. Glyph arrays use commas; clusters are UTF-8 byte offsets. HarfBuzz and fontTools versions are recorded in every header. Regeneration shapes each source and subset, maps the original glyph IDs through renumbering, and verifies that glyph order, clusters, offsets, and advances agree exactly.
 
-Bengali U+0995 U+09CD U+09B0 remains in northern-indic/reference.tsv with known-diff:harfrust-0.8.4-vs-harfbuzz-14.5. The reference preserves the measured HarfBuzz result; a consumer must explicitly account for that known engine-version difference.
+Bengali U+0995 U+09CD U+09B0 (below-base ra) is in northern-indic/reference.tsv like every other row. `harfrust` 0.8.4 shaped it differently from HarfBuzz; 0.14.0 matches, so no row carries a known-diff note. A row that the shaper cannot match is marked `known-diff:` in its note and asserted by the consumer, never skipped.
 
 All Unicode text is stored as ASCII U+XXXX sequences. The parent corpus.json defines the inputs, normalization repertoire and project-authored provenance. Shape references describe this corpus and these faces. All samples and generator code are GPL-3.0-only; each modified font remains under its recorded OFL-1.1 license. No full upstream font is distributed here.
 
