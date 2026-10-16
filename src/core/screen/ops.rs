@@ -936,6 +936,9 @@ impl Screen {
                 2026 => {
                     self.synchronized_output = action == 'h';
                 }
+                // Grapheme cluster mode: permanently set, so DECSET and
+                // DECRST are accepted and change nothing (see the report).
+                2027 => {}
                 // Mouse tracking modes (single active mode; later DECSET wins,
                 // any DECRST returns to Off). See `MouseTracking`.
                 9 => self.set_mouse_tracking(MouseTracking::X10, action),
@@ -1020,6 +1023,10 @@ impl Screen {
             1016 => mode_status(self.mouse.encoding == MouseEncoding::SgrPixel),
             2004 => mode_status(self.bracketed_paste),
             2026 => mode_status(self.synchronized_output),
+            // Grapheme cluster mode (Terminal Unicode Core): owners always
+            // follow extended grapheme clusters with the documented terminal
+            // profile, so the mode reports permanently set.
+            2027 => 3,
             9001 => mode_status(self.keyboard.win32_input),
             1007 => mode_status(self.alternate_scroll),
             // Known xterm private modes that OdyTTY does not implement.

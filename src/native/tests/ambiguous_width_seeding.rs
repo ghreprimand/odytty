@@ -19,7 +19,7 @@ fn wide_settings() -> Settings {
 
 /// An App over a launch session seeded by the production launch seeding, with
 /// a workspace set that can spawn further sessions.
-fn app_with(settings: Settings) -> App {
+pub(super) fn app_with(settings: Settings) -> App {
     let dims = Dimensions::new(80, 24);
     let mut model = Terminal::new(dims.columns, dims.rows);
     crate::native::seed_launch_session_model(&mut model, &settings);
@@ -177,7 +177,7 @@ fn a_settings_sweep_between_reads_keeps_a_mark_on_its_base() {
 /// A profile `name` whose launch runs `/bin/sh -c script sh reply`, with an
 /// optional ambiguous-width override.
 #[cfg(unix)]
-fn write_script_profile(
+pub(super) fn write_script_profile(
     base: &std::path::Path,
     name: &str,
     width: Option<&str>,
@@ -210,10 +210,16 @@ fn write_script_profile(
 /// Poll `path` until it holds six bytes, within a finite deadline.
 #[cfg(unix)]
 fn wait_for_report(path: &std::path::Path) -> Vec<u8> {
+    wait_for_reply(path, 6)
+}
+
+/// Poll `path` until it holds `len` bytes, within a finite deadline.
+#[cfg(unix)]
+pub(super) fn wait_for_reply(path: &std::path::Path, len: usize) -> Vec<u8> {
     let deadline = Instant::now() + std::time::Duration::from_secs(20);
     loop {
         if let Ok(bytes) = std::fs::read(path)
-            && bytes.len() >= 6
+            && bytes.len() >= len
         {
             return bytes;
         }

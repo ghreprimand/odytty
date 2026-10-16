@@ -766,6 +766,22 @@ across Wayland/X11 delivery shapes while preserving a distinct
 `Ctrl+Backspace` at an enhanced shell prompt. Other valid control-modified
 character events continue to the PTY instead of disappearing.
 
+### Grapheme Cluster Mode (DEC Private Mode 2027)
+
+Terminal Unicode Core mode 2027 asks for cell ownership that follows extended
+grapheme clusters. Ownership always does so here, under the declared profile in
+Combining Marks, so the mode is permanently set: `DECRQM` (`CSI ? 2027 $ p`)
+replies `CSI ? 2027 ; 3 $ y`, `DECSET ?2027h` and `DECRST ?2027l` are accepted
+and change nothing, and `RIS` and `DECSTR` leave the report at 3. The draft
+defines a reset mode as undefined behavior and asks only that the report be
+accurate. Profile points where owners differ from Unicode clusters (declared
+under UAX #29 conformance clause C1-2): controls end an owner; emoji sequences
+keep their own ownership, so a ZWJ join that is not a recommended (RGI)
+sequence keeps separate owners and VS15 does not demote; the tuned script
+groups keep their width units, which can join scalars across a cluster
+boundary, as the generalized virama link does; zero-width scalars attach to the
+open owner; an owner never exceeds two cells or seventeen scalars.
+
 ### Synchronized Output (DEC Private Mode 2026)
 
 #### Track The Core Mode
