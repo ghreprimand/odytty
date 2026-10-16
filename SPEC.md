@@ -3124,7 +3124,8 @@ ligature), copy, search, and widths stay cell-owned. Runs never cross owners.
 Every Indic, Khmer, Myanmar, Thai, Lao, Tibetan, Sinhala, Chakma, Javanese,
 Grantha, and Tai Tham fixture row matches HarfBuzz 14.5 exactly, including
 Bengali ka, virama, ra, which `harfrust` 0.8.4 shaped differently, and so does
-every Balinese, Sundanese, Batak, Buginese, Cham, Lepcha, Limbu, Hebrew, and
+every Balinese, Sundanese, Batak, Buginese, Cham, Lepcha, Limbu, Newa,
+Sharada, Tirhuta, Siddham, Takri, Ahom, Tai Viet, old Hangul jamo, Hebrew, and
 Kharoshthi row (the last two shaped right to left).
 Pixel-oracle comparisons use every row.
 A stray mark that starts an owner is shaped with a dotted circle when the

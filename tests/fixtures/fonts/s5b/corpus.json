@@ -2861,6 +2861,693 @@
         }
       ],
       "direction": "rtl"
+    },
+    {
+      "group": "brahmic-b",
+      "script": "newa",
+      "script_tag": "Newa",
+      "font": "Newa-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Newa Fixture",
+      "release_url": "https://github.com/notofonts/newa/releases/download/NotoSansNewa-v2.007/NotoSansNewa-v2.007.zip",
+      "archive_sha256": "24b4301275f4188609da24a809742a5f0e3a159a3617ae1cc3642fefbfdec045",
+      "source_member": "NotoSansNewa/hinted/ttf/NotoSansNewa-Regular.ttf",
+      "source_sha256": "3aede9a3ab5740babffe75f7c0d97e2329734b8cb470c999be1871362084a8bd",
+      "source_filename": "NotoSansNewa-Regular.ttf",
+      "source_family": "NotoSansNewa",
+      "license_member": "../OFL.txt",
+      "license_file": "Newa-OFL.txt",
+      "license_sha256": "0b1a88f8b74104f5945da93cab943d5da28732f9051ce073d1163b4ce43ea439",
+      "required_scalars": [
+        "U+0020",
+        "U+200C",
+        "U+200D",
+        "U+1140E",
+        "U+1141F",
+        "U+1142C",
+        "U+11436",
+        "U+11438",
+        "U+11440",
+        "U+11442"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "39b6d4531cfac5e6004bf5f34668bf1ce50ef3b1f2cbe0b2ecc432949a45c6dd",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained.",
+      "cases": [
+        {
+          "id": "newa-1",
+          "codepoints": [
+            "U+1140E",
+            "U+11442",
+            "U+1141F"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "newa-2",
+          "codepoints": [
+            "U+1142C",
+            "U+11442",
+            "U+1140E"
+          ],
+          "note": "reph"
+        },
+        {
+          "id": "newa-3",
+          "codepoints": [
+            "U+1140E",
+            "U+11442",
+            "U+1142C"
+          ],
+          "note": "below-base-ra"
+        },
+        {
+          "id": "newa-4",
+          "codepoints": [
+            "U+1140E",
+            "U+11436"
+          ],
+          "note": "pre-base-vowel"
+        },
+        {
+          "id": "newa-5",
+          "codepoints": [
+            "U+1140E",
+            "U+11440"
+          ],
+          "note": "vowel-o"
+        },
+        {
+          "id": "newa-6",
+          "codepoints": [
+            "U+1140E",
+            "U+11438"
+          ],
+          "note": "below-vowel"
+        },
+        {
+          "id": "newa-7",
+          "codepoints": [
+            "U+1140E",
+            "U+11442",
+            "U+200D",
+            "U+1141F"
+          ],
+          "note": "zwj"
+        },
+        {
+          "id": "newa-8",
+          "codepoints": [
+            "U+1140E",
+            "U+11442",
+            "U+200C",
+            "U+1141F"
+          ],
+          "note": "zwnj"
+        }
+      ]
+    },
+    {
+      "group": "brahmic-b",
+      "script": "sharada",
+      "script_tag": "Shrd",
+      "font": "Sharada-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Sharada Fixture",
+      "release_url": "https://github.com/notofonts/sharada/releases/download/NotoSansSharada-v2.006/NotoSansSharada-v2.006.zip",
+      "archive_sha256": "b7234ea126d00e31c7c7dfc614a117bf348449492168e685e1002df2e684deb0",
+      "source_member": "NotoSansSharada/hinted/ttf/NotoSansSharada-Regular.ttf",
+      "source_sha256": "8350a4cf4b5bdc0707aa5077075b0885a4f3f0f08ed6b49b8e5d142aef4032da",
+      "source_filename": "NotoSansSharada-Regular.ttf",
+      "source_family": "NotoSansSharada",
+      "license_member": "../OFL.txt",
+      "license_file": "Sharada-OFL.txt",
+      "license_sha256": "49db1301a3ee2e0117654522481cd3519ac9586528de298c937c1d28faaad5db",
+      "required_scalars": [
+        "U+0020",
+        "U+11191",
+        "U+111A0",
+        "U+111AB",
+        "U+111B4",
+        "U+111B6",
+        "U+111BE",
+        "U+111C0"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "110e682353242abfe1529151fda818b381cb722b4d5a46388c13f55225e21b1b",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained.",
+      "cases": [
+        {
+          "id": "sharada-1",
+          "codepoints": [
+            "U+11191",
+            "U+111C0",
+            "U+111A0"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "sharada-2",
+          "codepoints": [
+            "U+111AB",
+            "U+111C0",
+            "U+11191"
+          ],
+          "note": "reph"
+        },
+        {
+          "id": "sharada-3",
+          "codepoints": [
+            "U+11191",
+            "U+111C0",
+            "U+111AB"
+          ],
+          "note": "below-base-ra"
+        },
+        {
+          "id": "sharada-4",
+          "codepoints": [
+            "U+11191",
+            "U+111B4"
+          ],
+          "note": "pre-base-vowel"
+        },
+        {
+          "id": "sharada-5",
+          "codepoints": [
+            "U+11191",
+            "U+111B6"
+          ],
+          "note": "below-vowel"
+        },
+        {
+          "id": "sharada-6",
+          "codepoints": [
+            "U+11191",
+            "U+111BE"
+          ],
+          "note": "vowel-o"
+        }
+      ]
+    },
+    {
+      "group": "brahmic-b",
+      "script": "tirhuta",
+      "script_tag": "Tirh",
+      "font": "Tirhuta-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Tirhuta Fixture",
+      "release_url": "https://github.com/notofonts/tirhuta/releases/download/NotoSansTirhuta-v2.003/NotoSansTirhuta-v2.003.zip",
+      "archive_sha256": "ac5a1aa7f1bdf54d7b3bb1697c7825e99709b237ab194de1ea0e0ea36ba65352",
+      "source_member": "NotoSansTirhuta/hinted/ttf/NotoSansTirhuta-Regular.ttf",
+      "source_sha256": "f7a0d9fa2557ebebbacdc8888556e217c298eb049db6ff6dc210e916a1d9e860",
+      "source_filename": "NotoSansTirhuta-Regular.ttf",
+      "source_family": "NotoSansTirhuta",
+      "license_member": "../OFL.txt",
+      "license_file": "Tirhuta-OFL.txt",
+      "license_sha256": "3f8523b2d8771d0a1ccb7811cd8b6db7f3cd28145510e3c4c2b67c2cf529c22e",
+      "required_scalars": [
+        "U+0020",
+        "U+1148F",
+        "U+1149E",
+        "U+114A9",
+        "U+114B0",
+        "U+114B1",
+        "U+114B3",
+        "U+114B9",
+        "U+114BC",
+        "U+114C2"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "9bf9c1ab9b7837bb65fb40dd7f6b706a28199cd633b80dcebe532bddc56594cb",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained.",
+      "cases": [
+        {
+          "id": "tirhuta-1",
+          "codepoints": [
+            "U+1148F",
+            "U+114C2",
+            "U+1149E"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "tirhuta-2",
+          "codepoints": [
+            "U+114A9",
+            "U+114C2",
+            "U+1148F"
+          ],
+          "note": "reph"
+        },
+        {
+          "id": "tirhuta-3",
+          "codepoints": [
+            "U+1148F",
+            "U+114B1"
+          ],
+          "note": "pre-base-vowel"
+        },
+        {
+          "id": "tirhuta-4",
+          "codepoints": [
+            "U+1148F",
+            "U+114BC"
+          ],
+          "note": "split-vowel"
+        },
+        {
+          "id": "tirhuta-5",
+          "codepoints": [
+            "U+1148F",
+            "U+114B3"
+          ],
+          "note": "below-vowel"
+        },
+        {
+          "id": "tirhuta-6",
+          "codepoints": [
+            "U+1148F",
+            "U+114C2",
+            "U+114A9"
+          ],
+          "note": "below-base-ra"
+        }
+      ]
+    },
+    {
+      "group": "brahmic-b",
+      "script": "siddham",
+      "script_tag": "Sidd",
+      "font": "Siddham-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Siddham Fixture",
+      "release_url": "https://github.com/notofonts/siddham/releases/download/NotoSansSiddham-v2.005/NotoSansSiddham-v2.005.zip",
+      "archive_sha256": "729bc8a1558826dcb0a05cda0e110de9c3b029610f613ab5edf8350a19af0253",
+      "source_member": "NotoSansSiddham/hinted/ttf/NotoSansSiddham-Regular.ttf",
+      "source_sha256": "a384592b36df5a2f283610c93703bcfb72e6fd86bd2e0a699da1eff91b247e88",
+      "source_filename": "NotoSansSiddham-Regular.ttf",
+      "source_family": "NotoSansSiddham",
+      "license_member": "OFL.txt",
+      "license_file": "Siddham-OFL.txt",
+      "license_sha256": "302f33ce415347d6b0ca182d346e5225e56af5cced978c9f6c87b466c18abc50",
+      "required_scalars": [
+        "U+0020",
+        "U+1158E",
+        "U+1159F",
+        "U+115A8",
+        "U+115AF",
+        "U+115B0",
+        "U+115B2",
+        "U+115B8",
+        "U+115BA",
+        "U+115BF"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "85610e60cd4cfa1395c27ada1f15ac5ba10b7b9f1eb343a66532105682d2c830",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained.",
+      "cases": [
+        {
+          "id": "siddham-1",
+          "codepoints": [
+            "U+1158E",
+            "U+115BF",
+            "U+1159F"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "siddham-2",
+          "codepoints": [
+            "U+115A8",
+            "U+115BF",
+            "U+1158E"
+          ],
+          "note": "reph"
+        },
+        {
+          "id": "siddham-3",
+          "codepoints": [
+            "U+1158E",
+            "U+115B0"
+          ],
+          "note": "pre-base-vowel"
+        },
+        {
+          "id": "siddham-4",
+          "codepoints": [
+            "U+1158E",
+            "U+115BA"
+          ],
+          "note": "split-vowel"
+        },
+        {
+          "id": "siddham-5",
+          "codepoints": [
+            "U+1158E",
+            "U+115B2"
+          ],
+          "note": "below-vowel"
+        },
+        {
+          "id": "siddham-6",
+          "codepoints": [
+            "U+1158E",
+            "U+115BF",
+            "U+115A8"
+          ],
+          "note": "below-base-ra"
+        }
+      ]
+    },
+    {
+      "group": "brahmic-b",
+      "script": "takri",
+      "script_tag": "Takr",
+      "font": "Takri-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Takri Fixture",
+      "release_url": "https://github.com/notofonts/takri/releases/download/NotoSansTakri-v2.005/NotoSansTakri-v2.005.zip",
+      "archive_sha256": "0f51b6b1cf964c0703abbcfea168a78ad02fe3fa6332d9ea63c8aee9be9d7566",
+      "source_member": "NotoSansTakri/hinted/ttf/NotoSansTakri-Regular.ttf",
+      "source_sha256": "c14fb3d442ee9330d54d22aed37a9ee78ec4038055faa195d62661e4bb9988f9",
+      "source_filename": "NotoSansTakri-Regular.ttf",
+      "source_family": "NotoSansTakri",
+      "license_member": "OFL.txt",
+      "license_file": "Takri-OFL.txt",
+      "license_sha256": "749b2bed79a1e0a4f26e7348224b7daaecc861daa512f46558ecbb94af531ea5",
+      "required_scalars": [
+        "U+0020",
+        "U+1168A",
+        "U+11699",
+        "U+116A4",
+        "U+116AD",
+        "U+116AE",
+        "U+116B0",
+        "U+116B2",
+        "U+116B6"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "7289a413acc7fa6ec0a40f1c92652e02178fe3a36e2fee2f98af8ceada41b0a4",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained.",
+      "cases": [
+        {
+          "id": "takri-1",
+          "codepoints": [
+            "U+1168A",
+            "U+116B6",
+            "U+11699"
+          ],
+          "note": "conjunct"
+        },
+        {
+          "id": "takri-2",
+          "codepoints": [
+            "U+1168A",
+            "U+116B6",
+            "U+116A4"
+          ],
+          "note": "below-base-ra"
+        },
+        {
+          "id": "takri-3",
+          "codepoints": [
+            "U+1168A",
+            "U+116AE"
+          ],
+          "note": "pre-base-vowel"
+        },
+        {
+          "id": "takri-4",
+          "codepoints": [
+            "U+1168A",
+            "U+116B0"
+          ],
+          "note": "below-vowel"
+        },
+        {
+          "id": "takri-5",
+          "codepoints": [
+            "U+1168A",
+            "U+116B2"
+          ],
+          "note": "above-vowel"
+        },
+        {
+          "id": "takri-6",
+          "codepoints": [
+            "U+1168A",
+            "U+116AD"
+          ],
+          "note": "plain-control"
+        }
+      ]
+    },
+    {
+      "group": "brahmic-b",
+      "script": "ahom",
+      "script_tag": "Ahom",
+      "font": "Ahom-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Ahom Fixture",
+      "release_url": "https://github.com/notofonts/ahom/releases/download/NotoSerifAhom-v2.007/NotoSerifAhom-v2.007.zip",
+      "archive_sha256": "7416ce83658f61cdaf836e91a12fb27d015eca824b283e3d5a3b68e351db4998",
+      "source_member": "NotoSerifAhom/hinted/ttf/NotoSerifAhom-Regular.ttf",
+      "source_sha256": "8153650d7fc1362a40b6cb355291e1d2718d82835790cd542a2521cba53c8fd4",
+      "source_filename": "NotoSerifAhom-Regular.ttf",
+      "source_family": "NotoSerifAhom",
+      "license_member": "OFL.txt",
+      "license_file": "Ahom-OFL.txt",
+      "license_sha256": "f9406978c646fc462d625349ad0d6541a3845096d02d82be66034a273224a972",
+      "required_scalars": [
+        "U+0020",
+        "U+11700",
+        "U+1171D",
+        "U+1171E",
+        "U+11722",
+        "U+11724",
+        "U+11726",
+        "U+1172B"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "33941759eab10afc82c8a166212be569a1e0bf40aa42f9987bdcabb2907c08ee",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained.",
+      "cases": [
+        {
+          "id": "ahom-1",
+          "codepoints": [
+            "U+11700",
+            "U+1171E"
+          ],
+          "note": "medial-ra"
+        },
+        {
+          "id": "ahom-2",
+          "codepoints": [
+            "U+11700",
+            "U+1171D"
+          ],
+          "note": "medial-la"
+        },
+        {
+          "id": "ahom-3",
+          "codepoints": [
+            "U+11700",
+            "U+11726"
+          ],
+          "note": "pre-base-vowel"
+        },
+        {
+          "id": "ahom-4",
+          "codepoints": [
+            "U+11700",
+            "U+11722"
+          ],
+          "note": "above-vowel"
+        },
+        {
+          "id": "ahom-5",
+          "codepoints": [
+            "U+11700",
+            "U+11724"
+          ],
+          "note": "below-vowel"
+        },
+        {
+          "id": "ahom-6",
+          "codepoints": [
+            "U+11700",
+            "U+1172B"
+          ],
+          "note": "killer"
+        }
+      ]
+    },
+    {
+      "group": "brahmic-b",
+      "script": "taiviet",
+      "script_tag": "Tavt",
+      "font": "TaiViet-subset.ttf",
+      "fixture_family": "OdyTTY Shaping TaiViet Fixture",
+      "release_url": "https://github.com/notofonts/tai-viet/releases/download/NotoSansTaiViet-v2.004/NotoSansTaiViet-v2.004.zip",
+      "archive_sha256": "615ea5c07d0da2fcb439ed56488283dd4af9f5d048c6c7044421cf50c9876d4f",
+      "source_member": "NotoSansTaiViet/hinted/ttf/NotoSansTaiViet-Regular.ttf",
+      "source_sha256": "5f7e2a8d5cca567620d101534fc34b432e1577ff01f3f1752750050c90b1ca7f",
+      "source_filename": "NotoSansTaiViet-Regular.ttf",
+      "source_family": "NotoSansTaiViet",
+      "license_member": "OFL.txt",
+      "license_file": "TaiViet-OFL.txt",
+      "license_sha256": "58b7108fd21b318e4016300d5eda1f561837e16c76494c8c19b994c783b3933a",
+      "required_scalars": [
+        "U+0020",
+        "U+AA80",
+        "U+AA81",
+        "U+AAB0",
+        "U+AAB2",
+        "U+AAB4",
+        "U+AABF",
+        "U+AAC1"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "12353b96af2837abbe42f486d99c487836d8d9778b058c37d920ca2ec0cc83a3",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained.",
+      "cases": [
+        {
+          "id": "taiviet-1",
+          "codepoints": [
+            "U+AA80",
+            "U+AAB2"
+          ],
+          "note": "above-vowel"
+        },
+        {
+          "id": "taiviet-2",
+          "codepoints": [
+            "U+AA80",
+            "U+AAB4"
+          ],
+          "note": "below-vowel"
+        },
+        {
+          "id": "taiviet-3",
+          "codepoints": [
+            "U+AA80",
+            "U+AABF"
+          ],
+          "note": "tone"
+        },
+        {
+          "id": "taiviet-4",
+          "codepoints": [
+            "U+AA80",
+            "U+AAB2",
+            "U+AABF"
+          ],
+          "note": "vowel-tone-stack"
+        },
+        {
+          "id": "taiviet-5",
+          "codepoints": [
+            "U+AA80",
+            "U+AAB0"
+          ],
+          "note": "mai-kang"
+        },
+        {
+          "id": "taiviet-6",
+          "codepoints": [
+            "U+AA81",
+            "U+AAB2",
+            "U+AAC1"
+          ],
+          "note": "vowel-tone-stack"
+        }
+      ]
+    },
+    {
+      "group": "hangul",
+      "script": "hangul",
+      "script_tag": "Hang",
+      "font": "Hangul-subset.otf",
+      "fixture_family": "OdyTTY Shaping Hangul Fixture",
+      "release_url": "https://github.com/notofonts/noto-cjk/releases/download/Sans2.004/17_NotoSansKR.zip",
+      "archive_sha256": "ac7eeb4e2b0d41de8ff31b2d6e1e2a41caf253fd5cefb380bfa1f40f1747b612",
+      "source_member": "NotoSansKR-Regular.otf",
+      "source_sha256": "69975a0ac8472717870aefeab0a4d52739308d90856b9955313b2ad5e0148d68",
+      "source_filename": "NotoSansKR-Regular.otf",
+      "source_family": "NotoSansKR",
+      "license_member": "LICENSE",
+      "license_file": "Hangul-OFL.txt",
+      "license_sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+      "required_scalars": [
+        "U+0020",
+        "U+1100",
+        "U+110B",
+        "U+1112",
+        "U+1161",
+        "U+119E",
+        "U+11A2",
+        "U+11AB",
+        "U+A960",
+        "U+D7B0"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained.",
+      "cases": [
+        {
+          "id": "hangul-1",
+          "codepoints": [
+            "U+1112",
+            "U+119E",
+            "U+11AB"
+          ],
+          "note": "old-syllable"
+        },
+        {
+          "id": "hangul-2",
+          "codepoints": [
+            "U+110B",
+            "U+119E"
+          ],
+          "note": "old-lv"
+        },
+        {
+          "id": "hangul-3",
+          "codepoints": [
+            "U+A960",
+            "U+1161"
+          ],
+          "note": "extended-initial"
+        },
+        {
+          "id": "hangul-4",
+          "codepoints": [
+            "U+1100",
+            "U+119E"
+          ],
+          "note": "old-vowel"
+        },
+        {
+          "id": "hangul-5",
+          "codepoints": [
+            "U+1100",
+            "U+11A2"
+          ],
+          "note": "old-double-vowel"
+        },
+        {
+          "id": "hangul-6",
+          "codepoints": [
+            "U+A960",
+            "U+119E",
+            "U+11AB"
+          ],
+          "note": "extended-old-syllable"
+        },
+        {
+          "id": "hangul-7",
+          "codepoints": [
+            "U+1100",
+            "U+D7B0"
+          ],
+          "note": "extended-vowel"
+        }
+      ]
     }
   ]
 }

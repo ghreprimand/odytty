@@ -1,0 +1,48 @@
+# hb-shape (HarfBuzz) 14.5.1
+# fontTools 4.63.0
+# font units; UTF-8 byte clusters; LTR; language und; cluster level 0; OT
+font	codepoints	glyph_ids	clusters	x_offset	y_offset	x_advance	note
+Newa-subset.ttf	U+1140E U+11442 U+1141F	24,43	0,0	0,-475	0,0	960,0	conjunct
+Newa-subset.ttf	U+1142C U+11442 U+1140E	4,23	0,0	0,-521	0,284	680,0	reph
+Newa-subset.ttf	U+1140E U+11442 U+1142C	15,21	0,0	0,-215	0,0	700,0	below-base-ra
+Newa-subset.ttf	U+1140E U+11436	7,4	0,0	0,-375	0,0	585,305	pre-base-vowel
+Newa-subset.ttf	U+1140E U+11440	11,27	0,0	0,0	0,0	680,190	vowel-o
+Newa-subset.ttf	U+1140E U+11438	4,8	0,0	0,-85	0,75	680,0	below-vowel
+Newa-subset.ttf	U+1140E U+11442 U+200D U+1141F	15,10,1,5	0,0,0,11	0,0,0,0	0,0,0,0	700,0,0,595	zwj
+Newa-subset.ttf	U+1140E U+11442 U+200C U+1141F	4,10,1,5	0,0,8,11	0,-155,0,0	0,70,0,0	680,0,0,595	zwnj
+Sharada-subset.ttf	U+11191 U+111C0 U+111A0	13	0	0	0	661	conjunct
+Sharada-subset.ttf	U+111AB U+111C0 U+11191	14	0	0	0	622	reph
+Sharada-subset.ttf	U+11191 U+111C0 U+111AB	2,8,4	0,0,8	0,0,0	0,0,0	707,250,420	below-base-ra
+Sharada-subset.ttf	U+11191 U+111B4	5,2	0,0	0,0	0,0	224,707	pre-base-vowel
+Sharada-subset.ttf	U+11191 U+111B6	9	0	0	0	571	below-vowel
+Sharada-subset.ttf	U+11191 U+111BE	2,7	0,0	0,-47	0,0	707,0	vowel-o
+Tirhuta-subset.ttf	U+1148F U+114C2 U+1149E	18	0	0	0	812	conjunct
+Tirhuta-subset.ttf	U+114A9 U+114C2 U+1148F	3,15	0,0	0,-367	0,-8	807,0	reph
+Tirhuta-subset.ttf	U+1148F U+114B1	7,3	0,0	0,0	0,0	266,807	pre-base-vowel
+Tirhuta-subset.ttf	U+1148F U+114BC	9,3,6	0,0,0	0,0,0	0,0,0	346,807,266	split-vowel
+Tirhuta-subset.ttf	U+1148F U+114B3	12	0	0	0	725	below-vowel
+Tirhuta-subset.ttf	U+1148F U+114C2 U+114A9	19	0	0	0	776	below-base-ra
+Siddham-subset.ttf	U+1158E U+115BF U+1159F	11,30	0,0	0,-696	0,-420	731,0	conjunct
+Siddham-subset.ttf	U+115A8 U+115BF U+1158E	13,46	0,0	97,-740	0,11	740,0	reph
+Siddham-subset.ttf	U+1158E U+115B0	6,2	0,0	0,0	0,0	214,739	pre-base-vowel
+Siddham-subset.ttf	U+1158E U+115BA	7,2,5	0,0,0	0,0,0	0,0,0	80,699,96	split-vowel
+Siddham-subset.ttf	U+1158E U+115B2	11,33	0,0	0,-797	0,204	731,0	below-vowel
+Siddham-subset.ttf	U+1158E U+115BF U+115A8	11,31	0,0	0,-759	0,-420	731,0	below-base-ra
+Takri-subset.ttf	U+1168A U+116B6 U+11699	2,10,3	0,0,8	0,-166,0	0,0,0	723,0,431	conjunct
+Takri-subset.ttf	U+1168A U+116B6 U+116A4	2,11	0,0	0,-237	0,0	723,0	below-base-ra
+Takri-subset.ttf	U+1168A U+116AE	7,2	0,0	0,107	0,0	304,830	pre-base-vowel
+Takri-subset.ttf	U+1168A U+116B0	2,8	0,0	0,-362	0,0	723,0	below-vowel
+Takri-subset.ttf	U+1168A U+116B2	2,9	0,0	0,-364	0,0	723,0	above-vowel
+Takri-subset.ttf	U+1168A U+116AD	2,5	0,0	0,-111	0,-36	723,0	plain-control
+Ahom-subset.ttf	U+11700 U+1171E	2,4	0,0	250,16	0,0	1194,0	medial-ra
+Ahom-subset.ttf	U+11700 U+1171D	2,3	0,0	0,16	0,0	944,0	medial-la
+Ahom-subset.ttf	U+11700 U+11726	7,2	0,0	0,0	0,0	630,944	pre-base-vowel
+Ahom-subset.ttf	U+11700 U+11722	2,5	0,0	0,-231	0,0	1175,0	above-vowel
+Ahom-subset.ttf	U+11700 U+11724	2,6	0,0	0,1	0,0	944,0	below-vowel
+Ahom-subset.ttf	U+11700 U+1172B	2,8	0,0	0,-34	0,0	944,0	killer
+TaiViet-subset.ttf	U+AA80 U+AAB2	2,5	0,0	0,9	0,0	646,0	above-vowel
+TaiViet-subset.ttf	U+AA80 U+AAB4	2,6	0,0	0,-146	0,0	646,0	below-vowel
+TaiViet-subset.ttf	U+AA80 U+AABF	2,7	0,0	0,-79	0,0	646,0	tone
+TaiViet-subset.ttf	U+AA80 U+AAB2 U+AABF	2,5,7	0,0,0	0,9,-79	0,0,0	646,0,0	vowel-tone-stack
+TaiViet-subset.ttf	U+AA80 U+AAB0	2,4	0,0	0,18	0,0	646,0	mai-kang
+TaiViet-subset.ttf	U+AA81 U+AAB2 U+AAC1	3,5,8	0,0,0	0,-46,2	0,0,0	715,0,0	vowel-tone-stack

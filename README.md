@@ -177,9 +177,8 @@ Known gaps include the following:
 
 - Windows detached and resumable session hosting.
 - Font shaping outside the tuned script groups has HarfBuzz reference
-  fixtures only for Balinese, Sundanese, Batak, Buginese, Cham, Lepcha,
-  Limbu, Hebrew, and Kharoshthi; other scripts' owners are shaped without a
-  recorded reference.
+  fixtures for 17 scripts (see `docs/shaping-roadmap.md`); other scripts'
+  owners are shaped without a recorded reference.
 - Live tab drag follow on X11 (the window appears on release).
 - Chinese, Japanese and Korean text on Windows and macOS needs a terminal font
   that includes it; the stock-font fallback does not cover those scripts.

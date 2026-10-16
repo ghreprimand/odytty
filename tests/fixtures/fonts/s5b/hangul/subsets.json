@@ -1,0 +1,27 @@
+{
+  "fonttools": "4.63.0",
+  "harfbuzz": "hb-shape (HarfBuzz) 14.5.1",
+  "faces": [
+    {
+      "font": "Hangul-subset.otf",
+      "subset_sha256": "4009742f3651543341cb845c5bee85547e7ee56ca82efa152ad620782a9b1005",
+      "subset_bytes": 9212,
+      "glyph_count": 64,
+      "units_per_em": 1000,
+      "reference_rows": 7,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+1100",
+        "U+110B",
+        "U+1112",
+        "U+1161",
+        "U+119E",
+        "U+11A2",
+        "U+11AB",
+        "U+A960",
+        "U+D7B0"
+      ],
+      "subset_command": "pyftsubset source/NotoSansKR-Regular.otf --unicodes=U+0020,U+1100,U+110B,U+1112,U+1161,U+119E,U+11A2,U+11AB,U+A960,U+D7B0 --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=hangul/Hangul-subset.otf"
+    }
+  ]
+}

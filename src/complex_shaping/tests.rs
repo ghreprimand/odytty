@@ -279,6 +279,75 @@ const GROUPS: &[Group] = &[
             "zwj",
         ],
     },
+    Group {
+        name: "brahmic-b",
+        reference: include_str!("../../tests/fixtures/fonts/s5b/brahmic-b/reference.tsv"),
+        faces: &[
+            (
+                "Newa-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/brahmic-b/Newa-subset.ttf"),
+            ),
+            (
+                "Sharada-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/brahmic-b/Sharada-subset.ttf"),
+            ),
+            (
+                "Tirhuta-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/brahmic-b/Tirhuta-subset.ttf"),
+            ),
+            (
+                "Siddham-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/brahmic-b/Siddham-subset.ttf"),
+            ),
+            (
+                "Takri-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/brahmic-b/Takri-subset.ttf"),
+            ),
+            (
+                "Ahom-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/brahmic-b/Ahom-subset.ttf"),
+            ),
+            (
+                "TaiViet-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/brahmic-b/TaiViet-subset.ttf"),
+            ),
+        ],
+        count: 44,
+        known_diffs: &[],
+        // The Newa ZWNJ control splits into two owners.
+        owner_floor: 43,
+        changed_notes: &[
+            "conjunct",
+            "reph",
+            "below-base-ra",
+            "pre-base-vowel",
+            "split-vowel",
+            "medial-ra",
+            "killer",
+            "vowel-tone-stack",
+            "zwj",
+        ],
+    },
+    Group {
+        name: "hangul",
+        reference: include_str!("../../tests/fixtures/fonts/s5b/hangul/reference.tsv"),
+        faces: &[(
+            "Hangul-subset.otf",
+            include_bytes!("../../tests/fixtures/fonts/s5b/hangul/Hangul-subset.otf"),
+        )],
+        count: 7,
+        known_diffs: &[],
+        owner_floor: 7,
+        changed_notes: &[
+            "old-syllable",
+            "old-lv",
+            "extended-initial",
+            "old-vowel",
+            "old-double-vowel",
+            "extended-old-syllable",
+            "extended-vowel",
+        ],
+    },
 ];
 
 fn face(name: &str) -> FontHandle {
@@ -832,7 +901,7 @@ fn production_frames_equal_the_reference_run_and_differ_from_the_per_cell_path()
         }
         // Outside the tuned groups every multi-scalar owner was drawn per
         // cell before; each fixture row now draws its shaped run instead.
-        if matches!(group.name, "brahmic-a" | "rtl") {
+        if matches!(group.name, "brahmic-a" | "brahmic-b" | "hangul" | "rtl") {
             assert_eq!(changed.len(), compared, "{}: {changed:?}", group.name);
         }
         if group.name == "northern-indic" {

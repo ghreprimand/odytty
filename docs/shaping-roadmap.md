@@ -91,7 +91,7 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | Thai/Lao/Tibetan shaping | With `script_shaping` on, Thai, Lao, and Tibetan owners are shaped with the font (SARA AM decomposition, tone-mark and descender alternates, stacked tone and vowel marks, precomposed Tibetan subjoined stacks) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping; widths are unchanged, so tone marks and Tibetan subjoined letters stay in their one-cell owners |
 | Sinhala shaping | With `script_shaping` on, Sinhala owners are shaped with the font (ZWJ conjunct requests, pre-base and split vowels) and fitted inside their one or two cells by the same rule | Shaping never crosses owners; ZWNJ breaks ownership; widths and logical copy stay unchanged |
 | Chakma/Javanese/Grantha/Tai Tham shaping | With `script_shaping` on, the four scripts' owners are shaped with the font (stacked and conjunct forms, pre-base and split vowels, cakra and medials) and fitted inside their one or two cells | Shaping never crosses owners; Chakma U+11134 with ZWJ keeps separate owners; widths and logical copy stay unchanged |
-| Other complex-script shaping | With `script_shaping` on, every other script's multi-scalar owners are shaped with the font in the script's own direction (right to left for Hebrew, Kharoshthi, and the other right-to-left scripts) and fitted inside their one or two cells by the same rule; reference fixtures cover Balinese, Sundanese, Batak, Buginese, Cham, Lepcha, Limbu, Hebrew with points, and Kharoshthi | Latin, Greek, Cyrillic, and Common marks keep the per-cell mark path; Arabic and the joining scripts (Syriac, N'Ko, Mongolian, Adlam, Hanifi Rohingya, Mandaic), Han, and Kana keep their own paths; single scalars and owners whose marks come from another script stay per cell; same face and fallback limits as Indic owner shaping |
+| Other complex-script shaping | With `script_shaping` on, every other script's multi-scalar owners are shaped with the font in the script's own direction (right to left for Hebrew, Kharoshthi, and the other right-to-left scripts) and fitted inside their one or two cells by the same rule; reference fixtures cover Balinese, Sundanese, Batak, Buginese, Cham, Lepcha, Limbu, Newa, Sharada, Tirhuta, Siddham, Takri, Ahom, Tai Viet, old Hangul jamo syllables, Hebrew with points, and Kharoshthi | Latin, Greek, Cyrillic, and Common marks keep the per-cell mark path; Arabic and the joining scripts (Syriac, N'Ko, Mongolian, Adlam, Hanifi Rohingya, Mandaic), Han, and Kana keep their own paths; single scalars and owners whose marks come from another script stay per cell; same face and fallback limits as Indic owner shaping |
 | Northern Indic terminal widths | Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing signs and virama-linked consonants share bounded two-cell owners | Terminal width ownership is distinct from Unicode segmentation and font-backed shaping |
 | Southern Indic terminal widths | Tamil, Telugu, Kannada, and Malayalam spacing signs and virama-linked consonants share bounded two-cell owners | Tamil width units can cross grapheme boundaries; font-backed shaping remains within each owner |
 | Sinhala terminal widths | Dependent spacing signs and virama-linked consonants share bounded two-cell owners, with ZWJ preserving the link and ZWNJ breaking it | Sinhala terminal width units can cross grapheme boundaries; font-backed shaping stays inside each owner |
@@ -373,10 +373,12 @@ shaped in its script's horizontal direction and its glyphs are placed left to
 right in visual order across the owner's span, so a Kharoshthi stack (two
 clusters) draws its second consonant on the left. HarfBuzz 14.5.1 references
 cover 49 Balinese, Sundanese, Batak, Buginese, Cham, Lepcha, and Limbu samples
-(conjuncts, stackers, pre-base, split and subjoined vowels and medials,
-killers, finals, joiner requests) and 14 Hebrew and Kharoshthi samples shaped
-right to left; all match exactly, and every single-owner sample draws
-differently from the per-cell path.
+and 44 Newa, Sharada, Tirhuta, Siddham, Takri, Ahom, and Tai Viet samples
+(conjuncts, reph, stackers, below-base ra, pre-base, split and subjoined
+vowels and medials, killers, finals, tone and vowel stacks, joiner requests),
+seven old Hangul jamo syllables (composed by the font's jamo features), and 14
+Hebrew and Kharoshthi samples shaped right to left; all match exactly, and
+every single-owner sample draws differently from the per-cell path.
 
 ### SVG-in-OpenType
 

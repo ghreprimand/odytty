@@ -1,6 +1,6 @@
 # Complex-script shaping fixture corpus
 
-The eight groups contain 28 minimal OFL Noto faces and project-authored samples for reordering, reph where applicable, conjuncts, stacking, below-base forms, split vowels, and joiner boundaries. Two ordinary consonant/sign controls per face keep basic placement visible. Script-specific constructions and controls are identified by each row's note.
+The ten groups contain 36 minimal OFL Noto faces and project-authored samples for reordering, reph where applicable, conjuncts, stacking, below-base forms, split vowels, and joiner boundaries. Two ordinary consonant/sign controls per face keep basic placement visible. Script-specific constructions and controls are identified by each row's note.
 
 Each group has subset fonts, complete OFL notices, source and subset hashes, exact subsetting commands, and reference.tsv. The reference columns are font, codepoints, glyph_ids, clusters, x_offset, y_offset, x_advance, and note. Glyph arrays use commas; clusters are UTF-8 byte offsets. HarfBuzz and fontTools versions are recorded in every header, with the shaping direction: left to right for every group except rtl (Hebrew and Kharoshthi), which is shaped right to left as production shapes it. Regeneration shapes each source and subset, maps the original glyph IDs through renumbering, and verifies that glyph order, clusters, offsets, and advances agree exactly.
 

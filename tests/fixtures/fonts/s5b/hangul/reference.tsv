@@ -1,0 +1,11 @@
+# hb-shape (HarfBuzz) 14.5.1
+# fontTools 4.63.0
+# font units; UTF-8 byte clusters; LTR; language und; cluster level 0; OT
+font	codepoints	glyph_ids	clusters	x_offset	y_offset	x_advance	note
+Hangul-subset.otf	U+1112 U+119E U+11AB	21	0	0	0	920	old-syllable
+Hangul-subset.otf	U+110B U+119E	20	0	0	0	920	old-lv
+Hangul-subset.otf	U+A960 U+1161	41,53	0,0	0,0	0,0	920,0	extended-initial
+Hangul-subset.otf	U+1100 U+119E	18	0	0	0	920	old-vowel
+Hangul-subset.otf	U+1100 U+11A2	2,55	0,0	0,0	0,0	920,0	old-double-vowel
+Hangul-subset.otf	U+A960 U+119E U+11AB	31,49,62	0,0,0	0,0,0	0,0,0	920,0,0	extended-old-syllable
+Hangul-subset.otf	U+1100 U+D7B0	43,56	0,0	0,0	0,0	920,0	extended-vowel
