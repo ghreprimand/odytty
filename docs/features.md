@@ -568,12 +568,12 @@ pre-edit follows the pane's policy.
 ### Ligatures, Shaping, And Bidirectional Text
 
 Fresh profiles enable Programming ligatures for Latin/operator runs and the
-independent Script shaping setting for Arabic and the complex-script groups
-listed below. Both rows sit in Settings > Rendering, reachable from the
-right-click Settings item. Shaping runs cover eligible ASCII graphics, a
-curated allowlist of common non-ASCII operators and arrows, the joining letters
-of Arabic, Syriac, N'Ko, Mandaic, Adlam, Hanifi Rohingya, and Mongolian, and the
-width owners of the enabled complex-script groups, and change only presentation:
+independent Script shaping setting for the joining scripts and the complex
+scripts listed below. Both rows sit in Settings > Rendering, reachable from the
+right-click Settings item. Shaping runs cover eligible ASCII graphics, a curated
+allowlist of common non-ASCII operators and arrows, the joining letters of
+Arabic, Syriac, N'Ko, Mandaic, Adlam, Hanifi Rohingya, and Mongolian, and the
+multi-scalar width owners of the complex scripts, and change only presentation:
 the terminal model's logical cells and source text are unchanged, so copying,
 selection, search, cursor placement, and wide-cell behavior retain their
 ordinary semantics. Latin/operator runs enable OpenType `calt` and `liga`

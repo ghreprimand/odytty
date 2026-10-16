@@ -1164,14 +1164,21 @@ in-memory set. It is never saved, and a new pane does not join on its own.
   default) shapes one width owner at a time with `harfrust` and draws the result
   as an overlay over exactly the owner's cells. Bidirectional display order
   (`bidi_reorder`) is opt-in and off by default.
-- **Validation and caps:** an owner is shaped only when its scalars belong to the
-  enabled script groups plus ZWJ, ZWNJ, and Vedic marks, and it retains at most
-  `OWNER_SCALARS` = 17 (`src/complex_shaping/mod.rs`; the extension count is
-  capped at `MAX_COMBINING` = 16, `src/core/types.rs`). A shaping result holding
+- **Validation and caps:** an owner is shaped only when its scalars belong to a
+  tuned script group plus ZWJ, ZWNJ, and Vedic marks, or when it holds more than
+  one scalar of one script outside the exclusion list (with Inherited marks and
+  those joiners), and it retains at most `OWNER_SCALARS` = 17
+  (`src/complex_shaping/mod.rs`; the extension count is capped at
+  `MAX_COMBINING` = 16, `src/core/types.rs`). A shaping result holding
   `.notdef`, a glyph id past `u16`, or more than `MAX_RUN_GLYPHS` = 64 glyphs is
-  discarded. The bidi planner (`src/core/bidi/mod.rs`) accepts a paragraph of at
-  most `MAX_BIDI_PARAGRAPH_OWNERS` = 16,384 owners, `MAX_BIDI_PARAGRAPH_BYTES` =
-  16 bytes per owner, and `MAX_BIDI_PARAGRAPH_ROWS` = 16,384 physical rows, and an
+  discarded. A contextual joining run never crosses a row, a script, a face, or
+  a bidi level; it is shaped on the text face only, a result holding `.notdef`
+  or a glyph id past `u16` draws per cell, mark offsets are clamped to the `i16`
+  range, and an overlay covers at most 255 cells, longer runs splitting at
+  cluster boundaries (`src/ligature.rs`, `src/ligature/joining.rs`). The bidi
+  planner (`src/core/bidi/mod.rs`) accepts a paragraph of at most
+  `MAX_BIDI_PARAGRAPH_OWNERS` = 16,384 owners, `MAX_BIDI_PARAGRAPH_BYTES` = 16
+  bytes per owner, and `MAX_BIDI_PARAGRAPH_ROWS` = 16,384 physical rows, and an
   owner at most `MAX_BIDI_OWNER_WIDTH` = 4 cells wide.
 - **Failure behavior:** bounded degradation. An owner that cannot be shaped, or
   whose font is missing or still resolving, keeps the per-cell path for that

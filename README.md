@@ -133,10 +133,12 @@ sessions.
   font is available, Kitty graphics, and Sixel share the `wgpu` renderer.
   Atlas bitmap budgets bound cache residency, not total GPU memory; see the
   [capacity limits](SPEC.md#bound-emoji-atlas-capacity).
-- **International text:** Unicode 17 terminal widths for Indic, Southeast
-  Asian, and emoji sequences, font shaping for the enabled script groups, and
-  opt-in bidirectional display; see the [feature reference](docs/features.md)
-  and [shaping roadmap](docs/shaping-roadmap.md#current-support-boundary).
+- **International text:** Unicode 17 grapheme clusters and terminal widths for
+  every script and emoji sequence, font shaping of complex-script clusters,
+  contextual joining for Arabic, Syriac, N'Ko, Mandaic, Adlam, Hanifi Rohingya,
+  and Mongolian, and opt-in bidirectional display; see the
+  [feature reference](docs/features.md) and
+  [shaping roadmap](docs/shaping-roadmap.md#current-support-boundary).
 - **Daily terminal interaction:** Kitty keyboard, mouse modes, IME, search,
   selection and copy mode, hyperlinks, clickable paths, [paste
   safety](docs/features.md#paste-safety), and [shell

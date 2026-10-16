@@ -53,11 +53,13 @@ what character copy/paste reports for that cell.
 The consequence is a real one: OdyTTY's shaping is a presentation overlay on a
 monospace-cell grid, not a full text-shaping engine that can reflow glyph
 advances or cell counts. That covers ASCII contextual ligatures, curated
-operator ligatures, Arabic joining forms, static color glyphs, and font-backed
-shaping inside the enabled complex-script owners. Optional bidirectional
-layout moves whole owners in display order while keeping their cells together.
-Shaping across owner boundaries and scripts outside the enabled groups remain
-outside this model (see Standing scope boundaries, below).
+operator ligatures, contextual joining forms of Arabic and the other joining
+scripts, static color glyphs, and font-backed shaping inside the multi-scalar
+owners of the complex scripts (see the matrix below for the paths Latin, Greek,
+Cyrillic, Han, and Kana keep). Optional bidirectional layout moves whole owners
+in display order while keeping their cells together. Shaping across owner
+boundaries other than joining runs, and single scalars, which draw per cell,
+remain outside this model (see Standing scope boundaries, below).
 
 ## Current support boundary
 

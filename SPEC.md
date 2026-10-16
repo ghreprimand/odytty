@@ -3091,10 +3091,10 @@ of the letter's own script (Joining_Type T in Unicode 17.0.0, and the Mongolian
 vowel separator) ride their letter into its joining run the same way;
 Inherited marks and marks of another script keep the monochrome path.
 
-With script shaping on, each width owner of an enabled script group is
+With script shaping on, each width owner of a tuned script group is
 shaped on its own with `harfrust` 0.14.0 (script and horizontal direction
 from the content, no language, cluster level 0) and drawn as one
-overlay over exactly its one or two cells. The enabled groups are
+overlay over exactly its one or two cells. The tuned groups are
 Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and
 Malayalam;
 Khmer and Myanmar;
