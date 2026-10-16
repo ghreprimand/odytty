@@ -237,16 +237,28 @@ impl App {
     /// cwd/profile/title to existing profile-launch seams and no closed PTY is
     /// stored or revived.
     pub(super) fn reopen_last_closed_navigator_item(&mut self) {
-        self.reopen_last_closed_navigator_item_with(Self::spawn_local_tab_from_effective);
+        self.reopen_last_closed_navigator_item_with(
+            Self::spawn_local_tab_from_effective,
+            |app, effective| {
+                app.sessions
+                    .new_workspace_from_effective(app.grid, effective)
+            },
+        );
     }
 
-    /// [`Self::reopen_last_closed_navigator_item`] with the tab launch step
-    /// injected. The closed title goes onto the tab that launch returns, never
-    /// onto whichever tab is active, and a launch that fails (it raises its own
-    /// notice) puts the item back in the ring so it can be retried.
+    /// [`Self::reopen_last_closed_navigator_item`] with the tab and workspace
+    /// launch steps injected. The closed title goes onto the tab that launch
+    /// returns, never onto whichever tab is active. A tab launch that fails (it
+    /// raises its own notice) and a workspace launch that fails (this raises
+    /// the notice unless one is already showing) both put the item back in the
+    /// ring so it can be retried.
     pub(super) fn reopen_last_closed_navigator_item_with(
         &mut self,
         launch_tab: impl FnOnce(&mut Self, crate::profiles::EffectiveLaunch) -> Option<SessionToken>,
+        launch_workspace: impl FnOnce(
+            &mut Self,
+            &crate::profiles::EffectiveLaunch,
+        ) -> Result<SessionToken, std::io::Error>,
     ) {
         let Some(item) = self.navigator_recently_closed.pop_back() else {
             self.open_session_navigator_overlay();
@@ -266,10 +278,7 @@ impl App {
             ClosedNavigatorKind::Workspace => {
                 // A tab launch applies this inside its own spawn path.
                 super::profile_launch::apply_missing_cwd_fallback(&mut effective);
-                match self
-                    .sessions
-                    .new_workspace_from_effective(self.grid, &effective)
-                {
+                match launch_workspace(self, &effective) {
                     Ok(token) => {
                         self.finish_new_workspace_with_effective(token, &effective);
                         if let Some(workspace) = self.sessions.workspaces.last_mut() {

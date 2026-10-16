@@ -585,6 +585,55 @@ mod tests {
         );
     }
 
+    /// A move the session layer refuses after the focus-out went out (here a
+    /// tab tree naming one pane twice) leaves the window as it was and sends
+    /// the matching focus-in, so the program is never left believing it lost
+    /// focus. The refusal also raises the move notice.
+    #[test]
+    fn a_move_refused_at_detach_sends_the_matching_focus_in() {
+        use crate::native::layout::{PaneNode, SplitAxis};
+        let (mut origin, _model) = two_tab_window();
+        let moving = origin.active_session_token_for_test();
+        let workspace = origin.workspace_set().active_workspace_index();
+        let tab = origin.workspace_set().workspaces[workspace].active_tab;
+        origin.sessions.workspaces[workspace].tabs[tab].layout = PaneNode::Split {
+            axis: SplitAxis::Columns,
+            ratio: 0.5,
+            first: Box::new(PaneNode::Leaf(moving)),
+            second: Box::new(PaneNode::Leaf(moving)),
+        };
+        origin.last_active_session = moving;
+        origin
+            .workspace_set()
+            .get(moving)
+            .expect("pane")
+            .terminal
+            .lock()
+            .expect("terminal")
+            .advance(b"\x1b[?1004h");
+        origin.set_window_focus_for_test(true);
+        origin.focus_reports_for_test.clear();
+        let before = tab_leaves(&origin);
+        let origin_id = origin.process_window_id();
+        let mut host = host_of(vec![origin]);
+
+        assert!(!host.move_to_new_window(origin_id, MoveScope::ActiveTab, |_| Ok(())));
+
+        let source = &host.windows[0];
+        assert_eq!(host.windows.len(), 1);
+        assert_eq!(tab_leaves(source), before, "the tab tree is unchanged");
+        assert!(source.workspace_set().get(moving).is_some());
+        assert_eq!(
+            source.focus_reports_for_test,
+            vec![(moving, false), (moving, true)],
+            "the focus-out is cancelled by a focus-in"
+        );
+        assert_eq!(
+            source.open_notice_message_for_test().as_deref(),
+            Some(MOVE_REFUSED_NOTICE)
+        );
+    }
+
     /// The active tab of a two-tab window, recording, with one replay frame.
     fn recording_two_tab_window() -> (App, SessionToken) {
         let (mut origin, model) = two_tab_window();

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Reopening the last closed navigator item puts its title on the tab the
-//! relaunch created, never on whichever tab is active, and a relaunch that
-//! fails keeps the item so it can be retried.
+//! relaunch created, never on whichever tab is active, and a relaunch of a tab
+//! or a workspace that fails keeps the item so it can be retried.
 
 use super::*;
 use crate::native::session::SessionToken;
@@ -64,4 +64,56 @@ fn a_successful_reopen_titles_the_new_tab() {
     assert_eq!(app.session_token_at_position_for_test(1), Some(token));
     assert_eq!(app.session_tab_title_for_test(1).as_deref(), Some("logs"));
     assert_eq!(app.navigator_recently_closed_len_for_test(), 0);
+}
+
+fn app_with_a_closed_workspace() -> App {
+    let (mut app, _terminal) = headless_app_with_writer(
+        NativeOptions::default(),
+        Dimensions::new(80, 24),
+        Settings::default(),
+        headless_writer(),
+    );
+    let _ = app.push_headless_workspace_for_test(
+        Arc::new(Mutex::new(Terminal::new(80, 24))),
+        headless_writer(),
+        Dimensions::new(80, 24),
+    );
+    app.rename_workspace_for_test(1, "build");
+    app.close_workspace_at_for_test(1);
+    assert_eq!(app.navigator_recently_closed_len_for_test(), 1);
+    app
+}
+
+#[test]
+fn a_failed_workspace_reopen_keeps_the_item_and_says_why() {
+    let mut app = app_with_a_closed_workspace();
+    let workspaces = app.workspace_count_for_test();
+
+    app.reopen_last_closed_with_failing_workspace_for_test();
+
+    assert_eq!(app.workspace_count_for_test(), workspaces);
+    assert_eq!(
+        app.navigator_recently_closed_len_for_test(),
+        1,
+        "the closed workspace stays for a retry"
+    );
+    let notice = app.open_notice_message_for_test().expect("a notice");
+    assert!(
+        notice.starts_with("Could not reopen the workspace:") && notice.contains("spawn refused"),
+        "{notice}"
+    );
+}
+
+#[test]
+fn a_failed_workspace_reopen_keeps_a_notice_that_is_already_showing() {
+    let mut app = app_with_a_closed_workspace();
+    app.raise_open_notice("earlier notice".to_owned());
+
+    app.reopen_last_closed_with_failing_workspace_for_test();
+
+    assert_eq!(
+        app.open_notice_message_for_test().as_deref(),
+        Some("earlier notice")
+    );
+    assert_eq!(app.navigator_recently_closed_len_for_test(), 1);
 }

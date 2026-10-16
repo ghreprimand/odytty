@@ -3929,22 +3929,36 @@ impl App {
         launches: bool,
     ) -> Option<SessionToken> {
         let mut launched = None;
-        self.reopen_last_closed_navigator_item_with(|app, _effective| {
-            if !launches {
-                return None;
-            }
-            let position = app.push_headless_session_for_test(
-                Arc::new(Mutex::new(Terminal::new(80, 24))),
-                crate::native::test_support::headless_writer(),
-                crate::core::Dimensions::new(80, 24),
-            );
-            let token = app.sessions.token_at_position(position)?;
-            let _ = app.sessions.switch(token);
-            app.on_active_session_changed();
-            launched = Some(token);
-            Some(token)
-        });
+        self.reopen_last_closed_navigator_item_with(
+            |app, _effective| {
+                if !launches {
+                    return None;
+                }
+                let position = app.push_headless_session_for_test(
+                    Arc::new(Mutex::new(Terminal::new(80, 24))),
+                    crate::native::test_support::headless_writer(),
+                    crate::core::Dimensions::new(80, 24),
+                );
+                let token = app.sessions.token_at_position(position)?;
+                let _ = app.sessions.switch(token);
+                app.on_active_session_changed();
+                launched = Some(token);
+                Some(token)
+            },
+            |_app, _effective| Err(std::io::Error::other("no workspace launch in this seam")),
+        );
         launched
+    }
+
+    /// Test seam: reopen the last closed navigator item with the workspace
+    /// launch step failing as a refused spawn does. A tab item never reaches
+    /// that step.
+    #[cfg(test)]
+    pub(in crate::native) fn reopen_last_closed_with_failing_workspace_for_test(&mut self) {
+        self.reopen_last_closed_navigator_item_with(
+            |_app, _effective| None,
+            |_app, _effective| Err(std::io::Error::other("spawn refused")),
+        );
     }
 
     #[cfg(test)]
