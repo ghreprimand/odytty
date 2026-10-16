@@ -910,7 +910,7 @@ impl ImageScene {
             {
                 continue;
             }
-            // C21: a placement partially scrolled above the viewport top must
+            // A placement partially scrolled above the viewport top must
             // show its LOWER portion, not re-anchor its top rows at row 0.
             // Advance the source rect by the clipped pixel rows (placements
             // render 1:1, so one display row == one cell height of source

@@ -94,21 +94,22 @@ pub(super) fn scan_slot_ink(atlas: &GlyphAtlas, slot: u32) -> Option<(i32, i32, 
 
 // ----- Wide-glyph (East Asian width-2) atlas support -----
 
-/// A width-2 codepoint the loaded font actually has an outline for. `None`
-/// on hosts without a CJK/fullwidth-capable font (the common case here), so
-/// dependent tests skip rather than fail.
-pub(super) fn wide_glyph_supported(font: &FontHandle) -> Option<char> {
-    // CJK ideographs, hiragana/katakana, and fullwidth ASCII forms.
-    let ranges = [
-        0x4E00u32..=0x4F00, // CJK unified
-        0x3040..=0x30FF,    // kana
-        0xFF01..=0xFF60,    // fullwidth forms
-    ];
-    ranges
-        .into_iter()
-        .flatten()
-        .filter_map(char::from_u32)
-        .find(|&ch| glyph_cells(ch) == 2 && font_has_glyph(font, ch))
+/// The project-authored fixture face that carries a two-cell glyph, and that
+/// glyph. The bundled text face has no wide glyphs, so wide-glyph atlas tests
+/// draw from this face instead of depending on a host font.
+pub(super) fn wide_fixture() -> (FontHandle, char) {
+    let font = FontHandle::try_from_vec(
+        include_bytes!("../../../tests/fixtures/fonts/bidi-mixed.ttf").to_vec(),
+    )
+    .expect("project-authored font fixture");
+    let ch = '\u{754C}';
+    assert_eq!(
+        glyph_cells(ch),
+        2,
+        "the fixture glyph is a two-cell character"
+    );
+    assert!(font_has_glyph(&font, ch), "the fixture face covers U+754C");
+    (font, ch)
 }
 
 // ----- Fractional-scale UV/quad bookkeeping -----

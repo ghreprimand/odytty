@@ -191,12 +191,8 @@ fn rasterize_clip_width_relieves_wide_glyph_clipping() {
 }
 
 #[test]
-fn ensure_wide_codepoint_consumes_two_slots_when_supported() {
-    let font = test_font();
-    let Some(ch) = wide_glyph_supported(&font) else {
-        eprintln!("skipping: no wide (CJK/fullwidth) glyph in the loaded font");
-        return;
-    };
+fn ensure_wide_codepoint_consumes_two_slots() {
+    let (font, ch) = wide_fixture();
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     let before = atlas.slot_count();
     let uv = atlas.ensure(&font, ch).expect("wide glyph uv");

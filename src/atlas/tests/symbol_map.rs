@@ -97,10 +97,8 @@ fn empty_map_ensure_styled_is_byte_identical() {
     // render-globals guard across both passes.
     let _guard = crate::test_lock::render_globals_lock();
     let font = test_font();
-    let Some(ch) = glyph_bearing_non_ascii(&font) else {
-        eprintln!("skipping: font has no usable non-ASCII glyph");
-        return;
-    };
+    let ch =
+        glyph_bearing_non_ascii(&font).expect("bundled face: font has no usable non-ASCII glyph");
     // Baseline atlas with no override map.
     let mut base = GlyphAtlas::build(&font, 24.0);
     let base_uv = base.ensure(&font, ch).expect("baseline glyph");
@@ -127,10 +125,8 @@ fn empty_map_ensure_styled_is_byte_identical() {
 #[test]
 fn override_renders_a_real_glyph_from_the_override_face() {
     let font = test_font();
-    let Some(ch) = glyph_bearing_non_ascii(&font) else {
-        eprintln!("skipping: font has no usable non-ASCII glyph");
-        return;
-    };
+    let ch =
+        glyph_bearing_non_ascii(&font).expect("bundled face: font has no usable non-ASCII glyph");
     let override_face = test_font();
     let cp = ch as u32;
     let mut atlas = GlyphAtlas::build(&font, 24.0);
@@ -163,7 +159,27 @@ fn override_suppresses_geometric_for_a_box_drawing_codepoint() {
         atlas.symbol_map_font_for(box_ch).is_some(),
         "override must shadow the geometric box-drawing path"
     );
-    // And the glyph still resolves to a slot (rasterized from the override face)
-    // without panicking.
-    let _ = atlas.ensure(&font, box_ch).expect("override box glyph uv");
+    // The override face draws the glyph, so its pixels differ from the
+    // geometric rendering of the same codepoint.
+    let _guard = crate::test_lock::render_globals_lock();
+    let override_uv = atlas.ensure(&font, box_ch).expect("override box glyph uv");
+    let mut geometric = GlyphAtlas::build(&font, 24.0);
+    geometric.set_geometric_boxdraw(true);
+    let geometric_uv = geometric.ensure(&font, box_ch).expect("geometric uv");
+    assert_ne!(
+        cell_bytes(&atlas, override_uv),
+        cell_bytes(&geometric, geometric_uv),
+        "the override glyph must replace the geometric drawing"
+    );
+}
+
+/// The inner cell bytes a UV rect points at (grayscale atlas).
+fn cell_bytes(atlas: &GlyphAtlas, uv: [f32; 4]) -> Vec<u8> {
+    let (cx, cy) = inner_origin(atlas, uv);
+    let mut out = Vec::new();
+    for y in cy..cy + atlas.cell.height {
+        let row = (y * atlas.width + cx) as usize;
+        out.extend_from_slice(&atlas.data[row..row + atlas.cell.width as usize]);
+    }
+    out
 }

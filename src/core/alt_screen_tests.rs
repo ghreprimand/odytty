@@ -633,7 +633,7 @@ fn cursor_visible_restored_after_alt_roundtrip_47() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// F4: current_attrs (SGR state) saved/restored with StoredScreen
+// Current_attrs (SGR state) saved/restored with StoredScreen
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]

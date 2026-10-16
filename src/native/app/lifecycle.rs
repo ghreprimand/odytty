@@ -836,7 +836,7 @@ impl App {
             self.raise_open_notice(notice);
         }
 
-        // WP2 sub-ODP 8c: debounced workspace-shape autosave. Cheap and fully
+        // Debounced workspace-shape autosave. Cheap and fully
         // idle on non-primary instances / when nothing changed.
         self.run_shape_autosave(now);
 

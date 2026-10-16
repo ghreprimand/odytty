@@ -158,7 +158,7 @@ impl App {
 
     /// Shift window-content overlay quads by the tab-chrome offset so they stay
     /// registered with the content grid after chrome is reserved: `+Y` for the
-    /// top bar, `+X` for the left rail (F4-V2). `(0, 0)` on the plain path leaves
+    /// top bar, `+X` for the left rail. `(0, 0)` on the plain path leaves
     /// every quad untouched (byte-identical).
     pub(super) fn shift_overlays_for_tab_chrome(
         &self,
@@ -184,7 +184,7 @@ impl App {
         cell: CellSize,
     ) -> (Snapshot, Vec<SolidQuad>) {
         let show_top = self.should_show_tab_bar();
-        // F4-P3: under rail auto-hide the rail is NOT decorated into the content
+        // Under rail auto-hide the rail is NOT decorated into the content
         // snapshot - it draws only as a floating overlay (`build_rail_overlay`)
         // over full-bleed content. The top bar is never auto-hidden, so it stays
         // pinned regardless.
@@ -283,7 +283,7 @@ impl App {
         (decorated, output.quads)
     }
 
-    /// Single-pane vertical-rail decoration (F4-V2): grow the snapshot by the
+    /// Single-pane vertical-rail decoration: grow the snapshot by the
     /// rail band on the rail side, shift the
     /// original content (and the cursor) into the content band, paint the rail
     /// glyphs into the rail band of every row. The reservation used here MUST

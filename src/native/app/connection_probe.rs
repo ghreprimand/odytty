@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Background Test Connection probe worker (REMOTE-UX P4 / ODP-8).
+//! Background Test Connection probe worker.
 //!
 //! The Add / Edit connection form's *Test Connection* action hands a built host
 //! here to be probed on a background thread so the UI never blocks. The probe

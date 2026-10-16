@@ -1172,7 +1172,7 @@ mod tests {
         assert!(!ui.render_signature().pending_close_prompt);
     }
 
-    // ── UX4-P1 click→select+arm parity ─────────────────────────────────────
+    // ── Click selects and arms ─────────────────────────────────────
 
     #[test]
     fn click_row_selects_and_routes_activate_to_arm_capture() {
@@ -1224,7 +1224,7 @@ mod tests {
         assert!(!ui.click_row(5, 5), "click_row applies the same bound");
     }
 
-    // ── P1-6 dirty-close prompt ─────────────────────────────────────────────
+    // ── Dirty-close prompt ─────────────────────────────────────────────
 
     fn make_dirty(ui: &mut KeyRemapUi) {
         select_action(ui, BindableAction::Hints);

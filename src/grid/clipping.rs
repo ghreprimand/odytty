@@ -3,7 +3,7 @@
 
 use super::*;
 
-/// PANE-SUBCELL-CLIP: a vertical clip band `[top_y, bottom_y)` in physical
+/// A vertical clip band `[top_y, bottom_y)` in physical
 /// pixels, applied to a pane's already-built vertex quads so a sub-cell scroll
 /// glide baked into the pane origin cannot smear the partial top/bottom row past
 /// the pane's own content rect into a neighbouring pane across the 1px divider.
@@ -88,7 +88,7 @@ impl ClipQuadInstance for ColorGlyphVertex {
     }
 }
 
-/// PANE-SUBCELL-CLIP: clamp every axis-aligned quad in `verts` to the vertical
+/// Clamp every axis-aligned quad in `verts` to the vertical
 /// band `clip`, cropping a partial row's overhang via a UV adjustment (never a
 /// squash) exactly like [`push_glyph_quad_clipped_top`] does at the chrome seam.
 /// A quad entirely outside the band collapses to zero height rather than being
@@ -259,7 +259,7 @@ pub(crate) fn subtract_rects_from_quads<V: ClipQuadInstance>(
     }
 }
 
-/// PANE-SUBCELL-CLIP: fill the sub-cell gap a downward glide opens at the top of
+/// Fill the sub-cell gap a downward glide opens at the top of
 /// a pane by pulling the FIRST rendered row's background quads up to `top_y`,
 /// mirroring the chrome-seam [`content_bg_span`] first-row flush. When a pane's
 /// origin is shifted down by a sub-cell `frac`, its top row starts `frac` px

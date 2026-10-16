@@ -286,7 +286,7 @@ fn connection_overlay_accept_emits_connect_outcome() {
 
 #[test]
 fn tab_opens_the_add_connection_form() {
-    // REMOTE-UX P4: Tab in the connection manager switches this overlay to
+    // Tab in the connection manager switches this overlay to
     // the Add form (a sibling mode); the overlay stays open.
     let mut overlay = OverlayUi::default();
     overlay.open_connections(vec![connection_host("web1")], Vec::new());
@@ -1204,7 +1204,7 @@ fn content_menu_bound_workspace_offers_unbind() {
 
 #[test]
 fn workspace_slot_menu_bind_unbind_target_the_clicked_slot() {
-    // RAIL-BIND: the rail slot menu's host action targets the CLICKED slot
+    // The rail slot menu's host action targets the CLICKED slot
     // index. Unbound slot 2 -> "Bind to Host" (index 5) lifts to the picker
     // outcome carrying idx 2; a bound slot -> "Unbind" lifts to the direct
     // unbind outcome carrying idx 2.

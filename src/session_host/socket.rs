@@ -53,23 +53,17 @@ pub struct RuntimePaths {
 }
 
 pub fn runtime_base_from_env() -> Result<PathBuf> {
-    // An explicitly-set `XDG_RUNTIME_DIR` always wins, on every platform. This
-    // keeps Linux byte-identical (its standard `/run/user/<uid>` is owner-private
-    // and local) and lets any environment pin the location deterministically.
+    // An explicitly-set `XDG_RUNTIME_DIR` wins on every platform; Linux's
+    // standard `/run/user/<uid>` is owner-private and local.
     if let Some(dir) = env::var_os("XDG_RUNTIME_DIR") {
         return Ok(PathBuf::from(dir));
     }
 
-    // macOS has no `XDG_RUNTIME_DIR`. Fall back to the per-user Darwin temp dir
-    // (`std::env::temp_dir()` resolves `confstr(_CS_DARWIN_USER_TEMP_DIR)`, e.g.
-    // `/var/folders/.../T/`), which is per-user and on a local filesystem. We do
-    // not trust the parent's mode: `prepare_runtime_dir` creates the `odytty`
-    // subdir 0700 and `validate_runtime_dir` enforces it is owner-private, so the
-    // socket directory upholds the same local-only, owner-private charter as
-    // Linux -- no network, nothing leaves the machine.
-    // Each cfg arm is the function's tail expression on its platform, so neither
-    // uses `return` (clippy::needless_return fires on the tail position, and it
-    // is only lint-checked on the platform whose arm is compiled in).
+    // macOS has no `XDG_RUNTIME_DIR`: use the per-user Darwin temp directory.
+    // Its mode is not trusted: `prepare_runtime_dir` creates the `odytty`
+    // subdirectory 0700 and `validate_runtime_dir` enforces owner-only access.
+    // Each cfg arm is the function's tail expression (no `return`), which keeps
+    // `clippy::needless_return` quiet on the platform that compiles it.
     #[cfg(target_os = "macos")]
     {
         Ok(env::temp_dir())

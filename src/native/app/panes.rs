@@ -26,7 +26,7 @@ use super::scroll_anim::{advance_session_glide, session_glide_render_offset};
 use super::*;
 use crate::graphics::StoredImageId;
 
-/// Collected inline-graphics inputs for one pane in a split (Cut 1): the pane's
+/// Collected inline-graphics inputs for one pane in a split: the pane's
 /// session-token `namespace` (disambiguating per-terminal `StoredImageId`s),
 /// its visible `placements`, its glide-shifted render `origin`, and its at-rest
 /// `scissor` rect (physical px) the images are clipped to.
@@ -405,7 +405,7 @@ impl App {
         Some((w, h, gpu.window_padding()))
     }
 
-    /// PANE-PADDING: the current physical window-padding inset in pixels (`0.0`
+    /// The current physical window-padding inset in pixels (`0.0`
     /// when no GPU/surface is resolved). Per-divider pane breathing room reuses
     /// the exact value the outer content inset already applies, so there is one
     /// padding knob and the padding-0 / single-pane paths stay byte-identical.
@@ -436,7 +436,7 @@ impl App {
         self.overlay_grid_dims().0
     }
 
-    /// The row count the vertical tab rail is laid out across (F4-V2): the
+    /// The row count the vertical tab rail is laid out across: the
     /// **window** content rows, the exact analog of [`Self::tab_bar_grid_cols`]
     /// on the column axis. The rail render (`tab_rail_strip` / the single-pane
     /// `decorate_snapshot_with_tab_rail`) spans these rows, so its hit-test must
@@ -548,7 +548,7 @@ impl App {
             })
     }
 
-    /// PANE-PADDING: the focused pane's **padded drawable rect** (grid region),
+    /// The focused pane's **padded drawable rect** (grid region),
     /// the origin its glyphs are drawn from, and the cell metrics, for the
     /// active multi-pane tab; `None` on a single-pane tab / when the geometry is
     /// unavailable. The rect is the tiled sub-rect inset from every
@@ -852,7 +852,7 @@ impl App {
         // The focused pane's logical cursor, read with its snapshot; a held
         // pane redraws an earlier picture, so it keeps the earlier capture.
         let mut focused_drawn_cursor: Option<crate::core::Position> = None;
-        // Cut 1: per-pane inline graphics. Each pane's visible placements +
+        // Per-pane inline graphics. Each pane's visible placements +
         // upload payloads are collected under the pane's session-token namespace
         // (StoredImageId is a per-terminal counter, so panes can share a numeric
         // id for different images - the namespace disambiguates). `origin` is the
@@ -964,7 +964,7 @@ impl App {
                 });
                 continue;
             }
-            // NF21-10: anchor this pane across output growth (mirrors the
+            // Anchor this pane across output growth (mirrors the
             // single-pane render path via the shared helper) so a scrolled-back
             // split or background pane stays pinned to its absolute rows instead
             // of sliding under fresh output, and its baseline stays current so
@@ -978,7 +978,7 @@ impl App {
             // toward its just-anchored offset and snapshot at the FLOORED
             // follower row. The sub-row remainder (`scroll_frac_offset`) is baked
             // into the pane's render origin below and the overflowing partial row
-            // is clipped to the pane's content rect (PANE-SUBCELL-CLIP), so a
+            // is clipped to the pane's content rect, so a
             // split now eases with pixel-precise smoothness AND cannot smear
             // across the divider. Inert at rest / when no glide is armed:
             // `render_offset == offset` and `frac_px == 0.0`, so the frame is
@@ -1011,7 +1011,7 @@ impl App {
             // for every pane; `panes_owned.len()` is the index this pane is about
             // to be pushed at, just below.
             pane_overlays.push((panes_owned.len(), *token, render_offset, scrollback_len));
-            // Cut 1: read this pane's visible graphics + upload payloads under
+            // Read this pane's visible graphics + upload payloads under
             // the same lock, at the pane's render offset (so placements track the
             // glide-floored content). `cached_for_pane` is this pane's already
             // resident texture ids (namespaced), so bytes for images already on
@@ -1036,7 +1036,7 @@ impl App {
             // zero offset, so the byte-identical path is unchanged). The divider
             // position itself is untouched - only the grid content shifts within
             // the pane - so smooth per-pixel divider drag is preserved.
-            // PANE-PADDING: inset the pane by the window padding on every
+            // Inset the pane by the window padding on every
             // divider-facing edge so its grid gains breathing room from the
             // divider (the reported "flush against the divider" regression). The
             // render origin, the image scissor, and the PTY size
@@ -1046,7 +1046,7 @@ impl App {
             // so those frames are byte-identical.
             let base_origin =
                 crate::native::layout::pane_grid_origin(inner, content, cell.width, cell.height);
-            // PANE-SUBCELL-CLIP: bake the sub-cell remainder into the pane's
+            // Bake the sub-cell remainder into the pane's
             // render origin and clamp its vertices to the at-rest grid rect so
             // the partial row the shift pushes out cannot cross the divider.
             // Inert (`frac_px == 0.0`) at rest ⇒ base origin + `VClip::NONE`.
@@ -1085,7 +1085,7 @@ impl App {
                     clip_rect,
                 ));
             }
-            // Cut 1: the pane's scissor rect = its at-rest grid rect (base
+            // The pane's scissor rect = its at-rest grid rect (base
             // origin + grid extent), clamped to the surface. Images are clipped
             // to this on both axes; a gliding image's partial edge row is cropped
             // at the pane's own content bottom, never crossing the divider.
@@ -1297,11 +1297,11 @@ impl App {
 
         // The tab chrome (only when the bar is shown) is drawn as its own region
         // at the window's top-left, beside/above the content rect: a one-row
-        // strip along the top, or the vertical rail down a side (F4-V2). Both
+        // strip along the top, or the vertical rail down a side. Both
         // sit at `[pad, pad]` and never overlap the content rect (reserved out of
         // it above), so push order relative to the content panes is irrelevant.
         //
-        // F4-P3: under rail auto-hide the pinned strip is suppressed - the rail
+        // Under rail auto-hide the pinned strip is suppressed - the rail
         // draws only as the floating overlay (`build_rail_overlay`, below). This
         // guard mirrors the single-pane `decorate_snapshot_with_tab_bar` fix: the
         // `rail_side()` dispatch reads the (zeroed) auto-hide reservation and
@@ -1492,7 +1492,7 @@ impl App {
         // chrome (same layer as the NF11 edge wash). Empty when the bar is hidden
         // / panel off / seam off, so the multi-pane frame stays byte-identical.
         let tab_bg_quads = self.tab_panel_bg_quads(cell);
-        // F4-P3: the revealed rail auto-hide overlay strip (floating over the
+        // The revealed rail auto-hide overlay strip (floating over the
         // multi-pane content). Owned here so its snapshot outlives the GPU call;
         // `None` unless the floating rail is currently revealed.
         let rail_overlay_data = self.build_rail_overlay(cell);
@@ -1542,7 +1542,7 @@ impl App {
                 },
                 rail_overlay,
             );
-            // Cut 1: hand each pane's collected graphics to the image layer,
+            // Hand each pane's collected graphics to the image layer,
             // clipped per pane. Empty (no split graphics) leaves the layer's
             // pane draws cleared, so a graphics-free multipane frame issues no
             // image draws.

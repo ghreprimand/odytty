@@ -186,7 +186,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         .map_err(|err| NativeError::EventLoop(err.to_string()))?;
     event_loop.set_control_flow(ControlFlow::Wait);
 
-    // WP2 sub-ODP 8d: elect a single primary instance. The lock is held for the
+    // Elect a single primary instance. The lock is held for the
     // whole process lifetime (this binding is never dropped until `run_native`
     // returns). Only the primary of a bare launch autosaves and restores the
     // workspace shape (see `claim_launch_shape_ownership` below); a
@@ -373,7 +373,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // once at startup when the user expects restore, so relaunching over a
     // still-running or wedged first window no longer reads as "restore failed".
     app.notice_secondary_instance_if_suppressed(is_primary);
-    // FREEZE-HARDEN (b): run the app under the freeze watchdog - the
+    // Run the app under the freeze watchdog - the
     // multi-window host notes input/redraw activity and mirrors a state
     // snapshot into the shared record, and a detached monitor thread logs the
     // state machine when work stays pending >10s with no presented frame. The
@@ -496,7 +496,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         .run_app(&mut host)
         .map_err(|err| NativeError::EventLoop(err.to_string()));
 
-    // WP2 sub-ODP 8c: unconditional shape save on a clean exit (shape owner
+    // Unconditional shape save on a clean exit (shape owner
     // only, self-guarded, so never after a launch with arguments). Runs while the sessions are still live so per-pane cwds are
     // captured, and only when the loop exited cleanly so a startup failure never
     // clobbers a good snapshot. The host explicitly excludes its quick identity;

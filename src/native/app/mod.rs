@@ -209,7 +209,7 @@ pub(in crate::native) use state::PanePaintProbe;
 mod tab_bar;
 // F4-RESKIN: shared "Phosphor Flat" treatment (color) for both tab-chrome axes.
 mod tab_chrome;
-// F4-P1: unified tab-panel + seam background-quad geometry (color from
+// Unified tab-panel + seam background-quad geometry (color from
 // `tab_chrome`), spliced into the GPU background segment behind the chrome.
 pub(super) mod tab_panel;
 // F4-V2 R1: vertical tab rail widget - the sibling of `tab_bar`, active when
@@ -264,7 +264,7 @@ fn linux_window_app_id(options: &NativeOptions) -> &str {
 pub(super) const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_millis(150);
 
 /// Quiet window after the last workspace-shape mutation before the debounced
-/// autosave writes the snapshot (WP2 sub-ODP 8c). Long enough that a split-
+/// autosave writes the snapshot. Long enough that a split-
 /// ratio drag stream (which re-arms the deadline every frame it moves) collapses
 /// to a single write when the drag settles, short enough that a crash loses at
 /// most a couple of seconds of shape change.
@@ -326,7 +326,7 @@ pub(super) struct RenameState {
     anchor: Option<usize>,
 }
 
-/// A clipboard image awaiting the image paste-through confirm prompt (F6-i7).
+/// A clipboard image awaiting the image paste-through confirm prompt.
 /// Holds the PNG bytes off to the side until Enter confirms the upload, so image
 /// data never leaves the machine on the paste keystroke alone. `session` pins
 /// the tab that initiated it. Tab/workspace switches and other ownership changes

@@ -65,6 +65,17 @@ fn mean_ink_x_in_rows(atlas: &GlyphAtlas, uv: [f32; 4], y0: u32, y1: u32) -> Opt
     (count > 0).then(|| sum_x as f64 / count as f64)
 }
 
+/// First and last atlas rows holding ink inside the single-cell slot `uv`
+/// points at. `None` if the slot has no ink.
+fn ink_row_extent(atlas: &GlyphAtlas, uv: [f32; 4]) -> Option<(u32, u32)> {
+    let (ox, oy) = slot_origin_from_uv(atlas, uv);
+    let sw = slot_w(atlas.cell);
+    let mut rows = (oy..oy + slot_h(atlas.cell))
+        .filter(|&y| (ox..ox + sw).any(|x| atlas.data[(y * atlas.width + x) as usize] > 0));
+    let first = rows.next()?;
+    Some((first, rows.next_back().unwrap_or(first)))
+}
+
 /// With the bold synthetic bit set and only the Regular font supplied, a
 /// bold-keyed glyph must ink strictly more than the same glyph in Regular -
 /// the double-strike thickens it - while the shared cell metrics are untouched.
@@ -150,18 +161,17 @@ fn synthetic_italic_leans_right_above_baseline() {
     let reg_uv = fresh_uv(&atlas, FontStyle::Regular, 'I');
     let ital_uv = fresh_uv(&atlas, FontStyle::Italic, 'I');
 
-    let (_, oy) = slot_origin_from_uv(&atlas, ital_uv);
-    let band = atlas.cell.height / 3;
-    let top = (oy, oy + band);
-    let bot = (oy + slot_h(atlas.cell) - band, oy + slot_h(atlas.cell));
-
-    let (Some(ital_top), Some(ital_bot)) = (
-        mean_ink_x_in_rows(&atlas, ital_uv, top.0, top.1),
-        mean_ink_x_in_rows(&atlas, ital_uv, bot.0, bot.1),
-    ) else {
-        eprintln!("skipping: glyph inked too sparsely to measure lean");
-        return;
-    };
+    // Bands are taken over the rows that actually carry ink: the slot's top
+    // rows are empty margin, so a band measured from the slot edge would have
+    // no ink to average.
+    let (ital_lo, ital_hi) = ink_row_extent(&atlas, ital_uv).expect("italic I has ink");
+    let band = (ital_hi - ital_lo + 1) / 3;
+    assert!(band >= 1, "the glyph is tall enough to split into bands");
+    let top = (ital_lo, ital_lo + band);
+    let bot = (ital_hi + 1 - band, ital_hi + 1);
+    let ital_top = mean_ink_x_in_rows(&atlas, ital_uv, top.0, top.1).expect("ink in the top band");
+    let ital_bot =
+        mean_ink_x_in_rows(&atlas, ital_uv, bot.0, bot.1).expect("ink in the bottom band");
     // Italic: top band leans clearly right of the bottom band.
     assert!(
         ital_top > ital_bot + 1.0,
@@ -169,22 +179,18 @@ fn synthetic_italic_leans_right_above_baseline() {
     );
 
     // The same glyph in Regular shows a much smaller top-vs-bottom skew.
-    let (_, reg_oy) = slot_origin_from_uv(&atlas, reg_uv);
-    let reg_top = mean_ink_x_in_rows(&atlas, reg_uv, reg_oy, reg_oy + band);
-    let reg_bot = mean_ink_x_in_rows(
-        &atlas,
-        reg_uv,
-        reg_oy + slot_h(atlas.cell) - band,
-        reg_oy + slot_h(atlas.cell),
+    let (reg_lo, reg_hi) = ink_row_extent(&atlas, reg_uv).expect("regular I has ink");
+    let reg_band = (reg_hi - reg_lo + 1) / 3;
+    let reg_top = mean_ink_x_in_rows(&atlas, reg_uv, reg_lo, reg_lo + reg_band)
+        .expect("ink in the regular top band");
+    let reg_bot = mean_ink_x_in_rows(&atlas, reg_uv, reg_hi + 1 - reg_band, reg_hi + 1)
+        .expect("ink in the regular bottom band");
+    let reg_skew = (reg_top - reg_bot).abs();
+    let ital_skew = ital_top - ital_bot;
+    assert!(
+        ital_skew > reg_skew,
+        "italic skew ({ital_skew:.2}) should exceed regular skew ({reg_skew:.2})"
     );
-    if let (Some(rt), Some(rb)) = (reg_top, reg_bot) {
-        let reg_skew = (rt - rb).abs();
-        let ital_skew = ital_top - ital_bot;
-        assert!(
-            ital_skew > reg_skew,
-            "italic skew ({ital_skew:.2}) should exceed regular skew ({reg_skew:.2})"
-        );
-    }
 }
 
 /// Bold-italic composes both transforms: it inks more than Regular (emboldened)
@@ -280,15 +286,10 @@ fn clearing_mask_removes_synthesis() {
 
 /// A synthetic bold/italic wide (East Asian width-2) glyph stays inside its
 /// two-cell slot: the rasterizer's clip keeps the smear and shear from leaking
-/// past the slot's drawable region into a neighbor. Skips on hosts without a
-/// wide-capable font.
+/// past the slot's drawable region into a neighbor.
 #[test]
 fn synthetic_wide_glyph_stays_within_slot() {
-    let font = test_font();
-    let Some(wide) = wide_glyph_supported(&font) else {
-        eprintln!("skipping: no wide glyph in the loaded font");
-        return;
-    };
+    let (font, wide) = wide_fixture();
     let mut atlas = GlyphAtlas::build(&font, 28.0);
     atlas.set_synthetic_styles(true, true, true);
     atlas
@@ -313,10 +314,7 @@ fn synthetic_wide_glyph_stays_within_slot() {
             }
         }
     }
-    if !inked {
-        eprintln!("skipping: wide glyph produced no ink");
-        return;
-    }
+    assert!(inked, "the wide fixture glyph produces ink");
     assert!(
         max_x < x_hi,
         "synthetic wide ink must stay left of the slot clip (max_x={max_x}, x_hi={x_hi})"

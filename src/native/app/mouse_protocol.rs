@@ -185,7 +185,7 @@ impl App {
         // offset to the application (a left rail reporting X too large, a top bar
         // reporting Y too large).
         let (px, py) = if let Some((rect, origin, _)) = self.focused_pane_grid() {
-            // PANE-PADDING: the focused pane's drawn grid origin already folds
+            // The focused pane's drawn grid origin already folds
             // in the tab-chrome, window padding, the per-divider inset, AND the
             // sub-cell remainder shift, so the report maps to the same cell the
             // glyph renders at (parity with `pane_relative_cell`); no separate

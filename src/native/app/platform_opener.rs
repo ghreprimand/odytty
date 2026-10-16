@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! PLATFORM-OPENER - the per-OS file/URI open dispatch seam (P0-1).
+//! PLATFORM-OPENER - the per-OS file/URI open dispatch seam.
 //!
 //! v0.4.0 hard-coded `xdg-open`/`xdg-mime`, neither of which exists on macOS, so
 //! every "open" silently failed there - the headline v0.4.0 breakage. The fix

@@ -13,7 +13,7 @@ use odytty::settings::Settings;
 mod cli;
 
 fn main() -> Result<()> {
-    // FREEZE-HARDEN (c): default logging tees WARN+ records to stderr AND a
+    // Default logging tees WARN+ records to stderr AND a
     // size-capped rotated file at `$XDG_STATE_HOME/odytty/odytty.log`, so a
     // launcher that redirects stderr to /dev/null no longer discards the only
     // evidence of a crash or stall. Lazy: the file is only created when a

@@ -231,7 +231,7 @@ impl App {
                 return;
             }
         }
-        // UX4-P1: an open overlay captures the pointer before any
+        // An open overlay captures the pointer before any
         // selection / PTY-report / hyperlink logic - the mouse analogue
         // of the keyboard `if self.overlay.is_open()` guard. Shift and
         // the TUI mouse mode are not consulted here.
@@ -592,7 +592,7 @@ impl App {
             }
             return;
         }
-        // MOUSE-SCROLLBAR: while a scroll-thumb drag is in progress, swallow
+        // While a scroll-thumb drag is in progress, swallow
         // button events (the release ends it) so the drag never leaks a press
         // to PTY reporting or local selection. `is_selecting()` is false for the
         // `Scrollbar` variant, so this needs its own guard alongside the one
@@ -604,7 +604,7 @@ impl App {
             return;
         }
 
-        // MOUSE-SCROLLBAR: a left press on the visible scroll thumb grabs it to
+        // A left press on the visible scroll thumb grabs it to
         // scrub scrollback. Gated on the `scrollbar_drag` setting and the thumb
         // being visible (`viewport offset > 0`); the hit-test returns `None` at
         // the live tail and when disabled, so this branch is inert there and the
@@ -861,7 +861,7 @@ impl App {
     }
 
     /// Hit-test the last cached pointer position against the draggable scroll
-    /// thumb (MOUSE-SCROLLBAR), returning the grab offset within the thumb when
+    /// thumb, returning the grab offset within the thumb when
     /// the press lands on the visible thumb's grab band, else `None`. The thumb
     /// is visible only while scrolled back (`viewport offset > 0`), so a press
     /// at the live tail (the default) never grabs - keeping the plain press path
@@ -953,7 +953,7 @@ impl App {
     /// configured per-notch multiplier.
     pub(super) fn handle_mouse_wheel(&mut self, delta: MouseScrollDelta) {
         self.sessions.reconcile_active_tab_scrollback_trims();
-        // UX4-P1: an open overlay captures the wheel to scroll its list,
+        // An open overlay captures the wheel to scroll its list,
         // before TUI reporting or scrollback movement.
         if self.overlay.is_open() {
             self.handle_overlay_pointer_wheel(delta);
@@ -987,7 +987,7 @@ impl App {
         // coalescer read a real cell height off the GPU render path.
         let cell_height = self.resolved_cell().map_or(0, |cell| cell.height);
         if self.settings.wheel_zoom && self.modifiers.ctrl {
-            // WHEEL-SENS: coalesce the burst before mapping to a font step so
+            // Coalesce the burst before mapping to a font step so
             // one physical notch is exactly one step (cap one per notch). The
             // gesture is consumed unconditionally - even when the carry is still
             // sub-notch or the size is clamped at a bound - so Ctrl+wheel never
@@ -1306,7 +1306,7 @@ impl App {
             // Ladder rungs R2/R3 + default (B-DESIGN §4): the selection is on
             // the input region but the geometry cannot back a real buffer
             // edit. Consume the key - never forward a blind Delete/Backspace  -
-            // clear the selection, and (NF17) raise the geometry-unavailable
+            // clear the selection, and raise the geometry-unavailable
             // hint. The input mark IS present here, so shell integration is
             // active; pointing at Settings would be misleading.
             SelectionDeleteOutcome::NoOpWithHint => {
@@ -1358,7 +1358,7 @@ impl App {
 
     /// Reset terminal-grid pointer state when entering any overlay mode.
     ///
-    /// An open overlay captures the pointer (UX4-P1), so any in-progress local
+    /// An open overlay captures the pointer, so any in-progress local
     /// selection - and crucially any TUI mouse-report button still held from a
     /// press before the overlay opened - must be cleared on entry. Overlay
     /// presses short-circuit before `handle_reported_mouse_input` and overlay

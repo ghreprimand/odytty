@@ -660,7 +660,7 @@ impl App {
         // `explorer.exe <target>` (NOT `cmd /C start`, whose command line would
         // split an attacker-supplied URI on `&`/`%VAR%`). Routed through the
         // single argv-only spawn point shared with path opens; a failed/missing
-        // opener surfaces a transient notice (P0-2).
+        // opener surfaces a transient notice.
         let argv = super::platform_opener::open_default_argv(
             super::platform_opener::OpenerOs::host(),
             &uri,

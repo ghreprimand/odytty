@@ -566,7 +566,7 @@ pub(in crate::native) struct GpuState {
     /// column band) to pin against `scroll_frac_offset` this frame. `None` (no
     /// chrome, or the multi-pane path) leaves the pin inert / byte-identical.
     pub(super) chrome_pin_geom: Option<ChromePinGeom>,
-    /// FREEZE-HARDEN (b): monotonically increasing count of frames actually
+    /// Monotonically increasing count of frames actually
     /// presented (`frame.present()` reached). Read by the freeze watchdog to
     /// distinguish "work pending, frames flowing" from "work pending, render
     /// path dead". Never reset.
@@ -1275,7 +1275,7 @@ impl GpuState {
         self.atlas.cell
     }
 
-    /// FREEZE-HARDEN (b): frames that reached `present()` since GPU init.
+    /// Frames that reached `present()` since GPU init.
     pub(in crate::native) fn frames_presented(&self) -> u64 {
         self.frames_presented
     }

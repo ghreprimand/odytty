@@ -91,7 +91,7 @@ pub(in crate::native) struct OverlayUi {
     /// close prompt). On the next `save_succeeded` call for Settings mode, the
     /// overlay closes itself after recording the save (SETTINGS-REDESIGN §7).
     pub(super) close_after_save: bool,
-    /// Set when the keybind editor's dirty-close prompt chose "save" (P1-6). On
+    /// Set when the keybind editor's dirty-close prompt chose "save". On
     /// the next `save_succeeded` for KeyBindings mode, the overlay returns to the
     /// settings panel (rather than the in-modal Ctrl+S behaviour of staying
     /// open). Mirrors `close_after_save` for the keybind-editor lane.
@@ -754,7 +754,7 @@ impl OverlayUi {
             // The key-remap modal stays open after an in-modal Ctrl+S so the user can keep
             // editing; the modal reports the saved count and adopts the persisted
             // bindings as its new restore baseline. But if the save came from the
-            // dirty-close prompt's "save" choice (P1-6), return to the settings
+            // dirty-close prompt's "save" choice, return to the settings
             // panel after recording it.
             OverlayMode::KeyBindings => {
                 self.key_remap.save_succeeded(changed);

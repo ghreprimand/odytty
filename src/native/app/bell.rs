@@ -81,7 +81,7 @@ impl App {
 
     /// Window urgency for a bell that rang ANYWHERE (any pane, tab, or
     /// workspace), with NO viewport flash - a background bell must never tint
-    /// the pane the user is currently looking at (NF21-6). No-op while focused,
+    /// the pane the user is currently looking at. No-op while focused,
     /// on the off / visual-only path, or without a window. The urgency call is
     /// cross-platform (taskbar flash on Windows, dock bounce on macOS, WM
     /// attention hint on Linux).

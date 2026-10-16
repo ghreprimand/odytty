@@ -178,7 +178,7 @@ fn insert_chars_severs_soft_wrap_on_wrapped_row() {
     assert_eq!(visible_text(&terminal), "  aaaaaaaa\nbbbbb");
 }
 
-/// NF7: ECH (CSI Ps X) whose clamped count reaches the right edge destroys
+/// ECH (CSI Ps X) whose clamped count reaches the right edge destroys
 /// the content flow into the continuation row, exactly like EL0 - the row's
 /// own wrapped flag must clear.
 #[test]
@@ -191,7 +191,7 @@ fn erase_chars_through_right_edge_severs_the_rows_own_soft_wrap() {
     assert_eq!(visible_text(&terminal), "aaaa\nbbbbb");
 }
 
-/// NF7 control: an ECH that stops short of the right edge is a purely
+/// An ECH that stops short of the right edge is a purely
 /// interior blank - the soft-wrap join must survive so reflow still fuses
 /// the pair (with the interior blanks preserved).
 #[test]
@@ -203,7 +203,7 @@ fn erase_chars_short_of_right_edge_keeps_soft_wrap() {
     assert_eq!(visible_text(&terminal), "aaaa   aaabbbbb");
 }
 
-/// NF6: ED2 (CSI 2J) replaces the visible screen wholesale, but a trailing
+/// ED2 (CSI 2J) replaces the visible screen wholesale, but a trailing
 /// OPEN scrollback logical line still claimed row 0 as its continuation.
 /// Reflow then fused scrolled-off history with whatever was printed after
 /// the clear.
@@ -233,7 +233,7 @@ fn scrollback_tail_into_row0() -> Terminal {
     terminal
 }
 
-/// NF10 seam (a): ED1 (CSI 1J) with the cursor below row 0 replaces row 0
+/// ED1 (CSI 1J) with the cursor below row 0 replaces row 0
 /// wholesale - the trailing open scrollback line must not keep claiming it.
 #[test]
 fn erase_display_above_cursor_severs_trailing_scrollback_wrap() {
@@ -251,7 +251,7 @@ fn erase_display_above_cursor_severs_trailing_scrollback_wrap() {
     );
 }
 
-/// NF10 seam (b): EL2 (CSI 2K) at row 0 replaces the row with a fresh blank;
+/// EL2 (CSI 2K) at row 0 replaces the row with a fresh blank;
 /// the guard `cursor.row > 0` skipped the predecessor entirely, leaving the
 /// scrollback tail claiming the blank.
 #[test]
@@ -268,7 +268,7 @@ fn erase_line_full_at_row_zero_severs_trailing_scrollback_wrap() {
     );
 }
 
-/// NF10 seam (c): DL (CSI M) at row 0 deletes the scrollback tail's
+/// DL (CSI M) at row 0 deletes the scrollback tail's
 /// continuation - the tail must not claim the row that shuffles up.
 #[test]
 fn delete_lines_at_row_zero_severs_trailing_scrollback_wrap() {
@@ -284,7 +284,7 @@ fn delete_lines_at_row_zero_severs_trailing_scrollback_wrap() {
     );
 }
 
-/// NF10 seam (c): IL (CSI L) at row 0 inserts a blank between the scrollback
+/// IL (CSI L) at row 0 inserts a blank between the scrollback
 /// tail and its displaced continuation.
 #[test]
 fn insert_lines_at_row_zero_severs_trailing_scrollback_wrap() {
@@ -300,7 +300,7 @@ fn insert_lines_at_row_zero_severs_trailing_scrollback_wrap() {
     );
 }
 
-/// NF10 seam (c): CSI S with a DECSTBM region whose top is row 0 discards
+/// CSI S with a DECSTBM region whose top is row 0 discards
 /// the tail's continuation out of the region.
 #[test]
 fn scroll_region_up_at_row_zero_severs_trailing_scrollback_wrap() {
@@ -333,7 +333,7 @@ fn row_zero_ops_on_alt_screen_keep_scrollback_wrap() {
     );
 }
 
-/// NF6 control: ED2 issued on the ALT screen must NOT sever the primary
+/// ED2 issued on the ALT screen must NOT sever the primary
 /// scrollback tail - it still validly continues into the saved primary
 /// row 0, and reflow after returning must rejoin the logical line.
 #[test]

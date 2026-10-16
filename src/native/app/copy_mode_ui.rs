@@ -1028,7 +1028,7 @@ mod tests {
         );
     }
 
-    /// NF21-3: a window resize reflows EVERY tab's panes, so the stale
+    /// A window resize reflows EVERY tab's panes, so the stale
     /// layout-dependent UI state (selection / copy-mode caret / hover spans)
     /// must clear on BACKGROUND tabs too - not only the active one. Before the
     /// fix the clear went through `Deref` = the active session only, so a
@@ -1078,7 +1078,7 @@ mod tests {
         );
     }
 
-    /// NF21-3 control: the active tab still clears its layout-dependent state on
+    /// The active tab still clears its layout-dependent state on
     /// a resize exactly as before - the fan-out helper reproduces the former
     /// active-only block byte-for-byte, so this path is unchanged.
     #[test]

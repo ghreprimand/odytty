@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Image paste-through upload worker (F6-i7).
+//! Image paste-through upload worker.
 //!
 //! When a clipboard image is pasted into a remote *integrated* ssh tab and the
 //! confirm prompt is accepted, the held PNG is handed here to be uploaded on a

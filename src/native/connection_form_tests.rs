@@ -417,7 +417,7 @@ fn identity_row_text(form: &ConnectionForm, width: usize) -> String {
 
 #[test]
 fn empty_identity_file_shows_the_browse_chip() {
-    // BROWSE-UX: an empty IdentityFile value slot shows the persistent browse
+    // An empty IdentityFile value slot shows the persistent browse
     // chip (which doubles as the discoverability hint), rendered even when the
     // row is not focused.
     let mut form = ConnectionForm::new();
@@ -535,7 +535,7 @@ fn clicking_the_browse_chip_opens_the_browser_when_filled() {
 
 #[test]
 fn picking_a_key_replaces_an_existing_identity_path() {
-    // BROWSE-UX: browsing over a set path REPLACES it with the picked key.
+    // Browsing over a set path REPLACES it with the picked key.
     let mut form = ConnectionForm::new();
     form.open_add(Vec::new());
     form.advanced = true;

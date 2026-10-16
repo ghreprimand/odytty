@@ -27,7 +27,7 @@ impl App {
             return;
         };
         let Some(title) = ({
-            // P0-3: OSC-title event path - poison-recover, never abort.
+            // OSC-title event path - poison-recover, never abort.
             let mut terminal = crate::native::lock_recover(&self.terminal);
             changed_window_title(&mut terminal, &self.options.title)
         }) else {
@@ -170,7 +170,7 @@ impl App {
         self.should_show_tab_bar() || self.should_show_workspace_rail()
     }
 
-    /// The theme-role colors the tab bar paints with (F4). Reads
+    /// The theme-role colors the tab bar paints with. Reads
     /// `chrome_theme` (the active pane's presented theme) so the tab strip
     /// tracks the active tab: a profile tab paints its authored theme, a plain
     /// tab the global effective theme (`chrome_theme` equals `effective_theme`

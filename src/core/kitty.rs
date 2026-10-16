@@ -170,7 +170,7 @@ impl ControlData {
         self.image_number.filter(|number| *number != 0)
     }
 
-    /// NF9: per the kitty graphics spec, `q=1` suppresses SUCCESS (OK)
+    /// Per the kitty graphics spec, `q=1` suppresses SUCCESS (OK)
     /// responses and `q=2` suppresses both success and error responses. This
     /// method gates only OK responses, so any explicit quiet level (>= 1)
     /// suppresses; the error path checks `quiet >= 2` separately (C19).

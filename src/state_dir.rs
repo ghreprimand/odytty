@@ -626,6 +626,8 @@ mod windows_export {
 
     fn open_no_follow(path: &Path) -> io::Result<File> {
         let path = wide(path);
+        // SAFETY: `path` is a NUL-terminated UTF-16 buffer that outlives the
+        // call, and the remaining arguments are plain flags or `None`.
         let handle = unsafe {
             CreateFileW(
                 PCWSTR(path.as_ptr()),
@@ -638,6 +640,8 @@ mod windows_export {
             )
         }
         .map_err(windows_error)?;
+        // SAFETY: `CreateFileW` succeeded, so `handle` is a valid handle that
+        // nothing else owns; the `File` takes over closing it.
         let file = unsafe { File::from_raw_handle(handle.0) };
         validate_regular(&file)?;
         Ok(file)
@@ -645,6 +649,8 @@ mod windows_export {
 
     fn validate_regular(file: &File) -> io::Result<()> {
         let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        // SAFETY: the handle belongs to `file`, which is alive for the call, and
+        // `info` is a valid, exclusively borrowed output structure.
         unsafe {
             GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &raw mut info)
                 .map_err(windows_error)?;
@@ -671,6 +677,8 @@ mod windows_export {
             Err(error) => return Err(error),
         };
         let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        // SAFETY: as in `validate_regular`: a live handle owned by `file` and a
+        // valid output structure.
         unsafe {
             GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &raw mut info)
                 .map_err(windows_error)?;
@@ -684,6 +692,9 @@ mod windows_export {
     pub(super) fn create_private(path: &Path) -> io::Result<File> {
         let descriptor_text: Vec<u16> = "D:P(A;;FA;;;OW)\0".encode_utf16().collect();
         let mut descriptor = PSECURITY_DESCRIPTOR::default();
+        // SAFETY: `descriptor_text` is a NUL-terminated UTF-16 buffer that
+        // outlives the call, and `descriptor` is a valid output location. The
+        // allocation it receives is released with `LocalFree` below.
         unsafe {
             ConvertStringSecurityDescriptorToSecurityDescriptorW(
                 PCWSTR(descriptor_text.as_ptr()),
@@ -699,6 +710,9 @@ mod windows_export {
             bInheritHandle: false.into(),
         };
         let path = wide(path);
+        // SAFETY: `path` and `attributes` outlive the call, and
+        // `lpSecurityDescriptor` points at the descriptor allocated above, which
+        // is still live here.
         let result = unsafe {
             CreateFileW(
                 PCWSTR(path.as_ptr()),
@@ -710,10 +724,14 @@ mod windows_export {
                 None,
             )
         };
+        // SAFETY: `descriptor.0` was allocated by the conversion call above and is
+        // freed exactly once, after the last use of `attributes`.
         unsafe {
             let _ = LocalFree(Some(HLOCAL(descriptor.0)));
         }
         let handle = result.map_err(windows_error)?;
+        // SAFETY: `CreateFileW` succeeded, so `handle` is a valid handle that
+        // nothing else owns; the `File` takes over closing it.
         let file = unsafe { File::from_raw_handle(handle.0) };
         validate_regular(&file)?;
         Ok(file)
@@ -727,6 +745,8 @@ mod windows_export {
         } else {
             MOVEFILE_WRITE_THROUGH
         };
+        // SAFETY: both paths are NUL-terminated UTF-16 buffers that outlive the
+        // call.
         unsafe { MoveFileExW(PCWSTR(tmp.as_ptr()), PCWSTR(path.as_ptr()), flags) }
             .map_err(windows_error)
     }
@@ -762,6 +782,68 @@ mod tests {
                 .kind(),
             io::ErrorKind::NotFound
         );
+    }
+
+    /// An export to a fresh path writes the bytes through a private sibling
+    /// temp, leaves no temp behind, and the finished file is owner-only.
+    #[cfg(unix)]
+    #[test]
+    fn export_creates_an_owner_only_file_and_leaves_no_temp() {
+        let root = temp_dir("export-new");
+        let target = root.join("exported.txt");
+        write_atomic(&target, b"payload", WriteMode::Export).expect("export");
+        assert_eq!(fs::read(&target).expect("read"), b"payload");
+        assert_eq!(mode(&target), 0o600);
+        let names: Vec<_> = fs::read_dir(&root)
+            .expect("list")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("exported.txt")]);
+    }
+
+    /// An export over an existing regular file replaces its bytes.
+    #[cfg(unix)]
+    #[test]
+    fn export_replaces_an_existing_regular_file() {
+        let root = temp_dir("export-replace");
+        let target = root.join("exported.txt");
+        fs::write(&target, "old").expect("seed");
+        write_atomic(&target, b"new", WriteMode::Export).expect("export");
+        assert_eq!(fs::read(&target).expect("read"), b"new");
+    }
+
+    /// A symlink destination is refused without following it: the link and the
+    /// file it points at are both left as they were.
+    #[cfg(unix)]
+    #[test]
+    fn export_refuses_a_symlink_destination() {
+        let root = temp_dir("export-symlink");
+        let real = root.join("real.txt");
+        fs::write(&real, "keep").expect("seed");
+        let link = root.join("link.txt");
+        std::os::unix::fs::symlink(&real, &link).expect("symlink");
+        write_atomic(&link, b"overwrite", WriteMode::Export)
+            .expect_err("a symlink destination is refused");
+        assert_eq!(fs::read(&real).expect("read"), b"keep");
+        assert!(
+            fs::symlink_metadata(&link)
+                .expect("link metadata")
+                .file_type()
+                .is_symlink()
+        );
+    }
+
+    /// A directory destination is refused and nothing is left behind.
+    #[cfg(unix)]
+    #[test]
+    fn export_refuses_a_directory_destination() {
+        let root = temp_dir("export-dir");
+        let target = root.join("a-directory");
+        fs::create_dir(&target).expect("seed");
+        write_atomic(&target, b"payload", WriteMode::Export)
+            .expect_err("a directory destination is refused");
+        assert!(target.is_dir());
+        assert_eq!(fs::read_dir(&root).expect("list").count(), 1);
     }
 
     #[cfg(unix)]

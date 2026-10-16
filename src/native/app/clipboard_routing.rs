@@ -30,7 +30,7 @@ impl App {
             return;
         }
         // No text: on a remote integrated tab, a clipboard IMAGE may be offered
-        // for upload (F6-i7). Everywhere else this is a no-op, byte-identical to
+        // for upload. Everywhere else this is a no-op, byte-identical to
         // the prior "no text, nothing to paste" behavior.
         self.try_begin_image_paste();
     }
@@ -51,7 +51,7 @@ impl App {
     }
 
     pub(super) fn handle_terminal_clipboard_requests(&mut self) {
-        // NF21-5: OSC 52 must be drained for EVERY session, not just the focused
+        // OSC 52 must be drained for EVERY session, not just the focused
         // one through `Deref`. A background tab (or, post-W1, a background
         // workspace's tab) that emitted an OSC 52 write would otherwise queue it
         // until switch-back and then silently replace the system clipboard -

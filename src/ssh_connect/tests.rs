@@ -149,7 +149,7 @@ fn no_identity_file_emits_no_dash_i() {
 
 #[test]
 fn probe_argv_is_batchmode_noninteractive_and_argv_only() {
-    // ODP-8: the probe is a no-shell one-shot `exit` with BatchMode + a
+    // The probe is a no-shell one-shot `exit` with BatchMode + a
     // bounded ConnectTimeout, argv-only, guarded by `--`.
     let mut h = remote_host("k", "deploy", "k.example.invalid");
     h.port = Some(2222);

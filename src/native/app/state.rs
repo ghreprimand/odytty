@@ -210,7 +210,7 @@ pub(in crate::native) struct App {
     /// wake-loop forever. Reset to 0 on any present / reconfigure and on a
     /// restore (`Resized` to a non-zero size).
     pub(super) consecutive_skipped_frames: u32,
-    /// FREEZE-WATCHDOG: monotonic count of `RedrawRequested` events actually
+    /// Monotonic count of `RedrawRequested` events actually
     /// DELIVERED to this app. The discriminator between the two ways "no frame
     /// presented" can look identical from the outside:
     ///
@@ -262,7 +262,7 @@ pub(in crate::native) struct App {
     /// change / tab add-remove / max-width edit re-sizes the content exactly
     /// once. 0 on the top-bar / hidden path.
     pub(super) rail_reserved_cols: usize,
-    /// F4-P4 seam drag: `true` while the left button is held after grabbing the
+    /// `true` while the left button is held after grabbing the
     /// rail's inner (content-facing) edge to resize it. Pointer motion then sets
     /// a manual width; release persists it. Only ever `true` while a rail is
     /// shown, so the top-bar / single-pane paths are unaffected.
@@ -287,7 +287,7 @@ pub(in crate::native) struct App {
     /// value once through `seam_click_instant`.
     #[cfg(test)]
     pub(super) seam_click_at_for_test: Option<Instant>,
-    /// F4-P3 rail auto-hide timing state machine (ODP-4). Inert unless
+    /// F4-P3 rail auto-hide timing state machine. Inert unless
     /// `tab_rail_autohide` is on and the chrome is a side rail; when active it
     /// drives the reveal/hide of the floating rail overlay from the pointer edge
     /// zone, keyboard flashes, and the debounce/grace timers. The reservation is
@@ -435,7 +435,7 @@ pub(in crate::native) struct App {
     /// loop after the overlay outcome is applied - `apply_overlay_outcome` only
     /// has `&mut self` and cannot reach the `ActiveEventLoop` itself.
     pub(super) pending_exit: bool,
-    /// Image paste-through confirm state (F6-i7). `Some` while a clipboard image
+    /// Image paste-through confirm state. `Some` while a clipboard image
     /// pasted into a remote integrated tab awaits Enter/Esc: keys drive the
     /// prompt (Enter uploads, Esc/Ctrl+D cancels) instead of the shell. The
     /// image bytes are held here until confirmed so nothing leaves the machine
@@ -568,7 +568,7 @@ pub(in crate::native) struct App {
     pub(super) broadcast_peer_windows: bool,
     /// The set generation this window last repainted its labels for.
     pub(super) broadcast_seen_generation: u64,
-    /// A background Test Connection probe (ODP-8) in flight from the Add / Edit
+    /// A background Test Connection probe in flight from the Add / Edit
     /// connection form. The worker thread sends its tri-state result here and
     /// wakes a redraw; `run_about_to_wait_maintenance` drains it into the form.
     pub(super) connection_probe: Option<super::connection_probe::PendingConnectionProbe>,
@@ -578,7 +578,7 @@ pub(in crate::native) struct App {
     /// and Esc cancels without touching the network.
     #[cfg(test)]
     pub(in crate::native) last_image_upload: Option<(SessionToken, usize)>,
-    /// WHEEL-SENS: coalesces high-resolution wheel bursts (sub-notch
+    /// Coalesces high-resolution wheel bursts (sub-notch
     /// `PixelDelta` events, fractional `LineDelta`) into discrete notches so one
     /// physical detent is one scroll/zoom step. Identity for a clean
     /// `LineDelta(_, ±1.0)`. Reset on focus loss and overlay open.

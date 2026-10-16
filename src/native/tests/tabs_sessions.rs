@@ -5067,7 +5067,7 @@ fn wheel_scrolls_the_pane_under_the_cursor_not_the_focused_pane() {
 
 #[test]
 fn continuous_scroll_eligible_of_is_per_pane_in_a_split() {
-    // Cut 3: the continuous (pixel_scroll) lane is no longer single-pane-only.
+    // The continuous (pixel_scroll) lane is no longer single-pane-only.
     // Each pane of a split is independently eligible while it is on its primary
     // screen and the knob is on - the gate reads the pane, not active_is_single_pane.
     const COLS: usize = 80;
@@ -5218,7 +5218,7 @@ fn pixel_wheel_drives_the_continuous_lane_on_the_pane_under_the_pointer() {
 
 #[test]
 fn sub_notch_pixel_scroll_moves_only_the_sub_cell_offset_in_a_split() {
-    // Cut 3: sub-notch pixel travel (< one row) now produces pure sub-cell motion
+    // Sub-notch pixel travel (< one row) now produces pure sub-cell motion
     // inside a split - previously the continuous lane was disabled in multipane,
     // so a fractional glide was truncated to nothing. The offset stays put; only
     // the clipped sub-cell remainder advances.
@@ -7153,7 +7153,7 @@ fn shape_autosave_debounces_a_mutation_burst_into_one_write() {
 }
 
 /// A non-primary instance never writes the shape snapshot, even across a
-/// mutation and a full debounce window (sub-ODP 8d: only the lock holder saves).
+/// mutation and a full debounce window (only the lock holder saves).
 #[test]
 fn shape_autosave_is_inert_on_a_non_primary_instance() {
     let Some((mut app, _fixtures)) = app_with_two_sessions() else {

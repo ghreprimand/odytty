@@ -54,8 +54,12 @@ fn line_height_above_one_adds_symmetric_leading() {
         tall.cell.height,
         base.cell.height
     );
-    assert!(
-        tall.cell.baseline >= base.cell.baseline,
+    // The leading is split with the larger half on top, so the baseline moves
+    // down by exactly that half.
+    let leading = tall.cell.height - base.cell.height;
+    assert_eq!(
+        tall.cell.baseline,
+        base.cell.baseline + leading.div_ceil(2),
         "baseline shifts down by the top leading"
     );
     assert!(tall.cell.baseline <= tall.cell.height);
@@ -125,10 +129,7 @@ fn uv_rect_falls_back_for_unsupported_printable() {
 #[test]
 fn ensure_rasterizes_real_glyph_and_flags_dirty() {
     let font = test_font();
-    let Some(ch) = glyph_bearing_non_ascii(&font) else {
-        eprintln!("skipping: font has no non-ASCII glyph");
-        return;
-    };
+    let ch = glyph_bearing_non_ascii(&font).expect("bundled face: font has no non-ASCII glyph");
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     let fallback = atlas.slot_uv(FALLBACK_SLOT);
     assert_eq!(atlas.uv_rect(ch), Some(fallback)); // not yet resident
@@ -152,10 +153,7 @@ fn ensure_rasterizes_real_glyph_and_flags_dirty() {
 #[test]
 fn device_height_limit_falls_back_before_atlas_growth() {
     let font = test_font();
-    let Some(ch) = glyph_bearing_non_ascii(&font) else {
-        eprintln!("skipping: font has no non-ASCII glyph");
-        return;
-    };
+    let ch = glyph_bearing_non_ascii(&font).expect("bundled face: font has no non-ASCII glyph");
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     let initial_height = atlas.height;
     let initial_slots = atlas.slot_count();
@@ -192,10 +190,7 @@ fn ensure_grows_atlas_and_preserves_existing_glyphs() {
     // shared render-globals guard for the comparison.
     let _guard = crate::test_lock::render_globals_lock();
     let font = test_font();
-    let Some(first) = glyph_bearing_non_ascii(&font) else {
-        eprintln!("skipping: font has no non-ASCII glyph");
-        return;
-    };
+    let first = glyph_bearing_non_ascii(&font).expect("bundled face: font has no non-ASCII glyph");
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     let base_height = atlas.height;
     let base_count = atlas.slot_count();
@@ -241,10 +236,7 @@ fn ensure_grows_atlas_and_preserves_existing_glyphs() {
 #[test]
 fn rebuild_is_a_full_invalidation() {
     let font = test_font();
-    let Some(ch) = glyph_bearing_non_ascii(&font) else {
-        eprintln!("skipping: font has no non-ASCII glyph");
-        return;
-    };
+    let ch = glyph_bearing_non_ascii(&font).expect("bundled face: font has no non-ASCII glyph");
     let mut big = GlyphAtlas::build(&font, 24.0);
     big.ensure(&font, ch);
     assert!(big.slot_count() > FIRST_DYNAMIC_SLOT);

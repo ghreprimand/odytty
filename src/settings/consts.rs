@@ -455,36 +455,25 @@ pub const MIN_CELL_BG_OPACITY: f32 = 0.0;
 pub const MAX_CELL_BG_OPACITY: f32 = 1.0;
 
 /// Colored-background opacity floor (`ODYTTY_COLORED_BG_OPACITY`): the minimum
-/// window-alpha contribution for cells whose RESOLVED background differs from
-/// the theme's default background (prompt powerline segments, hyperlink button
-/// chips, app-painted status/highlight blocks). At low window opacity a single
-/// uniform cell alpha washes those blocks out along with the empty backdrop;
-/// this floor keeps them strong while the default background stays glassy -
-/// the "keep background colors opaque" behaviour familiar from other
-/// terminals, made continuous. A colored cell composites at
-/// `cell_bg_opacity * max(window_opacity_alpha, floor)`, so `0.0` disables the
-/// knob (exactly today's product), `1.0` renders colored backgrounds at the
-/// full `cell_bg_opacity` regardless of window transparency, and an OPAQUE
-/// window is byte-identical at every knob value (`max(1.0, k) == 1.0`). It can
-/// only strengthen colored cells, never weaken them. Selection keeps its own
-/// independent `selection_opacity` path; chrome bands keep `tab_panel_strength`.
+/// window-alpha contribution for cells whose resolved background differs from
+/// the theme's default background (powerline segments, hyperlink chips, status
+/// blocks). A colored cell composites at
+/// `cell_bg_opacity * max(window_opacity_alpha, floor)`: `0.0` disables the
+/// knob, `1.0` renders colored backgrounds at the full `cell_bg_opacity`, and an
+/// opaque window is unchanged at every value. It only strengthens colored
+/// cells. Selection keeps its own `selection_opacity`; chrome bands keep
+/// `tab_panel_strength`.
 pub const DEFAULT_COLORED_BG_OPACITY: f32 = 0.9;
 pub const MIN_COLORED_BG_OPACITY: f32 = 0.0;
 pub const MAX_COLORED_BG_OPACITY: f32 = 1.0;
 
 /// Selection opacity (`ODYTTY_SELECTION_OPACITY`): the strength of the
 /// text-selection highlight, independent of window opacity, theme colours, and
-/// the min-contrast floor. The default `1.0` is the authored fully opaque
-/// selection, byte-identical to the historical inverse highlight at any window
-/// opacity. Below `1.0` the fill recedes toward the surrounding content: a
-/// translucent tint that reads as a highlight rather than a solid block, while
-/// the punch-through surface-alpha lerp keeps it clearly visible over a
-/// transparent or busy backdrop (never weaker than the surround). Above `1.0`
-/// (up to `1.5`) the surface stays fully opaque and the fill colour is pushed
-/// further along the backdrop-to-selection vector, clamped in gamut, so the
-/// highlight reads stronger without the surface alpha ever exceeding `1.0`. The
-/// min-contrast floor still holds foreground legibility over the effective
-/// fill at every setting.
+/// the min-contrast floor. The default `1.0` is the authored opaque selection.
+/// Below `1.0` the fill recedes toward the surrounding content as a translucent
+/// tint; above `1.0` (up to `1.5`) the surface stays opaque and the fill colour
+/// is pushed further from the backdrop, clamped in gamut. The min-contrast
+/// floor still holds foreground legibility at every setting.
 pub const DEFAULT_SELECTION_OPACITY: f32 = 1.0;
 pub const MIN_SELECTION_OPACITY: f32 = 0.0;
 pub const MAX_SELECTION_OPACITY: f32 = 1.5;
@@ -703,13 +692,12 @@ pub const DEFAULT_QUICK_TERMINAL_COVERAGE: &str = "40%";
 /// absolute pixel size. Default `100%` (spans the full edge).
 pub const DEFAULT_QUICK_TERMINAL_SPAN: &str = "100%";
 
-/// Quick terminal monitor policy (`ODYTTY_QUICK_TERMINAL_MONITOR`, v0.15.0 A):
-/// which monitor the window uses. `active` uses the monitor of the focused
-/// window (falling back to any open window, then the primary); pointer position
-/// is not used for selection. `primary` uses the primary
-/// monitor, and a bare integer
-/// (e.g. `1`) pins a fixed monitor index (falling back to the active monitor if
-/// that index is gone at summon time, never a silent no-show).
+/// Quick terminal monitor policy (`ODYTTY_QUICK_TERMINAL_MONITOR`): which
+/// monitor the window uses. `active` uses the monitor of the focused window
+/// (falling back to any open window, then the primary); pointer position is not
+/// used. `primary` uses the primary monitor, and a bare integer (e.g. `1`) pins
+/// a fixed monitor index (falling back to the active monitor if that index is
+/// gone at summon time, never a silent no-show).
 pub const DEFAULT_QUICK_TERMINAL_MONITOR: &str = "active";
 
 /// Quick terminal reveal animation (`ODYTTY_QUICK_TERMINAL_ANIMATION`,
@@ -926,13 +914,13 @@ pub const DEFAULT_CONFIRM_CLOSE: bool = true;
 /// bracketed-paste mode disabled. On by default; advanced users can opt out.
 pub const DEFAULT_WARN_ON_RISKY_PASTE: bool = true;
 
-/// Drag-to-extend selection (`ODYTTY_SELECTION_DRAG_EXTEND`, MOUSE-EXTEND): when
-/// on, a double-click-then-drag grows the selection by whole words, a
+/// Drag-to-extend selection (`ODYTTY_SELECTION_DRAG_EXTEND`): when on, a
+/// double-click-then-drag grows the selection by whole words, a
 /// triple-click-then-drag by whole lines, and Shift+click extends the current
-/// selection to the click. On by default; it only gives
-/// meaning to gestures that did nothing before. Off restores the historical
-/// behavior where a double/triple-click finalizes and the follow-on drag does
-/// not extend. Local selection only; never affects TUI mouse reporting.
+/// selection to the click. On by default; it only gives meaning to gestures
+/// that did nothing before. Off restores the behavior where a double or
+/// triple-click finalizes and the follow-on drag does not extend. Local
+/// selection only; never affects TUI mouse reporting.
 pub const DEFAULT_SELECTION_DRAG_EXTEND: bool = true;
 
 /// Draggable scroll thumb (`ODYTTY_SCROLLBAR_DRAG`, MOUSE-SCROLLBAR): when on, a
@@ -1048,9 +1036,8 @@ pub const MAX_TAB_PANEL_STRENGTH: f32 = 1.0;
 /// adds the line only (the panel stays regardless). Both axes, hot-reloadable.
 pub const DEFAULT_TAB_SEAM: bool = false;
 
-/// Rail auto-hide (`ODYTTY_TAB_RAIL_AUTOHIDE`): the reveal/hide
-/// behavior is provided by rail autohide. Off by default,
-/// rail-only.
+/// Rail auto-hide (`ODYTTY_TAB_RAIL_AUTOHIDE`): when on, the vertical tab rail
+/// hides until the pointer reaches its edge. Off by default; rail-only.
 pub const DEFAULT_TAB_RAIL_AUTOHIDE: bool = false;
 
 /// Rail auto-hide reveal-zone width in **logical** px (`ODYTTY_TAB_RAIL_REVEAL_PX`):
@@ -1121,39 +1108,17 @@ pub const DEFAULT_BUTTONS_STICKY: bool = false;
 /// untouched.
 pub const DEFAULT_SHELL_INTEGRATION: bool = true;
 
-/// Prompt-scoped key enhancement for bash/zsh (`ODYTTY_SHELL_KEY_ENHANCEMENT`):
-/// when on, integrated bash/zsh shells enable Kitty keyboard flag 0x1
-/// (disambiguate) while the prompt owns the line and remove it before each
-/// command runs. Bash uses idempotent add/remove controls around readline; zsh
-/// uses its line-editor push/pop hooks. This makes modified keys like
-/// Ctrl+Enter, Shift+Enter, and Ctrl+Backspace reachable as distinct CSI-u
-/// sequences; the snippets ship working default binds for them (Ctrl+Backspace
-/// word-deletes, Shift+Enter inserts a newline, Ctrl+Enter submits), each
-/// skipped when the user has already bound the sequence through inputrc/bindkey,
-/// with zero effect on the programs the shell launches. Sub-feature of shell
-/// integration: the
-/// prompt scoping only ships when `shell_integration` is also on, and OdyTTY
-/// injects `ODYTTY_KEY_ENHANCE=1` into the child environment so the snippet can
-/// discover support (mirroring buttons discovery). fish manages the keyboard
-/// protocol itself and PowerShell key bindings use the PSReadLine/Console API,
-/// so neither is affected.
+/// Prompt-scoped key enhancement for bash/zsh (`ODYTTY_SHELL_KEY_ENHANCEMENT`).
+/// When on, integrated bash/zsh shells enable Kitty keyboard flag 0x1 while the
+/// prompt owns the line and remove it before each command runs, so Ctrl+Enter,
+/// Shift+Enter, and Ctrl+Backspace arrive as distinct CSI-u sequences. A
+/// sub-feature of shell integration: it only ships when `shell_integration` is
+/// also on. fish and PowerShell are unaffected.
 ///
-/// **Off by default, and the reason is a correctness boundary rather than
-/// taste.** Kitty keyboard flag 0x1 is defined to re-encode *every* Ctrl+key as
-/// a CSI-u sequence, Ctrl+C included: the protocol specification states that
-/// with disambiguation on, Ctrl+C no longer generates SIGINT and is delivered as
-/// an escape code instead. OdyTTY's encoder implements that faithfully, so while
-/// the flag is set the terminal never emits the 0x03 INTR byte, the tty line
-/// discipline never sees it, and no SIGINT is raised. The same holds for Ctrl+D
-/// (0x04, EOF) and Ctrl+Z (0x1a, SIGTSTP).
-///
-/// That is survivable only for a line editor that speaks CSI-u. readline and ZLE
-/// do not: unbound CSI-u arrives at the prompt as literal text. ZLE can at least
-/// be taught to recover, because `send-break` is bindable; readline cannot be,
-/// because it exposes no function that raises SIGINT. So bash has no route back
-/// to a working Ctrl+C while the flag is set, which is why this cannot ship on
-/// by default. Turning it on is a deliberate trade: three enhanced binds in
-/// exchange for hand-binding every Ctrl+key the prompt still needs.
+/// Off by default, as a correctness boundary: flag 0x1 re-encodes every
+/// Ctrl+key (Ctrl+C included) as CSI-u, so readline cannot raise SIGINT while
+/// it is set. Turning it on is a deliberate trade for three enhanced binds.
+/// The full explanation lives in `docs/features.md` and `docs/keybindings.md`.
 pub const DEFAULT_SHELL_KEY_ENHANCEMENT: bool = false;
 
 /// Remote OSC 133 shell integration for SSH tabs (`ODYTTY_REMOTE_INTEGRATION`):

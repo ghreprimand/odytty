@@ -79,15 +79,15 @@ pub(super) const PANEL_TINT_LIFT: f32 = 0.05;
 /// / 0.5`) so a maxed strength knob still reads as a *quiet* surface.
 pub(super) const MAX_PANEL_TINT_LIFT: f32 = 0.10;
 
-/// F4-P1 seam: alpha the seam quad composites over the panel at. Low enough that
+/// Alpha the seam quad composites over the panel at. Low enough that
 /// the seam is a hairline, not a bar.
 pub(super) const SEAM_ALPHA: f32 = 0.45;
 
-/// F4-P1 seam: the seam color's own relative luminance is capped here so it can
+/// The seam color's own relative luminance is capped here so it can
 /// never cross the default bloom threshold (0.7) - the seam never haloes.
 pub(super) const SEAM_MAX_LUMA: f64 = 0.60;
 
-/// F4-P1 seam: minimum composited-seam-vs-panel luminance delta the treatment
+/// Minimum composited-seam-vs-panel luminance delta the treatment
 /// guarantees (and the §7 guard asserts) so the seam survives every theme - the
 /// guard the old `border`-role incident lacked.
 pub(super) const SEAM_MIN_PANEL_DELTA: f64 = 0.02;

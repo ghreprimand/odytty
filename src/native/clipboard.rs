@@ -90,7 +90,7 @@ pub(super) struct NativeClipboard {
     /// Test-only: PNG bytes `read_image_png` returns instead of touching the real
     /// clipboard. The real image read (`arboard::Clipboard::get_image`) is
     /// compiled out under `cfg(test)` for the same reasons text I/O is - so the
-    /// image paste-through (F6-i7) confirm flow can be driven from a synthetic
+    /// image paste-through confirm flow can be driven from a synthetic
     /// clipboard image without a live system clipboard.
     #[cfg(test)]
     pub(super) injected_clipboard_image: Option<Vec<u8>>,

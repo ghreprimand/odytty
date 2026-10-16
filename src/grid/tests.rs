@@ -1429,7 +1429,7 @@ fn closure_sgr_dim_equals_naive_half_brightness() {
 
 // --- ID3/U5 background treatment (gradient / vignette) ----------------------
 
-/// KILL-SHOT (trap 1): the default params are inactive, and `apply_to` is an
+/// The default params are inactive, and `apply_to` is an
 /// exact identity for every cell - so the grid apply block is skipped and the
 /// rendered frame is byte-identical to the pre-feature renderer.
 #[test]
@@ -2521,7 +2521,7 @@ mod chrome_pin {
     }
 }
 
-/// PANE-SUBCELL-CLIP: pure vertex-clip math (headless - no GPU). Isolated so a
+/// Pure vertex-clip math (headless - no GPU). Isolated so a
 /// red leg here points unambiguously at the sub-cell pane clip.
 mod pane_subcell_clip {
     use super::*;

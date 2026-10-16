@@ -324,7 +324,7 @@ impl App {
     /// visible pane of the active tab, so output streaming into a non-focused
     /// split pane repaints even while the focused pane is idle - otherwise a
     /// build in the other half of a split freezes until the user types into the
-    /// focused pane (NF21-7). Paired with `clear_visible_pane_rebuild_flags` in
+    /// focused pane. Paired with `clear_visible_pane_rebuild_flags` in
     /// the multi-pane rebuild branch, which must clear the same set.
     pub(super) fn should_rebuild_frame(&self) -> bool {
         self.needs_rebuild
@@ -346,7 +346,7 @@ impl App {
         if self.live_drag_map_blocked {
             return true;
         }
-        // FREEZE-WATCHDOG: count the delivery, not the request. A
+        // Count the delivery, not the request. A
         // request we made that the windowing system never turned into
         // this event means the surface is not being painted (asleep
         // output / occluded / frame-callback throttled), which is not a
@@ -368,7 +368,7 @@ impl App {
         if self.gpu_device_lost {
             return false;
         }
-        // F4-P4: reflow the content grid if auto-sizing (or a max-width
+        // Reflow the content grid if auto-sizing (or a max-width
         // edit) moved the rail band since the last frame - a shell-set
         // title changing the longest tab title has no other trigger. A
         // no-change frame is a single width comparison.
@@ -417,7 +417,7 @@ impl App {
                 // one (`self.needs_rebuild`): the widened gate above ORs
                 // the flag across the tab, so leaving a dirtied background
                 // pane's flag set would re-open the gate every frame - a
-                // rebuild storm (NF21-7).
+                // rebuild storm.
                 self.sessions.clear_visible_pane_rebuild_flags();
             } else {
                 let cell = self.gpu.as_ref().map(GpuState::cell);
@@ -452,14 +452,14 @@ impl App {
                     bidi_plan,
                     gutter_input,
                 ) = {
-                    // NF21-6: bell + prompt-marks latches are drained
+                    // Bell + prompt-marks latches are drained
                     // in the about-to-wait maintenance sweep (over the
                     // whole arena) now, not here - so a background /
                     // multipane bell is serviced instead of stranding.
                     // This paint only reads scrollback for viewport
                     // anchoring; the fast path is otherwise unchanged.
                     let (scrollback_len, pushed_rows, alternate) = {
-                        // P0-3: per-frame paint read - poison-recover.
+                        // Per-frame paint read - poison-recover.
                         let terminal = crate::native::lock_recover(&self.terminal);
                         (
                             terminal.screen().scrollback_len(),
@@ -489,7 +489,7 @@ impl App {
                     self.update_scroll_glide(now, cell.height, offset);
                     let offset = self.glide_render_offset(offset, scrollback_len);
                     let mut search = std::mem::take(&mut self.search);
-                    // P0-3: same-frame search refresh + graphics read.
+                    // Same-frame search refresh + graphics read.
                     let terminal = crate::native::lock_recover(&self.terminal);
                     if search.is_open() {
                         search.refresh(&terminal);
@@ -761,7 +761,7 @@ impl App {
                             broadcast: self.broadcast_overlay_signature(),
                             secure_input: self.secure_input_overlay_signature(),
                         },
-                        // F4-P3: fold the revealed rail overlay's
+                        // Fold the revealed rail overlay's
                         // visibility + geometry + visual state so a pure
                         // reveal / hide / hover / switch rebuilds the
                         // frame. `default()` (not revealed) is constant.
@@ -821,7 +821,7 @@ impl App {
                 // behind the tab chrome. Empty when the bar is hidden /
                 // panel off / seam off, so the plain path is unchanged.
                 let tab_bg_quads = self.tab_panel_bg_quads(cell);
-                // F4-P3: the revealed rail auto-hide overlay strip. Built
+                // The revealed rail auto-hide overlay strip. Built
                 // before the GPU borrow (it reads `&self`); `None` unless
                 // the floating rail is currently revealed, so the pinned /
                 // no-autohide path is byte-identical.

@@ -785,7 +785,7 @@ mod tests {
 
     #[test]
     fn writer_shim_is_fallible_and_the_happy_path_enqueues_through_the_thread() {
-        // F18 regression: `writer_shim` returns a `Result` instead of aborting
+        // Regression: `writer_shim` returns a `Result` instead of aborting
         // the whole process when its writer thread cannot spawn. On the normal
         // path it returns `Ok`, and bytes written to the returned shim reach the
         // fd via the spawned writer thread. (A real spawn failure only occurs

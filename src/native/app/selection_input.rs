@@ -31,7 +31,7 @@ impl App {
         let Some(point) = self.pointer_cell else {
             return;
         };
-        // NF21-8: a selection gesture starts with the left button physically
+        // A selection gesture starts with the left button physically
         // down; record that so the motion path can refuse to extend once the
         // button is up (see the guard in the grid `CursorMoved` path).
         self.grid_left_held = true;
@@ -324,7 +324,7 @@ impl App {
     }
 
     fn selection_snapshot(&self) -> (Snapshot, usize) {
-        // P0-3: drag-autoscroll selection path - poison-recover, never abort.
+        // Drag-autoscroll selection path - poison-recover, never abort.
         let terminal = crate::native::lock_recover(&self.terminal);
         (
             terminal.snapshot_with_scrollback(self.viewport.offset()),
@@ -377,7 +377,7 @@ impl App {
     }
 
     pub(super) fn finish_selection(&mut self) {
-        // NF21-8: the left button is up once the gesture finalizes; drop the
+        // The left button is up once the gesture finalizes; drop the
         // held flag before any early return so a subsequent bare `CursorMoved`
         // cannot extend a stale latch.
         self.grid_left_held = false;

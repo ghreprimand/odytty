@@ -489,7 +489,7 @@ impl App {
         // last tab.
         let ws_before = self.sessions.workspace_count();
         let _ = self.sessions.close_active_tab();
-        // ODP-2: pure tab actions no longer flash the workspace rail - only a
+        // Pure tab actions no longer flash the workspace rail - only a
         // change to the WORKSPACE list does. Closing the last tab of a non-last
         // workspace closes that workspace, so flash iff the list shrank.
         if self.sessions.workspace_count() < ws_before {
@@ -887,7 +887,7 @@ impl App {
     /// Switch to the next workspace in rail order (wrapping) - the "Next
     /// Workspace" action / palette entry. A no-op with a single workspace. Flashes
     /// the auto-hidden rail so the workspace change is visible even with the
-    /// pointer away from the edge (ODP-2: workspace chords flash the rail).
+    /// pointer away from the edge (workspace chords flash the rail).
     pub(super) fn switch_to_next_workspace(&mut self) {
         self.finish_divider_drag();
         if self.sessions.next_workspace() {

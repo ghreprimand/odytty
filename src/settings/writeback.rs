@@ -897,8 +897,7 @@ mod tests {
 
     #[test]
     fn ensure_config_file_creates_when_missing_and_preserves_when_present() {
-        let dir = std::env::temp_dir().join(format!("odytty-ensure-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
+        let dir = crate::test_dirs::ScratchDir::new("odytty-ensure-");
         let path = dir.join("odytty.conf");
 
         // Missing -> created with the first-run stub, reported as one change.
@@ -920,7 +919,5 @@ mod tests {
             fs::read_to_string(&path).expect("reread"),
             "font_size = 22\n"
         );
-
-        let _ = fs::remove_dir_all(&dir);
     }
 }

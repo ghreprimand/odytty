@@ -52,7 +52,7 @@ pub(super) fn per_connection_attach_budget(
 }
 
 /// The outcome of a launch-time workspace restore. Advisory only: the
-/// caller turns a stale-cwd count into a single compact notice (sub-ODP 8f) and
+/// caller turns a stale-cwd count into a single compact notice and
 /// otherwise proceeds silently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::native) enum RestoreReport {
@@ -660,7 +660,7 @@ impl WorkspaceSet {
     /// read-only flags, and the active workspace/tab indices. Excludes per-pane
     /// cwd so it never locks a terminal or churns on an OSC 7 cwd update; the
     /// debounced autosave uses it to detect shape mutations without capturing
-    /// the full snapshot every maintenance pass (WP2 sub-ODP 8c).
+    /// the full snapshot every maintenance pass.
     pub(in crate::native) fn structural_fingerprint(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();

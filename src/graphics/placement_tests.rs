@@ -73,7 +73,7 @@ fn unnumbered_placements_evict_oldest_at_per_buffer_cap() {
 
 #[test]
 fn clipped_top_placement_advances_source_by_clipped_rows() {
-    // C21: a placement scrolled partially above the viewport top must show
+    // A placement scrolled partially above the viewport top must show
     // its LOWER portion at row 0 - source.y advances by the clipped pixel
     // rows and display_rows shrinks - instead of re-anchoring the image's
     // top rows at the viewport top.
@@ -106,7 +106,7 @@ fn clipped_top_placement_advances_source_by_clipped_rows() {
 
 #[test]
 fn clipped_top_placement_with_open_source_height_advances_y_only() {
-    // C21: `height == 0` means "to the image bottom"; the advanced `y`
+    // `height == 0` means "to the image bottom"; the advanced `y`
     // shrinks the effective rect implicitly and height must stay 0.
     let mut scene = ImageScene::new(ImageStoreLimits::default());
     let image_id = scene.insert_rgba(None, 8, 64, rgba(8, 64)).unwrap().id;

@@ -452,7 +452,7 @@ fn overlay_fit_constraining_axis_is_ninety_percent_and_centered() {
     );
 }
 
-// ----- Cut 1: per-pane placement geometry (inline graphics in splits) -----
+// ----- per-pane placement geometry (inline graphics in splits) -----
 
 #[test]
 fn placement_with_origin_positions_relative_to_pane() {

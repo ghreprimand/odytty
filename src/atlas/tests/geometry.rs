@@ -17,10 +17,10 @@ fn atlas_byte_len_survives_products_beyond_u32() {
 #[test]
 fn box_drawing_strokes_reach_cell_edges() {
     let font = test_font();
-    if !font_has_glyph(&font, '\u{2500}') || !font_has_glyph(&font, '\u{2502}') {
-        eprintln!("skipping: font lacks box-drawing glyphs");
-        return;
-    }
+    assert!(
+        font_has_glyph(&font, '\u{2500}') && font_has_glyph(&font, '\u{2502}'),
+        "bundled face: font lacks box-drawing glyphs"
+    );
     let mut atlas = GlyphAtlas::build(&font, 28.0);
     let cw = atlas.cell.width;
     let ch = atlas.cell.height;
@@ -145,10 +145,7 @@ fn regular_style_matches_legacy_lookup() {
 #[test]
 fn styled_glyph_gets_a_distinct_slot() {
     let font = test_font();
-    let Some(ch) = glyph_bearing_non_ascii(&font) else {
-        eprintln!("skipping: font has no non-ASCII glyph");
-        return;
-    };
+    let ch = glyph_bearing_non_ascii(&font).expect("bundled face: font has no non-ASCII glyph");
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     let regular = atlas
         .ensure_styled(&font, FontStyle::Regular, ch)

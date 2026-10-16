@@ -15,17 +15,10 @@ use crate::profiles::{
 };
 use crate::settings::{ConfigValues, DEFAULT_THEME, FONT_FAMILY_ENV, Settings};
 use crate::theme::Theme;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn temp_profiles_dir(name: &str) -> std::path::PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "odytty-profiles-test-{name}-{}-{nanos}",
-        std::process::id()
-    ))
+/// Removed when dropped, including when an assertion panics.
+fn temp_profiles_dir(name: &str) -> crate::test_dirs::ScratchDir {
+    crate::test_dirs::ScratchDir::new(&format!("odytty-profiles-test-{name}-"))
 }
 
 #[test]
@@ -97,7 +90,6 @@ fn local_catalog_load_is_bounded_and_non_blocking() {
     let catalog = load_catalog_from_dir(&dir);
     assert!(start.elapsed() < Duration::from_secs(2));
     assert_eq!(catalog.profiles.len(), 3);
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -211,7 +203,6 @@ fn unknown_keys_survive_the_full_on_disk_write_reload_cycle() {
     }
     let reloaded = read_profile_file(&path, Some("keeper")).expect("reload");
     assert_eq!(reloaded, parsed, "unknown keys survive a disk round-trip");
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -244,7 +235,6 @@ fn secret_env_value_is_rejected_at_the_write_boundary_leaving_no_bytes() {
         leftovers.is_empty(),
         "no temp sibling left behind: {leftovers:?}"
     );
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -271,7 +261,6 @@ fn catalog_load_is_capped_at_the_entry_limit_and_warns() {
         "overflow is reported: {:?}",
         catalog.warnings
     );
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -297,7 +286,6 @@ fn oversized_profile_file_is_skipped_without_emptying_the_catalog() {
         "over-cap file is not loaded"
     );
     assert!(!catalog.warnings.is_empty(), "the skip is reported");
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -316,7 +304,6 @@ fn quarantine_renames_a_malformed_file_beside_the_original() {
     );
     // A second quarantine of the now-missing path is a no-op, not an error.
     assert!(!quarantine_malformed_file(&bad).expect("second quarantine"));
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -414,7 +401,6 @@ fn an_over_cap_env_map_is_rejected_not_written() {
         )))
     ));
     assert!(!path.exists());
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -432,7 +418,6 @@ fn a_file_name_mismatching_its_document_name_is_rejected() {
         read_profile_file(&path, Some("someone-else")),
         Err(ProfileStoreError::Validation(ProfileError::InvalidName(_)))
     ));
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -461,7 +446,6 @@ fn write_profile_file_replaces_a_same_named_file_without_a_store_level_guard() {
         Some("/bin/imported"),
         "the store write replaces a same-named profile with no collision guard"
     );
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -726,7 +710,6 @@ fn a_malformed_import_file_is_rejected_and_never_reaches_the_catalog() {
         catalog.profiles.is_empty(),
         "a rejected import must not create any profile entry"
     );
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -809,7 +792,6 @@ fn import_rejects_os_invalid_env_and_preserves_sibling_profiles() {
         before,
         "rejected import must leave the file bytes unchanged"
     );
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -835,5 +817,4 @@ fn write_boundary_rejects_empty_equals_and_nul_env_without_writing() {
         );
         assert!(!path.exists(), "no bytes written for refused env");
     }
-    let _ = std::fs::remove_dir_all(dir);
 }

@@ -33,30 +33,17 @@ pub fn snippet(kind: ShellKind) -> &'static str {
 // settings default on. Threading a settings value through these static const
 // snippets would be strictly worse for no behavioral gain. Re-asserting it on
 // every prompt (`A`, not just once) keeps it correct across resets.
-// PROMPT_COMMAND coexistence: a user's pre-existing PROMPT_COMMAND
-// helper (git-prompt, powerline, ...) is loaded from `.bashrc` BEFORE this
-// snippet, so OdyTTY must not assume it owns PROMPT_COMMAND. Two hazards, both
-// fixed here:
-// * exit-status masking - the user helper runs first and clobbers
-// `$?` before the reporter can read it, so `133;D` would report the
-// helper's status (0), not the real command's. Fixed by PREPENDING
-// `__odytty_status_capture`, which snapshots `$?` at the very start of the
-// PROMPT_COMMAND chain into `__ODYTTY_LAST_STATUS`; the appended reporter
-// reads the snapshot.
-// * array-valued PROMPT_COMMAND (Fedora/systemd) - assigning index zero would
-// place both OdyTTY hooks before the remaining array elements. A later
-// prompt helper then trips DEBUG and stamps `C` after `D`/`A`, erasing the
-// completed block's exit before PS1 stamps `B`. Array values are therefore
-// prepended/appended as array elements so the prompt-phase guard spans the
-// entire chain and the reporter is the final helper.
-// * phantom OutputStart - the DEBUG trap fires before the user helper
-// (a top-level PROMPT_COMMAND command) and would emit a spurious `133;C`.
-// Fixed with a state flag (`__ODYTTY_PROMPT_EXECUTING`, the kitty/ghostty
-// pattern): the capturer arms it, the reporter clears it, and the trap
-// suppresses `133;C` while armed. That excludes ALL PROMPT_COMMAND-internal
-// commands by state - robust against arbitrary user helper names - while
-// the capturer itself, which runs before the flag is armed, stays covered
-// by the internal-name `case` filter.
+// PROMPT_COMMAND coexistence: a user helper (git-prompt, powerline, ...) loaded
+// from `.bashrc` runs before this snippet, so OdyTTY does not assume it owns
+// PROMPT_COMMAND:
+// * Exit status: `__odytty_status_capture` is PREPENDED and snapshots `$?` into
+//   `__ODYTTY_LAST_STATUS` before any helper can clobber it; the appended
+//   reporter reads the snapshot for `133;D`.
+// * Array-valued PROMPT_COMMAND (Fedora/systemd): both hooks are added as array
+//   elements (first and last), so the prompt-phase guard spans the whole chain.
+// * Phantom `133;C`: the DEBUG trap fires for helper commands too. The
+//   capturer arms `__ODYTTY_PROMPT_EXECUTING`, the reporter clears it, and the
+//   trap suppresses `133;C` while it is armed.
 pub(super) const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
   export ODYTTY_SHELL_INTEGRATION=1
 

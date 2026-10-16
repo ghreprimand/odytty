@@ -570,7 +570,7 @@ impl App {
         // an unchanged reload (the new-shells notice fires only on the
         // transition, never on every reload).
         let shell_integration_was_enabled = self.settings.shell_integration;
-        // F4 ODP-7: capture whether the tab bar is currently shown before the
+        // Capture whether the tab bar is currently shown before the
         // settings swap, so a live `always_show_tab_bar` toggle can recompute the
         // content grid (the bar reserves a row; appearing/disappearing changes
         // the usable height). Nothing else in this reload path touches the tab
@@ -698,7 +698,7 @@ impl App {
         // edit takes effect on the next frame (the grid resolve seam reads it
         // per cell). Mirrors the palette republish above; passthrough at 1.0.
         text::set_min_contrast(self.settings.effective_min_contrast());
-        // NF21-4: fan the theme colors, palette, OSC 52 read gate, cursor
+        // Fan the theme colors, palette, OSC 52 read gate, cursor
         // defaults and scrollback cap over EVERY session, not just the active
         // one through `Deref`. A background tab (or a background workspace's
         // tabs) otherwise answered OSC 4/10/11 with the pre-reload theme, kept a
@@ -748,7 +748,7 @@ impl App {
             }
         }
 
-        // F4 ODP-7 / F4-V2: if a live change flipped the bar's visibility, its
+        // If a live change flipped the bar's visibility, its
         // placement (top↔left changes the reserved axis), or the reserved rows
         // or columns themselves (top-bar height), reserve/reclaim the tab chrome
         // now so the content grid matches. No-op when all are unchanged.
@@ -769,7 +769,7 @@ impl App {
         }
     }
 
-    /// WP2 sub-ODP 8d: record whether this instance holds the primary-instance
+    /// Record whether this instance holds the primary-instance
     /// lock. Only the primary autosaves and restores the workspace shape; a
     /// second concurrent window stays inert on both.
     pub(in crate::native) fn set_primary_instance(&mut self, primary: bool) {
@@ -997,7 +997,7 @@ impl App {
         self.autosave_fingerprint = Some(self.sessions.structural_fingerprint());
     }
 
-    /// WP2 sub-ODP 8c: arm / flush the debounced shape autosave. Runs every
+    /// Arm / flush the debounced shape autosave. Runs every
     /// maintenance pass; inert on non-primary instances and when the structure
     /// is unchanged. A structural mutation re-arms the debounce so a burst (e.g.
     /// a split-ratio drag) coalesces into one write when it settles.
@@ -1057,7 +1057,7 @@ impl App {
         }
     }
 
-    /// WP2 sub-ODP 8c: unconditional shape save on a clean exit (primary only).
+    /// Unconditional shape save on a clean exit (primary only).
     /// Skips an empty window so quitting after closing every tab cannot clobber a
     /// good snapshot with nothing.
     pub(in crate::native) fn save_shape_on_exit(&mut self) {
@@ -1067,7 +1067,7 @@ impl App {
         let _ = self.write_shape_snapshot();
     }
 
-    /// Capture the live workspace shape and persist it atomically (sub-ODP 8c).
+    /// Capture the live workspace shape and persist it atomically.
     /// Best-effort: a write error is logged, never fatal. Returns whether the
     /// snapshot was saved; the saved-cwd baseline and the pending cwd
     /// checkpoint are settled only then. Under `cfg(test)` the disk write is

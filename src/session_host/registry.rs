@@ -14,9 +14,8 @@ use super::socket::{
     existing_runtime_dir, session_id_from_socket_name, session_metadata_path, session_socket_path,
 };
 
-/// Detached-session metadata contains five short text fields. This generous
-/// ceiling leaves ample room for future compatible fields while preventing a
-/// replaced file from forcing an unbounded allocation during session listing.
+/// Ceiling for a detached-session metadata file (five short text fields), so a
+/// replaced file cannot force an unbounded allocation during session listing.
 pub(super) const MAX_SESSION_METADATA_BYTES: u64 = 64 * 1024;
 /// Largest pane count a metadata file may report. The value is only shown in the
 /// session list, so a corrupted or hostile huge number is clamped on read

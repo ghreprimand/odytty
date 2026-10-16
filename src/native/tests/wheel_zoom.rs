@@ -14,18 +14,6 @@ use super::*;
 const COLS: usize = 80;
 const ROWS: usize = 24;
 
-/// Build an `App` over a headless session, feed `content` into its terminal,
-/// and return it. Mirrors the `scrollbar` harness.
-fn build_app(content: &[u8]) -> App {
-    let dims = Dimensions::new(COLS, ROWS);
-    let (app, terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());
-    {
-        let mut t = terminal.lock().expect("terminal");
-        t.advance(content);
-    }
-    app
-}
-
 /// A PTY writer that records every byte written to it, so a test can assert the
 /// exact mouse report a routing decision emits. (`flush` is a no-op - the byte
 /// stream is what we check.)
@@ -45,9 +33,9 @@ impl Write for RecordingWriter {
     }
 }
 
-/// Like [`build_app`], but routes the App's PTY writes to a recording writer so
-/// a test can assert the bytes a Ctrl+wheel emits while a TUI has mouse
-/// reporting enabled. Only the write side is swapped.
+/// Build an `App` over a headless session, feed `content` into its terminal, and
+/// route the App's PTY writes to a recording writer so a test can assert the
+/// bytes a Ctrl+wheel emits while a TUI has mouse reporting enabled.
 fn build_recording_app(content: &[u8]) -> (App, Arc<Mutex<Vec<u8>>>) {
     let dims = Dimensions::new(COLS, ROWS);
     let recorder = RecordingWriter::default();
@@ -60,6 +48,12 @@ fn build_recording_app(content: &[u8]) -> (App, Arc<Mutex<Vec<u8>>>) {
         t.advance(content);
     }
     (app, bytes)
+}
+
+/// An `App` over a headless session with `content` fed into its terminal.
+/// Mirrors the `scrollbar` harness; the PTY writes go to an unread recorder.
+fn build_app(content: &[u8]) -> App {
+    build_recording_app(content).0
 }
 
 #[test]

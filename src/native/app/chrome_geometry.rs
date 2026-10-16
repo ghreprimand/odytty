@@ -473,7 +473,7 @@ impl App {
         } else {
             0
         };
-        // F4-P3: under rail auto-hide the rail reserves NOTHING - it draws as a
+        // Under rail auto-hide the rail reserves NOTHING - it draws as a
         // floating overlay when revealed (never reflows content). The top bar is
         // never auto-hidden, so its rows stay reserved independently.
         let (left_cols, right_cols, gap_cols) =
@@ -484,7 +484,7 @@ impl App {
                 let rail_cols = self.settings.rail_width_cols(self.rail_auto_want_cols());
                 match self.workspace_rail_side() {
                     RailSide::Left => (rail_cols, 0, 0),
-                    // F4-P2: a right rail reserves its band off the RIGHT;
+                    // A right rail reserves its band off the RIGHT;
                     // the content stays at column 0 (mirror of the left arm).
                     RailSide::Right => (0, rail_cols, 0),
                 }
@@ -525,7 +525,7 @@ impl App {
     }
 
     /// The rail width (cells) `Auto` mode wants: the longest title plus the
-    /// widget's label chrome (F4-P4). `Settings::rail_width_cols` clamps it to
+    /// widget's label chrome. `Settings::rail_width_cols` clamps it to
     /// the auto max; in `Manual` mode this is ignored.
     pub(super) fn rail_auto_want_cols(&self) -> usize {
         self.rail_longest_title_cols() + tab_rail::RAIL_LABEL_CHROME_COLS
@@ -724,7 +724,7 @@ impl App {
     /// padding `[pad, pad]`; a right rail sits at the far side, after the content
     /// columns: `pad + content_cols·cell_w`. This
     /// is the same grid basis the reserve/decorate/panel-seam paths use, so the
-    /// rail's glyphs, seam, and click targets stay pixel-aligned (F4-P2).
+    /// rail's glyphs, seam, and click targets stay pixel-aligned.
     pub(super) fn rail_origin_px(&self, cell: CellSize) -> [f32; 2] {
         let padding = self
             .resolved_surface()
@@ -746,7 +746,7 @@ impl App {
     }
 
     /// The physical-pixel X of the rail's inner (content-facing) seam this frame,
-    /// or `None` when no rail is active (F4-P4). A left rail's seam is the RIGHT
+    /// or `None` when no rail is active. A left rail's seam is the RIGHT
     /// edge of its band (`origin_x + rail_cols·cell_w`); a right rail's seam is
     /// the LEFT edge of its band (`origin_x`). This is the edge the drag-resize
     /// grabs and the resize cursor tracks.
@@ -762,8 +762,8 @@ impl App {
         }
     }
 
-    /// The manual rail width (cells) a seam-drag pointer at `px_x` maps to
-    /// (F4-P4). Gathers the pixel geometry (padding, surface width) from the
+    /// The manual rail width (cells) a seam-drag pointer at `px_x` maps to.
+    /// Gathers the pixel geometry (padding, surface width) from the
     /// resolved live or injected surface - 0 defaults keep the left rail (which
     /// needs neither) usable before either exists - and defers the snap/clamp math to
     /// [`rail_width_cols_from_pointer`]. A pinned right rail measures from its
@@ -793,7 +793,7 @@ impl App {
     }
 
     /// Whether the pointer at raw `px_x` is within the seam grab band this frame
-    /// and should start / show a rail resize rather than a tab hit (F4-P4).
+    /// and should start / show a rail resize rather than a tab hit.
     /// Yields to a live scroll thumb (ODP-5 right-rail rule) so a scrollbar drag
     /// wins the shared edge. `false` off a rail, so the plain path never grabs.
     /// Gated on the workspace rail alone: the top tab bar is independent, so a
@@ -815,7 +815,7 @@ impl App {
         !(self.settings.scrollbar_drag && self.scrollbar_hit_test().is_some())
     }
 
-    /// F4-P4: drive an in-progress rail seam drag to the pointer - set the manual
+    /// Drive an in-progress rail seam drag to the pointer - set the manual
     /// width the pointer maps to and reflow the content grid. Resets the seam
     /// click tracker on an actual move so a drag-then-grab is never misread as a
     /// double-click (reset-to-auto).
@@ -840,7 +840,7 @@ impl App {
         }
     }
 
-    /// F4-P4: set the rail width mode and persist it to `odytty.conf` (drag
+    /// Set the rail width mode and persist it to `odytty.conf` (drag
     /// release → the dragged `Manual` width; double-click → `Auto`). The live
     /// setting is already applied, so this only writes it through so it survives
     /// a restart; a missing config path or write error is logged, not fatal.
@@ -859,7 +859,7 @@ impl App {
         }
     }
 
-    /// F4-P4: reset the rail to `Auto` width (double-click the seam), reflow, and
+    /// Reset the rail to `Auto` width (double-click the seam), reflow, and
     /// persist. A no-op when already `Auto`.
     pub(super) fn reset_rail_width_to_auto(&mut self) {
         if self.settings.tab_rail_width == crate::settings::TabRailWidth::Auto {
@@ -1065,7 +1065,7 @@ impl App {
             size.width,
             size.height,
         );
-        // F4-P4: record the rail width now baked into the content reservation so
+        // Record the rail width now baked into the content reservation so
         // `reconcile_rail_auto_width` reflows exactly once when auto-sizing (or a
         // manual/max-width change) moves the band. 0 on the top-bar/hidden path.
         self.rail_reserved_cols = self.rail_cols();
@@ -1084,7 +1084,7 @@ impl App {
     }
 }
 
-/// F4-P4: the manual rail width (cells) a seam-drag pointer at `px_x` maps to.
+/// The manual rail width (cells) a seam-drag pointer at `px_x` maps to.
 /// The rail's OUTER edge is pinned to the window edge it hugs (left rail → the
 /// left padding; right rail → `surface_w − pad`), so the width is the cell-
 /// snapped distance from that edge to the pointer, clamped to `[min, max]`.

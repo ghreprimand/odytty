@@ -1177,7 +1177,7 @@ fn restore_falls_back_to_local_when_remote_host_unresolvable() {
     );
 }
 
-/// RESTORE-REMOTE / sub-ODP 8f: a local leaf whose captured directory exists
+/// A local leaf whose captured directory exists
 /// but denies the spawn (the EACCES a real `chdir` would hit, e.g. a remote
 /// `/root` that exists locally at mode 700) retries once at home - counted as
 /// stale_cwd - instead of aborting the whole restore.

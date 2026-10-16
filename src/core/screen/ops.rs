@@ -107,7 +107,7 @@ impl Screen {
             // `wrapped` on the region's bottom row right before scrolling and
             // then writes the continuation onto the fresh blank - that
             // anticipatory flag is legitimate and reflow depends on it.
-            // NF10: region top at row 0 severs the scrollback tail instead.
+            // Region top at row 0 severs the scrollback tail instead.
             self.sever_above(region.top);
             self.note_prompt_marks_in_rows(region.top, region.bottom);
             let removed = self.rows.remove(region.top);
@@ -167,7 +167,7 @@ impl Screen {
         let count = count.max(1).min(bottom - top + 1);
         let background = self.current_attrs.background;
         // C16 top seam: the row above the region loses its successor (the
-        // region's first `count` rows are discarded). NF10: at row 0 the
+        // region's first `count` rows are discarded). At row 0 the
         // predecessor is the scrollback tail.
         self.sever_above(top);
         self.note_prompt_marks_in_rows(top, bottom);
@@ -199,7 +199,7 @@ impl Screen {
         let background = self.current_attrs.background;
         // C16 top seam: the row above the region now precedes an inserted
         // blank instead of its continuation (which was displaced downward).
-        // NF10: at row 0 the predecessor is the scrollback tail.
+        // At row 0 the predecessor is the scrollback tail.
         self.sever_above(top);
         self.note_prompt_marks_in_rows(top, bottom);
         for _ in 0..count {
@@ -278,7 +278,7 @@ impl Screen {
             // C16 seams - same shape as `scroll_region_down` with count = 1:
             // the row above the region now precedes an inserted blank, and the
             // row displaced onto the region bottom lost its successor.
-            // NF10: at row 0 the predecessor is the scrollback tail.
+            // At row 0 the predecessor is the scrollback tail.
             self.sever_above(top);
             self.note_prompt_marks_in_rows(top, bottom);
             let removed = self.rows.remove(bottom);
@@ -304,7 +304,7 @@ impl Screen {
         let count = count.max(1).min(bottom - self.cursor.row + 1);
         let background = self.current_attrs.background;
         // C16 top seam: the row above the insertion point now precedes an
-        // inserted blank instead of its displaced continuation. NF10: at
+        // inserted blank instead of its displaced continuation. At
         // row 0 the predecessor is the scrollback tail.
         self.sever_above(self.cursor.row);
         self.note_prompt_marks_in_rows(self.cursor.row, bottom);
@@ -338,7 +338,7 @@ impl Screen {
         let background = self.current_attrs.background;
         // C16 top seam: the row above the deletion point loses its successor
         // (the deleted rows) - without this it would claim whatever row
-        // scrolls up into the gap as its wrap continuation. NF10: at row 0
+        // scrolls up into the gap as its wrap continuation. At row 0
         // the predecessor is the scrollback tail.
         self.sever_above(self.cursor.row);
         self.note_prompt_marks_in_rows(self.cursor.row, bottom);
@@ -472,7 +472,7 @@ impl Screen {
         }
 
         sanitize_wide_row(row, blank, self.ambiguous_wide);
-        // NF7: `count` is clamped to the row tail, so equality means
+        // `count` is clamped to the row tail, so equality means
         // the erase reached the right edge, destroying the content flow into
         // the continuation row - this row no longer soft-wraps, and reflow must
         // not fuse its remnant with the row below (mirrors EL0).
@@ -625,7 +625,7 @@ impl Screen {
                     let removed = std::mem::replace(&mut self.rows[row], fresh);
                     self.release_line_buttons(&removed);
                 }
-                // NF6: the visible screen is replaced wholesale, so
+                // The visible screen is replaced wholesale, so
                 // a trailing open scrollback line must not keep claiming row 0
                 // as its continuation - reflow would fuse scrolled-off history
                 // with whatever is printed next. Primary screen only: on the
@@ -672,7 +672,7 @@ impl Screen {
                 self.release_line_buttons(&removed);
                 // C16 seam: the row above must not claim the fresh blank as
                 // its wrap continuation (the erased content it wrapped into is
-                // gone). NF10: at row 0 the predecessor is the scrollback
+                // gone). At row 0 the predecessor is the scrollback
                 // tail.
                 self.sever_above(self.cursor.row);
             }

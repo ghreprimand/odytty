@@ -57,10 +57,10 @@ fn glyph_quad_bounds_track_actual_ink() {
 #[test]
 fn box_drawing_quad_spans_full_cell_width() {
     let font = test_font();
-    if !font_has_glyph(&font, '\u{2500}') {
-        eprintln!("skipping: font lacks box-drawing glyph");
-        return;
-    }
+    assert!(
+        font_has_glyph(&font, '\u{2500}'),
+        "bundled face: font lacks box-drawing glyph"
+    );
     let mut atlas = GlyphAtlas::build(&font, 28.0);
     atlas.ensure(&font, '\u{2500}').expect("U+2500 uv");
     let q = atlas.glyph_quad('\u{2500}').expect("U+2500 quad");
@@ -80,7 +80,7 @@ fn box_drawing_quad_spans_full_cell_width() {
 /// At least one real glyph inks beyond the cell box, and its quad reports
 /// that overflow (negative offset or size exceeding the cell) instead of
 /// clipping to the cell - the core R3 capability. Best-effort across a broad
-/// codepoint range; skipped only if the loaded font never overflows a cell.
+/// codepoint range; the bundled face is known to contain an overflowing glyph.
 #[test]
 fn some_glyph_quad_overflows_the_cell() {
     let font = test_font();
@@ -122,13 +122,11 @@ fn some_glyph_quad_overflows_the_cell() {
         }
     }
 
-    match found {
-        Some((ch, q)) => assert!(
-            exceeds(&q),
-            "glyph {ch:?} quad {q:?} should exceed the {cw}x{ch_h} cell"
-        ),
-        None => eprintln!("skipping: loaded font has no cell-overflowing glyph"),
-    }
+    let (ch, q) = found.expect("bundled face: no glyph overflows the cell");
+    assert!(
+        exceeds(&q),
+        "glyph {ch:?} quad {q:?} should exceed the {cw}x{ch_h} cell"
+    );
 }
 
 /// `glyph_quad` resolution mirrors `uv_rect`: a resident styled glyph yields
@@ -156,10 +154,10 @@ fn styled_glyph_quad_resolves_styled_slot() {
 fn combining_mark_ink_lands_over_the_cell_box() {
     let font = test_font();
     let mark = '\u{0301}'; // combining acute accent
-    if !font_has_glyph(&font, mark) {
-        eprintln!("skipping: font has no combining acute");
-        return;
-    }
+    assert!(
+        font_has_glyph(&font, mark),
+        "bundled face: font has no combining acute"
+    );
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     atlas
         .ensure_styled(&font, FontStyle::Regular, mark)
@@ -198,10 +196,7 @@ fn combining_mark_quad_filters_missing_marks() {
         .chain(0x0E31..=0x0E31)
         .filter_map(char::from_u32)
         .find(|&ch| is_combining_mark(ch) && !font_has_glyph(&font, ch));
-    let Some(missing) = missing else {
-        eprintln!("skipping: font covers every probed mark");
-        return;
-    };
+    let missing = missing.expect("bundled face: font covers every probed mark");
     atlas
         .ensure_styled(&font, FontStyle::Regular, missing)
         .expect("fallback uv");

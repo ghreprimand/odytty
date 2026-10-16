@@ -230,7 +230,7 @@ pub(in crate::native) enum OverlayOutcome {
     /// manager so the row disappears. Emitted only after the confirm; the dialog
     /// closed itself. Boxed to keep this short-lived enum small.
     RemoveConnectionConfirmed(Box<ConnectionHost>),
-    /// Persist a host built in the Add / Edit connection form (REMOTE-UX P4).
+    /// Persist a host built in the Add / Edit connection form.
     /// The overlay has closed itself; the App appends a new block (`edit_target`
     /// `None`) or byte-splices over the named block, then raises a one-line
     /// notice.
@@ -490,7 +490,7 @@ pub(in crate::native) enum OverlayMode {
     /// and quick-connect. Presentation-only; accepting a row emits a connect
     /// request for the App to spawn. Never mutates live core state.
     Connections,
-    /// Add / Edit connection form (REMOTE-UX P4): create or edit a hosts.conf
+    /// Add / Edit connection form: create or edit a hosts.conf
     /// block. Presentation + validation only; Save emits the built host for the
     /// App to persist (append for Add, byte-splice for Edit).
     ConnectionForm,

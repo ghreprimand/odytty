@@ -1133,7 +1133,7 @@ pub(crate) struct ResolvedCwd {
     pub(crate) path: Option<PathBuf>,
     /// True when a specific directory WAS captured but no longer resolves to an
     /// existing directory, so the pane falls back to home. Drives the single
-    /// compact restore notice (sub-ODP 8f); an unknown (never-captured) cwd is
+    /// compact restore notice; an unknown (never-captured) cwd is
     /// a quiet home fallback and is NOT counted here.
     pub(crate) stale: bool,
 }
@@ -1201,7 +1201,7 @@ pub(crate) fn dir_exists_for_spawn(path: &Path, source: crate::cwd::DirectorySou
 }
 
 /// The user's home directory for restore fallbacks: `$HOME` on Unix,
-/// `%USERPROFILE%` on Windows (sub-ODP 8f). `None` when unset/empty, in which
+/// `%USERPROFILE%` on Windows. `None` when unset/empty, in which
 /// case a stale pane simply spawns wherever the process already is rather than
 /// aborting.
 pub(crate) fn restore_home_dir() -> Option<PathBuf> {

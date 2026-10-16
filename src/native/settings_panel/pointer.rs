@@ -626,12 +626,10 @@ impl SettingsPanel {
     }
 
     /// Free pointer-driven scroll: move the viewport by `delta` rows (positive =
-    /// later entries) without moving `selected`. This is independent of the
-    /// keyboard `clamp()` keep-selection-visible logic; the next keyboard
-    /// navigation will re-clamp scroll to the selection as before.
-    /// Free pointer-driven scroll. At Level 1 (section list) scrolls
-    /// `section_scroll`; at Level 2 or in search mode scrolls `scroll`.
-    /// (The two levels' scroll offsets are independent.)
+    /// later entries) without moving `selected`. At Level 1 (section list) this
+    /// scrolls `section_scroll`; at Level 2 or in search mode it scrolls
+    /// `scroll` (the two offsets are independent). The next keyboard navigation
+    /// re-clamps scroll to the selection.
     pub(in crate::native) fn scroll_lines(&mut self, delta: isize) {
         // Path picker owns wheel scroll when active.
         if let Some(picker) = self.path_picker.as_mut() {

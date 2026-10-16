@@ -192,10 +192,7 @@ fn excluded_categories_do_not_attempt_fallback() {
 #[test]
 fn pua_missing_glyph_without_fallback_uses_box() {
     let font = test_font();
-    let Some(absent) = pua_absent(&font) else {
-        eprintln!("skipping: font covers all of the BMP PUA");
-        return;
-    };
+    let absent = pua_absent(&font).expect("bundled face: font covers all of the BMP PUA");
     assert!(is_symbol_codepoint(absent));
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     let box_uv = atlas.slot_uv(FALLBACK_SLOT);
@@ -215,10 +212,7 @@ fn pua_missing_glyph_without_fallback_uses_box() {
 #[test]
 fn fallback_present_but_lacking_glyph_uses_box() {
     let font = test_font();
-    let Some(absent) = pua_absent(&font) else {
-        eprintln!("skipping: font covers all of the BMP PUA");
-        return;
-    };
+    let absent = pua_absent(&font).expect("bundled face: font covers all of the BMP PUA");
     // A second instance of the same font as the "fallback" (reload so Arc
     // identity is distinct): it also lacks `absent`, so the fallback must decline
     // and the hollow box is used - proving the atlas verifies fallback coverage
@@ -240,10 +234,7 @@ fn fallback_present_but_lacking_glyph_uses_box() {
 #[test]
 fn primary_covered_pua_glyph_renders_from_primary() {
     let font = test_font();
-    let Some(present) = pua_present(&font) else {
-        eprintln!("skipping: font has no BMP PUA glyph");
-        return;
-    };
+    let present = pua_present(&font).expect("bundled face: font has no BMP PUA glyph");
     assert!(is_symbol_codepoint(present));
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     let box_uv = atlas.slot_uv(FALLBACK_SLOT);
@@ -328,10 +319,7 @@ fn chain_walk_resolves_from_a_later_face_when_the_first_lacks_the_glyph() {
 #[test]
 fn empty_chain_keeps_the_hollow_box() {
     let font = test_font();
-    let Some(absent) = pua_absent(&font) else {
-        eprintln!("skipping: font covers all of the BMP PUA");
-        return;
-    };
+    let absent = pua_absent(&font).expect("bundled face: font covers all of the BMP PUA");
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     // Explicitly installing an empty chain is identical to never installing one.
     atlas.set_fallback_fonts(Vec::new());
@@ -360,17 +348,10 @@ mod runtime_resolver {
     // `NEG_CALLS` / `neg_resolver` are owned exclusively by
     // `negative_runtime_result_is_cached`, which asserts on the exact call
     // count. No other test may mutate this counter, or the assertion would
-    // observe another thread's invocations under parallel scheduling. Tests that
-    // only need a negative resolver (without counting) use `silent_neg_resolver`.
+    // observe another thread's invocations under parallel scheduling.
     static NEG_CALLS: AtomicUsize = AtomicUsize::new(0);
     fn neg_resolver(_ch: char) -> RuntimeSymbol {
         NEG_CALLS.fetch_add(1, Ordering::SeqCst);
-        RuntimeSymbol::Ready(None)
-    }
-
-    /// A negative resolver that touches no shared counter, so tests that merely
-    /// need "resolver returns None" stay isolated from the counting tests.
-    fn silent_neg_resolver(_ch: char) -> RuntimeSymbol {
         RuntimeSymbol::Ready(None)
     }
 
@@ -384,6 +365,25 @@ mod runtime_resolver {
     fn universal_resolver(_ch: char) -> RuntimeSymbol {
         UNIVERSAL_CALLS.fetch_add(1, Ordering::SeqCst);
         RuntimeSymbol::Ready(Some(Arc::new(marker_inked_font())))
+    }
+
+    // Owned by `reinstalling_resolver_clears_the_cache`, which asserts on the
+    // exact call count.
+    static CLEAR_CALLS: AtomicUsize = AtomicUsize::new(0);
+    fn clear_counting_resolver(_ch: char) -> RuntimeSymbol {
+        CLEAR_CALLS.fetch_add(1, Ordering::SeqCst);
+        RuntimeSymbol::Ready(None)
+    }
+
+    /// The final answer of one `symbol_fallback` query. The resolver tests
+    /// query it directly: `ensure` stores its first answer in the atlas
+    /// (`dynamic`), so a second `ensure` of the same codepoint never reaches
+    /// the per-codepoint resolver cache these tests are about.
+    fn settled(answer: crate::atlas::SymbolFallback) -> Option<Arc<FontHandle>> {
+        match answer {
+            crate::atlas::SymbolFallback::Settled(face) => face,
+            crate::atlas::SymbolFallback::Pending => panic!("the test resolvers never defer"),
+        }
     }
 
     static EXCLUDED_CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -415,8 +415,12 @@ mod runtime_resolver {
         atlas.set_runtime_symbol_resolver(Some(pos_resolver));
         let uv1 = atlas.ensure(&primary, icon).expect("runtime fallback uv");
         assert_ne!(uv1, box_uv, "runtime resolver must back the missing glyph");
+        assert_eq!(POS_CALLS.load(Ordering::SeqCst), 1, "one resolver query");
+        // The atlas keeps the placed slot, and the resolver cache answers a
+        // direct repeat query without calling the resolver again.
         let uv2 = atlas.ensure(&primary, icon).expect("cached fallback uv");
         assert_eq!(uv1, uv2, "second lookup must reuse the resolved slot");
+        assert!(settled(atlas.symbol_fallback(icon)).is_some());
         assert_eq!(
             POS_CALLS.load(Ordering::SeqCst),
             1,
@@ -446,6 +450,7 @@ mod runtime_resolver {
             .ensure(&primary, NON_SYMBOL_FALLBACK)
             .expect("cached runtime non-symbol fallback uv");
         assert_eq!(uv1, uv2, "second lookup must reuse the resolved slot");
+        assert!(settled(atlas.symbol_fallback(NON_SYMBOL_FALLBACK)).is_some());
         assert_eq!(
             UNIVERSAL_CALLS.load(Ordering::SeqCst),
             1,
@@ -490,10 +495,7 @@ mod runtime_resolver {
     #[test]
     fn negative_runtime_result_is_cached() {
         let primary = test_font();
-        let Some(absent) = pua_absent(&primary) else {
-            eprintln!("skipping: font covers all of the BMP PUA");
-            return;
-        };
+        let absent = pua_absent(&primary).expect("bundled face: font covers all of the BMP PUA");
         let mut atlas = GlyphAtlas::build(&primary, 24.0);
         let box_uv = atlas.slot_uv(FALLBACK_SLOT);
         atlas.set_fallback_fonts(Vec::new());
@@ -501,7 +503,15 @@ mod runtime_resolver {
         atlas.set_runtime_symbol_resolver(Some(neg_resolver));
         let uv1 = atlas.ensure(&primary, absent).expect("box uv");
         assert_eq!(uv1, box_uv, "unresolved codepoint keeps the hollow box");
-        let _ = atlas.ensure(&primary, absent);
+        assert_eq!(
+            NEG_CALLS.load(Ordering::SeqCst),
+            1,
+            "the first lookup queries the resolver once"
+        );
+        // The repeat goes through the resolver cache directly, since `ensure`
+        // answers from its own slot and never gets there.
+        assert!(settled(atlas.symbol_fallback(absent)).is_none());
+        assert!(settled(atlas.symbol_fallback(absent)).is_none());
         assert_eq!(
             NEG_CALLS.load(Ordering::SeqCst),
             1,
@@ -540,25 +550,41 @@ mod runtime_resolver {
         );
     }
 
-    /// Switching the resolver clears the per-codepoint cache so a stale negative
-    /// result cannot pin a codepoint to tofu after the host font set changes.
+    /// Switching the resolver clears the per-codepoint cache: the same resolver
+    /// is queried again after a reinstall, and clearing it to `None` disables
+    /// the query.
     #[test]
     fn reinstalling_resolver_clears_the_cache() {
         let primary = test_font();
-        let Some(absent) = pua_absent(&primary) else {
-            eprintln!("skipping: font covers all of the BMP PUA");
-            return;
-        };
+        let absent = pua_absent(&primary).expect("bundled face: font covers all of the BMP PUA");
         let mut atlas = GlyphAtlas::build(&primary, 24.0);
         atlas.set_fallback_fonts(Vec::new());
-        // Uses the silent resolver: this test does not count calls, so it must
-        // not perturb `NEG_CALLS` (owned by `negative_runtime_result_is_cached`).
-        atlas.set_runtime_symbol_resolver(Some(silent_neg_resolver));
-        let _ = atlas.ensure(&primary, absent);
-        // Reinstalling clears the cache; clearing to None disables the query.
+        CLEAR_CALLS.store(0, Ordering::SeqCst);
+        atlas.set_runtime_symbol_resolver(Some(clear_counting_resolver));
+        assert!(settled(atlas.symbol_fallback(absent)).is_none());
+        assert!(settled(atlas.symbol_fallback(absent)).is_none());
+        assert_eq!(
+            CLEAR_CALLS.load(Ordering::SeqCst),
+            1,
+            "second query is cached"
+        );
+        // Reinstalling clears the cache, so the resolver is asked again.
+        atlas.set_runtime_symbol_resolver(Some(clear_counting_resolver));
+        assert!(settled(atlas.symbol_fallback(absent)).is_none());
+        assert_eq!(
+            CLEAR_CALLS.load(Ordering::SeqCst),
+            2,
+            "a reinstall must drop the cached answer"
+        );
+        // Clearing to None disables the query: the hollow box stays.
         atlas.set_runtime_symbol_resolver(None);
         let box_uv = atlas.slot_uv(FALLBACK_SLOT);
         let uv = atlas.ensure(&primary, absent).expect("box uv");
         assert_eq!(uv, box_uv, "no resolver keeps the hollow box");
+        assert_eq!(
+            CLEAR_CALLS.load(Ordering::SeqCst),
+            2,
+            "no query without a resolver"
+        );
     }
 }

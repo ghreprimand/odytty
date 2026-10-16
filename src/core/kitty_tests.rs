@@ -609,7 +609,7 @@ fn kitty_quiet_one_still_reports_errors() {
 
 #[test]
 fn kitty_quiet_one_suppresses_success_response() {
-    // NF9: per the kitty spec q=1 suppresses SUCCESS responses (q=2 both).
+    // Per the kitty spec q=1 suppresses SUCCESS responses (q=2 both).
     // The old code only suppressed at q=2, so every successful command
     // answered OK even when the client asked for quiet.
     let mut t = Terminal::new(20, 4);
@@ -640,7 +640,7 @@ fn kitty_quiet_zero_reports_success_and_errors() {
 
 #[test]
 fn kitty_quiet_one_on_first_chunk_suppresses_chunk_acks_and_final_ok() {
-    // NF9: chunk acknowledgements are success responses; q=1 riding on the
+    // Chunk acknowledgements are success responses; q=1 riding on the
     // first chunk must silence the intermediate acks AND the final OK, while
     // errors would still report (q=1 < 2).
     let mut t = Terminal::new(20, 4);

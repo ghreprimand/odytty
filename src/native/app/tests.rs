@@ -940,7 +940,7 @@ fn timed_out_prefix_does_not_spin_the_event_loop() {
     }
 }
 
-/// NF21-2 acceptance (ii): a single-pane terminal with nothing animating
+/// A single-pane terminal with nothing animating
 /// schedules NO animation wake - the restored `animation_deadline()`
 /// collector source contributes nothing at rest, so the strict zero-wake
 /// idle invariant is preserved.
@@ -962,7 +962,7 @@ fn idle_single_pane_schedules_no_animation_wake() {
     );
 }
 
-/// NF21-2 acceptance (i, bell contributor): a bell flash schedules a repaint
+/// A bell flash schedules a repaint
 /// wake and a due wake requests a rebuild - even while the window is
 /// unfocused and the cursor is not blinking. Fails before both halves of the
 /// fix (no wake scheduled; no rebuild on the due wake). Headless Apps have no

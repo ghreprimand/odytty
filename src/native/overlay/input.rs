@@ -891,7 +891,7 @@ impl OverlayUi {
             KeyRemapOutcome::SaveAndClose(changes) => {
                 // Persist the working overrides; after the App reports
                 // `save_succeeded`, the KeyBindings arm returns to the settings
-                // panel (P1-6 dirty-close prompt "save" choice).
+                // panel (dirty-close prompt "save" choice).
                 self.key_remap_close_after_save = true;
                 OverlayOutcome::SaveSettings(changes)
             }

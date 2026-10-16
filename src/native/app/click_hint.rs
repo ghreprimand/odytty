@@ -51,7 +51,7 @@ pub(in crate::native) const CLICK_HINT_COOLDOWN: Duration = Duration::from_milli
 /// The teaching text (Linux). Kept short so it fits a few bottom-left cells.
 pub(in crate::native) const CLICK_HINT_TEXT: &str = " Ctrl+click to open ";
 
-/// NF17: the honest text for a select+Delete no-op whose cause is unavailable
+/// The honest text for a select+Delete no-op whose cause is unavailable
 /// geometry - NOT missing shell integration. Raised when the input region
 /// exists (its mark is present) but its certainty can't back a real buffer edit:
 /// a stale/hard-newline `Unknown` region, a multi-row `RightEdgeUnknown` region
@@ -92,7 +92,7 @@ pub(in crate::native) const CLICK_HINT_MAX_SHOWS: u32 = 3;
 pub(in crate::native) enum ClickHintMessage {
     OpenModifier,
     ShellIntegration,
-    /// NF17: select+Delete no-op caused by unavailable geometry (not missing
+    /// Select+Delete no-op caused by unavailable geometry (not missing
     /// integration). Paints [`SELECTION_GEOMETRY_HINT`].
     SelectionGeometry,
 }
@@ -210,7 +210,7 @@ impl ClickHintState {
         true
     }
 
-    /// NF17: raise the geometry-unavailable hint (integration is on, but the
+    /// Raise the geometry-unavailable hint (integration is on, but the
     /// selection's geometry can't back an edit). Sibling of
     /// [`Self::show_shell_integration_hint`]; same not-restack guard.
     pub(in crate::native) fn show_selection_geometry_hint(&mut self, now: Instant) -> bool {
@@ -345,7 +345,7 @@ impl App {
         }
     }
 
-    /// NF17: raise the geometry-unavailable select+Delete hint. Used by the
+    /// Raise the geometry-unavailable select+Delete hint. Used by the
     /// `NoOpWithHint` arm (mark present, geometry can't back the edit); the
     /// mark-missing path keeps [`Self::show_shell_integration_hint`].
     pub(in crate::native) fn show_selection_geometry_hint(&mut self, now: Instant) {

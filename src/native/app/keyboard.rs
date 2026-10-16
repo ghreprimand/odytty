@@ -989,7 +989,7 @@ impl App {
     }
 
     pub(super) fn handle_overlay_key(&mut self, logical: &WinitKey, event_type: KeyEventType) {
-        // KB-REMAP chord capture (R2 KILL-SHOT): when the key-remap modal is
+        // Key-remap chord capture: when the key-remap modal is
         // armed to capture a chord, this MUST be the first thing we do - route
         // the raw key through `chord_from_winit` BEFORE the lossy
         // `overlay_input_from_winit` mapper, which would otherwise collapse a

@@ -111,3 +111,320 @@ fn cancel_anywhere_executes_and_returns_ground() {
         assert_eq!(m.state, State::Ground, "state {s:?}");
     }
 }
+
+/// One representative byte per [`ByteClass`], in the column order of
+/// [`expected_row`].
+const CLASS_BYTES: [(ByteClass, u8); 13] = [
+    (ByteClass::C0Execute, 0x01),
+    (ByteClass::C0Bel, 0x07),
+    (ByteClass::Cancel, 0x18),
+    (ByteClass::Esc, 0x1B),
+    (ByteClass::Intermediate, 0x20),
+    (ByteClass::Digit, b'5'),
+    (ByteClass::SubParamSep, b':'),
+    (ByteClass::ParamSep, b';'),
+    (ByteClass::ParamMarker, b'?'),
+    (ByteClass::Final, b'm'),
+    (ByteClass::Del, 0x7F),
+    (ByteClass::StringTerm8, 0x9C),
+    (ByteClass::Other, 0x80),
+];
+
+/// The expected `(next state, action name)` for every byte class in `state`,
+/// in [`CLASS_BYTES`] order. This is the canonical VT500-family transition
+/// table with OdyTTY's choices: raw 0x9C is never a terminator, OSC/APC/DCS
+/// strings end only with `ESC \` (or BEL for OSC), and CAN/SUB cancel any
+/// sequence in flight.
+fn expected_row(state: State) -> [(State, &'static str); 13] {
+    use State as S;
+    // Shorthands for the columns that behave the same in many states.
+    let cancel = (S::Ground, "Execute");
+    let to_escape = (S::Escape, "None");
+    match state {
+        S::Escape => [
+            (S::Escape, "Execute"),
+            (S::Escape, "Execute"),
+            cancel,
+            to_escape,
+            (S::EscapeIntermediate, "None"),
+            (S::Ground, "EscDispatch"),
+            (S::Ground, "EscDispatch"),
+            (S::Ground, "EscDispatch"),
+            (S::Ground, "EscDispatch"),
+            (S::Ground, "EscDispatch"),
+            (S::Escape, "None"),
+            (S::Escape, "None"),
+            (S::Escape, "None"),
+        ],
+        S::EscapeIntermediate => [
+            (S::EscapeIntermediate, "Execute"),
+            (S::EscapeIntermediate, "Execute"),
+            cancel,
+            to_escape,
+            (S::EscapeIntermediate, "None"),
+            (S::Ground, "EscDispatch"),
+            (S::Ground, "EscDispatch"),
+            (S::Ground, "EscDispatch"),
+            (S::Ground, "EscDispatch"),
+            (S::Ground, "EscDispatch"),
+            (S::EscapeIntermediate, "None"),
+            (S::EscapeIntermediate, "None"),
+            (S::EscapeIntermediate, "None"),
+        ],
+        S::CsiEntry => [
+            (S::CsiEntry, "Execute"),
+            (S::CsiEntry, "Execute"),
+            cancel,
+            to_escape,
+            (S::CsiIntermediate, "None"),
+            (S::CsiParam, "None"),
+            (S::CsiParam, "None"),
+            (S::CsiParam, "None"),
+            (S::CsiParam, "None"),
+            (S::Ground, "CsiDispatch"),
+            (S::CsiEntry, "None"),
+            (S::CsiEntry, "None"),
+            (S::CsiEntry, "None"),
+        ],
+        S::CsiParam => [
+            (S::CsiParam, "Execute"),
+            (S::CsiParam, "Execute"),
+            cancel,
+            to_escape,
+            (S::CsiIntermediate, "None"),
+            (S::CsiParam, "None"),
+            (S::CsiParam, "None"),
+            (S::CsiParam, "None"),
+            (S::CsiIgnore, "None"),
+            (S::Ground, "CsiDispatch"),
+            (S::CsiParam, "None"),
+            (S::CsiParam, "None"),
+            (S::CsiParam, "None"),
+        ],
+        S::CsiIntermediate => [
+            (S::CsiIntermediate, "Execute"),
+            (S::CsiIntermediate, "Execute"),
+            cancel,
+            to_escape,
+            (S::CsiIntermediate, "None"),
+            (S::CsiIgnore, "None"),
+            (S::CsiIgnore, "None"),
+            (S::CsiIgnore, "None"),
+            (S::CsiIgnore, "None"),
+            (S::Ground, "CsiDispatch"),
+            (S::CsiIntermediate, "None"),
+            (S::CsiIntermediate, "None"),
+            (S::CsiIntermediate, "None"),
+        ],
+        S::CsiIgnore => [
+            (S::CsiIgnore, "Execute"),
+            (S::CsiIgnore, "Execute"),
+            cancel,
+            to_escape,
+            (S::CsiIgnore, "None"),
+            (S::CsiIgnore, "None"),
+            (S::CsiIgnore, "None"),
+            (S::CsiIgnore, "None"),
+            (S::CsiIgnore, "None"),
+            (S::Ground, "None"),
+            (S::CsiIgnore, "None"),
+            (S::CsiIgnore, "None"),
+            (S::CsiIgnore, "None"),
+        ],
+        S::DcsEntry => [
+            (S::DcsEntry, "None"),
+            (S::DcsEntry, "None"),
+            cancel,
+            to_escape,
+            (S::DcsIntermediate, "None"),
+            (S::DcsParam, "None"),
+            (S::DcsParam, "None"),
+            (S::DcsParam, "None"),
+            (S::DcsParam, "None"),
+            (S::DcsPassthrough, "DcsHook"),
+            (S::DcsEntry, "None"),
+            (S::DcsEntry, "None"),
+            (S::DcsEntry, "None"),
+        ],
+        S::DcsParam => [
+            (S::DcsParam, "None"),
+            (S::DcsParam, "None"),
+            cancel,
+            to_escape,
+            (S::DcsIntermediate, "None"),
+            (S::DcsParam, "None"),
+            (S::DcsParam, "None"),
+            (S::DcsParam, "None"),
+            (S::DcsIgnore, "None"),
+            (S::DcsPassthrough, "DcsHook"),
+            (S::DcsParam, "None"),
+            (S::DcsParam, "None"),
+            (S::DcsParam, "None"),
+        ],
+        S::DcsIntermediate => [
+            (S::DcsIntermediate, "None"),
+            (S::DcsIntermediate, "None"),
+            cancel,
+            to_escape,
+            (S::DcsIntermediate, "None"),
+            (S::DcsIgnore, "None"),
+            (S::DcsIgnore, "None"),
+            (S::DcsIgnore, "None"),
+            (S::DcsIgnore, "None"),
+            (S::DcsPassthrough, "DcsHook"),
+            (S::DcsIntermediate, "None"),
+            (S::DcsIntermediate, "None"),
+            (S::DcsIntermediate, "None"),
+        ],
+        S::DcsPassthrough => [
+            (S::DcsPassthrough, "DcsPut"),
+            (S::DcsPassthrough, "DcsPut"),
+            (S::Ground, "DcsCancelExecute"),
+            (S::Escape, "DcsUnhook"),
+            (S::DcsPassthrough, "DcsPut"),
+            (S::DcsPassthrough, "DcsPut"),
+            (S::DcsPassthrough, "DcsPut"),
+            (S::DcsPassthrough, "DcsPut"),
+            (S::DcsPassthrough, "DcsPut"),
+            (S::DcsPassthrough, "DcsPut"),
+            (S::DcsPassthrough, "None"),
+            (S::DcsPassthrough, "DcsPut"),
+            (S::DcsPassthrough, "DcsPut"),
+        ],
+        S::DcsIgnore => [
+            (S::DcsIgnore, "None"),
+            (S::DcsIgnore, "None"),
+            cancel,
+            to_escape,
+            (S::DcsIgnore, "None"),
+            (S::DcsIgnore, "None"),
+            (S::DcsIgnore, "None"),
+            (S::DcsIgnore, "None"),
+            (S::DcsIgnore, "None"),
+            (S::DcsIgnore, "None"),
+            (S::DcsIgnore, "None"),
+            (S::DcsIgnore, "None"),
+            (S::DcsIgnore, "None"),
+        ],
+        S::OscString => [
+            (S::OscString, "None"),
+            (S::Ground, "OscEnd"),
+            (S::Ground, "OscCancelExecute"),
+            (S::Escape, "OscEnd"),
+            (S::OscString, "OscPut"),
+            (S::OscString, "OscPut"),
+            (S::OscString, "OscPut"),
+            (S::OscString, "OscParamBoundary"),
+            (S::OscString, "OscPut"),
+            (S::OscString, "OscPut"),
+            (S::OscString, "OscPut"),
+            (S::OscString, "OscPut"),
+            (S::OscString, "OscPut"),
+        ],
+        S::ApcString => [
+            (S::ApcString, "ApcPut"),
+            (S::ApcString, "ApcPut"),
+            cancel,
+            (S::Escape, "ApcEnd"),
+            (S::ApcString, "ApcPut"),
+            (S::ApcString, "ApcPut"),
+            (S::ApcString, "ApcPut"),
+            (S::ApcString, "ApcPut"),
+            (S::ApcString, "ApcPut"),
+            (S::ApcString, "ApcPut"),
+            (S::ApcString, "ApcPut"),
+            (S::ApcString, "ApcPut"),
+            (S::ApcString, "ApcPut"),
+        ],
+        S::DiscardString => [
+            (S::DiscardString, "None"),
+            (S::DiscardString, "None"),
+            cancel,
+            to_escape,
+            (S::DiscardString, "None"),
+            (S::DiscardString, "None"),
+            (S::DiscardString, "None"),
+            (S::DiscardString, "None"),
+            (S::DiscardString, "None"),
+            (S::DiscardString, "None"),
+            (S::DiscardString, "None"),
+            (S::DiscardString, "None"),
+            (S::DiscardString, "None"),
+        ],
+        S::Ground => unreachable!("Ground is handled by the segmenter, not the table"),
+    }
+}
+
+/// The variant name of an action, without its payload.
+fn action_name(action: &Action) -> String {
+    format!("{action:?}")
+        .chars()
+        .take_while(|ch| ch.is_ascii_alphanumeric())
+        .collect()
+}
+
+/// Every non-Ground state times every byte class lands in the expected next
+/// state with the expected action, so a changed cell shows up here by name.
+#[test]
+fn every_state_and_class_pair_follows_the_transition_matrix() {
+    let states = [
+        State::Escape,
+        State::EscapeIntermediate,
+        State::CsiEntry,
+        State::CsiParam,
+        State::CsiIntermediate,
+        State::CsiIgnore,
+        State::DcsEntry,
+        State::DcsParam,
+        State::DcsIntermediate,
+        State::DcsPassthrough,
+        State::DcsIgnore,
+        State::OscString,
+        State::ApcString,
+        State::DiscardString,
+    ];
+    for state in states {
+        let row = expected_row(state);
+        for (index, (class, byte)) in CLASS_BYTES.into_iter().enumerate() {
+            assert_eq!(classify(byte), class, "fixture byte {byte:#04x}");
+            let mut machine = Machine::new();
+            machine.state = state;
+            let action = machine.step(byte);
+            let (next, name) = row[index];
+            assert_eq!(
+                (machine.state, action_name(&action).as_str()),
+                (next, name),
+                "state {state:?}, class {class:?}"
+            );
+        }
+    }
+}
+
+/// ESC inside a sequence restarts it: the new escape starts clean, so a stale
+/// parameter or intermediate from the abandoned sequence cannot leak.
+#[test]
+fn esc_reentry_starts_a_fresh_escape_sequence() {
+    let mut machine = Machine::new();
+    machine.state = State::Escape;
+    for byte in *b"[1;2\x1b" {
+        machine.step(byte);
+    }
+    assert_eq!(machine.state, State::Escape);
+    assert_eq!(machine.step(b'['), Action::None);
+    assert_eq!(machine.step(b'H'), Action::CsiDispatch(b'H'));
+    assert_eq!(machine.state, State::Ground);
+    assert!(
+        !machine
+            .params
+            .iter()
+            .any(|group| group.contains(&1) || group.contains(&2)),
+        "the abandoned parameters are gone"
+    );
+
+    // ESC ESC stays in Escape and still dispatches the next final.
+    let mut machine = Machine::new();
+    machine.state = State::Escape;
+    assert_eq!(machine.step(0x1B), Action::None);
+    assert_eq!(machine.state, State::Escape);
+    assert_eq!(machine.step(b'7'), Action::EscDispatch(b'7'));
+}

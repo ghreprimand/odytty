@@ -109,7 +109,7 @@ mod tests {
         }
     }
 
-    /// KILL-SHOT (trap 1): the `off`/`color` treatment produces the identity
+    /// The `off`/`color` treatment produces the identity
     /// params, so the grid apply block is skipped and frames are byte-identical.
     /// (Since v0.6.0 the shipped default is `image`; this guards the opt-out
     /// fast path - `background_treatment = color` - that disables the bundled

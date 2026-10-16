@@ -19,18 +19,37 @@ fn face(family: &str, style: FontStyle) -> FontHandle {
     load_bundled_style_for(family, style).expect("bundled face loads")
 }
 
-/// The full slot (gutter included) of a printable-ASCII glyph in the prebuilt
-/// Regular block.
-fn ascii_slot(atlas: &GlyphAtlas, ch: char) -> Vec<u8> {
+/// The byte ranges, one per pixel row, of the full slot (gutter included) of
+/// a printable-ASCII glyph in the prebuilt Regular block.
+fn ascii_slot_rows(atlas: &GlyphAtlas, ch: char) -> Vec<std::ops::Range<usize>> {
     let slot = ch as u32 - FIRST_CHAR + 1;
     let (ox, oy) = slot_offset(slot, atlas.cols, atlas.cell);
     let bpp = atlas.subpixel.bytes_per_pixel();
+    (oy..oy + slot_h(atlas.cell))
+        .map(|y| {
+            let row = ((y * atlas.width + ox) * bpp) as usize;
+            row..row + (slot_w(atlas.cell) * bpp) as usize
+        })
+        .collect()
+}
+
+/// The full slot (gutter included) of a printable-ASCII glyph in the prebuilt
+/// Regular block.
+fn ascii_slot(atlas: &GlyphAtlas, ch: char) -> Vec<u8> {
     let mut out = Vec::new();
-    for y in oy..oy + slot_h(atlas.cell) {
-        let row = ((y * atlas.width + ox) * bpp) as usize;
-        out.extend_from_slice(&atlas.data[row..row + (slot_w(atlas.cell) * bpp) as usize]);
+    for rows in ascii_slot_rows(atlas, ch) {
+        out.extend_from_slice(&atlas.data[rows]);
     }
     out
+}
+
+/// The atlas bytes with one printable-ASCII glyph's slot zeroed.
+fn data_without_slot(atlas: &GlyphAtlas, ch: char) -> Vec<u8> {
+    let mut data = atlas.data.clone();
+    for rows in ascii_slot_rows(atlas, ch) {
+        data[rows].fill(0);
+    }
+    data
 }
 
 /// The inner cell pixels a UV rect points at (grayscale atlas).
@@ -107,10 +126,12 @@ fn zero_feature_changes_only_the_zero_slot_pixels() {
                 assert_eq!(sa, sb, "{subpixel:?}: {ch:?} is unchanged");
             }
         }
-        // The fallback box (slot 0) and every other byte are identical too.
-        let zero = ascii_slot(&a, '0').len();
-        let differing = a.data.iter().zip(&b.data).filter(|(x, y)| x != y).count();
-        assert!(differing > 0 && differing <= zero);
+        // The fallback box (slot 0) and every other byte are identical too:
+        // with the `0` slot blanked, the two atlases match exactly.
+        assert!(
+            data_without_slot(&a, '0') == data_without_slot(&b, '0'),
+            "{subpixel:?}: only the `0` slot differs"
+        );
     }
 }
 

@@ -120,6 +120,42 @@ fn scroll_indicator_is_offset_by_window_padding() {
     assert_eq!(oldest.rect, [85.0, 8.0, 88.0, 20.5]);
 }
 
+/// Window padding is stored in whole physical pixels: the logical value is
+/// scaled (never below 1x) and rounded to the nearest pixel, and a negative
+/// value clamps to zero.
+#[test]
+fn window_padding_rounds_scaled_logical_pixels() {
+    assert_eq!(WindowPadding::from_logical(8.0, 1.5).physical_px(), 12);
+    assert_eq!(WindowPadding::from_logical(5.0, 1.5).physical_px(), 8);
+    assert_eq!(WindowPadding::from_logical(5.0, 1.25).physical_px(), 6);
+    assert_eq!(WindowPadding::from_logical(5.0, 0.5).physical_px(), 5);
+    assert_eq!(WindowPadding::from_logical(-4.0, 2.0), WindowPadding::ZERO);
+}
+
+/// A grid with no rows or no columns has no track, so there is no thumb to
+/// draw or grab.
+#[test]
+fn scroll_indicator_is_hidden_for_a_zero_area_grid() {
+    let color = [1.0, 1.0, 1.0, 0.62];
+    let cell = cell(8, 10);
+    for dimensions in [
+        Dimensions {
+            columns: 10,
+            rows: 0,
+        },
+        Dimensions {
+            columns: 0,
+            rows: 5,
+        },
+    ] {
+        assert_eq!(
+            scroll_indicator_quad(5, 15, dimensions, cell, color),
+            None,
+            "{dimensions:?}"
+        );
+    }
+}
+
 // The draggable-thumb hit-test + drag inverse share their
 // geometry with the render path above (the `ScrollbarGeometry` SSOT), so these
 // tests pin both the round-trip against the rendered thumb and the gates that

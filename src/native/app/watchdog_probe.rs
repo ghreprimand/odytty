@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Watchdog state probe (FREEZE-HARDEN item b): the one place the freeze
+//! Watchdog state probe: the one place the freeze
 //! watchdog reads `App` state. Lives as an `App` child module (like
 //! `pointer`/`ime`) so it reaches private fields without widening any field
 //! visibility; the wrapper in `native::watchdog` calls this after every

@@ -36,7 +36,7 @@ impl App {
     /// surface edge without forwarding the paired release, so leaving during a
     /// divider gesture is treated as that gesture's final boundary.
     ///
-    /// F4-P3: the auto-hide machine also gets an empty sample so a rail revealed
+    /// The auto-hide machine also gets an empty sample so a rail revealed
     /// at the edge starts its hide grace (no `CursorMoved` fires once the pointer
     /// is gone). Inert unless auto-hide is active.
     pub(super) fn on_cursor_left(&mut self) {
@@ -165,7 +165,7 @@ impl App {
             // may be delivered to another window); drop it so a later release
             // can never fire a stale button.
             self.pressed_button = None;
-            // NF21-8: an alt-tab can deliver the button release to another
+            // An alt-tab can deliver the button release to another
             // window, stranding the grid selection's held flag. Drop it so a
             // `CursorMoved` on focus regain cannot resume a buttonless drag.
             self.grid_left_held = false;
@@ -513,7 +513,7 @@ impl App {
             self.apply_cursor_icon(CursorIcon::RowResize);
             return;
         }
-        // F4-P4: rail seam hover - a column-resize cursor over the remaining
+        // Rail seam hover - a column-resize cursor over the remaining
         // vertical seam grab band. Yields to the top seam at their junction and
         // to the scroll thumb inside `pointer_over_rail_seam`.
         if !self.pointer_drag.is_selecting() && self.pointer_over_rail_seam(x_px, cell) {
@@ -528,7 +528,7 @@ impl App {
         }
         // Tab-chrome hover: a vertical rail hit-tests with its own row-major
         // X-band and tracks hover on `tab_rail`; the top bar keeps the
-        // column-major test on `tab_bar` (F4-V2). Whichever is inactive has its
+        // column-major test on `tab_bar`. Whichever is inactive has its
         // hover cleared so a stale highlight can't linger after a placement flip.
         // Tab-chrome hover (dual band). `current_chrome_hit` resolves the rail
         // first (full-height sidebar) then the top bar; whichever the pointer is
@@ -650,7 +650,7 @@ impl App {
             self.apply_cursor_icon(icon);
             return;
         };
-        // MOUSE-SCROLLBAR: a scroll-thumb drag owns the pointer move - scrub the
+        // A scroll-thumb drag owns the pointer move - scrub the
         // viewport to the offset the thumb-top maps to and stop. Placed before
         // hover/selection/PTY-report so a scrollbar drag does not update link
         // hover, extend a selection, or emit PTY motion. Mutually exclusive with
@@ -754,7 +754,7 @@ impl App {
     }
 
     /// Scrub the viewport to the scrollback offset the dragged scroll thumb maps
-    /// to (MOUSE-SCROLLBAR). `y_px` is content-relative: the caller has already
+    /// to. `y_px` is content-relative: the caller has already
     /// removed the tab chrome with [`Self::tab_chrome_offset_px`], the same
     /// single transform the press-time [`Self::scrollbar_hit_test`] applies, so
     /// a drag that has not moved maps back to the offset it grabbed. `grab_dy`

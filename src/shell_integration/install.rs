@@ -137,24 +137,13 @@ pub(super) fn write_if_needed(path: &Path, contents: &str) -> std::io::Result<()
     fs::write(path, contents)
 }
 
-/// Whether `path` already holds exactly `contents`, without ever reading more
-/// than the wrapper OdyTTY is about to write.
-///
-/// The comparison is bounded by construction rather than by a separate ceiling:
-/// a regular file whose length differs from the wrapper cannot be equal to it,
-/// so it is rewritten without being read at all. Only a file of exactly the
-/// wrapper's length is read back, and then at most one byte past that length so
-/// a file that grew between the size check and the read is seen as different
-/// instead of being compared against a truncated view of itself. A replaced or
-/// generated file in the integration directory therefore cannot turn this
-/// comparison into an unbounded allocation.
-///
-/// A path that is not a regular file is refused outright: writing a wrapper
-/// over a directory, device, or FIFO is never correct, and reading a FIFO here
-/// would block shell startup. Every other failure (missing file, unreadable
-/// contents) reports "does not match" and falls through to the write, which
-/// surfaces its own error, so the pre-existing behavior of the ordinary paths
-/// is unchanged.
+/// Whether `path` already holds `contents`. A regular file of a different
+/// length is rewritten without being read; a file of the exact length is read
+/// back at most one byte past it, so a file that grew meanwhile compares as
+/// different and the comparison cannot become an unbounded allocation. A path
+/// that is not a regular file is refused (a FIFO read would block shell
+/// startup); every other failure reports "does not match" and falls through to
+/// the write, which surfaces its own error.
 #[cfg(unix)]
 fn already_matches(path: &Path, contents: &str) -> std::io::Result<bool> {
     let Ok(metadata) = fs::metadata(path) else {
