@@ -261,7 +261,7 @@ fn traced_group_members_are_seen_and_unparsable_stats_refuse() {
 #[cfg(target_os = "linux")]
 struct ScriptedProc {
     listing: std::io::Result<Vec<Result<String, std::io::ErrorKind>>>,
-    stat: Box<dyn Fn(u32) -> std::io::Result<String>>,
+    stat: Box<dyn Fn(u32) -> std::io::Result<Vec<u8>>>,
 }
 
 #[cfg(target_os = "linux")]
@@ -270,7 +270,7 @@ const LAUNCH: u32 = 4242;
 #[cfg(target_os = "linux")]
 impl ScriptedProc {
     /// `names` list in order; every pid reads as `stat(pid)`.
-    fn new(names: &[&str], stat: impl Fn(u32) -> std::io::Result<String> + 'static) -> Self {
+    fn new(names: &[&str], stat: impl Fn(u32) -> std::io::Result<Vec<u8>> + 'static) -> Self {
         Self {
             listing: Ok(names.iter().map(|name| Ok((*name).to_owned())).collect()),
             stat: Box::new(stat),
@@ -290,16 +290,16 @@ impl ProcSource for ScriptedProc {
         }
     }
 
-    fn read_stat(&self, pid: u32) -> std::io::Result<String> {
+    fn read_stat(&self, pid: u32) -> std::io::Result<Vec<u8>> {
         (self.stat)(pid)
     }
 }
 
 /// The launch child alone in its group; every other pid in group 1.
 #[cfg(target_os = "linux")]
-fn idle_launch_stat(pid: u32) -> std::io::Result<String> {
+fn idle_launch_stat(pid: u32) -> std::io::Result<Vec<u8>> {
     let group = if pid == LAUNCH { LAUNCH } else { 1 };
-    Ok(format!("{pid} (proc) S 1 {group} 3"))
+    Ok(format!("{pid} (proc) S 1 {group} 3").into_bytes())
 }
 
 #[cfg(target_os = "linux")]
@@ -354,7 +354,7 @@ fn scan_refuses_and_names_an_unexpected_stat_read_error() {
             "errno {errno}"
         );
     }
-    // A stat whose process name is not UTF-8 reads as InvalidData.
+    // An error kind the scan has no special case for is still a refusal.
     let proc = ScriptedProc::new(&["4242", "9000"], |pid| {
         if pid == 9000 {
             Err(std::io::Error::from(std::io::ErrorKind::InvalidData))
@@ -370,6 +370,48 @@ fn scan_refuses_and_names_an_unexpected_stat_read_error() {
             errno: None,
         })
     );
+}
+
+/// A `stat` is bytes: the process name inside may be anything. The fields the
+/// scan reads sit after its final `)` and are ASCII.
+#[cfg(target_os = "linux")]
+#[test]
+fn scan_reads_the_stat_as_bytes_whatever_the_process_name_holds() {
+    let odd = |pid: u32, group: u32| -> Vec<u8> {
+        let mut stat = format!("{pid} (").into_bytes();
+        stat.extend_from_slice(b"sl\xffe) \xc3(ep");
+        stat.extend_from_slice(format!(") S 1 {group} 3").as_bytes());
+        stat
+    };
+    assert!(std::str::from_utf8(&odd(9000, 1)).is_err());
+    // Outside the launch group: not a member.
+    let outside = ScriptedProc::new(&["4242", "9000"], move |pid| {
+        if pid == 9000 {
+            Ok(odd(9000, 1))
+        } else {
+            idle_launch_stat(pid)
+        }
+    });
+    assert_eq!(scan_launch_group(&outside, LAUNCH), Ok(()));
+    // Inside the launch group but not the launch child: a member, so refuse.
+    let member = ScriptedProc::new(&["4242", "9000"], move |pid| {
+        if pid == 9000 {
+            Ok(odd(9000, LAUNCH))
+        } else {
+            idle_launch_stat(pid)
+        }
+    });
+    assert_eq!(
+        scan_launch_group(&member, LAUNCH),
+        Err(ScanRefusal::Refuse { pid: 9000 })
+    );
+    // The launch child itself may carry such a name.
+    let launch = ScriptedProc::new(&["4242"], move |pid| Ok(odd(pid, LAUNCH)));
+    assert_eq!(scan_launch_group(&launch, LAUNCH), Ok(()));
+    // Truncated or unparsable bytes after the name still refuse.
+    assert_eq!(proc_stat_pgrp(b"17 (sl\xffe) S 1"), None);
+    assert_eq!(proc_stat_pgrp(b"17 (sl\xffe) S \xff 4242"), None);
+    assert_eq!(proc_stat_pgrp(b"17 (sl\xffe) S 1 4242"), Some(4242));
 }
 
 #[cfg(target_os = "linux")]
@@ -398,7 +440,7 @@ fn scan_refuses_a_listing_failure_and_a_failure_part_way_through_it() {
 #[test]
 fn scan_refuses_a_second_group_member_a_bad_stat_a_missing_launch_and_a_huge_listing() {
     let member = ScriptedProc::new(&["4242", "4300"], |pid| {
-        Ok(format!("{pid} (proc) S 1 {LAUNCH} 3"))
+        Ok(format!("{pid} (proc) S 1 {LAUNCH} 3").into_bytes())
     });
     assert_eq!(
         scan_launch_group(&member, LAUNCH),
@@ -406,7 +448,7 @@ fn scan_refuses_a_second_group_member_a_bad_stat_a_missing_launch_and_a_huge_lis
     );
     let garbled = ScriptedProc::new(&["4242", "4300"], |pid| {
         if pid == 4300 {
-            Ok("garbled".to_owned())
+            Ok(b"garbled".to_vec())
         } else {
             idle_launch_stat(pid)
         }
@@ -427,6 +469,57 @@ fn scan_refuses_a_second_group_member_a_bad_stat_a_missing_launch_and_a_huge_lis
     assert_eq!(
         scan_launch_group(&huge, LAUNCH),
         Err(ScanRefusal::TooManyEntries)
+    );
+}
+
+/// A real process whose name is not UTF-8 (a symlink to `sleep` named with a
+/// stray 0xFF byte, which the kernel copies into `comm`). Its `stat` is not
+/// valid UTF-8, yet it is outside the launch group and must not make an idle
+/// shell look busy.
+#[cfg(target_os = "linux")]
+#[test]
+fn scan_ignores_a_live_process_whose_name_is_not_utf8() {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::process::CommandExt;
+
+    struct Reaped(std::process::Child);
+    impl Drop for Reaped {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    let shell = bash("while IFS= read -r line; do :; done");
+    await_file_drop_bash(&shell.session, "idle bash before the non-UTF-8 name probe");
+    let dir = crate::test_dirs::ScratchDir::new("odytty-comm-");
+    let sleep = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .map(|dir| dir.join("sleep"))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| PathBuf::from("/bin/sleep"));
+    let odd = dir.join(std::ffi::OsStr::from_bytes(b"sl\xffeep"));
+    std::os::unix::fs::symlink(&sleep, &odd).expect("link sleep under a non-UTF-8 name");
+    let child = Reaped(
+        std::process::Command::new(&odd)
+            // comm comes from the exec filename, not argv[0]; a fixed argv[0]
+            // keeps multicall coreutils builds dispatching to `sleep`.
+            .arg0("sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn the oddly named process"),
+    );
+    let stat_path = format!("/proc/{}/stat", child.0.id());
+    await_state("the child's comm holds the non-UTF-8 byte", || {
+        std::fs::read(&stat_path).is_ok_and(|stat| std::str::from_utf8(&stat).is_err())
+    });
+    assert_eq!(
+        scan_launch_group(&LiveProc, shell.session.child.id()),
+        Ok(()),
+        "a process outside the launch group, whatever its name, is not a member"
+    );
+    assert_eq!(
+        shell.session.file_drop_shell(),
+        Some(crate::shell_integration::ShellKind::Bash)
     );
 }
 

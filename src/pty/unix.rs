@@ -601,21 +601,31 @@ fn current_program(pid: u32) -> Option<PathBuf> {
 const MAX_GROUP_SCAN_PIDS: usize = 65_536;
 
 #[cfg(target_os = "linux")]
-fn proc_stat_pgrp(stat: &str) -> Option<u32> {
-    // Field 2 (`comm`) is parenthesized and may itself contain spaces or `)`.
-    // Fields after its final `)` are state (3), ppid (4), then pgrp (5).
+fn proc_stat_pgrp(stat: impl AsRef<[u8]>) -> Option<u32> {
+    // The stat is bytes, not text: `comm` is whatever the process (or its
+    // executable's file name) holds and need not be UTF-8. Field 2 (`comm`) is
+    // parenthesized and may itself contain spaces, `)`, or any other byte.
+    // Fields after its final `)` are ASCII: state (3), ppid (4), then pgrp (5).
     // Validate the state and ppid tokens so a malformed prefix cannot shift a
     // different numeric field into the pgrp position.
-    let after_comm = stat.get(stat.rfind(')')? + 1..)?;
-    let mut fields = after_comm.split_whitespace();
+    let stat = stat.as_ref();
+    let after_comm = stat.get(stat.iter().rposition(|&byte| byte == b')')? + 1..)?;
+    let mut fields = after_comm
+        .split(u8::is_ascii_whitespace)
+        .filter(|field| !field.is_empty());
     let state = fields.next()?;
     // proc(5) states are letters, including lowercase `t` (tracing stop)
     // and, on older kernels, `x` and `w`.
-    if state.len() != 1 || !state.chars().all(|c| c.is_ascii_alphabetic()) {
+    if state.len() != 1 || !state[0].is_ascii_alphabetic() {
         return None;
     }
-    fields.next()?.parse::<u32>().ok()?;
-    fields.next()?.parse().ok()
+    ascii_u32(fields.next()?)?;
+    ascii_u32(fields.next()?)
+}
+
+#[cfg(target_os = "linux")]
+fn ascii_u32(field: &[u8]) -> Option<u32> {
+    std::str::from_utf8(field).ok()?.parse().ok()
 }
 
 /// Where the Linux launch-group scan reads process facts from. Production reads
@@ -626,8 +636,9 @@ trait ProcSource {
     /// The directory listing: one entry name per item, in listing order. An
     /// `Err` item is an iteration failure that hides an unobserved entry.
     fn entries(&self) -> std::io::Result<Box<dyn Iterator<Item = std::io::Result<OsString>> + '_>>;
-    /// The text of `<pid>/stat`.
-    fn read_stat(&self, pid: u32) -> std::io::Result<String>;
+    /// The bytes of `<pid>/stat`. Not text: the process name inside need not
+    /// be UTF-8.
+    fn read_stat(&self, pid: u32) -> std::io::Result<Vec<u8>>;
 }
 
 #[cfg(target_os = "linux")]
@@ -641,8 +652,8 @@ impl ProcSource for LiveProc {
         ))
     }
 
-    fn read_stat(&self, pid: u32) -> std::io::Result<String> {
-        std::fs::read_to_string(format!("/proc/{pid}/stat"))
+    fn read_stat(&self, pid: u32) -> std::io::Result<Vec<u8>> {
+        std::fs::read(format!("/proc/{pid}/stat"))
     }
 }
 
@@ -707,7 +718,7 @@ fn scan_launch_group(source: &dyn ProcSource, launch_pid: u32) -> Result<(), Sca
                 });
             }
         };
-        match stat_group_verdict(&stat, pid, launch_pid) {
+        match stat_group_verdict(stat, pid, launch_pid) {
             StatGroupVerdict::Outside => {}
             StatGroupVerdict::Launch => found_launch = true,
             StatGroupVerdict::Refuse => return Err(ScanRefusal::Refuse { pid }),
@@ -739,7 +750,7 @@ enum StatGroupVerdict {
 }
 
 #[cfg(target_os = "linux")]
-fn stat_group_verdict(stat: &str, pid: u32, launch_pid: u32) -> StatGroupVerdict {
+fn stat_group_verdict(stat: impl AsRef<[u8]>, pid: u32, launch_pid: u32) -> StatGroupVerdict {
     match proc_stat_pgrp(stat) {
         None => StatGroupVerdict::Refuse,
         Some(pgrp) if pgrp != launch_pid => StatGroupVerdict::Outside,
