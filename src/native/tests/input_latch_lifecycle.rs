@@ -146,7 +146,7 @@ fn button_held_guard_refuses_extend_after_lost_release() {
 
     // A bare CursorMoved on focus regain must NOT extend the stale drag.
     let before = app.selection_text_for_test();
-    app.grid_pointer_moved_for_test(400.0, 200.0);
+    app.pointer_move_for_test(400.0, 200.0);
     let after = app.selection_text_for_test();
     assert_eq!(
         before, after,
@@ -159,7 +159,7 @@ fn button_held_guard_allows_extend_while_held() {
     let mut app = headless_app();
     arm_drag(&mut app);
     // Held flag is set; a move DOES extend (the guard is not over-broad).
-    app.grid_pointer_moved_for_test(400.0, 0.0);
+    app.pointer_move_for_test(400.0, 0.0);
     assert!(
         app.selecting_for_test(),
         "an in-progress held drag still extends normally"
@@ -183,7 +183,7 @@ fn focus_loss_cancels_scrollbar_drag_before_buttonless_motion() {
 
     // A later buttonless cursor move follows the ordinary hover path instead
     // of reviving the cancelled scrub.
-    app.grid_pointer_moved_for_test(400.0, 200.0);
+    app.pointer_move_for_test(400.0, 200.0);
     assert!(!app.scrollbar_dragging_for_test());
 }
 

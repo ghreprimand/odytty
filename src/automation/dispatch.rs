@@ -19,6 +19,18 @@ enum State {
     Cancelled(ErrorCode),
 }
 
+/// Settle a request whose deadline has passed. A request the owner has not
+/// started is cancelled as timed out; one already running, or finished with
+/// no recorded answer, has an unknown outcome.
+fn expire(state: &mut State) -> ErrorCode {
+    if matches!(*state, State::Pending(_)) {
+        *state = State::Cancelled(ErrorCode::TimedOut);
+        ErrorCode::TimedOut
+    } else {
+        ErrorCode::OutcomeUnknown
+    }
+}
+
 struct Shared {
     state: Mutex<State>,
     changed: Condvar,
@@ -62,13 +74,7 @@ impl Receipt {
         if Instant::now() < self.0.deadline {
             return None;
         }
-        let error = if matches!(*state, State::Pending(_)) {
-            *state = State::Cancelled(ErrorCode::TimedOut);
-            ErrorCode::TimedOut
-        } else {
-            ErrorCode::OutcomeUnknown
-        };
-        Some(self.error(error))
+        Some(self.error(expire(&mut state)))
     }
 
     pub fn cancellation(&self) -> Cancellation {
@@ -85,13 +91,7 @@ impl Receipt {
             }
             let remaining = self.0.deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
-                let error = if matches!(*state, State::Pending(_)) {
-                    *state = State::Cancelled(ErrorCode::TimedOut);
-                    ErrorCode::TimedOut
-                } else {
-                    ErrorCode::OutcomeUnknown
-                };
-                return self.error(error);
+                return self.error(expire(&mut state));
             }
             state = self
                 .0

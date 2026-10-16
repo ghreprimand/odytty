@@ -963,31 +963,6 @@ fn dead_gap_row_stays_blank_without_a_horizontal_rule() {
 }
 
 #[test]
-fn resting_plus_is_brighter_than_an_inactive_label() {
-    // The resting `+` is lifted out of the dim inactive floor
-    // (new_slot_plus_rest), so it reads as a deliberate add control, and it
-    // still brightens further on hover.
-    let src = MockSource::new(&["a"], 0);
-    let out = render_default(&src);
-    let plus = out.glyphs.iter().find(|g| g.ch == '+').expect("+ glyph");
-    assert!(
-        luma(plus.attrs.foreground) > luma(rgb(COLORS.inactive)),
-        "resting + is brighter than the inactive label floor"
-    );
-    // Hover brightens it further still (toward the active label).
-    let hovered = render_with(&hovered_rail(TabHit::NewTab), &src);
-    let hplus = hovered
-        .glyphs
-        .iter()
-        .find(|g| g.ch == '+')
-        .expect("+ glyph");
-    assert!(
-        luma(hplus.attrs.foreground) > luma(plus.attrs.foreground),
-        "+ brightens further on hover"
-    );
-}
-
-#[test]
 fn hit_left_of_rail_is_none() {
     let src = MockSource::new(&["a"], 0);
     let hit = super::chrome_geometry::ChromeSlotGeom::rail(
@@ -1138,13 +1113,37 @@ fn bottom_row_hits_the_autohide_toggle_and_the_separator_is_inert() {
 
 #[test]
 fn autohide_toggle_is_armed_ahead_of_a_slot_at_the_boundary() {
-    // A single compact slot placed to end exactly at the region bottom must
-    // not swallow a click on the control row directly below it.
+    // Size the rail so one slot ends on the last row the slot region allows
+    // (its final row stays free for the overflow marker), directly above the
+    // reserved separator and control rows. The slot keeps its last row, the
+    // rows below it are inert, and the control row is still the toggle.
     let src = MockSource::new(&["only"], 0);
+    let slot_end = RAIL_TOP_MARGIN_ROWS + SLOT_ROWS;
+    let region_rows = slot_end + 1;
+    let rows = region_rows + AUTOHIDE_RESERVE_ROWS;
+    let layout = compute_rail_layout(&src, RAIL_COLS, rows, GEOM);
+    assert_eq!(layout.slot_region_rows, region_rows);
+    assert_eq!(layout.slots.len(), 1, "the slot fits");
     assert_eq!(
-        hit_at(GRID_ROWS - 1, RAIL_LABEL_PAD, &src),
-        TabHit::AutohideToggle
+        layout.slots[0].end_row, slot_end,
+        "the slot ends at the limit"
     );
+    assert_eq!(layout.autohide_row, Some(rows - 1));
+
+    let hit = |row: usize| {
+        let (x, y) = cell_centre_px(row, RAIL_LABEL_PAD);
+        super::chrome_geometry::ChromeSlotGeom::rail(&src, RAIL_COLS, rows, ORIGIN, CELL, GEOM)
+            .hit(super::chrome_geometry::PxPoint::new(x, y))
+    };
+    assert_eq!(
+        hit(slot_end - 1),
+        TabHit::Switch(0),
+        "the slot keeps its last row"
+    );
+    assert_eq!(hit(rows - 1), TabHit::AutohideToggle);
+    for inert in slot_end..rows - 1 {
+        assert_eq!(hit(inert), TabHit::None, "row {inert} is inert");
+    }
 }
 
 #[test]

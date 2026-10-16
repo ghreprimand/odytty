@@ -52,20 +52,18 @@ impl ResizeDebouncer {
     }
 
     pub(super) fn record(&mut self, resize: PendingResize, now: Instant) -> Option<PendingResize> {
-        if self
-            .last_applied
-            .is_none_or(|last| now.saturating_duration_since(last) >= self.interval)
+        if let Some(last) = self.last_applied
+            && now.saturating_duration_since(last) < self.interval
         {
-            self.pending = None;
-            self.deadline = None;
-            self.last_applied = Some(now);
-            return Some(resize);
+            self.pending = Some(resize);
+            self.deadline = Some(last + self.interval);
+            return None;
         }
 
-        let deadline = self.last_applied.expect("checked") + self.interval;
-        self.pending = Some(resize);
-        self.deadline = Some(deadline);
-        None
+        self.pending = None;
+        self.deadline = None;
+        self.last_applied = Some(now);
+        Some(resize)
     }
 
     pub(super) fn take_due(&mut self, now: Instant) -> Option<PendingResize> {

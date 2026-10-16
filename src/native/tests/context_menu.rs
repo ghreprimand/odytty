@@ -696,7 +696,7 @@ fn right_clicking_tab_enables_rename_for_that_tab() {
     app.set_pointer_cell_for_test(4, 2);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
 
-    assert!(app.rename_active_for_test());
+    assert!(app.rename_overlay_open_for_test());
     assert_eq!(app.rename_text_for_test().as_deref(), Some("first-tab"));
 }
 

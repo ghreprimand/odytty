@@ -3923,7 +3923,7 @@ fn rename_modal_commits_edits_cancels_and_empty_commit_clears_override() {
     app.drive_named_key_for_test(NamedKey::Backspace);
     app.drive_text_key_for_test("work");
     app.drive_named_key_for_test(NamedKey::Enter);
-    assert!(!app.rename_active_for_test());
+    assert!(!app.rename_overlay_open_for_test());
     assert_eq!(
         app.session_tab_title_for_test(0).as_deref(),
         Some("shelwork!")
@@ -7097,7 +7097,7 @@ fn the_shared_rename_field_retargets_the_workspace_name() {
         "committing the rename field writes Workspace.name"
     );
     assert!(
-        !app.rename_active_for_test(),
+        !app.rename_overlay_open_for_test(),
         "Enter closes the rename field"
     );
 }

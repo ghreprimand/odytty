@@ -158,6 +158,84 @@ pub(super) fn placement_quad_with_padding(
     )
 }
 
+/// The source window and its visible extent for one placement, shared by both
+/// placement-quad variants. They differ only in how the destination origin is
+/// computed, so the clamping and UV derivation live here once.
+struct PlacementSource {
+    x: u32,
+    y: u32,
+    visible_w: u32,
+    visible_h: u32,
+}
+
+impl PlacementSource {
+    /// Clamp the placement's source rect to the image and to the cells it
+    /// covers. `None` when nothing remains visible.
+    fn resolve(
+        placement: &VisiblePlacement,
+        image_width: u32,
+        image_height: u32,
+        cell: CellSize,
+    ) -> Option<Self> {
+        if image_width == 0 || image_height == 0 || placement.display_columns == 0 {
+            return None;
+        }
+        if placement.display_rows == 0 {
+            return None;
+        }
+
+        let source_x = placement.source.x.min(image_width);
+        let source_y = placement.source.y.min(image_height);
+        let max_source_w = image_width.saturating_sub(source_x);
+        let max_source_h = image_height.saturating_sub(source_y);
+        if max_source_w == 0 || max_source_h == 0 {
+            return None;
+        }
+
+        let requested_source_w = if placement.source.width == 0 {
+            max_source_w
+        } else {
+            placement.source.width.min(max_source_w)
+        };
+        let requested_source_h = if placement.source.height == 0 {
+            max_source_h
+        } else {
+            placement.source.height.min(max_source_h)
+        };
+
+        let cell_extent_w = cell_extent_px(placement.display_columns, cell.width);
+        let cell_extent_h = cell_extent_px(placement.display_rows, cell.height);
+        let visible_w = requested_source_w.min(cell_extent_w);
+        let visible_h = requested_source_h.min(cell_extent_h);
+        if visible_w == 0 || visible_h == 0 {
+            return None;
+        }
+        Some(Self {
+            x: source_x,
+            y: source_y,
+            visible_w,
+            visible_h,
+        })
+    }
+
+    /// The quad whose top-left corner is `(x0, y0)`, with UVs derived from the
+    /// source window.
+    fn quad_at(&self, x0: f32, y0: f32, image_width: u32, image_height: u32) -> ImageQuad {
+        let x1 = x0 + self.visible_w as f32;
+        let y1 = y0 + self.visible_h as f32;
+
+        let u0 = self.x as f32 / image_width as f32;
+        let v0 = self.y as f32 / image_height as f32;
+        let u1 = (self.x + self.visible_w) as f32 / image_width as f32;
+        let v1 = (self.y + self.visible_h) as f32 / image_height as f32;
+
+        ImageQuad {
+            rect: [x0, y0, x1, y1],
+            uv: [u0, v0, u1, v1],
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn placement_quad_with_padding_and_row_offset(
     placement: &VisiblePlacement,
@@ -171,39 +249,7 @@ pub(super) fn placement_quad_with_padding_and_row_offset(
     // (`[0.0, 0.0]` with no pinned chrome or zero padding - byte-identical).
     content_gap_px: [f32; 2],
 ) -> Option<ImageQuad> {
-    if image_width == 0 || image_height == 0 || placement.display_columns == 0 {
-        return None;
-    }
-    if placement.display_rows == 0 {
-        return None;
-    }
-
-    let source_x = placement.source.x.min(image_width);
-    let source_y = placement.source.y.min(image_height);
-    let max_source_w = image_width.saturating_sub(source_x);
-    let max_source_h = image_height.saturating_sub(source_y);
-    if max_source_w == 0 || max_source_h == 0 {
-        return None;
-    }
-
-    let requested_source_w = if placement.source.width == 0 {
-        max_source_w
-    } else {
-        placement.source.width.min(max_source_w)
-    };
-    let requested_source_h = if placement.source.height == 0 {
-        max_source_h
-    } else {
-        placement.source.height.min(max_source_h)
-    };
-
-    let cell_extent_w = cell_extent_px(placement.display_columns, cell.width);
-    let cell_extent_h = cell_extent_px(placement.display_rows, cell.height);
-    let visible_w = requested_source_w.min(cell_extent_w);
-    let visible_h = requested_source_h.min(cell_extent_h);
-    if visible_w == 0 || visible_h == 0 {
-        return None;
-    }
+    let source = PlacementSource::resolve(placement, image_width, image_height, cell)?;
 
     let pad = padding.as_f32();
     let x0 = pad
@@ -214,18 +260,8 @@ pub(super) fn placement_quad_with_padding_and_row_offset(
         + content_gap_px[1]
         + (placement.row + row_offset) as f32 * cell.height as f32
         + placement.pixel_offset_y as f32;
-    let x1 = x0 + visible_w as f32;
-    let y1 = y0 + visible_h as f32;
 
-    let u0 = source_x as f32 / image_width as f32;
-    let v0 = source_y as f32 / image_height as f32;
-    let u1 = (source_x + visible_w) as f32 / image_width as f32;
-    let v1 = (source_y + visible_h) as f32 / image_height as f32;
-
-    Some(ImageQuad {
-        rect: [x0, y0, x1, y1],
-        uv: [u0, v0, u1, v1],
-    })
+    Some(source.quad_at(x0, y0, image_width, image_height))
 }
 
 /// MULTIPANE placement-quad math: like
@@ -235,9 +271,8 @@ pub(super) fn placement_quad_with_padding_and_row_offset(
 /// already folds in padding, the pane's layout rect, and its scroll-glide y
 /// shift, so a placement lands at
 /// `origin + (column, row) * cell + pixel_offset`. Source-rect clamping and UV
-/// derivation are identical to the single-pane path; only the destination
-/// origin differs. Kept a separate function (rather than refactoring the
-/// single-pane one) so the single-pane float arithmetic stays byte-identical.
+/// derivation are shared with the single-pane path through `PlacementSource`;
+/// only the destination origin differs.
 pub(super) fn placement_quad_with_origin(
     placement: &VisiblePlacement,
     image_width: u32,
@@ -245,56 +280,14 @@ pub(super) fn placement_quad_with_origin(
     cell: CellSize,
     origin: [f32; 2],
 ) -> Option<ImageQuad> {
-    if image_width == 0 || image_height == 0 || placement.display_columns == 0 {
-        return None;
-    }
-    if placement.display_rows == 0 {
-        return None;
-    }
-
-    let source_x = placement.source.x.min(image_width);
-    let source_y = placement.source.y.min(image_height);
-    let max_source_w = image_width.saturating_sub(source_x);
-    let max_source_h = image_height.saturating_sub(source_y);
-    if max_source_w == 0 || max_source_h == 0 {
-        return None;
-    }
-
-    let requested_source_w = if placement.source.width == 0 {
-        max_source_w
-    } else {
-        placement.source.width.min(max_source_w)
-    };
-    let requested_source_h = if placement.source.height == 0 {
-        max_source_h
-    } else {
-        placement.source.height.min(max_source_h)
-    };
-
-    let cell_extent_w = cell_extent_px(placement.display_columns, cell.width);
-    let cell_extent_h = cell_extent_px(placement.display_rows, cell.height);
-    let visible_w = requested_source_w.min(cell_extent_w);
-    let visible_h = requested_source_h.min(cell_extent_h);
-    if visible_w == 0 || visible_h == 0 {
-        return None;
-    }
+    let source = PlacementSource::resolve(placement, image_width, image_height, cell)?;
 
     let x0 =
         origin[0] + placement.column as f32 * cell.width as f32 + placement.pixel_offset_x as f32;
     let y0 =
         origin[1] + placement.row as f32 * cell.height as f32 + placement.pixel_offset_y as f32;
-    let x1 = x0 + visible_w as f32;
-    let y1 = y0 + visible_h as f32;
 
-    let u0 = source_x as f32 / image_width as f32;
-    let v0 = source_y as f32 / image_height as f32;
-    let u1 = (source_x + visible_w) as f32 / image_width as f32;
-    let v1 = (source_y + visible_h) as f32 / image_height as f32;
-
-    Some(ImageQuad {
-        rect: [x0, y0, x1, y1],
-        uv: [u0, v0, u1, v1],
-    })
+    Some(source.quad_at(x0, y0, image_width, image_height))
 }
 
 fn push_quad(out: &mut Vec<ImageVertex>, quad: ImageQuad) {
@@ -1037,7 +1030,6 @@ impl ImageLayer {
             let Some(cached) = self.textures.get(&draw.image_id) else {
                 continue;
             };
-            let _ = cached.generation;
             if !pipeline_bound {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
@@ -1080,7 +1072,6 @@ impl ImageLayer {
             let Some(cached) = self.pane_textures.get(&draw.key) else {
                 continue;
             };
-            let _ = cached.generation;
             if !pipeline_bound {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_vertex_buffer(0, self.pane_vertex_buf.slice(..));

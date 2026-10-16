@@ -510,19 +510,11 @@ fn format_discovery_failure(error: DiscoveryFailure, json: bool) -> (String, boo
         ),
         DiscoveryFailure::Multiple(paths) => format!(
             "multiple eligible OdyTTY endpoints; use --endpoint PATH: {}",
-            paths
-                .iter()
-                .map(|path| format!("{path:?}"))
-                .collect::<Vec<_>>()
-                .join(", ")
+            format_paths(&paths)
         ),
         DiscoveryFailure::Unclassified(paths) => format!(
             "OdyTTY endpoint discovery could not classify {}; no toggle was sent; use --endpoint PATH",
-            paths
-                .iter()
-                .map(|path| format!("{path:?}"))
-                .collect::<Vec<_>>()
-                .join(", ")
+            format_paths(&paths)
         ),
         DiscoveryFailure::EnumerationUncertain(paths) => format!(
             "OdyTTY endpoint directory scan could not classify {}; no toggle was sent; use --endpoint PATH",

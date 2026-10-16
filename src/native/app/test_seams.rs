@@ -780,7 +780,7 @@ impl App {
     /// Test seam for the reusable centered feedback surface.
     #[cfg(test)]
     pub(in crate::native) fn transient_hud_text_for_test(&self) -> Option<&str> {
-        self.transient_hud.text_for_test()
+        self.transient_hud.text()
     }
 
     /// Test seam (CTRL-WHEEL-ZOOM): drive a vertical wheel notch through the
@@ -4003,11 +4003,6 @@ impl App {
     }
 
     #[cfg(test)]
-    pub(in crate::native) fn rename_active_for_test(&self) -> bool {
-        self.rename_state.is_some()
-    }
-
-    #[cfg(test)]
     pub(in crate::native) fn modal_captures_pointer_for_test(&self) -> bool {
         self.modal_captures_pointer()
     }
@@ -4335,14 +4330,6 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn grid_left_held_for_test(&self) -> bool {
         self.grid_left_held
-    }
-
-    /// Test seam: drive the production single-pane grid `CursorMoved`
-    /// path so a regression can assert whether a bare move extends the selection
-    /// (button held) or is refused (latch stale after a lost release / switch).
-    #[cfg(test)]
-    pub(in crate::native) fn grid_pointer_moved_for_test(&mut self, x_px: f64, y_px: f64) {
-        self.update_pointer_cell(x_px, y_px);
     }
 
     /// Test seam (NF21-8/9): switch to the next tab through the production path,

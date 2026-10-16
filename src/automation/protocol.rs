@@ -153,13 +153,17 @@ pub fn was_not_delivered(error: &std::io::Error) -> bool {
         .is_some_and(|inner| inner.is::<NotDelivered>())
 }
 
-/// Read a single bounded frame. The transport sets its read deadline before
-/// calling. Any read or parse error is fatal to that connection; no resync.
-pub fn read_request(reader: &mut impl Read) -> io::Result<Request> {
+/// Smallest valid frame body: the magic (4), the version (2), the request id
+/// (8) and one action or reply tag (1).
+const MIN_FRAME_BYTES: usize = 4 + 2 + 8 + 1;
+
+/// Read one length-prefixed frame body, bounded by [`MAX_MESSAGE_BYTES`]. A
+/// length outside the valid window is refused before the body is read.
+fn read_frame(reader: &mut impl Read) -> io::Result<Vec<u8>> {
     let mut length = [0; 4];
     reader.read_exact(&mut length)?;
     let length = u32::from_le_bytes(length) as usize;
-    if !(15..=MAX_MESSAGE_BYTES).contains(&length) {
+    if !(MIN_FRAME_BYTES..=MAX_MESSAGE_BYTES).contains(&length) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             ErrorCode::TooLarge,
@@ -167,6 +171,20 @@ pub fn read_request(reader: &mut impl Read) -> io::Result<Request> {
     }
     let mut body = vec![0; length];
     reader.read_exact(&mut body)?;
+    Ok(body)
+}
+
+/// Write one length-prefixed frame body.
+fn write_frame(writer: &mut impl Write, body: &[u8]) -> io::Result<()> {
+    writer.write_all(&(body.len() as u32).to_le_bytes())?;
+    writer.write_all(body)?;
+    writer.flush()
+}
+
+/// Read a single bounded frame. The transport sets its read deadline before
+/// calling. Any read or parse error is fatal to that connection; no resync.
+pub fn read_request(reader: &mut impl Read) -> io::Result<Request> {
+    let body = read_frame(reader)?;
     decode(&body).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
@@ -174,9 +192,7 @@ pub fn read_request(reader: &mut impl Read) -> io::Result<Request> {
 pub fn write_request(writer: &mut impl Write, request: &Request) -> io::Result<()> {
     let body =
         encode(request).map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    writer.write_all(&(body.len() as u32).to_le_bytes())?;
-    writer.write_all(&body)?;
-    writer.flush()
+    write_frame(writer, &body)
 }
 
 pub fn decode(bytes: &[u8]) -> Result<Request, ErrorCode> {

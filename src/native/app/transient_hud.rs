@@ -93,11 +93,6 @@ impl TransientHud {
     pub(super) fn text(&self) -> Option<&str> {
         self.text.as_deref()
     }
-
-    #[cfg(test)]
-    pub(super) fn text_for_test(&self) -> Option<&str> {
-        self.text.as_deref()
-    }
 }
 
 /// The chip's `(left column, row, width)` in a `columns` x `rows` grid, or
@@ -262,7 +257,7 @@ mod tests {
 
         let t1 = t0 + Duration::from_millis(200);
         hud.show("80 x 24".to_owned(), t1);
-        assert_eq!(hud.text_for_test(), Some("80 x 24"));
+        assert_eq!(hud.text(), Some("80 x 24"));
         assert_eq!(hud.deadline(), Some(t1 + TRANSIENT_HUD_DURATION));
         assert!(!hud.expire(t1 + TRANSIENT_HUD_DURATION - Duration::from_millis(1)));
         assert!(hud.expire(t1 + TRANSIENT_HUD_DURATION));

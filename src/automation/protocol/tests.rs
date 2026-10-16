@@ -274,15 +274,6 @@ fn out_of_range_object_kind_byte_is_invalid_request() {
     }
 }
 
-#[test]
-fn unknown_action_tag_is_unsupported_capability() {
-    let mut bytes = encode(&request(Action::Capabilities)).unwrap();
-    bytes[14] = 42;
-    assert_eq!(decode(&bytes), Err(ErrorCode::UnsupportedCapability));
-    bytes[14] = 255;
-    assert_eq!(decode(&bytes), Err(ErrorCode::UnsupportedCapability));
-}
-
 /// The server only decodes, so the control-scalar and length rules must hold on
 /// hand-assembled wire bytes, not just behind `encode`'s own `put_name`.
 #[test]

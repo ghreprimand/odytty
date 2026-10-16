@@ -375,9 +375,7 @@ fn skipped_retry_falls_back_to_slow_keepalive_never_silent() {
 /// extracted event-arm body), not a reimplementation.
 #[test]
 fn focus_gain_clears_minimized_state_so_repaint_can_schedule() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     // Simulate a minimize (a 0x0 `Resized`) followed by some skipped frames,
     // so the retry budget is partially spent and the spin guard is vetoing.
     app.window_minimized = true;
@@ -411,9 +409,7 @@ fn focus_gain_clears_minimized_state_so_repaint_can_schedule() {
 
 #[test]
 fn focus_gain_without_skips_does_not_request_reconfigure() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     assert!(!app.skip_episode.is_active());
 
     app.on_window_focus_changed(true);
@@ -426,9 +422,7 @@ fn focus_gain_without_skips_does_not_request_reconfigure() {
 
 #[test]
 fn focus_loss_clears_every_window_pointer_latch() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     app.pointer_left_held = true;
     app.pointer_drag = PointerDrag::Scrollbar { grab_dy: 1.0 };
     app.divider_drag = Some(0);
@@ -461,9 +455,7 @@ fn focus_loss_clears_every_window_pointer_latch() {
 /// actually was.
 #[test]
 fn cursor_left_settles_the_divider_and_clears_the_rail_sample_only_under_autohide() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
 
     // Rail pinned, auto-hide off: the sample is left exactly as it was.
     app.settings.workspace_rail = crate::settings::WorkspaceRail::Always;
@@ -500,9 +492,7 @@ fn cursor_left_settles_the_divider_and_clears_the_rail_sample_only_under_autohid
 
 #[test]
 fn active_session_change_clears_window_latches_prefix_and_pending_upload() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     app.divider_drag = Some(0);
     app.rail_seam_drag = true;
     app.tab_bar_seam_drag = true;
@@ -529,9 +519,7 @@ fn active_session_change_clears_window_latches_prefix_and_pending_upload() {
 
 #[test]
 fn overlay_entry_clears_every_window_drag_latch() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     app.divider_drag = Some(0);
     app.rail_seam_drag = true;
     app.tab_bar_seam_drag = true;
@@ -553,9 +541,7 @@ fn overlay_entry_clears_every_window_drag_latch() {
 /// is not minimize).
 #[test]
 fn un_occlude_clears_minimized_state_and_occlude_does_not_set_it() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     app.window_minimized = true;
     app.consecutive_skipped_frames = 2;
     app.skip_episode.note_skipped(Instant::now());
@@ -591,9 +577,7 @@ fn un_occlude_clears_minimized_state_and_occlude_does_not_set_it() {
 /// false by the time Focused/Occluded fire). Must not clobber a live budget.
 #[test]
 fn restore_from_minimized_is_a_noop_when_not_minimized() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     app.window_minimized = false;
     app.consecutive_skipped_frames = 4;
     let cleared = app.restore_from_minimized();
@@ -611,7 +595,7 @@ fn restore_from_minimized_is_a_noop_when_not_minimized() {
 /// pending exit it previously skipped.
 #[test]
 fn a_surfaceless_redraw_reports_the_early_exit_that_skips_pending_exit() {
-    let mut app = build_idle_app().expect("headless app builds without a surface");
+    let mut app = build_idle_app();
     assert!(app.gpu.is_none(), "fixture must have no surface");
     app.pending_exit = true;
 
@@ -634,7 +618,7 @@ fn a_surfaceless_redraw_reports_the_early_exit_that_skips_pending_exit() {
 /// close both.
 #[test]
 fn close_request_without_confirm_sets_pending_exit_not_a_loop_exit() {
-    let mut app = build_idle_app().expect("headless app builds without a surface");
+    let mut app = build_idle_app();
     app.settings.confirm_close = false;
     assert!(!app.wants_exit(), "no exit pending at rest");
 
@@ -653,7 +637,7 @@ fn close_request_without_confirm_sets_pending_exit_not_a_loop_exit() {
 #[test]
 fn os_theme_report_is_recorded_always_and_followed_only_when_enabled() {
     let _guard = crate::test_lock::render_globals_lock();
-    let mut app = build_idle_app().expect("headless app builds without a surface");
+    let mut app = build_idle_app();
     app.settings.follow_os_theme = false;
     let authored = app.theme;
 
@@ -687,7 +671,7 @@ fn os_theme_report_is_recorded_always_and_followed_only_when_enabled() {
 fn modifiers_forwarding_caches_state_and_gates_the_open_modifier_repaint() {
     use winit::keyboard::ModifiersState;
 
-    let mut app = build_idle_app().expect("headless app builds without a surface");
+    let mut app = build_idle_app();
     app.settings.interactive_paths = false;
     app.hovered_path = None;
     app.needs_rebuild = false;
@@ -747,14 +731,14 @@ fn modifiers_forwarding_caches_state_and_gates_the_open_modifier_repaint() {
 
 /// Build a fresh, un-driven `App` for wake-scheduling tests over a headless
 /// (no-PTY) session, so the fixture creates no OS child.
-fn build_idle_app() -> Option<App> {
+fn build_idle_app() -> App {
     let dims = Dimensions::new(80, 24);
     let (app, _terminal) = crate::native::test_support::headless_app_with(
         NativeOptions::default(),
         dims,
         Settings::default(),
     );
-    Some(app)
+    app
 }
 
 #[derive(Clone, Default)]
@@ -779,7 +763,7 @@ impl std::io::Write for RecordingWriter {
 /// A headless app whose active writer records exact terminal input. This
 /// keeps activity-policy tests at the production key-routing seam without
 /// writing to a real shell.
-fn build_recording_app() -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
+fn build_recording_app() -> (App, Arc<Mutex<Vec<u8>>>) {
     let dims = Dimensions::new(80, 24);
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
@@ -790,14 +774,12 @@ fn build_recording_app() -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
         Settings::default(),
         writer,
     );
-    Some((app, bytes))
+    (app, bytes)
 }
 
 #[test]
 fn unfocused_cursor_params_are_solid_stationary_and_focus_aware() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     let now = Instant::now();
     app.focused = false;
     app.cursor_anim_alpha = 0.25;
@@ -844,9 +826,7 @@ fn unfocused_cursor_params_are_solid_stationary_and_focus_aware() {
 /// once-a-second background wake this test forbids.
 #[test]
 fn config_reload_wake_is_suppressed_while_unfocused() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     // A reloader over a path in a directory this test owns always has a
     // deadline, whatever the host's config location resolves to, so the focus
     // gate is always exercised. The path is only stat-ed, never written.
@@ -889,9 +869,7 @@ fn config_reload_wake_is_suppressed_while_unfocused() {
 /// maintenance-side expiry existed (the final assert saw a past deadline).
 #[test]
 fn timed_out_prefix_does_not_spin_the_event_loop() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     // Isolate the prefix as the only possible wake source: unfocused
     // suppresses the config-reload poll, autohide is off (no rail wake), and
     // nothing else is armed on a fresh idle app.
@@ -946,9 +924,7 @@ fn timed_out_prefix_does_not_spin_the_event_loop() {
 /// idle invariant is preserved.
 #[test]
 fn idle_single_pane_schedules_no_animation_wake() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     app.focused = false;
     assert_eq!(
         app.animation_deadline(),
@@ -970,9 +946,7 @@ fn idle_single_pane_schedules_no_animation_wake() {
 /// [`App::next_wake_deadline_for_surface_for_test`]`(true)`.
 #[test]
 fn bell_flash_while_unfocused_schedules_a_wake_and_advances() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     app.focused = false;
     assert_eq!(
         app.next_wake_deadline_for_surface_for_test(true),
@@ -996,8 +970,8 @@ fn bell_flash_while_unfocused_schedules_a_wake_and_advances() {
 /// Headless single-pane app with only the large-jump cursor follower enabled
 /// (motion + trail; easing/glow off so no other cursor timer shares the wake)
 /// and focused, at the expressive strength.
-fn follower_only_app() -> Option<App> {
-    let mut app = build_idle_app()?;
+fn follower_only_app() -> App {
+    let mut app = build_idle_app();
     app.focused = true;
     app.settings.cursor_motion = true;
     app.settings.cursor_trail = true;
@@ -1005,7 +979,7 @@ fn follower_only_app() -> Option<App> {
     app.settings.cursor_glow = false;
     app.settings.reduced_motion = false;
     app.settings.cursor_trail_strength = crate::settings::CursorTrailStrength::Expressive;
-    Some(app)
+    app
 }
 
 fn follower_cell() -> CellSize {
@@ -1070,9 +1044,7 @@ fn start_large_jump_follower(app: &mut App, t0: Instant) -> Instant {
 /// pauses partway and then arrives.
 #[test]
 fn single_pane_due_cursor_follower_requests_a_frame() {
-    let Some(mut app) = follower_only_app() else {
-        return;
-    };
+    let mut app = follower_only_app();
     assert!(app.sessions.active_is_single_pane());
     let t0 = Instant::now();
     let due = start_large_jump_follower(&mut app, t0);
@@ -1104,9 +1076,7 @@ fn single_pane_due_cursor_follower_requests_a_frame() {
 /// within the strength's settle bound, then returns to zero wake.
 #[test]
 fn single_pane_cursor_follower_settles_on_its_own_wakes() {
-    let Some(mut app) = follower_only_app() else {
-        return;
-    };
+    let mut app = follower_only_app();
     let t0 = Instant::now();
     let first = start_large_jump_follower(&mut app, t0);
     let retargeted_at = t0 + Duration::from_millis(1);
@@ -1155,9 +1125,7 @@ fn single_pane_cursor_follower_settles_on_its_own_wakes() {
 /// remains a wake.
 #[test]
 fn synchronized_output_hold_suppresses_single_pane_follower_frame() {
-    let Some(mut app) = follower_only_app() else {
-        return;
-    };
+    let mut app = follower_only_app();
     let t0 = Instant::now();
     let due = start_large_jump_follower(&mut app, t0);
     app.arm_active_sync_hold_for_test(t0);
@@ -1540,9 +1508,7 @@ fn blink_activity_rearms_visibility_and_parks_after_long_idle() {
 
 #[test]
 fn blink_idle_park_survives_the_maintenance_to_render_path() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     let activity = Instant::now();
     app.focused = true;
     app.note_cursor_keyboard_activity(activity);
@@ -1597,9 +1563,7 @@ fn blink_activity_never_overrides_steady_or_unfocused_cursor_policy() {
 
 #[test]
 fn keyboard_activity_rearms_press_and_repeat_without_changing_pty_bytes() {
-    let Some((mut app, bytes)) = build_recording_app() else {
-        return;
-    };
+    let (mut app, bytes) = build_recording_app();
     app.cursor_blink.park();
     app.cursor_anim_alpha = 0.0;
     app.cursor_ease_deadline = Some(Instant::now() + Duration::from_millis(16));
@@ -1651,9 +1615,7 @@ fn keyboard_activity_rearms_press_and_repeat_without_changing_pty_bytes() {
 
 #[test]
 fn focus_boundaries_park_then_rearm_the_active_cursor_hold() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     let now = Instant::now();
     app.cursor_blink.note_activity(now, true, true);
     assert!(app.cursor_blink.deadline().is_some());
@@ -1674,9 +1636,7 @@ fn focus_boundaries_park_then_rearm_the_active_cursor_hold() {
 
 #[test]
 fn reduced_motion_keeps_activity_blink_edges_hard() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     app.settings.reduced_motion = true;
     let now = Instant::now();
     app.cursor_blink.note_activity(now, true, true);
@@ -1732,9 +1692,7 @@ fn off_to_on_reload_raises_new_shells_notice() {
     // colors / palette / contrast floor), so serialize against the other
     // render-globals tests.
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     // Force shell_integration OFF as the precondition (it now ships ON by
     // default) so flipping it ON is the genuine OFF->ON transition this
     // seam must announce. `build_idle_app` seeds one live session.
@@ -1763,9 +1721,7 @@ fn off_to_on_reload_raises_new_shells_notice() {
 #[test]
 fn on_to_off_reload_raises_no_notice() {
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     app.settings.shell_integration = true;
 
     let mut next = app.settings.clone();
@@ -1787,9 +1743,7 @@ fn on_to_off_reload_raises_no_notice() {
 #[test]
 fn reload_seam_leaves_no_residual_render_globals() {
     let _guard = crate::test_lock::render_globals_lock();
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     let floor_before = text::min_contrast();
     let colors_before = text::color_globals_for_test();
     assert_ne!(
@@ -2063,9 +2017,7 @@ fn hatch_deadline_tracks_stale_bound_and_rate_limit() {
 #[test]
 #[cfg(target_os = "linux")]
 fn armed_hatch_enters_the_wake_set() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     app.focused = true;
     app.window_minimized = false;
     app.window_occluded = false;
@@ -2113,9 +2065,7 @@ fn armed_hatch_enters_the_wake_set() {
 #[test]
 #[cfg(target_os = "linux")]
 fn maintenance_invokes_hatch_after_stale_bound_and_rate_limits() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     app.focused = true;
     app.window_minimized = false;
     app.window_occluded = false;
@@ -2159,9 +2109,7 @@ fn maintenance_invokes_hatch_after_stale_bound_and_rate_limits() {
 #[test]
 #[cfg(target_os = "linux")]
 fn maintenance_never_hatches_an_unfocused_surface() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     app.focused = false;
     app.window_minimized = false;
     app.window_occluded = false;
@@ -2195,9 +2143,7 @@ const CLASSIC_RECORD_PREFIX: &str = "freeze_watchdog: work pending";
 /// counter reset a present performs.
 #[test]
 fn watchdog_probe_reports_slow_retry_when_the_fast_budget_is_spent() {
-    let Some(mut app) = build_idle_app() else {
-        return;
-    };
+    let mut app = build_idle_app();
     app.consecutive_skipped_frames = MAX_SKIPPED_RETRIES - 1;
     assert!(!app.watchdog_state().skip_slow_retry);
     app.consecutive_skipped_frames = MAX_SKIPPED_RETRIES;
@@ -2414,7 +2360,7 @@ fn a_press_after_a_lost_rail_drag_release_ends_the_stale_gesture() {
 
 #[test]
 fn kitty_associated_text_release_has_no_generated_text() {
-    let (mut app, bytes) = build_recording_app().expect("headless app");
+    let (mut app, bytes) = build_recording_app();
     app.terminal.lock().expect("terminal").advance(b"\x1b[>26u");
     let logical = WinitKey::Character("a".into());
     app.handle_key_event(
@@ -2431,7 +2377,7 @@ fn kitty_associated_text_release_has_no_generated_text() {
 
 #[test]
 fn kitty_associated_text_ctrl_without_text_is_not_printable() {
-    let (mut app, bytes) = build_recording_app().expect("headless app");
+    let (mut app, bytes) = build_recording_app();
     app.terminal.lock().expect("terminal").advance(b"\x1b[>26u");
     app.modifiers = Modifiers::CTRL;
     let logical = WinitKey::Character("d".into());
@@ -2449,7 +2395,7 @@ fn kitty_associated_text_ctrl_without_text_is_not_printable() {
 
 #[test]
 fn kitty_associated_text_composition_is_one_event() {
-    let (mut app, bytes) = build_recording_app().expect("headless app");
+    let (mut app, bytes) = build_recording_app();
     app.terminal.lock().expect("terminal").advance(b"\x1b[>26u");
     let logical = WinitKey::Character("e\u{301}".into());
     app.handle_key_event(
@@ -2466,7 +2412,7 @@ fn kitty_associated_text_composition_is_one_event() {
 
 #[test]
 fn kitty_associated_text_uses_the_separate_generated_payload() {
-    let (mut app, bytes) = build_recording_app().expect("headless app");
+    let (mut app, bytes) = build_recording_app();
     app.terminal.lock().expect("terminal").advance(b"\x1b[>26u");
     let physical = PhysicalKey::Code(winit::keyboard::KeyCode::KeyE);
     app.handle_key_event_with_text(
@@ -2520,7 +2466,7 @@ fn kitty_associated_text_uses_the_separate_generated_payload() {
 
 #[test]
 fn kitty_associated_text_rejected_payload_keeps_each_logical_scalar() {
-    let (mut app, bytes) = build_recording_app().expect("headless app");
+    let (mut app, bytes) = build_recording_app();
     app.terminal.lock().expect("terminal").advance(b"\x1b[>26u");
     let each_scalar = [
         (KeyEventType::Press, b"\x1b[101u\x1b[769u".as_slice()),
@@ -2560,7 +2506,7 @@ fn kitty_associated_text_rejected_payload_keeps_each_logical_scalar() {
 
 #[test]
 fn kitty_associated_text_missing_payload_keeps_each_logical_scalar() {
-    let (mut app, bytes) = build_recording_app().expect("headless app");
+    let (mut app, bytes) = build_recording_app();
     app.terminal.lock().expect("terminal").advance(b"\x1b[>26u");
     for (event_type, expected) in [
         (KeyEventType::Press, b"\x1b[101u\x1b[769u".as_slice()),
@@ -2593,7 +2539,7 @@ fn kitty_associated_text_missing_payload_keeps_each_logical_scalar() {
 #[cfg(windows)]
 #[test]
 fn win32_input_writes_the_generated_text_after_a_dead_key() {
-    let (mut app, bytes) = build_recording_app().expect("headless app");
+    let (mut app, bytes) = build_recording_app();
     app.terminal
         .lock()
         .expect("terminal")

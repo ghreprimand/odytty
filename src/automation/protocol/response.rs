@@ -4,6 +4,9 @@
 use super::*;
 
 pub const MAX_OBJECTS: usize = 1024;
+/// Smallest encoded object record: a 25-byte id, the parent flag and the
+/// status flags.
+const MIN_OBJECT_BYTES: usize = 25 + 1 + 1;
 const RESPONSE_MAGIC: &[u8; 4] = b"ODYR";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,29 +39,17 @@ pub struct Response {
 }
 
 pub fn write_response(writer: &mut impl Write, response: &Response) -> io::Result<()> {
-    let body =
-        encode(response).map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    writer.write_all(&(body.len() as u32).to_le_bytes())?;
-    writer.write_all(&body)?;
-    writer.flush()
+    let body = encode_response(response)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    write_frame(writer, &body)
 }
 
 pub fn read_response(reader: &mut impl Read) -> io::Result<Response> {
-    let mut length = [0; 4];
-    reader.read_exact(&mut length)?;
-    let length = u32::from_le_bytes(length) as usize;
-    if !(15..=MAX_MESSAGE_BYTES).contains(&length) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            ErrorCode::TooLarge,
-        ));
-    }
-    let mut bytes = vec![0; length];
-    reader.read_exact(&mut bytes)?;
-    decode(&bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+    let bytes = read_frame(reader)?;
+    decode_response(&bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
-fn encode(response: &Response) -> Result<Vec<u8>, ErrorCode> {
+fn encode_response(response: &Response) -> Result<Vec<u8>, ErrorCode> {
     let mut bytes = Vec::with_capacity(64);
     bytes.extend_from_slice(RESPONSE_MAGIC);
     bytes.extend_from_slice(&VERSION.to_le_bytes());
@@ -119,7 +110,7 @@ fn encode(response: &Response) -> Result<Vec<u8>, ErrorCode> {
     Ok(bytes)
 }
 
-fn decode(bytes: &[u8]) -> Result<Response, ErrorCode> {
+fn decode_response(bytes: &[u8]) -> Result<Response, ErrorCode> {
     if bytes.len() > MAX_MESSAGE_BYTES {
         return Err(ErrorCode::TooLarge);
     }
@@ -141,10 +132,9 @@ fn decode(bytes: &[u8]) -> Result<Response, ErrorCode> {
             if count > MAX_OBJECTS {
                 return Err(ErrorCode::TooLarge);
             }
-            // Each object takes at least 27 bytes (a 25-byte id, the parent
-            // flag and the status flags). A count the remaining bytes cannot
-            // hold is a truncated reply, refused before any allocation.
-            if count.saturating_mul(27) > cursor.0.len() {
+            // A count the remaining bytes cannot hold is a truncated reply,
+            // refused before any allocation.
+            if count.saturating_mul(MIN_OBJECT_BYTES) > cursor.0.len() {
                 return Err(ErrorCode::InvalidRequest);
             }
             let mut objects = Vec::with_capacity(count);
@@ -242,11 +232,11 @@ mod tests {
             assert_eq!(read_response(&mut bytes.as_slice()).unwrap(), value);
             let body = &bytes[4..];
             for end in 0..body.len() {
-                assert!(decode(&body[..end]).is_err());
+                assert!(decode_response(&body[..end]).is_err());
             }
             let mut extra = body.to_vec();
             extra.push(0);
-            assert_eq!(decode(&extra), Err(ErrorCode::InvalidRequest));
+            assert_eq!(decode_response(&extra), Err(ErrorCode::InvalidRequest));
         }
     }
 
@@ -256,14 +246,14 @@ mod tests {
             request_id: 0,
             reply: Reply::Objects(vec![object(); MAX_OBJECTS + 1]),
         };
-        assert_eq!(encode(&oversized), Err(ErrorCode::TooLarge));
-        let mut body = encode(&Response {
+        assert_eq!(encode_response(&oversized), Err(ErrorCode::TooLarge));
+        let mut body = encode_response(&Response {
             request_id: 0,
             reply: Reply::Objects(vec![]),
         })
         .unwrap();
         body[15..17].copy_from_slice(&u16::MAX.to_le_bytes());
-        assert_eq!(decode(&body), Err(ErrorCode::TooLarge));
+        assert_eq!(decode_response(&body), Err(ErrorCode::TooLarge));
     }
 
     /// The two ways a reply can be too big or too short, pinned through the
@@ -287,7 +277,7 @@ mod tests {
             let error = read_response(&mut length.to_le_bytes().as_slice()).unwrap_err();
             assert_eq!(code_of(error), ErrorCode::TooLarge, "prefix {length}");
         }
-        let mut body = encode(&Response {
+        let mut body = encode_response(&Response {
             request_id: 0,
             reply: Reply::Objects(vec![]),
         })
@@ -295,7 +285,7 @@ mod tests {
         body[15..17].copy_from_slice(&u16::MAX.to_le_bytes());
         let error = read_response(&mut framed(&body).as_slice()).unwrap_err();
         assert_eq!(code_of(error), ErrorCode::TooLarge, "count above the cap");
-        let mut body = encode(&Response {
+        let mut body = encode_response(&Response {
             request_id: 0,
             reply: Reply::Objects(vec![object()]),
         })
@@ -307,14 +297,14 @@ mod tests {
 
     #[test]
     fn a_count_the_body_cannot_hold_is_a_truncated_reply_not_an_oversized_one() {
-        let mut body = encode(&Response {
+        let mut body = encode_response(&Response {
             request_id: 0,
             reply: Reply::Objects(vec![object()]),
         })
         .unwrap();
         body.truncate(body.len() - 1);
-        assert_eq!(decode(&body), Err(ErrorCode::InvalidRequest));
-        let mut body = encode(&Response {
+        assert_eq!(decode_response(&body), Err(ErrorCode::InvalidRequest));
+        let mut body = encode_response(&Response {
             request_id: 0,
             reply: Reply::Objects(vec![]),
         })
@@ -322,7 +312,7 @@ mod tests {
         let count = u16::try_from(MAX_OBJECTS).unwrap();
         body[15..17].copy_from_slice(&count.to_le_bytes());
         assert_eq!(
-            decode(&body),
+            decode_response(&body),
             Err(ErrorCode::InvalidRequest),
             "the largest allowed count with no objects is truncated"
         );

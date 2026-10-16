@@ -143,7 +143,6 @@ impl SearchUi {
         {
             self.matches.clear();
             self.current = None;
-            self.refreshed_generation = Some(generation);
             return;
         }
         // The scope applies inside the core search, before the match budget is

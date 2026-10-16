@@ -605,7 +605,10 @@ pub(super) fn encode_paste_chunks(
             BRACKETED_PASTE_START.len() + text.len() + BRACKETED_PASTE_END.len(),
         );
         paste.extend_from_slice(BRACKETED_PASTE_START);
-        paste.extend_from_slice(&sanitize_bracketed_paste(text.as_bytes()));
+        // The shared sanitizer reaches a fixed point: it checks the growing output
+        // tail after every byte, so a marker spliced together by an earlier
+        // deletion is removed in the same pass.
+        paste.extend_from_slice(&crate::input::sanitize_paste(text.as_bytes()));
         paste.extend_from_slice(BRACKETED_PASTE_END);
         vec![paste]
     } else {
@@ -625,25 +628,6 @@ pub(super) fn encode_paste_chunks(
 #[cfg(test)]
 pub(super) fn flatten_chunks(chunks: &[Vec<u8>]) -> Vec<u8> {
     chunks.iter().flatten().copied().collect()
-}
-
-/// Strip every embedded bracketed-paste end marker from clipboard bytes.
-///
-/// Twin of [`crate::input::sanitize_paste`]. A naive forward scan does not
-/// converge: deleting one marker can splice the surrounding bytes into a new
-/// one (`ESC[2` + `ESC[201~` + `01~` collapses back to `ESC[201~`). This scan
-/// checks the growing OUTPUT tail after every byte, so a marker reassembled by
-/// a prior deletion is removed in the same linear pass, reaching a fixed point
-/// with no `BRACKETED_PASTE_END` surviving in the output.
-fn sanitize_bracketed_paste(text: &[u8]) -> Vec<u8> {
-    let mut output = Vec::with_capacity(text.len());
-    for &byte in text {
-        output.push(byte);
-        if output.ends_with(BRACKETED_PASTE_END) {
-            output.truncate(output.len() - BRACKETED_PASTE_END.len());
-        }
-    }
-    output
 }
 
 #[cfg(test)]
@@ -736,66 +720,27 @@ mod tests {
         }
     }
 
-    /// Twin of `input::sanitize_paste`: deleting a match can reassemble a fresh
-    /// end marker from the surrounding bytes.
+    /// The native paste encoder uses the shared sanitizer (convergence over the
+    /// marker alphabet is pinned in `input::paste_tests`). This pins the whole
+    /// framed paste: deleting a marker can reassemble a fresh one from the
+    /// surrounding bytes, and the single chunk still carries exactly the start
+    /// marker, the sanitized body and one end marker.
     #[test]
-    fn sanitize_bracketed_paste_rejects_reassembled_end_marker() {
-        let input = b"\x1b[2\x1b[201~01~";
-        let sanitized = sanitize_bracketed_paste(input);
+    fn bracketed_paste_with_a_spliced_end_marker_is_one_framed_chunk() {
+        let mut text = String::from("echo SAFE\x1b[2");
+        text.push_str("\x1b[201~");
+        text.push_str("01~id; echo PWNED\n");
+        let chunks = encode_paste_chunks(&text, true, 8);
+        assert_eq!(chunks.len(), 1, "one indivisible write");
+        let framed = &chunks[0];
+        assert!(framed.starts_with(BRACKETED_PASTE_START));
+        assert!(framed.ends_with(BRACKETED_PASTE_END));
+        let body = &framed[BRACKETED_PASTE_START.len()..framed.len() - BRACKETED_PASTE_END.len()];
         assert!(
-            !sanitized
-                .windows(6)
+            !body
+                .windows(BRACKETED_PASTE_END.len())
                 .any(|window| window == BRACKETED_PASTE_END),
-            "sanitized body must not contain the paste-end marker; got {sanitized:?}"
-        );
-    }
-
-    #[test]
-    fn sanitize_bracketed_paste_realistic_spliced_payload_leaves_no_end_marker() {
-        let mut input = Vec::from(b"echo SAFE");
-        input.extend_from_slice(b"\x1b[2");
-        input.extend_from_slice(BRACKETED_PASTE_END);
-        input.extend_from_slice(b"01~");
-        input.extend_from_slice(b"id; echo PWNED\n");
-        let sanitized = sanitize_bracketed_paste(&input);
-        assert!(
-            !sanitized
-                .windows(6)
-                .any(|window| window == BRACKETED_PASTE_END),
-            "spliced payload must not retain ESC[201~; got {sanitized:?}"
-        );
-    }
-
-    #[test]
-    fn sanitize_bracketed_paste_reaches_a_fixed_point_over_end_marker_alphabet() {
-        const ALPHABET: &[u8] = b"\x1b[201~";
-        fn enumerate(prefix: &mut Vec<u8>, max_len: usize, check: &mut dyn FnMut(&[u8])) {
-            check(prefix);
-            if prefix.len() >= max_len {
-                return;
-            }
-            for &byte in ALPHABET {
-                prefix.push(byte);
-                enumerate(prefix, max_len, check);
-                prefix.pop();
-            }
-        }
-        let mut failures = Vec::new();
-        let mut check = |input: &[u8]| {
-            let once = sanitize_bracketed_paste(input);
-            let twice = sanitize_bracketed_paste(&once);
-            if once != twice || once.windows(6).any(|window| window == BRACKETED_PASTE_END) {
-                failures.push((input.to_vec(), once, twice));
-            }
-        };
-        check(b"\x1b[2\x1b[201~01~");
-        enumerate(&mut Vec::new(), 7, &mut check);
-        assert!(
-            failures.is_empty(),
-            "sanitize_bracketed_paste must be a fixed point with no residual end marker; first failure input={:?} once={:?} twice={:?}",
-            failures[0].0,
-            failures[0].1,
-            failures[0].2
+            "the body must not contain the paste-end marker; got {body:?}"
         );
     }
 

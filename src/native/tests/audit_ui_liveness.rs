@@ -258,17 +258,6 @@ fn wsl_shell_discovery_returns_within_its_helper_deadline() {
     );
 }
 
-#[cfg(windows)]
-#[test]
-fn wsl_discovery_returns_within_its_helper_deadline() {
-    let start = Instant::now();
-    let _ = super::super::shell_discovery::discovered_shells();
-    assert!(
-        start.elapsed() < Duration::from_secs(5),
-        "WSL shell discovery exceeded its bounded helper deadline"
-    );
-}
-
 #[cfg(target_os = "linux")]
 fn helper_bin(dir: &Path, name: &str, script: &str) {
     use std::os::unix::fs::PermissionsExt;

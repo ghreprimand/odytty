@@ -87,13 +87,7 @@ impl AboutInfo {
             Some(a) => {
                 out.push_str(&format!("gpu:     {}\n", a.name));
                 out.push_str(&format!("backend: {} ({})\n", a.backend, a.device_type));
-                let driver = match (a.driver.is_empty(), a.driver_info.is_empty()) {
-                    (true, true) => "unknown".to_string(),
-                    (false, true) => a.driver.clone(),
-                    (true, false) => a.driver_info.clone(),
-                    (false, false) => format!("{} {}", a.driver, a.driver_info),
-                };
-                out.push_str(&format!("driver:  {}\n", driver));
+                out.push_str(&format!("driver:  {}\n", self.driver_string()));
             }
             None => out.push_str("gpu:     (renderer not initialized)\n"),
         }

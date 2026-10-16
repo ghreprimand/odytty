@@ -342,17 +342,10 @@ fn quarantine_with(
 mod tests {
     use super::*;
     use crate::profiles::{LaunchProfile, MAX_PROFILE_FIELD_CHARS};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn temp_profiles_dir(name: &str) -> std::path::PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        std::env::temp_dir().join(format!(
-            "odytty-profiles-{name}-{}-{nanos}",
-            std::process::id()
-        ))
+    /// Removed when dropped, including when an assertion panics.
+    fn temp_profiles_dir(name: &str) -> crate::test_dirs::ScratchDir {
+        crate::test_dirs::ScratchDir::new(&format!("odytty-profiles-{name}-"))
     }
 
     #[test]
@@ -586,7 +579,6 @@ mod tests {
         write_profile_file(&path, &profile).expect("write");
         let loaded = read_profile_file(&path, Some("dev")).expect("read");
         assert_eq!(loaded, profile);
-        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -607,7 +599,6 @@ mod tests {
             read_profile_file(&path, Some("dev")).expect("read"),
             profile
         );
-        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -622,7 +613,6 @@ mod tests {
         assert_eq!(catalog.profiles.len(), 1);
         assert!(catalog.profiles.contains_key("good"));
         assert!(!catalog.warnings.is_empty());
-        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -652,7 +642,6 @@ mod tests {
             )))
         ));
         assert!(!path.exists());
-        let _ = fs::remove_dir_all(dir);
     }
 
     #[cfg(unix)]
@@ -667,6 +656,5 @@ mod tests {
             fs::metadata(&path).expect("metadata").permissions().mode() & 0o777,
             0o600
         );
-        let _ = fs::remove_dir_all(dir);
     }
 }
