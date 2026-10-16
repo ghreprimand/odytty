@@ -47,9 +47,14 @@ pub fn linear_to_srgb_f32(c: f32) -> f32 {
 ///
 /// The historical [`text::srgb_to_linear`](crate::text::srgb_to_linear) is a
 /// thin wrapper around this; keeping one implementation guarantees the surface
-/// (which expects linear shader inputs) sees byte-identical values.
+/// (which expects linear shader inputs) sees byte-identical values. The 256
+/// results are computed once by [`srgb_to_linear_f32`] and read from a table,
+/// so the per-cell color resolution of every frame costs no `powf`.
 pub fn srgb_to_linear(byte: u8) -> f32 {
-    srgb_to_linear_f32(byte as f32 / 255.0)
+    static TABLE: std::sync::LazyLock<[f32; 256]> = std::sync::LazyLock::new(|| {
+        std::array::from_fn(|index| srgb_to_linear_f32(index as f32 / 255.0))
+    });
+    TABLE[usize::from(byte)]
 }
 
 /// Linear float in `[0, 1]` to the nearest sRGB byte channel (rounded, clamped).
@@ -739,6 +744,14 @@ mod tests {
 
     fn rgb_close(a: LinearRgb, b: LinearRgb, eps: f32) -> bool {
         close(a[0], b[0], eps) && close(a[1], b[1], eps) && close(a[2], b[2], eps)
+    }
+
+    #[test]
+    fn byte_transfer_table_matches_the_formula_bit_for_bit() {
+        for byte in 0..=u8::MAX {
+            let formula = srgb_to_linear_f32(f32::from(byte) / 255.0);
+            assert_eq!(srgb_to_linear(byte).to_bits(), formula.to_bits(), "{byte}");
+        }
     }
 
     #[test]
