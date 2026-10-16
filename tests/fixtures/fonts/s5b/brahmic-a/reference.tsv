@@ -1,0 +1,53 @@
+# hb-shape (HarfBuzz) 14.5.1
+# fontTools 4.63.0
+# font units; UTF-8 byte clusters; LTR; language und; cluster level 0; OT
+font	codepoints	glyph_ids	clusters	x_offset	y_offset	x_advance	note
+Balinese-subset.ttf	U+1B13 U+1B44 U+1B22	3,20	0,0	0,0	0,0	1205,0	conjunct
+Balinese-subset.ttf	U+1B13 U+1B3E	9,3	0,0	0,0	0,0	523,1205	pre-base-vowel
+Balinese-subset.ttf	U+1B13 U+1B40	9,23	0,0	0,0	0,0	523,1450	split-vowel
+Balinese-subset.ttf	U+1B13 U+1B38	3,8	0,0	0,0	0,0	1205,0	below-vowel
+Balinese-subset.ttf	U+1B13 U+1B36	3,7	0,0	0,-369	0,-22	1205,0	above-vowel
+Balinese-subset.ttf	U+1B13 U+1B44 U+1B2D	26	0	0	0	1471	conjunct-ra
+Balinese-subset.ttf	U+1B13 U+1B03	3,2	0,0	0,-359	0,-5	1205,0	final
+Balinese-subset.ttf	U+1B13 U+1B44 U+1B22 U+1B3E	9,3,20	0,0,0	0,0,0	0,0,0	523,1205,0	conjunct-pre-base
+Balinese-subset.ttf	U+1B13 U+1B44 U+200D U+1B22	3,11,1,4	0,0,0,9	0,0,0,0	0,0,0,0	1205,288,0,1068	zwj
+Balinese-subset.ttf	U+1B13 U+1B44 U+200C U+1B22	3,11,1,4	0,0,6,9	0,0,0,0	0,0,0,0	1205,288,0,1068	zwnj
+Sundanese-subset.ttf	U+1B8A U+1BA2	2,5	0,0	0,-149	0,0	793,0	medial-ra
+Sundanese-subset.ttf	U+1B8A U+1BA1	2,4	0,0	0,17	0,0	793,212	medial-ya
+Sundanese-subset.ttf	U+1B8A U+1BA6	7,2	0,0	0,0	0,0	375,793	pre-base-vowel
+Sundanese-subset.ttf	U+1B8A U+1BA4	2,6	0,0	0,-136	0,30	793,0	above-vowel
+Sundanese-subset.ttf	U+1B8A U+1BAA	2,8	0,0	0,0	0,0	793,264	killer
+Sundanese-subset.ttf	U+1B8A U+1BAB U+1B93	2,9,3	0,0,6	0,0,0	0,0,0	793,0,712	stacker
+Sundanese-subset.ttf	U+1B8A U+1BA2 U+1BA6	7,2,5	0,0,0	0,0,-149	0,0,0	375,793,0	medial-pre-base
+Sundanese-subset.ttf	U+1B8A U+1BAB U+200D U+1B93	2,9,1,3	0,0,0,9	0,0,0,0	0,0,0,0	793,0,0,712	zwj
+Sundanese-subset.ttf	U+1B8A U+1BAB U+200C U+1B93	2,9,1,3	0,0,6,9	0,0,0,0	0,0,0,0	793,0,0,712	zwnj
+Batak-subset.ttf	U+1BC5 U+1BEA	2,6	0,0	0,0	0,0	1080,483	vowel-i
+Batak-subset.ttf	U+1BC5 U+1BEE	3	0	0	0	1145	vowel-u
+Batak-subset.ttf	U+1BC5 U+1BF2	2,10	0,0	0,0	0,0	1080,549	killer
+Batak-subset.ttf	U+1BC5 U+1BEA U+1BF0	2,9,6	0,0,0	0,-238,0	0,48,0	1080,0,483	vowel-final
+Batak-subset.ttf	U+1BC5 U+1BE7	2,5	0,0	0,0	0,0	1080,318	vowel-e
+Batak-subset.ttf	U+1BC7 U+1BE7	4,5	0,0	0,0	0,0	840,318	plain-control
+Buginese-subset.ttf	U+1A00 U+1A19	6,1	0,0	0,0	0,0	357,677	pre-base-vowel
+Buginese-subset.ttf	U+1A00 U+1A17	1,4	0,0	0,-18	0,-20	677,0	above-vowel
+Buginese-subset.ttf	U+1A00 U+1A18	1,5	0,0	0,104	0,0	677,0	below-vowel
+Buginese-subset.ttf	U+1A00 U+1A1A	1,7	0,0	0,0	0,0	677,540	vowel-o
+Buginese-subset.ttf	U+1A01 U+1A17	2,4	0,0	0,-597	0,-117	1046,0	plain-control
+Buginese-subset.ttf	U+1A01 U+1A18	2,5	0,0	0,126	0,0	1046,0	plain-control
+Cham-subset.ttf	U+AA06 U+AA34	9,2	0,0	0,0	0,0	400,855	pre-base-medial-ra
+Cham-subset.ttf	U+AA06 U+AA33	2,4	0,0	0,0	0,0	855,542	medial-ya
+Cham-subset.ttf	U+AA06 U+AA2A	2,8	0,0	0,-7	0,0	855,0	above-vowel
+Cham-subset.ttf	U+AA06 U+AA43	2,6	0,0	0,-7	0,0	855,0	final
+Cham-subset.ttf	U+AA06 U+AA34 U+AA2F	7,9,2	0,0,0	0,0,0	0,0,0	538,400,855	medial-vowel
+Cham-subset.ttf	U+AA0A U+AA2A	3,8	0,0	0,-40	0,0	1076,0	plain-control
+Lepcha-subset.ttf	U+1C00 U+1C25	5	0	0	0	719	subjoined-ra
+Lepcha-subset.ttf	U+1C00 U+1C27	14,1	0,0	0,0	0,0	353,602	vowel-i
+Lepcha-subset.ttf	U+1C00 U+1C2D	1,11	0,0	0,-272	0,0	602,0	final
+Lepcha-subset.ttf	U+1C00 U+1C2C	1,13	0,0	0,-272	0,0	602,0	above-vowel
+Lepcha-subset.ttf	U+1C00 U+1C24 U+1C26	4,12	0,0	0,0	0,0	840,354	subjoined-vowel
+Lepcha-subset.ttf	U+1C0E U+1C27	14,2	0,0	0,0	0,0	353,601	plain-control
+Limbu-subset.ttf	U+1901 U+1929	9,6	0,0	0,0	0,0	605,358	subjoined-ya
+Limbu-subset.ttf	U+1901 U+1921	9,3	0,0	0,10	0,0	605,200	above-vowel
+Limbu-subset.ttf	U+1901 U+1930	9,8	0,0	0,0	0,0	605,547	final
+Limbu-subset.ttf	U+1901 U+1923	9,5	0,0	0,0	0,0	605,286	vowel-ee
+Limbu-subset.ttf	U+1901 U+192A U+1922	9,10	0,0	0,-234	0,0	605,0	subjoined-vowel
+Limbu-subset.ttf	U+1915 U+1921	2,3	0,0	0,-76	0,0	604,200	plain-control

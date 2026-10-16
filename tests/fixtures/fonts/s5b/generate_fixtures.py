@@ -37,9 +37,9 @@ def repertoire(face):
     return points
 
 
-def shape(path, text, tag):
+def shape(path, text, tag, direction):
     command = ["hb-shape", "--output-format=json", "--no-glyph-names",
-               "--utf8-clusters", "--cluster-level=0", "--direction=ltr",
+               "--utf8-clusters", "--cluster-level=0", "--direction=" + direction,
                "--language=und", "--script=" + tag, "--font-size=upem",
                "--font-funcs=ot", "--shapers=ot", str(path), text]
     result = subprocess.run(command, capture_output=True, text=True,
@@ -101,9 +101,12 @@ def make_face(face, sources, output):
     if not points - {0x200C, 0x200D} <= set(final.getBestCmap()):
         raise ValueError("subset lost required Unicode mappings")
     references = []
+    # Right-to-left scripts are shaped in their own direction, as production
+    # does; every other face is left to right.
+    direction = face.get("direction", "ltr")
     for case in face["cases"]:
         text = "".join(chr(cp) for cp in codepoints(case))
-        before = shape(source, text, face["script_tag"])
+        before = shape(source, text, face["script_tag"], direction)
         # A no-circle fixture intentionally lacks the upstream circle mapping.
         # Match that declared coverage in an isolated source copy for this case;
         # all ordinary rows still compare with the untouched source face.
@@ -116,8 +119,8 @@ def make_face(face, sources, output):
                     table.cmap.pop(0x25CC, None)
                 limited_path = Path(temp) / face["source_filename"]
                 limited.save(limited_path)
-                before = shape(limited_path, text, face["script_tag"])
-        after = shape(output, text, face["script_tag"])
+                before = shape(limited_path, text, face["script_tag"], direction)
+        after = shape(output, text, face["script_tag"], direction)
         mapped = [dict(g, g=new_ids[original_names[g["g"]]]) for g in before]
         if mapped != after:
             raise ValueError("subset changed shaping: " + case["id"])
@@ -152,8 +155,12 @@ def main():
             continue
         folder = ROOT / group
         folder.mkdir(exist_ok=True)
+        directions = {face.get("direction", "ltr") for face in faces if face["group"] == group}
+        if len(directions) != 1:
+            raise ValueError("one direction per group: " + group)
         lines = ["# " + version, "# fontTools " + fontTools.version,
-                 "# font units; UTF-8 byte clusters; LTR; language und; cluster level 0; OT",
+                 "# font units; UTF-8 byte clusters; " + directions.pop().upper()
+                 + "; language und; cluster level 0; OT",
                  "font\tcodepoints\tglyph_ids\tclusters\tx_offset\ty_offset\tx_advance\tnote"]
         records = []
         for face in (face for face in faces if face["group"] == group):

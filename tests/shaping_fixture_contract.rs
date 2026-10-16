@@ -40,6 +40,15 @@ const FIXTURES: &[Fixture] = &[
     fixture!("g6", "Javanese-subset.ttf"),
     fixture!("g6", "Grantha-subset.ttf"),
     fixture!("g6", "TaiTham-subset.ttf"),
+    fixture!("brahmic-a", "Balinese-subset.ttf"),
+    fixture!("brahmic-a", "Sundanese-subset.ttf"),
+    fixture!("brahmic-a", "Batak-subset.ttf"),
+    fixture!("brahmic-a", "Buginese-subset.ttf"),
+    fixture!("brahmic-a", "Cham-subset.ttf"),
+    fixture!("brahmic-a", "Lepcha-subset.ttf"),
+    fixture!("brahmic-a", "Limbu-subset.ttf"),
+    fixture!("rtl", "Hebrew-subset.ttf"),
+    fixture!("rtl", "Kharoshthi-subset.ttf"),
 ];
 
 #[test]
@@ -106,8 +115,8 @@ fn subset_faces_parse_and_reference_clusters_use_utf8_byte_boundaries() {
             "each script has ordinary and boundary controls"
         );
     }
-    assert_eq!(FIXTURES.len(), 19);
-    assert_eq!(rows, 158);
+    assert_eq!(FIXTURES.len(), 28);
+    assert_eq!(rows, 221);
     assert_eq!(
         known_differences, 0,
         "every row matches the HarfBuzz reference"

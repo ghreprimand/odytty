@@ -3087,8 +3087,8 @@ and every mark on that cell; the monochrome path does not draw them again (see
 [`docs/shaping-roadmap.md`](docs/shaping-roadmap.md)).
 
 With script shaping on, each width owner of an enabled script group is
-shaped on its own with `harfrust` 0.14.0 (left to right,
-script from the content, no language, cluster level 0) and drawn as one
+shaped on its own with `harfrust` 0.14.0 (script and horizontal direction
+from the content, no language, cluster level 0) and drawn as one
 overlay over exactly its one or two cells. The enabled groups are
 Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and
 Malayalam;
@@ -3098,7 +3098,17 @@ Sinhala;
 Chakma, Javanese, Grantha, and Tai Tham.
 The base scalar must belong to one
 of those scripts, and every retained scalar to one of them or be ZWJ, ZWNJ, or
-a Vedic Extensions mark. The shaping face is the first that maps every scalar:
+a Vedic Extensions mark. Every other script's owner is eligible when it holds
+more than one scalar, its base's script is not excluded, and every retained
+scalar has the base's script, the Inherited script, or is ZWJ, ZWNJ, or a
+Vedic Extensions mark. Excluded: Latin, Greek, Cyrillic, and Common (the
+per-cell mark path), Arabic, Syriac, N'Ko, Mongolian, Adlam, Hanifi Rohingya,
+and Mandaic (the joining overlay), and Han, Hiragana, and Katakana. The script
+table is generated from Unicode 17.0.0 `Scripts.txt` by
+`scripts/unicode-script-data.py`. A right-to-left script's owner is shaped
+right to left and its glyphs are placed left to right in visual order, which
+only matters for an owner of more than one cluster (a Kharoshthi stack). The
+shaping face is the first that maps every scalar:
 a `symbol_map` override for the base, the style face, then the fallback chain
 and runtime resolver for the base. Glyphs keep their shaped pen positions; the
 run's ink box is centered in the span when it fits, otherwise scaled uniformly
@@ -3113,7 +3123,9 @@ the cursor block (which redraws the per-cell glyphs, as it does under a Latin
 ligature), copy, search, and widths stay cell-owned. Runs never cross owners.
 Every Indic, Khmer, Myanmar, Thai, Lao, Tibetan, Sinhala, Chakma, Javanese,
 Grantha, and Tai Tham fixture row matches HarfBuzz 14.5 exactly, including
-Bengali ka, virama, ra, which `harfrust` 0.8.4 shaped differently.
+Bengali ka, virama, ra, which `harfrust` 0.8.4 shaped differently, and so does
+every Balinese, Sundanese, Batak, Buginese, Cham, Lepcha, Limbu, Hebrew, and
+Kharoshthi row (the last two shaped right to left).
 Pixel-oracle comparisons use every row.
 A stray mark that starts an owner is shaped with a dotted circle when the
 shaping face maps U+25CC and alone otherwise.

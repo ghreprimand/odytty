@@ -1,0 +1,49 @@
+{
+  "fonttools": "4.63.0",
+  "harfbuzz": "hb-shape (HarfBuzz) 14.5.1",
+  "faces": [
+    {
+      "font": "Hebrew-subset.ttf",
+      "subset_sha256": "a4123d33d89222cb8afdba79c10ee3ced558e353e81e44491305c2a6175b0f1d",
+      "subset_bytes": 3536,
+      "glyph_count": 12,
+      "units_per_em": 1000,
+      "reference_rows": 6,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+05B7",
+        "U+05B8",
+        "U+05B9",
+        "U+05BC",
+        "U+05C1",
+        "U+05D0",
+        "U+05D1",
+        "U+05DC",
+        "U+05E9"
+      ],
+      "subset_command": "pyftsubset source/NotoSansHebrew-Regular.ttf --unicodes=U+0020,U+05B7,U+05B8,U+05B9,U+05BC,U+05C1,U+05D0,U+05D1,U+05DC,U+05E9 --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=rtl/Hebrew-subset.ttf"
+    },
+    {
+      "font": "Kharoshthi-subset.ttf",
+      "subset_sha256": "dcfa4198b4dfd718d3ae2cd4181b05913907992766bb96420ea887ef12ec1866",
+      "subset_bytes": 4916,
+      "glyph_count": 19,
+      "units_per_em": 1000,
+      "reference_rows": 8,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+200C",
+        "U+200D",
+        "U+10A01",
+        "U+10A02",
+        "U+10A05",
+        "U+10A0E",
+        "U+10A10",
+        "U+10A1F",
+        "U+10A2F",
+        "U+10A3F"
+      ],
+      "subset_command": "pyftsubset source/NotoSansKharoshthi-Regular.ttf --unicodes=U+0020,U+200C,U+200D,U+10A01,U+10A02,U+10A05,U+10A0E,U+10A10,U+10A1F,U+10A2F,U+10A3F --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=rtl/Kharoshthi-subset.ttf"
+    }
+  ]
+}

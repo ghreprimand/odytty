@@ -6,7 +6,7 @@
 //! The unit is one retained width owner: a cell holding a base scalar plus
 //! its retained extension scalars, spanning one cell or, with a wide
 //! continuation, two. Each eligible owner is shaped on its own with
-//! `harfrust` (left to right, script from the content, no language, cluster
+//! `harfrust` (script and direction from the content, no language, cluster
 //! level 0) and drawn as one presentation overlay ([`LigatureRun`]) covering
 //! exactly the owner's cells. Owner boundaries, widths, cursor, selection,
 //! copy, search, reflow, snapshots, and export never change: this is
@@ -14,11 +14,31 @@
 //!
 //! # Eligibility
 //!
-//! The base scalar must belong to a script group the classifier enables
-//! ([`SHAPED_SCRIPT_RANGES`]), and every retained scalar must belong to an
-//! enabled group or be ZWJ, ZWNJ, or a Vedic Extensions mark. Hidden cells, wide
-//! continuations, and color-glyph cells are never eligible. Latin, Arabic,
-//! emoji, and box drawing never enter this path.
+//! Two rules, either of which makes an owner eligible:
+//!
+//! - Tuned groups: the base scalar belongs to a tuned script block
+//!   ([`SHAPED_SCRIPT_RANGES`]), and every retained scalar belongs to a tuned
+//!   block or is ZWJ, ZWNJ, or a Vedic Extensions mark.
+//! - Every other script: the owner holds at least one retained scalar, its
+//!   base belongs to a script outside the exclusion list, and every retained
+//!   scalar has the base's script, the Inherited script, or is a Vedic
+//!   Extensions mark. Excluded: Latin, Greek, Cyrillic, and Common (their
+//!   marks keep the per-cell mark path), Arabic and the contextual joining
+//!   scripts (Syriac, N'Ko, Mongolian, Adlam, Hanifi Rohingya, Mandaic; the
+//!   joining overlay), and Han, Hiragana, and Katakana. A single scalar gains
+//!   nothing from shaping and keeps the per-cell path.
+//!
+//! Hidden cells, wide continuations, and color-glyph cells are never
+//! eligible. Latin, Arabic, emoji, and box drawing never enter this path.
+//!
+//! # Direction
+//!
+//! Each owner is shaped in its script's horizontal direction (right to left
+//! for Hebrew, Kharoshthi, and the other right-to-left scripts) and its
+//! glyphs are placed left to right in visual order across the owner's span,
+//! so the fit rule is the same for both directions. Direction only changes
+//! the result for an owner of more than one cluster, such as a Kharoshthi
+//! stack.
 //!
 //! # Face and fallback
 //!
@@ -34,7 +54,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use harfrust::{Buffer, Direction, Font, ShapeOptions, ShaperFont};
+use harfrust::{Buffer, Font, ShapeOptions, ShaperFont};
 
 use crate::atlas::{ClusterFace, ClusterGlyph, FontStyle, GlyphAtlas, ShapedGlyphKey};
 use crate::core::{Cell, Snapshot};
@@ -42,6 +62,7 @@ use crate::grid::{ColorGlyphRun, ColorRunCoverage, font_style_for_attrs};
 use crate::ligature::{LigatureFonts, LigatureGlyph, LigatureRun};
 use crate::text::FontHandle;
 
+mod script_data;
 #[cfg(test)]
 mod tests;
 
@@ -98,26 +119,49 @@ fn is_rider(ch: char) -> bool {
     matches!(ch as u32, 0x200C | 0x200D | 0x1CD0..=0x1CFF)
 }
 
+/// Script id of `ch` in the general table, `Some(0)` for Inherited, `None`
+/// for a script outside it (tuned, excluded, or unassigned).
+fn general_script(ch: char) -> Option<u8> {
+    let cp = ch as u32;
+    let table = script_data::GENERAL_SCRIPTS;
+    let index = table.partition_point(|&(_, end, _)| end < cp);
+    table
+        .get(index)
+        .filter(|&&(start, _, _)| start <= cp)
+        .map(|&(_, _, id)| id)
+}
+
 /// Whether an owner's scalars put it on the shaping path (see the module
 /// docs). Cell visibility, continuation, and color coverage are checked by
 /// the caller.
 pub fn owner_is_eligible(cell: &Cell) -> bool {
-    in_stage(cell.ch)
-        && cell
-            .combining()
-            .iter()
-            .all(|&ch| in_stage(ch) || is_rider(ch))
+    let marks = cell.combining();
+    if in_stage(cell.ch) {
+        return marks.iter().all(|&ch| in_stage(ch) || is_rider(ch));
+    }
+    if marks.is_empty() {
+        return false;
+    }
+    let Some(script) = general_script(cell.ch).filter(|&id| id != 0) else {
+        return false;
+    };
+    marks
+        .iter()
+        .all(|&ch| is_rider(ch) || general_script(ch).is_some_and(|id| id == script || id == 0))
 }
 
 /// Shape one owner's text on `face` and return its glyphs with pen positions
-/// in font units, or `None` when the result holds `.notdef`, a glyph id past
-/// `u16`, or more than [`MAX_RUN_GLYPHS`] glyphs.
+/// in font units, left to right in visual order, or `None` when the result
+/// holds `.notdef`, a glyph id past `u16`, or more than [`MAX_RUN_GLYPHS`]
+/// glyphs. The direction is the script's (see the module docs); a script
+/// with no single horizontal direction is shaped left to right.
 pub fn shape_owner(data: &Font, text: &str) -> Option<Vec<ClusterGlyph>> {
     let font = ShaperFont::new(data);
     let mut buffer = Buffer::new();
     buffer.push_str(text);
+    // Script and direction from the content; a script with no single
+    // horizontal direction falls back to left to right.
     buffer.guess_segment_properties();
-    buffer.set_direction(Direction::LeftToRight);
     harfrust::shape(&font, &mut buffer, ShapeOptions::new()).ok()?;
     let output = buffer;
     if output.len() > MAX_RUN_GLYPHS {

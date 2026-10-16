@@ -21,6 +21,7 @@ fn words(text: &str) -> String {
 /// Every generated table that cites the Unicode License.
 const GENERATED_TABLES: &[&str] = &[
     "src/atlas/marks.rs",
+    "src/complex_shaping/script_data.rs",
     "src/core/bidi/classes.rs",
     "src/core/bidi/brackets.rs",
     "src/core/bidi/mirrored.rs",

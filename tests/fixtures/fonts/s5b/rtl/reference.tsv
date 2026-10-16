@@ -1,0 +1,18 @@
+# hb-shape (HarfBuzz) 14.5.1
+# fontTools 4.63.0
+# font units; UTF-8 byte clusters; RTL; language und; cluster level 0; OT
+font	codepoints	glyph_ids	clusters	x_offset	y_offset	x_advance	note
+Hebrew-subset.ttf	U+05E9 U+05C1 U+05B8	8,10,9	0,0,0	227,539,0	0,0,0	0,0,730	shin-dot-qamats
+Hebrew-subset.ttf	U+05D1 U+05BC U+05B7	7,4,3	0,0,0	134,126,0	0,0,0	0,0,572	dagesh-patah
+Hebrew-subset.ttf	U+05DC U+05B9	5,6	0,0	-131,0	0,0	0,522	holam
+Hebrew-subset.ttf	U+05D0 U+05B7	7,1	0,0	167,0	0,0	0,632	patah
+Hebrew-subset.ttf	U+05D1 U+05BC	4,3	0,0	126,0	0,0	0,572	plain-control
+Hebrew-subset.ttf	U+05D0 U+05B8	8,1	0,0	167,0	0,0	0,632	plain-control
+Kharoshthi-subset.ttf	U+10A10 U+10A3F U+10A2F	8,9,6	8,0,0	0,599,0	0,0,0	567,0,795	stacker
+Kharoshthi-subset.ttf	U+10A2F U+10A3F U+10A1F	12	0	0	0	706	stacker
+Kharoshthi-subset.ttf	U+10A10 U+10A01	15,6	0,0	476,0	-1,0	0,795	above-vowel
+Kharoshthi-subset.ttf	U+10A10 U+10A02	3,6	0,0	440,0	0,0	0,795	below-vowel
+Kharoshthi-subset.ttf	U+10A10 U+10A05	4,6	0,0	575,0	-2,0	0,795	vowel-e
+Kharoshthi-subset.ttf	U+10A10 U+10A0E	5,6	0,0	506,0	0,0	0,795	plain-control
+Kharoshthi-subset.ttf	U+10A10 U+10A3F U+200D U+10A2F	8,1,9,6	11,0,0,0	0,0,599,0	0,0,0,0	567,0,0,795	zwj
+Kharoshthi-subset.ttf	U+10A10 U+10A3F U+200C U+10A2F	8,1,9,6	11,8,0,0	0,0,599,0	0,0,0,0	567,0,0,795	zwnj

@@ -203,6 +203,82 @@ const GROUPS: &[Group] = &[
             "medial",
         ],
     },
+    Group {
+        name: "brahmic-a",
+        reference: include_str!("../../tests/fixtures/fonts/s5b/brahmic-a/reference.tsv"),
+        faces: &[
+            (
+                "Balinese-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/brahmic-a/Balinese-subset.ttf"),
+            ),
+            (
+                "Sundanese-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/brahmic-a/Sundanese-subset.ttf"),
+            ),
+            (
+                "Batak-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/brahmic-a/Batak-subset.ttf"),
+            ),
+            (
+                "Buginese-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/brahmic-a/Buginese-subset.ttf"),
+            ),
+            (
+                "Cham-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/brahmic-a/Cham-subset.ttf"),
+            ),
+            (
+                "Lepcha-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/brahmic-a/Lepcha-subset.ttf"),
+            ),
+            (
+                "Limbu-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/brahmic-a/Limbu-subset.ttf"),
+            ),
+        ],
+        count: 49,
+        known_diffs: &[],
+        // The Balinese and Sundanese ZWNJ controls split into two owners.
+        owner_floor: 47,
+        changed_notes: &[
+            "conjunct",
+            "pre-base-vowel",
+            "split-vowel",
+            "medial-ra",
+            "stacker",
+            "killer",
+            "pre-base-medial-ra",
+            "subjoined-ra",
+            "subjoined-ya",
+            "final",
+        ],
+    },
+    Group {
+        name: "rtl",
+        reference: include_str!("../../tests/fixtures/fonts/s5b/rtl/reference.tsv"),
+        faces: &[
+            (
+                "Hebrew-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/rtl/Hebrew-subset.ttf"),
+            ),
+            (
+                "Kharoshthi-subset.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/rtl/Kharoshthi-subset.ttf"),
+            ),
+        ],
+        count: 14,
+        known_diffs: &[],
+        // The Kharoshthi ZWNJ control splits into two owners.
+        owner_floor: 13,
+        changed_notes: &[
+            "shin-dot-qamats",
+            "dagesh-patah",
+            "holam",
+            "patah",
+            "stacker",
+            "zwj",
+        ],
+    },
 ];
 
 fn face(name: &str) -> FontHandle {
@@ -320,7 +396,6 @@ fn shape_raw(face: &FontHandle, text: &str) -> Vec<(u32, u32, i32, i32, i32)> {
     let mut output = Buffer::new();
     output.push_str(text);
     output.guess_segment_properties();
-    output.set_direction(Direction::LeftToRight);
     harfrust::shape(&font, &mut output, ShapeOptions::new()).unwrap();
     output
         .glyph_infos()
@@ -408,6 +483,127 @@ fn classifier_enables_exactly_the_enabled_groups() {
     assert!(joined.push_combining('\u{200D}'));
     assert!(joined.push_combining('\u{1CD0}'));
     assert!(owner_is_eligible(&joined));
+}
+
+#[test]
+fn owners_outside_the_tuned_groups_follow_the_exclusion_list() {
+    let attrs = crate::core::Attrs::default();
+    let owner = |scalars: &[char]| {
+        let mut cell = Cell::new(scalars[0], attrs);
+        for &mark in &scalars[1..] {
+            assert!(cell.push_combining(mark), "{scalars:?}");
+        }
+        owner_is_eligible(&cell)
+    };
+    // Multi-scalar owners of other scripts shape: Balinese, Sundanese,
+    // Batak, Buginese, Cham, Lepcha, Limbu, Hebrew with points, a Kharoshthi
+    // stack, a Hangul old-jamo syllable, and an Inherited mark riding a
+    // Balinese base.
+    for scalars in [
+        &['\u{1B13}', '\u{1B44}', '\u{1B22}'][..],
+        &['\u{1B8A}', '\u{1BA2}'],
+        &['\u{1BC5}', '\u{1BEA}'],
+        &['\u{1A00}', '\u{1A19}'],
+        &['\u{AA06}', '\u{AA34}'],
+        &['\u{1C00}', '\u{1C25}'],
+        &['\u{1901}', '\u{1929}'],
+        &['\u{05E9}', '\u{05C1}', '\u{05B8}'],
+        &['\u{10A10}', '\u{10A3F}', '\u{10A2F}'],
+        &['\u{1100}', '\u{1161}', '\u{11A8}'],
+        &['\u{1B13}', '\u{0301}'],
+        &['\u{1B13}', '\u{200D}', '\u{1CD0}'],
+    ] {
+        assert!(owner(scalars), "{scalars:?}");
+    }
+    // Excluded: single scalars, Latin, Greek, Cyrillic, and Common bases with
+    // marks, Arabic and the joining scripts, Han with a variation selector,
+    // Kana with a voicing mark, a mark from another script, and an
+    // Inherited base.
+    for scalars in [
+        &['\u{1B13}'][..],
+        &['\u{05D0}'],
+        &['e', '\u{0301}'],
+        &['\u{03B1}', '\u{0301}'],
+        &['\u{0430}', '\u{0301}'],
+        &['1', '\u{20E3}'],
+        &['\u{0628}', '\u{064E}'],
+        &['\u{0712}', '\u{0733}'],
+        &['\u{07CA}', '\u{07EB}'],
+        &['\u{1820}', '\u{180B}'],
+        &['\u{1E900}', '\u{1E944}'],
+        &['\u{10D00}', '\u{10D24}'],
+        &['\u{0840}', '\u{0859}'],
+        &['\u{4E00}', '\u{E0100}'],
+        &['\u{304B}', '\u{3099}'],
+        &['\u{1B13}', '\u{1BA2}'],
+        &['\u{0301}', '\u{0302}'],
+    ] {
+        assert!(!owner(scalars), "{scalars:?}");
+    }
+}
+
+#[test]
+fn general_script_table_is_sorted_and_names_its_scripts() {
+    let table = script_data::GENERAL_SCRIPTS;
+    assert!(
+        table
+            .iter()
+            .all(|&(start, end, _)| start <= end && start >= 0x80)
+    );
+    assert!(table.windows(2).all(|pair| pair[0].1 < pair[1].0));
+    // Ids from the generated header: 0 Inherited, 5 Balinese, 40 Hangul,
+    // 43 Hebrew, 115 Sundanese.
+    assert_eq!(general_script('\u{1B13}'), Some(5));
+    assert_eq!(general_script('\u{1100}'), Some(40));
+    assert_eq!(general_script('\u{05E9}'), Some(43));
+    assert_eq!(general_script('\u{1B8A}'), Some(115));
+    assert_eq!(general_script('\u{0301}'), Some(0));
+    for ch in [
+        'a', '\u{0915}', '\u{0710}', '\u{0628}', '\u{4E00}', '\u{2500}', '\u{0378}',
+    ] {
+        assert_eq!(general_script(ch), None, "{ch:?}");
+    }
+}
+
+#[test]
+fn rtl_owner_shapes_in_script_direction() {
+    let group = GROUPS.iter().find(|group| group.name == "rtl").unwrap();
+    let mut reordered = Vec::new();
+    for row in group_rows(group) {
+        let face = face(&row.font);
+        let data = shaper_data(&face).unwrap();
+        let placed = shape_owner(&data, &row.text).expect("clean shaping result");
+        assert_eq!(placed, row.placed(), "{row:?}");
+        // The same owner forced left to right: a one-cluster owner (a
+        // Hebrew letter with its points) shapes identically, while an owner
+        // of two clusters (a Kharoshthi stack) puts its clusters in the
+        // wrong visual order.
+        let font = ShaperFont::new(&data);
+        let mut ltr = Buffer::new();
+        ltr.push_str(&row.text);
+        ltr.guess_segment_properties();
+        ltr.set_direction(harfrust::Direction::LeftToRight);
+        harfrust::shape(&font, &mut ltr, ShapeOptions::new()).unwrap();
+        let mut pen = 0;
+        let forced: Vec<ClusterGlyph> = ltr
+            .glyph_infos()
+            .iter()
+            .zip(ltr.glyph_positions())
+            .map(|(info, position)| {
+                let glyph = ClusterGlyph {
+                    id: info.glyph_id as u16,
+                    x: pen + position.x_offset,
+                    y: position.y_offset,
+                };
+                pen += position.x_advance;
+                glyph
+            })
+            .collect();
+        if forced != placed {
+            reordered.push(row.note.clone());
+        }
+    }
+    assert_eq!(reordered, ["stacker", "stacker", "zwj", "zwnj"]);
 }
 
 #[test]
@@ -633,6 +829,11 @@ fn production_frames_equal_the_reference_run_and_differ_from_the_per_cell_path()
                 changed.iter().any(|changed| changed == *note),
                 "{note} draws differently from the per-cell path: {changed:?}"
             );
+        }
+        // Outside the tuned groups every multi-scalar owner was drawn per
+        // cell before; each fixture row now draws its shaped run instead.
+        if matches!(group.name, "brahmic-a" | "rtl") {
+            assert_eq!(changed.len(), compared, "{}: {changed:?}", group.name);
         }
         if group.name == "northern-indic" {
             let structural = changed
@@ -908,7 +1109,10 @@ fn enabled_groups_preserve_copy_fallback_off_and_bidi_owner_spans() {
             assert_eq!(runs.len(), 1, "{row:?}");
             assert_eq!((runs[0].start, runs[0].end), (2, 2 + span));
             let visual: Vec<_> = (2..2 + span).map(|c| map.visual_column(0, c)).collect();
-            assert_eq!(visual, (2..2 + span).collect::<Vec<_>>());
+            // A left-to-right owner keeps its place after the Hebrew pair; a
+            // right-to-left owner joins the pair's run and moves to its start.
+            let first = if group.name == "rtl" { 0 } else { 2 };
+            assert_eq!(visual, (first..first + span).collect::<Vec<_>>());
             let isolated = terminal(
                 &format!("x\u{2067}\u{05d0}\u{05d1}{}\u{05d2}\u{2069}y", row.text),
                 12,

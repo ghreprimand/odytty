@@ -36,7 +36,9 @@ and live rendering share this seam; flag, modifier and ZWJ inputs are unchanged.
 Listed VS16 bases and recognized emoji modifier, keycap, flag, and RGI ZWJ
 sequences use two-cell owners. Northern and southern Indic, Sinhala, Khmer,
 Myanmar, Thai, Lao, Tibetan, Chakma, Javanese, Grantha, and Tai Tham owners are
-shaped with the font (see Complex Indic and Brahmic shaping below). Other scripts keep the per-cell path.
+shaped with the font (see Complex Indic and Brahmic shaping below), and so
+are the multi-scalar owners of every other script outside the exclusion list
+there.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.
 
@@ -89,13 +91,13 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | Thai/Lao/Tibetan shaping | With `script_shaping` on, Thai, Lao, and Tibetan owners are shaped with the font (SARA AM decomposition, tone-mark and descender alternates, stacked tone and vowel marks, precomposed Tibetan subjoined stacks) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping; widths are unchanged, so tone marks and Tibetan subjoined letters stay in their one-cell owners |
 | Sinhala shaping | With `script_shaping` on, Sinhala owners are shaped with the font (ZWJ conjunct requests, pre-base and split vowels) and fitted inside their one or two cells by the same rule | Shaping never crosses owners; ZWNJ breaks ownership; widths and logical copy stay unchanged |
 | Chakma/Javanese/Grantha/Tai Tham shaping | With `script_shaping` on, the four scripts' owners are shaped with the font (stacked and conjunct forms, pre-base and split vowels, cakra and medials) and fitted inside their one or two cells | Shaping never crosses owners; Chakma U+11134 with ZWJ keeps separate owners; widths and logical copy stay unchanged |
-| Other complex Indic/Brahmic shaping | Not supported | Scripts outside the enabled blocks keep the per-cell path |
+| Other complex-script shaping | With `script_shaping` on, every other script's multi-scalar owners are shaped with the font in the script's own direction (right to left for Hebrew, Kharoshthi, and the other right-to-left scripts) and fitted inside their one or two cells by the same rule; reference fixtures cover Balinese, Sundanese, Batak, Buginese, Cham, Lepcha, Limbu, Hebrew with points, and Kharoshthi | Latin, Greek, Cyrillic, and Common marks keep the per-cell mark path; Arabic and the joining scripts (Syriac, N'Ko, Mongolian, Adlam, Hanifi Rohingya, Mandaic), Han, and Kana keep their own paths; single scalars and owners whose marks come from another script stay per cell; same face and fallback limits as Indic owner shaping |
 | Northern Indic terminal widths | Devanagari, Bengali, Gurmukhi, Gujarati, and Odia spacing signs and virama-linked consonants share bounded two-cell owners | Terminal width ownership is distinct from Unicode segmentation and font-backed shaping |
 | Southern Indic terminal widths | Tamil, Telugu, Kannada, and Malayalam spacing signs and virama-linked consonants share bounded two-cell owners | Tamil width units can cross grapheme boundaries; font-backed shaping remains within each owner |
 | Sinhala terminal widths | Dependent spacing signs and virama-linked consonants share bounded two-cell owners, with ZWJ preserving the link and ZWNJ breaking it | Sinhala terminal width units can cross grapheme boundaries; font-backed shaping stays inside each owner |
 | Khmer/Myanmar terminal widths | Dependent spacing signs and coeng/invisible-stacker-linked consonants share bounded two-cell source owners; Khmer U+17A4 and U+17D8 occupy one cell | ZWJ preserves linking, ZWNJ breaks it; font-backed shaping is the separate Khmer/Myanmar shaping row |
 | Additional measured script widths | Chakma, Javanese, Grantha, and Tai Tham spacing signs and measured linked consonants share bounded two-cell owners | Chakma U+11134 links directly but keeps separate owners with ZWJ; Javanese/Grantha viramas alone keep one cell; font-backed shaping stays within each owner |
-| Other scripts' terminal widths | Every other script follows Unicode 17 extended grapheme clusters (spacing marks, prepended concatenation marks, Hangul syllable sequences) plus the virama link: a same-script consonant after a Virama or Invisible_Stacker joins its owner, ZWJ keeps the link and ZWNJ breaks it. Widths follow the frozen wcwidth reference, at most two cells | An owner never exceeds two cells, so a cluster measured wider (two leading Hangul jamo) splits where its width would overflow; emoji and the tuned groups above keep their own rules; zero-width scalars attach as before; these owners keep the per-cell glyph path until font shaping covers them |
+| Other scripts' terminal widths | Every other script follows Unicode 17 extended grapheme clusters (spacing marks, prepended concatenation marks, Hangul syllable sequences) plus the virama link: a same-script consonant after a Virama or Invisible_Stacker joins its owner, ZWJ keeps the link and ZWNJ breaks it. Widths follow the frozen wcwidth reference, at most two cells | An owner never exceeds two cells, so a cluster measured wider (two leading Hangul jamo) splits where its width would overflow; emoji and the tuned groups above keep their own rules; zero-width scalars attach as before; their multi-scalar owners are font-shaped (other complex-script shaping row) |
 | Emoji cluster rendering | Unicode 17 listed VS16 bases, fully qualified RGI ZWJ sequences, modifier-base skin tones, VS16 keycaps, and regional-indicator pairs share bounded two-cell source owners | Color glyphs remain font-dependent; VS15 does not demote, standalone regional indicators and keycaps without VS16 stay one cell, and non-RGI joins keep separate owners |
 | SVG-in-OpenType | SVG documents draw glyphs that no bitmap, COLR v0, or COLR v1 source covers, in the same one- or two-cell color slot | Documents over the size, node, nesting, reference-expansion, pixel-work, or live-buffer limits, and documents with patterns, filters, masks, markers (as elements, attributes, or CSS declarations; the words elsewhere in style text are allowed), or stylesheet `url(` references, use monochrome fallback; no file, network, or embedded image loads, and SVG text is not drawn |
 
@@ -359,7 +361,22 @@ Licensed fixtures (OFL subsets of the Noto faces) carry HarfBuzz 14.5.1
 references for all 49 northern and 33 southern Indic samples; all match
 exactly, including Bengali ka, virama, ra, which `harfrust` 0.8.4 shaped
 differently and 0.14.0 matches. Pixel-oracle comparisons cover every row. Every Khmer, Myanmar, Thai, Lao, and Tibetan sample matches exactly. All eight Sinhala samples match exactly. All 27 Chakma, Javanese, Grantha, and Tai Tham samples match exactly.
-Scripts outside the enabled blocks keep the per-cell path.
+
+Every other script's owners take the same path when they hold more than one
+scalar and every retained scalar has the base's script, the Inherited script,
+or is ZWJ, ZWNJ, or a Vedic Extensions mark. Excluded bases keep their own
+paths: Latin, Greek, Cyrillic, and Common (the per-cell mark path), Arabic and
+the contextual joining scripts Syriac, N'Ko, Mongolian, Adlam, Hanifi
+Rohingya, and Mandaic (the joining overlay), and Han, Hiragana, and Katakana.
+A single scalar gains nothing from shaping and stays per cell. Each owner is
+shaped in its script's horizontal direction and its glyphs are placed left to
+right in visual order across the owner's span, so a Kharoshthi stack (two
+clusters) draws its second consonant on the left. HarfBuzz 14.5.1 references
+cover 49 Balinese, Sundanese, Batak, Buginese, Cham, Lepcha, and Limbu samples
+(conjuncts, stackers, pre-base, split and subjoined vowels and medials,
+killers, finals, joiner requests) and 14 Hebrew and Kharoshthi samples shaped
+right to left; all match exactly, and every single-owner sample draws
+differently from the per-cell path.
 
 ### SVG-in-OpenType
 

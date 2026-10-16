@@ -1,0 +1,148 @@
+{
+  "fonttools": "4.63.0",
+  "harfbuzz": "hb-shape (HarfBuzz) 14.5.1",
+  "faces": [
+    {
+      "font": "Balinese-subset.ttf",
+      "subset_sha256": "21631560318a63de5cafa118c04003ea5ea087d4ecc63a163364845d23925e15",
+      "subset_bytes": 7604,
+      "glyph_count": 29,
+      "units_per_em": 1000,
+      "reference_rows": 10,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+1B03",
+        "U+1B13",
+        "U+1B22",
+        "U+1B2D",
+        "U+1B35",
+        "U+1B36",
+        "U+1B38",
+        "U+1B3E",
+        "U+1B40",
+        "U+1B44",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansBalinese-Regular.ttf --unicodes=U+0020,U+1B03,U+1B13,U+1B22,U+1B2D,U+1B35,U+1B36,U+1B38,U+1B3E,U+1B40,U+1B44,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=brahmic-a/Balinese-subset.ttf"
+    },
+    {
+      "font": "Sundanese-subset.ttf",
+      "subset_sha256": "a31ff168f277c859195759ce5cdc172d40778376abaf69953f18fc6314b90639",
+      "subset_bytes": 2980,
+      "glyph_count": 12,
+      "units_per_em": 1000,
+      "reference_rows": 9,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+1B8A",
+        "U+1B93",
+        "U+1BA1",
+        "U+1BA2",
+        "U+1BA4",
+        "U+1BA6",
+        "U+1BAA",
+        "U+1BAB",
+        "U+200C",
+        "U+200D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansSundanese-Regular.ttf --unicodes=U+0020,U+1B8A,U+1B93,U+1BA1,U+1BA2,U+1BA4,U+1BA6,U+1BAA,U+1BAB,U+200C,U+200D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=brahmic-a/Sundanese-subset.ttf"
+    },
+    {
+      "font": "Batak-subset.ttf",
+      "subset_sha256": "c6b2a2ac0f926b055c2365e067890b27a082cd8ac8118de5d281d9adffead95d",
+      "subset_bytes": 3880,
+      "glyph_count": 12,
+      "units_per_em": 1000,
+      "reference_rows": 6,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+1BC5",
+        "U+1BC7",
+        "U+1BE7",
+        "U+1BEA",
+        "U+1BEE",
+        "U+1BF0",
+        "U+1BF2"
+      ],
+      "subset_command": "pyftsubset source/NotoSansBatak-Regular.ttf --unicodes=U+0020,U+1BC5,U+1BC7,U+1BE7,U+1BEA,U+1BEE,U+1BF0,U+1BF2 --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=brahmic-a/Batak-subset.ttf"
+    },
+    {
+      "font": "Buginese-subset.ttf",
+      "subset_sha256": "bece48147539480312d343844827e8b2d19c39ce89110bf5fc98221e0ccc714e",
+      "subset_bytes": 2780,
+      "glyph_count": 8,
+      "units_per_em": 1000,
+      "reference_rows": 6,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+1A00",
+        "U+1A01",
+        "U+1A17",
+        "U+1A18",
+        "U+1A19",
+        "U+1A1A"
+      ],
+      "subset_command": "pyftsubset source/NotoSansBuginese-Regular.ttf --unicodes=U+0020,U+1A00,U+1A01,U+1A17,U+1A18,U+1A19,U+1A1A --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=brahmic-a/Buginese-subset.ttf"
+    },
+    {
+      "font": "Cham-subset.ttf",
+      "subset_sha256": "b74e0353f5cde3094309336d88dd8260bbf85b5af2f7447f19e48aa3d2b15330",
+      "subset_bytes": 3544,
+      "glyph_count": 10,
+      "units_per_em": 1000,
+      "reference_rows": 6,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+AA06",
+        "U+AA0A",
+        "U+AA2A",
+        "U+AA2F",
+        "U+AA33",
+        "U+AA34",
+        "U+AA43"
+      ],
+      "subset_command": "pyftsubset source/NotoSansCham-Regular.ttf --unicodes=U+0020,U+AA06,U+AA0A,U+AA2A,U+AA2F,U+AA33,U+AA34,U+AA43 --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=brahmic-a/Cham-subset.ttf"
+    },
+    {
+      "font": "Lepcha-subset.ttf",
+      "subset_sha256": "f943662c67857fa58fc9921772cd2bd37d556ec8fb79383ef12f3e427f9eb90a",
+      "subset_bytes": 5544,
+      "glyph_count": 17,
+      "units_per_em": 1000,
+      "reference_rows": 6,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+1C00",
+        "U+1C0E",
+        "U+1C24",
+        "U+1C25",
+        "U+1C26",
+        "U+1C27",
+        "U+1C2C",
+        "U+1C2D"
+      ],
+      "subset_command": "pyftsubset source/NotoSansLepcha-Regular.ttf --unicodes=U+0020,U+1C00,U+1C0E,U+1C24,U+1C25,U+1C26,U+1C27,U+1C2C,U+1C2D --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=brahmic-a/Lepcha-subset.ttf"
+    },
+    {
+      "font": "Limbu-subset.ttf",
+      "subset_sha256": "8866b1f9aa015de43c7584751c9b228a0df05c2c2e03ed1ce29704c0cc410034",
+      "subset_bytes": 3356,
+      "glyph_count": 11,
+      "units_per_em": 1000,
+      "reference_rows": 6,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+1901",
+        "U+1915",
+        "U+1921",
+        "U+1922",
+        "U+1923",
+        "U+1929",
+        "U+192A",
+        "U+1930"
+      ],
+      "subset_command": "pyftsubset source/NotoSansLimbu-Regular.ttf --unicodes=U+0020,U+1901,U+1915,U+1921,U+1922,U+1923,U+1929,U+192A,U+1930 --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=brahmic-a/Limbu-subset.ttf"
+    }
+  ]
+}
