@@ -378,6 +378,11 @@ runner reports writes there without failing. Running a bare `cargo test` outside
 the runner still redirects the Mesa and NVIDIA variables from inside the test
 process, but the runner is what proves nothing leaked.
 
+The test run may also populate fontconfig's own user cache (under
+`XDG_CACHE_HOME`, or `~/.cache/fontconfig`) on a host that has never run
+fontconfig. That cache is a deterministic index of the installed font
+directories, not test output; it is left in place and is not checked for leaks.
+
 Linux CI also installs Xvfb, xauth and the X11 keyboard runtime
 `libxkbcommon-x11-0` and runs `bash scripts/ci-display.sh`.
 The separate virtual-display check requires the event-loop proof population to
