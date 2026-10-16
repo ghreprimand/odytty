@@ -64,7 +64,7 @@ The OdyTTY binary embeds tables derived from Unicode Character Database and
 Unicode emoji data files, version 17.0.0: bidirectional classes, paired
 brackets and mirroring (`src/core/bidi/`), emoji presentation and sequence
 widths (`src/core/emoji_width/`), grapheme cluster break properties
-(`src/core/grapheme/`), Indic cluster and width properties
+(`src/core/grapheme/`), Indic cluster, width and virama-link properties
 (`src/core/indic/`), and the glyph atlas combining-mark table
 (`src/atlas/marks.rs`). Each generated file names its source files and records
 their checksums in its header. The data is copyright Unicode, Inc. and is

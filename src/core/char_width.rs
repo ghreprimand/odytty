@@ -59,21 +59,38 @@ pub(crate) fn thai_lao_spacing_extension(base: char, next: char) -> bool {
 }
 
 /// Width of a retained owner. Script-specific additions stay bounded here;
-/// Measured script width units and recognized emoji sequences share this seam.
+/// measured script width units, recognized emoji sequences, and the general
+/// owner rule (`super::owner_rules`) share this seam.
+#[inline]
 pub(crate) fn owner_display_width(base: char, extensions: &[char], ambiguous_wide: bool) -> usize {
-    // Without extensions, an owner has exactly its scalar footprint.
+    // Without extensions, an owner has exactly its scalar footprint. This is
+    // the hot case (every plain cell in reflow and projection), so the rest
+    // stays out of line.
     if extensions.is_empty() {
         return char_display_width(base, ambiguous_wide);
     }
-    if super::emoji_width::has_two_cell_footprint(base, extensions)
-        || super::indic::has_two_cell_footprint(base, extensions)
+    extended_owner_width(base, extensions, ambiguous_wide)
+}
+
+#[inline(never)]
+fn extended_owner_width(base: char, extensions: &[char], ambiguous_wide: bool) -> usize {
+    if super::emoji_width::has_two_cell_footprint(base, extensions) {
+        return 2;
+    }
+    let (indic_two, tuned_base) = super::indic::two_cell_footprint_scoped(base, extensions);
+    if indic_two
         || extensions
             .iter()
             .any(|&c| thai_lao_spacing_extension(base, c))
     {
         2
-    } else {
+    } else if tuned_base {
+        // A tuned letter's other owners keep the base footprint.
         char_display_width(base, ambiguous_wide)
+    } else {
+        // The general rule's owners; the width of any other owner (only
+        // zero-width extensions) is its base footprint, as before.
+        super::owner_rules::general_width(base, extensions, ambiguous_wide).min(2)
     }
 }
 

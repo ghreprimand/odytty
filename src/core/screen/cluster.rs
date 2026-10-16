@@ -8,19 +8,24 @@ impl Screen {
         let Some(owner) = self.cluster_owner else {
             return false;
         };
-        // An ASCII scalar cannot extend an owner without retained scalars:
-        // spacing signs, Indic links, flags and modifiers are all non-ASCII.
-        if scalar_width != 0
-            && ch.is_ascii()
-            && self.rows[owner.row][owner.column].combining().is_empty()
-        {
-            return false;
+        // An ASCII scalar cannot extend an owner without retained scalars
+        // unless the base is a Prepend (UAX #29 GB9b): spacing signs, links,
+        // flags and modifiers are all non-ASCII.
+        if scalar_width != 0 && ch.is_ascii() {
+            let lead = &self.rows[owner.row][owner.column];
+            if lead.combining().is_empty() && !super::super::grapheme::is_prepend(lead.ch) {
+                return false;
+            }
         }
         let cell = self.rows[owner.row][owner.column];
-        let spacing = super::super::char_width::thai_lao_spacing_extension(cell.ch, ch);
-        let indic = super::super::indic::extends(cell.ch, cell.combining(), ch);
-        let emoji = super::super::emoji_width::extends(cell.ch, cell.combining(), ch);
-        if scalar_width != 0 && !spacing && !indic && !emoji {
+        if scalar_width != 0
+            && !super::super::owner_rules::extends(
+                cell.ch,
+                cell.combining(),
+                ch,
+                self.ambiguous_wide,
+            )
+        {
             return false;
         }
         let mut extended = cell;

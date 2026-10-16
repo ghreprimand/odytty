@@ -76,6 +76,73 @@ fn packed(ch: char) -> u8 {
         .map_or(0, |&(_, _, value)| value)
 }
 
+fn class(ch: char) -> Class {
+    Class::from_packed(packed(ch))
+}
+
+/// Grapheme_Cluster_Break=SpacingMark (GB9a).
+pub(crate) fn is_spacing_mark(ch: char) -> bool {
+    class(ch) == Class::SpacingMark
+}
+
+/// Grapheme_Cluster_Break=Prepend (GB9b).
+pub(crate) fn is_prepend(ch: char) -> bool {
+    // A short dedicated table: this runs for every ASCII scalar after an
+    // open owner.
+    if ch.is_ascii() {
+        return false;
+    }
+    let cp = ch as u32;
+    let index = data::PREPEND.partition_point(|&(_, end)| end < cp);
+    data::PREPEND
+        .get(index)
+        .is_some_and(|&(start, _)| start <= cp)
+}
+
+/// Extended_Pictographic or Regional_Indicator: the scalars whose sequences
+/// emoji ownership decides (GB11, GB12, GB13).
+pub(crate) fn is_emoji_sequence_scalar(ch: char) -> bool {
+    emoji_sequence(packed(ch))
+}
+
+fn emoji_sequence(value: u8) -> bool {
+    value & PICTOGRAPHIC != 0 || Class::from_packed(value) == Class::RegionalIndicator
+}
+
+/// What one lookup tells the general owner rule about a scalar of nonzero
+/// width that may extend an owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Continuation {
+    /// Emoji sequences decide this scalar's ownership.
+    Emoji,
+    /// A cluster may continue with it whatever precedes it: an extend,
+    /// spacing mark, Hangul jamo or syllable.
+    Possible,
+    /// An InCB consonant: a preceding Prepend or a linker can join it.
+    Consonant,
+    /// Only a preceding Prepend or a terminal link can join it.
+    Unlikely,
+}
+
+pub(crate) fn continuation(ch: char) -> Continuation {
+    let value = packed(ch);
+    if emoji_sequence(value) {
+        return Continuation::Emoji;
+    }
+    match Class::from_packed(value) {
+        Class::Extend
+        | Class::Zwj
+        | Class::SpacingMark
+        | Class::L
+        | Class::V
+        | Class::T
+        | Class::Lv
+        | Class::Lvt => Continuation::Possible,
+        _ if value & INCB_MASK == INCB_CONSONANT => Continuation::Consonant,
+        _ => Continuation::Unlikely,
+    }
+}
+
 /// GB11 progress: `Extended_Pictographic Extend*`, then a ZWJ.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pictographic {
@@ -111,6 +178,19 @@ impl GraphemeState {
             conjunct: Conjunct::None,
         };
         state.advance(packed(first));
+        state
+    }
+
+    /// State after `base` and `extensions`, the scalars of one terminal
+    /// owner. An owner can join scalars across a Unicode boundary by a
+    /// terminal rule; the state restarts there, as a cluster would.
+    pub(crate) fn of_owner(base: char, extensions: &[char]) -> Self {
+        let mut state = Self::new(base);
+        for &ch in extensions {
+            if !state.accepts(ch) {
+                state = Self::new(ch);
+            }
+        }
         state
     }
 

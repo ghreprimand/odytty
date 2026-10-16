@@ -75,6 +75,18 @@ def main():
     out.append('pub(super) const PROPERTIES: &[(u32, u32, u8)] = &[')
     out.extend(f'    (0x{a:x}, 0x{b:x}, 0x{v:02x}),' for a, b, v in table)
     out.append('];')
+    # Prepend alone, for the owner rule's cheap check of a preceding scalar.
+    prepend = []
+    for cp, value in sorted(packed.items()):
+        if value & 0x0f != CLASSES.index('Prepend'):
+            continue
+        if prepend and prepend[-1][1] + 1 == cp:
+            prepend[-1] = (prepend[-1][0], cp)
+        else:
+            prepend.append((cp, cp))
+    out.append('pub(super) const PREPEND: &[(u32, u32)] = &[')
+    out.extend(f'    (0x{a:x}, 0x{b:x}),' for a, b in prepend)
+    out.append('];')
     (ROOT / 'src/core/grapheme/data.rs').write_text('\n'.join(out) + '\n', encoding='utf-8', newline='\n')
     fixture = ROOT / 'tests/fixtures/unicode-grapheme'
     fixture.mkdir(parents=True, exist_ok=True)

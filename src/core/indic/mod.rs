@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Bounded measured script width units, using Unicode 17 properties.
 //! Gurmukhi, Tamil, Sinhala, Chakma, and Grantha units can cross a UAX #29 break.
-//! This module does not shape glyphs or change other script groups.
+//! Every other script with a Virama or Invisible_Stacker takes one general
+//! rule, [`general_link`]. This module does not shape glyphs.
 mod data;
+mod linked;
 
 fn script(ranges: &[(u32, u32, u8)], ch: char) -> u8 {
     // The pinned script tables contain no ASCII property members.
@@ -28,11 +30,17 @@ fn is_extend(ch: char) -> bool {
 /// Chakma U+11134 is a bounded Pure_Killer exception for direct consonant links.
 /// Khmer/Myanmar also use InCB Consonant, including linked independent vowels.
 /// Zero-width extensions already take the common streaming path.
-pub(super) fn extends(base: char, extensions: &[char], next: char) -> bool {
+/// Returns whether `next` extends, and whether `base` is a letter of a tuned
+/// group (so no other owner rule applies to it), from one table lookup.
+pub(super) fn extends_scoped(base: char, extensions: &[char], next: char) -> (bool, bool) {
     let sid = script(data::BASES, base);
     if sid == 0 {
-        return false;
+        return (false, false);
     }
+    (extends_tuned(sid, base, extensions, next), true)
+}
+
+fn extends_tuned(sid: u8, base: char, extensions: &[char], next: char) -> bool {
     if script(data::SPACING, next) == sid {
         return true;
     }
@@ -81,6 +89,46 @@ pub(super) fn extends(base: char, extensions: &[char], next: char) -> bool {
     false
 }
 
+/// Whether `ch` belongs to a script whose ownership stays with its tuned
+/// rules: the measured groups here, and Thai and Lao.
+pub(super) fn in_tuned_script(ch: char) -> bool {
+    script(linked::TUNED_SCRIPTS, ch) != 0
+}
+
+/// A Virama or Invisible_Stacker of any script, tuned or general.
+pub(super) fn is_linker(ch: char) -> bool {
+    script(linked::LINKED_LINKERS, ch) != 0 || script(data::LINKERS, ch) != 0
+}
+
+/// A Consonant of a script the generalized virama link covers.
+pub(super) fn is_linked_consonant(ch: char) -> bool {
+    script(linked::LINKED_CONSONANTS, ch) != 0
+}
+
+/// The generalized virama link for scripts outside the tuned groups: a
+/// Consonant of the owner's script joins when the owner's last non-extend
+/// scalar is a linker of that script. Nonspacing extends and ZWJ between
+/// them keep the link; ZWNJ breaks it.
+pub(super) fn general_link(base: char, extensions: &[char], next: char) -> bool {
+    let sid = script(linked::LINKED_CONSONANTS, next);
+    if sid == 0 || script(linked::SCRIPTS, base) != sid {
+        return false;
+    }
+    for &ch in extensions.iter().rev() {
+        if ch == '\u{200c}' {
+            return false;
+        }
+        let linker = script(linked::LINKED_LINKERS, ch);
+        if linker != 0 {
+            return linker == sid;
+        }
+        if ch != '\u{200d}' && !is_extend(ch) {
+            return false;
+        }
+    }
+    false
+}
+
 /// A retained Tai Tham spacing sign followed, after zero-width marks, by SAKOT
 /// stays inside the owner during the reverse linker scan. Other scripts keep a
 /// retained spacing sign as the scan boundary: the frozen conformance corpus
@@ -91,12 +139,15 @@ fn retains_sign_before_stacker(sid: u8, ch: char) -> bool {
 
 /// A spacing mark or retained conjunct promotes a measured Indic base to two
 /// cells, regardless of further linked consonants. Nonspacing marks add zero.
-pub(super) fn has_two_cell_footprint(base: char, extensions: &[char]) -> bool {
+/// Returns whether the owner takes two cells by this rule, and whether
+/// `base` is a tuned group's letter, from one table lookup.
+pub(super) fn two_cell_footprint_scoped(base: char, extensions: &[char]) -> (bool, bool) {
     let sid = script(data::BASES, base);
-    sid != 0
+    let two = sid != 0
         && extensions
             .iter()
-            .any(|&ch| script(data::SPACING, ch) == sid || script(data::CONSONANTS, ch) == sid)
+            .any(|&ch| script(data::SPACING, ch) == sid || script(data::CONSONANTS, ch) == sid);
+    (two, sid != 0)
 }
 
 #[cfg(test)]

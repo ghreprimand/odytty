@@ -660,6 +660,7 @@ The support boundary is explicit:
 | Sinhala terminal widths | Dependent spacing signs and virama-linked consonants share bounded two-cell owners, with ZWJ preserving the link and ZWNJ breaking it | Sinhala terminal width units can cross grapheme boundaries; font-backed shaping stays inside each owner |
 | Khmer/Myanmar terminal widths | Dependent spacing signs and coeng/invisible-stacker-linked consonants share bounded two-cell source owners; Khmer U+17A4 and U+17D8 occupy one cell | ZWJ preserves linking, ZWNJ breaks it; font-backed shaping is the separate Khmer/Myanmar shaping row |
 | Additional measured script widths | Chakma, Javanese, Grantha, and Tai Tham spacing signs and measured linked consonants share bounded two-cell owners | Chakma U+11134 links directly but keeps separate owners with ZWJ; Javanese/Grantha viramas alone keep one cell; font-backed shaping stays within each owner |
+| Other scripts' terminal widths | Every other script follows Unicode 17 extended grapheme clusters (spacing marks, prepended concatenation marks, Hangul syllable sequences) plus the virama link: a same-script consonant after a Virama or Invisible_Stacker joins its owner, ZWJ keeps the link and ZWNJ breaks it. Widths follow the frozen wcwidth reference, at most two cells | An owner never exceeds two cells, so a cluster measured wider (two leading Hangul jamo) splits where its width would overflow; emoji and the tuned groups above keep their own rules; zero-width scalars attach as before; these owners keep the per-cell glyph path until font shaping covers them |
 | Emoji cluster rendering | Unicode 17 listed VS16 bases, fully qualified RGI ZWJ sequences, modifier-base skin tones, VS16 keycaps, and regional-indicator pairs share bounded two-cell source owners | Color glyphs remain font-dependent; VS15 does not demote, standalone regional indicators and keycaps without VS16 stay one cell, and non-RGI joins keep separate owners |
 | SVG-in-OpenType | SVG documents draw glyphs that no bitmap, COLR v0, or COLR v1 source covers, in the same one- or two-cell color slot | Documents over the size, node, nesting, reference-expansion, pixel-work, or live-buffer limits, and documents with patterns, filters, masks, markers (as elements, attributes, or CSS declarations; the words elsewhere in style text are allowed), or stylesheet `url(` references, use monochrome fallback; no file, network, or embedded image loads, and SVG text is not drawn |
 
@@ -693,8 +694,9 @@ spacing sign before SAKOT stays in the owner. ZWNJ breaks it. Terminal width own
 itself shape glyphs; complex-script owner shaping is the separate
 presentation layer in the table above. Listed VS16 bases,
 modifier-base skin tones, VS16 keycaps, regional-indicator pairs, and fully
-qualified RGI ZWJ sequences share two-cell source owners. Other script groups
-keep their prior rules.
+qualified RGI ZWJ sequences share two-cell source owners. Every other script
+follows Unicode 17 extended grapheme clusters plus the same virama link, with
+widths from the frozen wcwidth reference and at most two cells per owner.
 Unattached width-zero format controls and selectors occupy zero columns and
 are still not retained. They extend source text when an eligible owner exists.
 

@@ -8,9 +8,7 @@
 //! there exactly as it is in the grid. A unit test pins the agreement with
 //! the print path.
 
-use super::char_width::{
-    char_display_width, is_default_ignorable, owner_display_width, thai_lao_spacing_extension,
-};
+use super::char_width::{char_display_width, is_default_ignorable, owner_display_width};
 use super::{Attrs, Cell};
 
 /// The owners of `text` in order: each owner's cell (base scalar plus the
@@ -57,9 +55,12 @@ pub(crate) fn text_owner_spans(text: &str, ambiguous_wide: bool) -> Vec<TextOwne
         if open
             && let Some(owner) = owners.last_mut()
             && (width == 0
-                || thai_lao_spacing_extension(owner.cell.ch, ch)
-                || super::indic::extends(owner.cell.ch, owner.cell.combining(), ch)
-                || super::emoji_width::extends(owner.cell.ch, owner.cell.combining(), ch))
+                || super::owner_rules::extends(
+                    owner.cell.ch,
+                    owner.cell.combining(),
+                    ch,
+                    ambiguous_wide,
+                ))
             && owner.cell.push_combining(ch)
         {
             owner.width =
@@ -152,6 +153,12 @@ mod tests {
             "\u{301}lead\u{200d}x",
             "\u{fe0f}\u{200b}after",
             "\u{a1}\u{2026}\u{b0}",
+            // Clusters and links outside the tuned groups, and their limits.
+            "\u{1b13}\u{1b3e}\u{1b3f}\u{1b13}\u{1b44}\u{1b13}x",
+            "\u{11412}\u{11442}\u{11412}\u{11442}\u{11412}\u{11442}\u{200c}\u{11412}",
+            "\u{11191}\u{111c0}\u{200d}\u{11191}\u{1c00}\u{1c24}",
+            "\u{600}\u{661}\u{600}1 \u{600}\u{4e00}",
+            "\u{1100}\u{1100}\u{1161}\u{11700}\u{11720}a\u{903}",
             &format!("a{}", "\u{301}".repeat(20)),
         ];
         for ambiguous_wide in [false, true] {

@@ -2994,12 +2994,21 @@ Khmer and Myanmar also accept linked Unicode InCB Consonant scalars,
 including independent vowels. ZWJ preserves the virama link; ZWNJ prevents the next consonant from joining.
 Gurmukhi, Tamil, Sinhala, Chakma, and Grantha terminal width units can cross an extended-grapheme boundary; width
 ownership is distinct from segmentation. Khmer U+17A4 and U+17D8 are explicit
-one-cell scalar compatibility cases in both ambiguous-width modes. Other script groups retain their prior rules. Font-backed shaping of
+one-cell scalar compatibility cases in both ambiguous-width modes. Every other
+script follows Unicode 17.0.0 extended grapheme clusters (UAX #29 GB3 to GB13)
+plus a generalized virama link: a same-script Consonant after a Virama or
+Invisible_Stacker joins the owner, ZWJ keeps the link and ZWNJ breaks it. Such
+an owner is as wide as the frozen wcwidth reference measures its scalars, and
+never wider than two cells: a cluster measured wider splits where its width
+would overflow. Emoji sequences and the groups above keep their own rules, and
+zero-width scalars attach as before. Font-backed shaping of
 enabled owner groups is presentation only, is described with the renderer's
 mark rules below, and never changes these widths. The source bound remains seventeen scalars per owner, with lossless
 bounded-owner overflow. Unicode fixtures exercise bounded northern and southern
-Indic, Sinhala, Khmer, and Myanmar property subsets, plus bounded northern and Khmer/Myanmar GraphemeBreakTest subsets. No full
-grapheme conformance is claimed.
+Indic, Sinhala, Khmer, and Myanmar property subsets, plus bounded northern and Khmer/Myanmar GraphemeBreakTest subsets. The
+segmenter passes the whole Unicode 17.0.0 GraphemeBreakTest file; owners
+differ from its clusters only at the profile points above, and a test pins
+how many lines each one explains.
 
 Chakma, Javanese, Grantha, and Tai Tham use bounded same-script spacing-sign
 and linked-consonant owners. Chakma U+11134 (Pure_Killer) has an explicit direct

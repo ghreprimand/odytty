@@ -146,7 +146,6 @@ fn distinct_scripts_digits_and_non_g1_owners_stay_separate() {
         "\u{915}\u{995}",
         "\u{915}\u{94d}1",
         "A\u{93e}",
-        "\u{1b13}\u{1b44}\u{1b13}",
         "\u{915}\u{94d}\u{995}",
     ] {
         let mut t = Terminal::new(20, 2);

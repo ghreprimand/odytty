@@ -30,6 +30,7 @@ const GENERATED_TABLES: &[&str] = &[
     "src/core/emoji_width/zwj_second.rs",
     "src/core/grapheme/data.rs",
     "src/core/indic/data.rs",
+    "src/core/indic/linked.rs",
 ];
 
 const LICENSE_FIXTURES: &[&str] = &[
