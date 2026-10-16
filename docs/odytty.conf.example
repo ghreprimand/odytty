@@ -49,8 +49,9 @@ ss02 = off
 # cell size never changes.
 font_zero = off
 # Bidirectional text: draw right-to-left runs (Hebrew, Arabic) in display order
-# on the primary screen. Off by default. The alternate screen is never
-# reordered; copy, search, cursor addressing, and mouse reports stay logical.
+# on both screens. Off by default. A full-screen program that arranges its own
+# text opts out with CSI 8 l; copy, search, cursor addressing, and mouse
+# reports stay logical.
 bidi_reorder = off
 # Paragraph direction while bidirectional text is on: ltr (default), rtl (lines
 # start at the right edge), or auto (each paragraph's first strong letter

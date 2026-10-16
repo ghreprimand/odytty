@@ -1092,9 +1092,10 @@ pub struct Settings {
     /// [`Self::ligatures`]. Only `zero` is exposed: no stylistic sets or raw
     /// feature tags. Cell metrics are unchanged.
     pub font_zero: bool,
-    /// Bidirectional display reordering on the primary screen. Off by
-    /// default. The alternate screen is never reordered; cells, cursor
-    /// addressing, selection, copy, search, and protocol values stay logical.
+    /// Bidirectional display reordering on both screens. Off by default.
+    /// Explicit-mode paragraphs keep the application's arrangement; cells,
+    /// cursor addressing, selection, copy, search, and protocol values stay
+    /// logical.
     pub bidi_reorder: bool,
     /// The direction of paragraphs that did not select one with SCP, while
     /// `bidi_reorder` is on. Left to right by default.

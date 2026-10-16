@@ -234,6 +234,7 @@ mod audit_restore_references;
 mod audit_snapshot_ownership;
 mod audit_ui_liveness;
 mod background_model_sync;
+mod bidi_alternate;
 mod bidi_autoscroll;
 mod bidi_effects;
 mod bidi_images;

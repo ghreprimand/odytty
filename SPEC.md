@@ -2448,9 +2448,6 @@ reconfiguration without reapplying the theme.
 - Kitty `I=` addressing on display (`a=p`) and delete (`d=n`/`d=N`) commands,
   and the `S=`/`O=` partial-read keys
 
-- Bidirectional reordering beyond the bounded `bidi_reorder` setting: the
-  alternate screen
-
 - Complex-script shaping for script groups the owner-run classifier does not
   enable, and shaping across owner boundaries
 
@@ -2934,20 +2931,24 @@ and raw feature tags are not exposed.
 `bidi_reorder` (default off; `ODYTTY_BIDI_REORDER`; Settings > Rendering >
 Bidirectional text; the right-click Reorder Right-to-Left Text toggle, shown
 with a check mark while on) draws right-to-left runs in display order. Each
-frame of the primary screen plans a display map from the visible rows and the
-soft-wrapped paragraph above them, each paragraph at its own direction (see
-below) and within the plan's row and owner caps; an over-cap paragraph keeps
-the identity layout. The alternate screen is never planned. Window-level menus,
-panels, pickers, dialogs, and rename fields composite in logical order above
-the terminal without changing its display map. Inline text such as IME
-pre-edit, the search query band, and status labels returns its painted row to
-logical order. The tab bar, the rail, and split-pane chrome draw in logical order.
-The map is presentation only: cells, the cursor position, selection
-endpoints, copy, search, scrollback export, and every protocol value stay
-logical. The pointer, mouse reports, hyperlink hover, the input method
-anchor, and cursor effects map through the presented map, so a report names
-the logical cell drawn under the pointer. The setting applies live and joins
-the frame cache key; with it off, no map is planned and frames are unchanged.
+frame of the primary or alternate screen plans a display map from the visible
+rows and the soft-wrapped paragraph above them, each paragraph at its own
+direction (see below) and within the plan's row and owner caps; an over-cap
+paragraph keeps the identity layout. The alternate screen is planned the same
+way: entering it stamps the current paragraph properties on every fresh row, so
+a full-screen program that sends `CSI 8 l` before entering, or clears the screen
+after sending it, keeps its own arrangement, and leaving it restores the primary
+rows with their own properties. Window-level menus, panels, pickers, dialogs,
+and rename fields composite in logical order above the terminal without changing
+its display map. Inline text such as IME pre-edit, the search query band, and
+status labels returns its painted row to logical order. The tab bar, the rail,
+and split-pane chrome draw in logical order. The map is presentation only:
+cells, the cursor position, selection endpoints, copy, search, scrollback
+export, and every protocol value stay logical. The pointer, mouse reports,
+hyperlink hover, the input method anchor, and cursor effects map through the
+presented map, so a report names the logical cell drawn under the pointer. The
+setting applies live and joins the frame cache key; with it off, no map is
+planned and frames are unchanged.
 
 Each paragraph (logical line) also carries the bidi properties of the
 terminal-wg BiDi recommendation: implicit or explicit mode and a direction

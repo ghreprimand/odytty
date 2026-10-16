@@ -3,7 +3,7 @@
 //! "Bidirectional text" row and the right-click "Reorder Right-to-Left Text"
 //! toggle, driven through the real overlay key and pointer paths. The setting
 //! is off by default, applies live, re-keys the frame, persists on Save,
-//! plans display order on the primary screen only, and leaves every off-path
+//! plans display order on both screens, and leaves every off-path
 //! answer unchanged.
 
 use super::*;
@@ -193,7 +193,7 @@ fn context_menu_toggle_is_checked_while_on_and_rekeys_the_frame() {
 }
 
 #[test]
-fn the_alternate_screen_is_never_reordered() {
+fn the_alternate_screen_reorders_like_the_primary() {
     let (mut app, terminal) = app();
     let settings = Settings {
         bidi_reorder: true,
@@ -205,10 +205,12 @@ fn the_alternate_screen_is_never_reordered() {
         .lock()
         .expect("terminal")
         .advance(format!("\x1b[?1049h{LINE}").as_bytes());
-    assert!(!frame_plans_a_map(&mut app), "alternate screen: no map");
+    assert!(frame_plans_a_map(&mut app), "alternate screen plans too");
+    let map = app.bidi_frame_map_for_test().expect("map").clone();
+    assert!(map.row_is_reordered(0));
     for column in 0..COLUMNS {
         app.pointer_move_for_test(
-            f64::from(CELL.width) * (column as f64 + 0.5),
+            f64::from(CELL.width) * (map.visual_column(0, column) as f64 + 0.5),
             f64::from(CELL.height) * 0.5,
         );
         assert_eq!(

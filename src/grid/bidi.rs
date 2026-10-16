@@ -7,8 +7,8 @@
 //! presentation only: cells, cursor, selection, search, and copy stay logical.
 //!
 //! The renderer, cursor, and pointer consume a map only while the
-//! `bidi_reorder` setting is on (off by default) and the primary screen is
-//! shown; otherwise every caller renders and hit-tests without one.
+//! `bidi_reorder` setting is on (off by default), on either screen; otherwise
+//! every caller renders and hit-tests without one.
 //!
 //! A paragraph is a run of soft-wrapped rows. [`BidiDisplayMap::plan_with_context`]
 //! takes the soft-wrapped rows directly above the snapshot, so a paragraph that

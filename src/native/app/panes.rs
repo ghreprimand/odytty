@@ -56,7 +56,7 @@ struct OwnedPaneRender {
     /// of everything this pane draws. Empty outside a floating tab.
     occluders: Vec<[f32; 4]>,
     /// BIDI: this pane's session, plan, and the snapshot it was planned from;
-    /// `None` while reordering is off and on the alternate screen.
+    /// `None` while reordering is off.
     bidi: Option<(SessionToken, (crate::grid::BidiDisplayMap, Snapshot))>,
     /// The pane's session, so the presented frame can be retained on it.
     token: SessionToken,

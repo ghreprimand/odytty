@@ -506,7 +506,7 @@ impl App {
                     let drawn_cursor = terminal.screen().cursor();
                     // BIDI: the content map plus the snapshot it was
                     // planned from (overlay rows reset below). `None` while
-                    // reordering is off and on the alternate screen.
+                    // reordering is off.
                     let bidi_plan = self
                         .bidi_content_map(&terminal, &snapshot, offset)
                         .map(|map| (map, snapshot.clone()));

@@ -807,9 +807,9 @@ pub const DEFAULT_LIGATURE_SS02: bool = false;
 pub const DEFAULT_FONT_ZERO: bool = false;
 
 /// Bidirectional display reordering (`ODYTTY_BIDI_REORDER`): when on, the
-/// primary screen draws right-to-left runs in display order, each paragraph
-/// at its own direction or `bidi_direction`. The alternate screen is never
-/// reordered.
+/// primary and alternate screens draw right-to-left runs in display order,
+/// each paragraph at its own direction or `bidi_direction`; explicit-mode
+/// paragraphs (`CSI 8 l`) keep the application's arrangement.
 /// Cells, cursor addressing, selection, copy, search, and every protocol value
 /// stay logical. Off by default.
 pub const DEFAULT_BIDI_REORDER: bool = false;

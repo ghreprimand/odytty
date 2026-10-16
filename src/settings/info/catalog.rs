@@ -384,7 +384,7 @@ impl Settings {
                 env: BIDI_REORDER_ENV,
                 name: "Bidirectional text",
                 value: bool_display(self.bidi_reorder).to_owned(),
-                description: "Reorders right-to-left runs (Hebrew, Arabic) into display order on the primary screen, each paragraph at its paragraph direction. Off by default. The alternate screen (full-screen programs) is never reordered. Cells, cursor addressing, selection, copy, search, and mouse reports stay in logical order. Complex-script shaping is not included.",
+                description: "Reorders right-to-left runs (Hebrew, Arabic) into display order, each paragraph at its paragraph direction. Off by default. Full-screen programs are reordered too unless they send the explicit-mode sequence CSI 8 l. Cells, cursor addressing, selection, copy, search, and mouse reports stay in logical order. Complex-script shaping is not included.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],

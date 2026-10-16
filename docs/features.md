@@ -644,13 +644,15 @@ right, `CSI 2 SP k` right to left, `CSI 0 SP k` back to the setting). A
 program that arranges its own text sends `CSI 8 l` (explicit mode): its
 paragraphs are then never reordered, only mirrored column for column when
 right to left, and draw without contextual joining; `CSI 8 h` restores the
-default implicit mode. The alternate screen used by full-screen programs is
-never reordered. Images never move with text: a row covered by a Sixel,
-iTerm2, or Kitty image (including Kitty Unicode placeholder cells) keeps its
-logical order, so text beside an image reads left to right. A shaped
-complex-script owner is never split: inside a right-to-left isolate it moves
-as one unit, keeps its cells adjacent and in order, and draws its shaped
-glyphs across their visual columns.
+default implicit mode. Full-screen programs on the alternate screen are
+reordered the same way; the explicit mode applies to rows stamped after it,
+so a program sends `CSI 8 l` before entering the alternate screen or clears
+the screen after sending it. Images never move with text: a row covered by a
+Sixel, iTerm2, or Kitty image (including Kitty Unicode placeholder cells) keeps
+its logical order, so text beside an image reads left to right. A shaped
+complex-script owner is never split: inside a right-to-left isolate it moves as
+one unit, keeps its cells adjacent and in order, and draws its shaped glyphs
+across their visual columns.
 
 The support boundary is explicit:
 
@@ -658,7 +660,7 @@ The support boundary is explicit:
 | --- | --- | --- |
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
 | Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | More joining-script coverage is a candidate; Arabic marks outside the supported harakat set, and harakat the font does not map, keep the monochrome path |
-| Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order on the primary screen, each paragraph left to right, right to left, or auto (`bidi_direction`, or SCP from the program), and explicit mode (`CSI 8 l`) for programs that arrange their own text; cells, cursor addressing, selection, copy, search, and protocol values stay logical | The alternate screen is not reordered. Complex-script owners move as whole spans, keeping their cells adjacent and in order |
+| Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order, each paragraph left to right, right to left, or auto (`bidi_direction`, or SCP from the program), and explicit mode (`CSI 8 l`) for programs that arrange their own text, on the primary and alternate screens; cells, cursor addressing, selection, copy, search, and protocol values stay logical | Rows an image covers keep their logical order. Complex-script owners move as whole spans, keeping their cells adjacent and in order |
 | Northern and southern Indic shaping | With `script_shaping` on, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam owners are shaped with the font (conjuncts, reph, below-base and pre-base forms, ZWJ/ZWNJ requests) and drawn inside the owner's one or two cells, centered, or scaled to a 0.6 floor and then clipped | Owners keep the per-cell path when no font maps every scalar; the cursor block redraws per-cell glyphs; shaping never crosses owners |
 | Khmer/Myanmar shaping | With `script_shaping` on, Khmer and Myanmar owners are shaped with the font (coeng stacks, below-base ro, pre-base and split vowels, medial ra, kinzi, stacker forms, ZWJ requests) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping |
 | Thai/Lao/Tibetan shaping | With `script_shaping` on, Thai, Lao, and Tibetan owners are shaped with the font (SARA AM decomposition, tone-mark and descender alternates, stacked tone and vowel marks, precomposed Tibetan subjoined stacks) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping; widths are unchanged, so tone marks and Tibetan subjoined letters stay in their one-cell owners |

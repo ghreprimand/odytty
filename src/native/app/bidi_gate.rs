@@ -3,22 +3,23 @@
 //! mouse reports the pointer sends (`bidi_reorder`, off by default).
 //!
 //! While the setting is on, the single-pane frame and each content pane of a
-//! split frame showing the primary screen plan a [`BidiDisplayMap`] for their
-//! content grid (with the paragraph context above the viewport, each
-//! paragraph's stored BDSM and SCP properties, and the `bidi_direction` setting
-//! for paragraphs without a direction), reset rows an image covers and rows
-//! changed by inline text painters back to identity, and hand the map to the
-//! renderer. Window-level panels and rename fields composite above the terminal
-//! without changing its map. The alternate screen is never planned. The
-//! single-pane map is placed inside the decorated frame, so chrome stays in
-//! identity layout; split chrome strips never take a map. The pointer maps a
-//! content cell under the pointer to the logical cell drawn there through the
-//! focused content map, so selection, hover, and every cell-encoded mouse
-//! report address logical cells. An SGR-pixel report moves by whole cells onto
-//! the logical cell and keeps its offset inside the cell. The cursor effects
-//! (slide, trail, follower, and aura) run in drawn columns, so they start and
-//! end where the cursor block is drawn. Cursor, selection, search, copy, and
-//! every terminal protocol value stay logical.
+//! split frame, on the primary or the alternate screen, plan a
+//! [`BidiDisplayMap`] for their content grid (with the paragraph context above
+//! the viewport, each paragraph's stored BDSM and SCP properties, and the
+//! `bidi_direction` setting for paragraphs without a direction), reset rows an
+//! image covers and rows changed by inline text painters back to identity, and
+//! hand the map to the renderer. Window-level panels and rename fields
+//! composite above the terminal without changing its map. An alternate-screen
+//! program opts out of reordering with explicit mode (`CSI 8 l`) on the rows it
+//! draws. The single-pane map is placed inside the decorated frame, so chrome
+//! stays in identity layout; split chrome strips never take a map. The pointer
+//! maps a content cell under the pointer to the logical cell drawn there
+//! through the focused content map, so selection, hover, and every cell-encoded
+//! mouse report address logical cells. An SGR-pixel report moves by whole cells
+//! onto the logical cell and keeps its offset inside the cell. The cursor
+//! effects (slide, trail, follower, and aura) run in drawn columns, so they
+//! start and end where the cursor block is drawn. Cursor, selection, search,
+//! copy, and every terminal protocol value stay logical.
 //!
 //! With the setting off every method here returns the identity answer and no
 //! map is planned. Platform-neutral.
@@ -75,8 +76,8 @@ impl App {
     }
 
     /// The display map for the single-pane content grid `snapshot` at
-    /// scrollback `offset`, or `None` while reordering is off, on the
-    /// alternate screen, or in a multi-pane tab (see [`Self::bidi_pane_plan`]).
+    /// scrollback `offset`, or `None` while reordering is off or in a
+    /// multi-pane tab (see [`Self::bidi_pane_plan`]).
     pub(super) fn bidi_content_map(
         &self,
         terminal: &crate::core::Terminal,
@@ -85,7 +86,6 @@ impl App {
     ) -> Option<BidiDisplayMap> {
         (self.bidi_reorder_on() && self.sessions.active_is_single_pane())
             .then(|| plan_content_map(terminal, snapshot, offset, self.bidi_base_direction()))
-            .flatten()
     }
 
     /// Record the map the presented single-pane frame used for its content
@@ -96,8 +96,7 @@ impl App {
 
     /// The plan for one split pane's content grid `snapshot` at scrollback
     /// `offset`, with a copy of the snapshot it was planned from so rows an
-    /// overlay painter changes can be reset. `None` while reordering is off
-    /// and on the alternate screen.
+    /// overlay painter changes can be reset. `None` while reordering is off.
     pub(super) fn bidi_pane_plan(
         &self,
         terminal: &crate::core::Terminal,
@@ -107,8 +106,8 @@ impl App {
         if !self.bidi_reorder_on() {
             return None;
         }
-        plan_content_map(terminal, snapshot, offset, self.bidi_base_direction())
-            .map(|map| (map, snapshot.clone()))
+        let map = plan_content_map(terminal, snapshot, offset, self.bidi_base_direction());
+        Some((map, snapshot.clone()))
     }
 
     /// Record the maps each content pane of the presented split frame used,
@@ -138,14 +137,12 @@ impl App {
             plan_content_map(&terminal, &snapshot, offset, base)
         };
         if self.sessions.active_is_single_pane() {
-            self.bidi_frame_map = map;
+            self.bidi_frame_map = Some(map);
             return;
         }
         let focused = self.sessions.active_id();
         self.bidi_pane_maps.retain(|(token, _)| *token != focused);
-        if let Some(map) = map {
-            self.bidi_pane_maps.push((focused, map));
-        }
+        self.bidi_pane_maps.push((focused, map));
     }
 
     /// The content map of the focused content grid: the single-pane frame
@@ -294,17 +291,16 @@ pub(super) fn finish_bidi_plan(
 /// Plan the content map from the terminal's soft-wrap flags, each
 /// paragraph's stored bidi properties, the paragraph context above the
 /// viewport, and `default_direction` (`bidi_direction`) for paragraphs without
-/// a direction of their own. `None` on the alternate screen, which is never
-/// reordered.
+/// a direction of their own. The alternate screen is planned like the
+/// primary: its rows carry the properties current when it was entered or
+/// when they were stamped later, so a program that sends explicit mode keeps
+/// its own arrangement.
 pub(super) fn plan_content_map(
     terminal: &crate::core::Terminal,
     snapshot: &Snapshot,
     offset: usize,
     default_direction: crate::core::BidiBaseDirection,
-) -> Option<BidiDisplayMap> {
-    if terminal.on_alternate_screen() {
-        return None;
-    }
+) -> BidiDisplayMap {
     use crate::grid::{BidiParagraphContext, BidiParagraphs, max_bidi_context_rows};
     let (wrapped, properties): (Vec<bool>, Vec<_>) = terminal
         .visible_search_rows(offset)
@@ -336,7 +332,7 @@ pub(super) fn plan_content_map(
     if !map.is_identity() {
         map.reset_image_rows(snapshot, &terminal.visible_graphics(offset));
     }
-    Some(map)
+    map
 }
 
 #[cfg(test)]
