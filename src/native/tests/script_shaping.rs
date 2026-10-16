@@ -102,6 +102,7 @@ fn render(
             fonts,
             &mut atlas,
             &[],
+            None,
         );
         merge_runs(&mut runs, complex);
     }

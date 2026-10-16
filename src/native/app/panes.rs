@@ -60,6 +60,10 @@ struct OwnedPaneRender {
     bidi: Option<(SessionToken, (crate::grid::BidiDisplayMap, Snapshot))>,
     /// The pane's session, so the presented frame can be retained on it.
     token: SessionToken,
+    /// Shaped-owner borrowing: the row texts before overlay painting and the
+    /// rows this frame's images cover; resolved to blocked rows once the
+    /// painters have drawn. `None` for a held pane.
+    borrow_capture: Option<(crate::complex_shaping::RowTexts, Vec<VisiblePlacement>)>,
     /// Set while a synchronized-output hold re-presents the previous frame:
     /// the retained decorations, effects, and bidi map, which this frame does
     /// not rebuild.
@@ -75,12 +79,15 @@ pub(in crate::native) struct PresentedPane {
     effects: Vec<SolidQuad>,
     bidi: Option<crate::grid::BidiDisplayMap>,
     placements: Vec<VisiblePlacement>,
+    /// Rows that may not lend a blank to a shaped owner.
+    borrow_blocked: Option<Vec<bool>>,
 }
 
 /// The parts of a [`PresentedPane`] a held pane reuses beside its snapshot.
 struct HeldPaneParts {
     effects: Vec<SolidQuad>,
     bidi: Option<crate::grid::BidiDisplayMap>,
+    borrow_blocked: Option<Vec<bool>>,
 }
 use crate::graphics::VisiblePlacement;
 use crate::native::gpu::{OverlayTop, PaneRender, PanelFrameQuads, RailOverlay};
@@ -957,9 +964,11 @@ impl App {
                     occluders,
                     bidi: None,
                     token: *token,
+                    borrow_capture: None,
                     held: Some(HeldPaneParts {
                         effects: held.effects,
                         bidi: held.bidi,
+                        borrow_blocked: held.borrow_blocked,
                     }),
                 });
                 continue;
@@ -1029,6 +1038,13 @@ impl App {
                 .collect();
             let uploads = image_uploads_for_visible(&terminal, &visible, &cached_for_pane);
             drop(terminal);
+            // Nothing borrows while script shaping is off.
+            let borrow_capture = self.settings.script_shaping.then(|| {
+                (
+                    crate::complex_shaping::RowTexts::capture(&snapshot),
+                    visible.clone(),
+                )
+            });
             // Absorb each pane's sub-cell remainder onto its window-margin side
             // so the grid edge facing a divider sits flush to it: the visible
             // inter-pane separation is then exactly the 1px divider, uniform
@@ -1132,6 +1148,7 @@ impl App {
                 occluders,
                 bidi: bidi.map(|plan| (*token, plan)),
                 token: *token,
+                borrow_capture,
                 held: None,
             });
         }
@@ -1226,6 +1243,18 @@ impl App {
             })
             .collect();
         self.set_bidi_pane_maps(pane_bidi.iter().flatten().cloned().collect());
+        // Shaped-owner borrowing: rows the painters rewrote or an image
+        // covers never lend a blank; a held pane keeps its presented rows.
+        let pane_borrow: Vec<Option<Vec<bool>>> = panes_owned
+            .iter_mut()
+            .map(|pane| {
+                if let Some(held) = pane.held.as_mut() {
+                    return held.borrow_blocked.take();
+                }
+                let (texts, placements) = pane.borrow_capture.take()?;
+                Some(texts.blocked_rows(&pane.snapshot, &placements))
+            })
+            .collect();
         #[cfg(test)]
         {
             self.multipane_chrome_rows_for_test = panes_owned
@@ -1432,6 +1461,7 @@ impl App {
                 // `tab_panel_strength`'s opacity contract.
                 chrome: true,
                 bidi: None,
+                borrow_blocked: None,
             });
         }
         // Inactive-pane dimming: the focused pane is never dimmed (`0.0`), the
@@ -1461,6 +1491,7 @@ impl App {
                 // to the knob's alpha under a translucent window.
                 chrome: false,
                 bidi: pane_bidi[idx].as_ref().map(|(_, map)| map),
+                borrow_blocked: pane_borrow[idx].as_deref(),
             });
         }
 
@@ -1564,13 +1595,19 @@ impl App {
             .into_iter()
             .map(|graphics| (graphics.namespace, graphics.placements))
             .collect();
-        for ((pane, effects), bidi) in panes_owned.into_iter().zip(pane_effects).zip(pane_bidi) {
+        for (((pane, effects), bidi), borrow_blocked) in panes_owned
+            .into_iter()
+            .zip(pane_effects)
+            .zip(pane_bidi)
+            .zip(pane_borrow)
+        {
             let presented = PresentedPane {
                 seq,
                 snapshot: pane.snapshot,
                 effects,
                 bidi: bidi.map(|(_, map)| map),
                 placements: placements.remove(&pane.token.0).unwrap_or_default(),
+                borrow_blocked,
             };
             if let Some(session) = self.sessions.get_mut(pane.token) {
                 session.multipane_presented = Some(presented);

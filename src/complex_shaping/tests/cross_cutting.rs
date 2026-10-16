@@ -475,6 +475,7 @@ fn ligature_and_script_switches_each_keep_their_own_scope_on_one_row() {
             &fonts,
             &mut atlas,
             &[],
+            None,
         );
         merge_runs(&mut runs, complex);
         let drawn = frame(&snapshot, &atlas, &runs);

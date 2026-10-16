@@ -1162,7 +1162,9 @@ in-memory set. It is never saved, and a new pane does not join on its own.
   cursor position, selection, copy, search, or export, which stay logical.
 - **Current default:** font-backed owner shaping (`script_shaping`, on by
   default) shapes one width owner at a time with `harfrust` and draws the result
-  as an overlay over exactly the owner's cells. Bidirectional display order
+  as an overlay over the owner's cells, extended by at most one following blank
+  cell when the ink is wider than the owner (the borrowed cell keeps its own
+  content, selection, hit target, and copy). Bidirectional display order
   (`bidi_reorder`) is opt-in and off by default.
 - **Validation and caps:** an owner is shaped only when its scalars belong to a
   tuned script group plus ZWJ, ZWNJ, and Vedic marks, or when it holds more than

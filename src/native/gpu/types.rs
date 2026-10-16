@@ -141,6 +141,10 @@ pub(in crate::native) struct PaneRender<'a> {
     /// BIDI: this content pane's display map. `None` for chrome strips and
     /// while reordering is off, which keeps the vertices unchanged.
     pub(in crate::native) bidi: Option<&'a crate::grid::BidiDisplayMap>,
+    /// Rows of this content pane that may not lend a blank to a shaped owner
+    /// (image and overlay-painted rows). `None` never borrows: chrome strips
+    /// and panes without this frame's paint record.
+    pub(in crate::native) borrow_blocked: Option<&'a [bool]>,
 }
 
 /// Per-frame request for the analytic cursor aura. Geometry is rebuilt from the

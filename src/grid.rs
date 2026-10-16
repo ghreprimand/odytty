@@ -29,7 +29,9 @@ mod glyph_quads;
 mod model;
 
 pub use background::{BackgroundTreatment, BackgroundTreatmentParams, MAX_BG_TREATMENT_DARKEN};
-pub use bidi::{BidiDisplayMap, BidiParagraphContext, BidiParagraphs, max_bidi_context_rows};
+pub use bidi::{
+    BidiDisplayMap, BidiParagraphContext, BidiParagraphs, image_rows, max_bidi_context_rows,
+};
 pub use clipping::VClip;
 pub(crate) use clipping::{
     clip_quads_to_rect, clip_quads_vertical, extend_first_row_bg_to_top, subtract_rects_from_quads,
@@ -114,22 +116,36 @@ fn cursor_redraws_run(run: &LigatureRun, ch: char) -> bool {
 /// The visual columns a shaping run draws across: its own columns in logical
 /// order, or on a reordered row (`map` is `Some` only there) the run's span
 /// when its cells share one level and so sit adjacent in one direction.
-/// `None` sends the run's cells back to scalar glyphs.
+/// `None` sends the run's cells back to scalar glyphs. An owner that borrows
+/// its following blank extends the span by that cell, which the owner run
+/// checked sits immediately to its right.
 fn run_visual_span(run: &LigatureRun, map: Option<&BidiDisplayMap>) -> Option<Range<usize>> {
-    match map {
+    let borrowed = run.paint_end() - run.end;
+    let source = match map {
         Some(map) => map.uniform_visual_span(run.row, run.start..run.end),
         None => Some(run.start..run.end),
-    }
+    }?;
+    Some(source.start..source.end + borrowed)
 }
 
-/// Whether a shaping run draws its shaped glyphs (every glyph resident and a
-/// visual span available) instead of its cells' scalar glyphs. The content
-/// pass and the block cursor share this rule.
-fn run_draws_shaped(run: &LigatureRun, atlas: &GlyphAtlas, map: Option<&BidiDisplayMap>) -> bool {
-    run.glyphs
+/// The visual span a shaping run draws its shaped glyphs across, or `None`
+/// when its cells draw their scalar glyphs instead (a glyph not resident, or
+/// no visual span; see [`run_visual_span`]). The content pass and the block
+/// cursor share this rule.
+fn run_shaped_span(
+    run: &LigatureRun,
+    atlas: &GlyphAtlas,
+    map: Option<&BidiDisplayMap>,
+) -> Option<Range<usize>> {
+    if run
+        .glyphs
         .iter()
         .all(|glyph| atlas.contains_shaped(glyph.key))
-        && run_visual_span(run, map).is_some()
+    {
+        run_visual_span(run, map)
+    } else {
+        None
+    }
 }
 
 /// Pixel x of a shaped run glyph's slot, with visual column 0 at `origin_x`
@@ -1286,6 +1302,7 @@ fn build_cells_core(
     // O(cells / 64 + runs) instead of scanning the run list for every cell;
     // the answers, and therefore the emitted vertices, are identical.
     let color_coverage = ColorRunCoverage::new(color_runs, cols, rows);
+    let mut shaped_span: Option<(usize, Option<Range<usize>>)> = None;
     for row in 0..rows {
         for col in 0..cols {
             let cell = &snapshot.cells[row * cols + col];
@@ -1329,10 +1346,22 @@ fn build_cells_core(
             // BIDI: on a reordered row a run draws only when its cells share
             // one level (adjacent on screen, one direction); otherwise its
             // cells fall back to scalar glyphs.
+            // A run's residency and visual span are resolved once, at the
+            // first of its cells, and reused for the rest.
             let ligature = ligature_runs
                 .get(ligature_index)
                 .filter(|run| run.covers(row, col))
-                .filter(|run| run_draws_shaped(run, atlas, reordered(row)));
+                .and_then(|run| {
+                    if shaped_span
+                        .as_ref()
+                        .is_none_or(|(index, _)| *index != ligature_index)
+                    {
+                        let span = run_shaped_span(run, atlas, reordered(row));
+                        shaped_span = Some((ligature_index, span));
+                    }
+                    let span = shaped_span.as_ref().and_then(|(_, span)| span.clone())?;
+                    Some((run, span))
+                });
             let style = font_style_for_attrs(&cell.attrs);
             // BIDI: a mirrored cell presents its Bidi_Mirroring_Glyph, falling
             // back to its own glyph when that character is not in the atlas.
@@ -1378,12 +1407,11 @@ fn build_cells_core(
             // atlas keys carry only source span/anchor data; shaped advances
             // never move grid columns. Horizontal clipping prevents ink from
             // reaching the following logical cell or an adjacent pane.
-            if let Some(run) = ligature.filter(|run| run.start == col) {
+            if let Some((run, visual)) = ligature.filter(|(run, _)| run.start == col) {
                 // CHROME-GAP: the run shares its lead cell's horizontal shift
                 // (a shaping run never crosses the rail↔content seam - the band
                 // and content carry distinct attrs - so one dx spans the run).
                 let run_dx = chrome_pin.cell_dx(run.start);
-                let visual = run_visual_span(run, reordered(row)).unwrap_or(run.start..run.end);
                 let span_x0 = origin[0] + visual.start as f32 * cell_w + run_dx;
                 let span_x1 = origin[0] + visual.end as f32 * cell_w + run_dx;
                 let grid_top = if chrome_pin.active()
@@ -1831,15 +1859,23 @@ fn push_cursor(
             // them and clipped to the block, so ink outside the block keeps
             // its content-pass color.
             let reordered = bidi.filter(|map| map.row_is_reordered(row));
+            // The run is the one whose source cells hold the cursor, or the
+            // one before it when the cursor sits on a blank that run borrows.
             let run_index = ligature_runs
                 .partition_point(|run| run.row < row || (run.row == row && run.end <= col));
             let shaped_run = ligature_runs
                 .get(run_index)
                 .filter(|run| run.covers(row, col))
                 .filter(|run| cursor_redraws_run(run, cell.ch))
-                .filter(|run| run_draws_shaped(run, atlas, reordered));
-            if let Some(run) = shaped_run {
-                let visual = run_visual_span(run, reordered).unwrap_or(run.start..run.end);
+                .or_else(|| {
+                    run_index
+                        .checked_sub(1)
+                        .and_then(|index| ligature_runs.get(index))
+                        .filter(|run| run.paints(row, col) && !run.covers(row, col))
+                        .filter(|run| run.glyphs.iter().any(|glyph| glyph.key.cluster))
+                })
+                .and_then(|run| Some((run, run_shaped_span(run, atlas, reordered)?)));
+            if let Some((run, visual)) = shaped_run {
                 let block = [x0, y0, x0 + cell_w, y0 + cell_h];
                 for glyph in run.glyphs.iter() {
                     if let Some(bounds) = atlas.shaped_glyph_quad(glyph.key) {

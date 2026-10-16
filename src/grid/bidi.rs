@@ -434,17 +434,8 @@ impl BidiDisplayMap {
         if self.is_identity() {
             return;
         }
-        for placement in placements {
-            let first = if placement.pixel_offset_y < 0 {
-                placement.row.saturating_sub(1)
-            } else {
-                placement.row
-            };
-            let rows = placement.display_rows.max(1) + usize::from(placement.pixel_offset_y > 0);
-            let end = placement.row.saturating_add(rows).min(self.rows);
-            for row in first..end {
-                self.reset_row(row);
-            }
+        for row in image_rows(placements, self.rows) {
+            self.reset_row(row);
         }
         if !crate::grid::snapshot_shape_is_valid(snapshot)
             || snapshot.dimensions.columns != self.columns
@@ -572,4 +563,25 @@ impl BidiDisplayMap {
     fn index(&self, row: usize, column: usize) -> Option<usize> {
         (row < self.rows && column < self.columns).then(|| row * self.columns + column)
     }
+}
+
+/// The rows of a `rows`-row viewport that visible image `placements` cover:
+/// each placement's rows, plus the row above or below when its pixel offset
+/// moves it into that neighbor. Shared by the bidi map (covered rows keep
+/// their logical order) and shaped-owner borrowing (covered rows never lend
+/// a blank).
+pub fn image_rows(
+    placements: &[VisiblePlacement],
+    rows: usize,
+) -> impl Iterator<Item = usize> + '_ {
+    placements.iter().flat_map(move |placement| {
+        let first = if placement.pixel_offset_y < 0 {
+            placement.row.saturating_sub(1)
+        } else {
+            placement.row
+        };
+        let count = placement.display_rows.max(1) + usize::from(placement.pixel_offset_y > 0);
+        let end = placement.row.saturating_add(count).min(rows);
+        first..end
+    })
 }

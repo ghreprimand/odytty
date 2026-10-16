@@ -171,35 +171,45 @@ impl GlyphAtlas {
         )
     }
 
-    /// [`Self::ensure_cluster`] with the run's digest supplied, so a test can
-    /// make two different runs share one.
+    /// [`Self::ensure_cluster`] for an owner whose following cell is a blank
+    /// it may borrow (`borrow`). A run whose ink fits the owner's
+    /// `span_cells` takes the owner's own slot, exactly as without borrowing.
+    /// A wider run is fitted to the owner's cells plus the blank: its slot
+    /// spans `span_cells + 1` cells (the key's `span_cells` says so), with the
+    /// same centering, 0.6 floor, and clipping. Widths, ownership, and the
+    /// blank's own content never change; only where the ink may reach.
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn ensure_cluster_digest(
+    pub fn ensure_cluster_borrowing(
         &mut self,
-        digest: u64,
         face: &FontHandle,
         face_fingerprint: u64,
         style: FontStyle,
         own_face: bool,
         span_cells: u8,
         glyphs: &[ClusterGlyph],
+        borrow: bool,
     ) -> Option<ShapedGlyphKey> {
-        if span_cells == 0 || u32::from(span_cells) > self.cols || glyphs.is_empty() {
-            return None;
-        }
-        let key = ShapedGlyphKey {
-            face_fingerprint: digest,
-            style,
-            glyph_id: 0,
-            span_cells,
-            anchor_cell: 0,
-            mark_offset: [0, 0],
-            cluster: true,
-        };
-        let identity = ClusterRun::new(face_fingerprint, own_face, glyphs);
-        if self.shaped.contains_key(&key) {
-            return (self.cluster_runs.get(&key) == Some(&identity)).then_some(key);
-        }
+        let wider = borrow
+            && u32::from(span_cells) < self.cols
+            && self
+                .cluster_geometry(face, own_face, glyphs)
+                .is_some_and(|(_, _, ink)| {
+                    ink[2] - ink[0] > (u32::from(span_cells) * self.cell.width) as f32
+                });
+        let span = if wider { span_cells + 1 } else { span_cells };
+        self.ensure_cluster(face, face_fingerprint, style, own_face, span, glyphs)
+    }
+
+    /// The pixel size, pixels per font unit, and pixel ink box
+    /// (`[x_min, y_min, x_max, y_max]`, y up from the baseline) of an owner
+    /// run at scale 1, or `None` for a face without a usable size or a run
+    /// with no ink.
+    fn cluster_geometry(
+        &self,
+        face: &FontHandle,
+        own_face: bool,
+        glyphs: &[ClusterGlyph],
+    ) -> Option<(f32, f32, [f32; 4])> {
         // `px` is a line-height scale, not an em size. A fallback with tall
         // ascenders/descenders must start at the primary em size, then receive
         // exactly one ink fit. Own style faces retain their existing scale.
@@ -233,7 +243,39 @@ impl GlyphAtlas {
         if ink[0] > ink[2] {
             return None;
         }
-        let ink_px = ink.map(|v| v * units);
+        Some((px, units, ink.map(|v| v * units)))
+    }
+
+    /// [`Self::ensure_cluster`] with the run's digest supplied, so a test can
+    /// make two different runs share one.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn ensure_cluster_digest(
+        &mut self,
+        digest: u64,
+        face: &FontHandle,
+        face_fingerprint: u64,
+        style: FontStyle,
+        own_face: bool,
+        span_cells: u8,
+        glyphs: &[ClusterGlyph],
+    ) -> Option<ShapedGlyphKey> {
+        if span_cells == 0 || u32::from(span_cells) > self.cols || glyphs.is_empty() {
+            return None;
+        }
+        let key = ShapedGlyphKey {
+            face_fingerprint: digest,
+            style,
+            glyph_id: 0,
+            span_cells,
+            anchor_cell: 0,
+            mark_offset: [0, 0],
+            cluster: true,
+        };
+        let identity = ClusterRun::new(face_fingerprint, own_face, glyphs);
+        if self.shaped.contains_key(&key) {
+            return (self.cluster_runs.get(&key) == Some(&identity)).then_some(key);
+        }
+        let (px, units, ink_px) = self.cluster_geometry(face, own_face, glyphs)?;
         let cell = self.cell;
         let border = slot_border(cell) as f32;
         let pad = ATLAS_PAD as f32;

@@ -456,6 +456,10 @@ pub(in crate::native) struct GpuState {
     /// builds while `bidi_reorder` is on; `None` otherwise, the unchanged
     /// logical-column path.
     pub(super) bidi_display: Option<crate::grid::BidiDisplayMap>,
+    /// Shaped-owner borrowing for the single-pane frame: the decorated rows
+    /// that may not lend a blank and the content columns, as the App set
+    /// them for this frame. `None` never borrows.
+    pub(super) borrow_rows: Option<(Vec<bool>, std::ops::Range<usize>)>,
     /// Opaque window overlay vertices preserved across synchronized cursor frames.
     pub(super) retained_overlay_top: Vec<grid::Vertex>,
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
@@ -961,6 +965,7 @@ impl GpuState {
             &fonts,
             &mut atlas,
             &initial_color_glyph_runs,
+            None,
         );
         merge_runs(&mut initial_ligature_runs, initial_complex_runs);
         if atlas.take_dirty() {
@@ -1176,6 +1181,7 @@ impl GpuState {
             overlay_opaque_region: None,
             row_fade: None,
             bidi_display: None,
+            borrow_rows: None,
             retained_overlay_top: Vec::new(),
             atlas,
             color_glyph_atlas,
@@ -1360,6 +1366,17 @@ impl GpuState {
     /// [`Self::bidi_display`]); `None` while reordering is off.
     pub(in crate::native) fn set_bidi_display(&mut self, map: Option<crate::grid::BidiDisplayMap>) {
         self.bidi_display = map;
+    }
+
+    /// Set where a single-pane frame's shaped owners may borrow the blank
+    /// after them: `blocked` marks decorated rows that never lend (image,
+    /// overlay-painted, and chrome rows) and `columns` the content columns.
+    /// `None` turns borrowing off.
+    pub(in crate::native) fn set_borrow_rows(
+        &mut self,
+        rows: Option<(Vec<bool>, std::ops::Range<usize>)>,
+    ) {
+        self.borrow_rows = rows;
     }
 
     /// Whether the configured swapchain can present a transparent

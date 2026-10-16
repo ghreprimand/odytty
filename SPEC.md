@@ -3118,8 +3118,17 @@ a `symbol_map` override for the base, the style face, then the fallback chain
 and runtime resolver for the base. Glyphs keep their shaped pen positions; the
 run's ink box is centered in the span when it fits, otherwise scaled uniformly
 to fit with a floor of 0.6, and clipped at the span edges below that floor.
-Vertical overflow beyond the glyph slot margin scales the same way. Ink never
-leaves the owner's span horizontally. Style faces keep synthetic bold and
+Vertical overflow beyond the glyph slot margin scales the same way. A run wider
+than its owner's cells borrows the following cell when that cell is blank: the
+span is fitted as the owner's cells plus that one, by the same rule. The blank
+is a space with no retained scalars, not hidden, not wide, and not under a
+color glyph; it lies in the same row and pane, never past the last column, on a
+row no image covers and no overlay painter rewrote, outside window chrome, and,
+on a reordered row, immediately to the right of an even-level owner. The
+cursor cell counts as blank. The borrowed cell keeps its own content,
+background, selection, hit target, and copy text; a Block cursor on it redraws
+the borrowed ink clipped to the block. Ink never reaches further than that one
+cell. Style faces keep synthetic bold and
 italic; fallback faces draw without synthesis, as on the scalar path. An owner
 without a covering face, with a pending runtime answer, with `.notdef` in its
 shaped result, or whose slot does not fit in a full atlas keeps the per-cell

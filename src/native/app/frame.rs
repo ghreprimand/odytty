@@ -612,12 +612,15 @@ impl App {
                     snapshot.cursor_visible,
                     now,
                 );
-                self.paint_single_pane_cells(
+                // Shaped-owner borrowing: rows the painters rewrite, and
+                // rows an image covers, never lend a blank.
+                let borrow_blocked = self.paint_single_pane_cells(
                     &mut snapshot,
                     &ctx,
                     &visible_buttons,
                     ambiguous_wide,
                     bidi_plan.is_some(),
+                    &visible_graphics,
                 );
                 let overlay_top = if bidi_plan.is_some() {
                     self.build_bidi_overlay_top(cell)
@@ -904,6 +907,15 @@ impl App {
                     gpu.set_overlay_opaque_region(overlay_opaque_region);
                     gpu.set_row_fade(row_fade_spec);
                     gpu.set_bidi_display(bidi_frame);
+                    // Chrome rows and columns never lend a blank.
+                    gpu.set_borrow_rows(Some((
+                        crate::complex_shaping::embed_blocked_rows(
+                            &borrow_blocked,
+                            snapshot.dimensions.rows,
+                            tab_bar_row_offset,
+                        ),
+                        tab_bar_col_offset..tab_bar_col_offset + self.grid.columns,
+                    )));
                     let overlay_top: Vec<crate::native::gpu::OverlayTop> = overlay_top
                         .iter()
                         .map(|(snapshot, origin)| crate::native::gpu::OverlayTop {

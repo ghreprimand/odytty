@@ -361,7 +361,15 @@ impl App {
             height: 16,
             baseline: 12,
         });
-        let (mut snapshot, scrollback_len, cursor_style, visible_buttons, ambiguous_wide, plan) = {
+        let (
+            mut snapshot,
+            scrollback_len,
+            cursor_style,
+            visible_buttons,
+            ambiguous_wide,
+            plan,
+            placements,
+        ) = {
             let terminal = crate::native::lock_recover(&self.terminal);
             let scrollback_len = terminal.screen().scrollback_len();
             let offset = self.viewport.offset().min(scrollback_len);
@@ -376,6 +384,7 @@ impl App {
                 terminal.visible_button_spans(offset),
                 terminal.ambiguous_wide(),
                 plan,
+                terminal.visible_graphics(offset),
             )
         };
         let advanced = effect_cursor(plan.as_ref().map(|(map, _)| map), snapshot.cursor);
@@ -387,12 +396,13 @@ impl App {
             snapshot.cursor_visible,
             now,
         );
-        self.paint_single_pane_cells(
+        let borrow_blocked = self.paint_single_pane_cells(
             &mut snapshot,
             &ctx,
             &visible_buttons,
             ambiguous_wide,
             plan.is_some(),
+            &placements,
         );
         let overlay_top = if plan.is_some() {
             self.build_bidi_overlay_top(cell)
@@ -430,6 +440,7 @@ impl App {
             painted: snapshot,
             streak,
             trail,
+            borrow_blocked,
         }
     }
 
@@ -499,4 +510,6 @@ pub(in crate::native) struct BidiFrameProbe {
     pub(in crate::native) params: CursorRenderParams,
     pub(in crate::native) streak: Option<crate::native::gpu::CursorStreakRequest>,
     pub(in crate::native) trail: Vec<SolidQuad>,
+    /// Rows of `painted` that may not lend a blank to a shaped owner.
+    pub(in crate::native) borrow_blocked: Vec<bool>,
 }

@@ -209,6 +209,28 @@ impl LigatureRun {
     pub fn covers(&self, row: usize, column: usize) -> bool {
         self.row == row && (self.start..self.end).contains(&column)
     }
+
+    /// One past the last cell the run's ink may reach: its source end, or
+    /// one cell further for a shaped owner that borrows the following blank
+    /// (its cluster key spans one more cell than the owner). The borrowed
+    /// cell's content, hit target, selection, and copy stay its own.
+    #[inline]
+    pub fn paint_end(&self) -> usize {
+        // An owner run carries exactly one cluster glyph; no other run's
+        // glyphs reach past its source cells.
+        match self.glyphs.first() {
+            Some(glyph) if glyph.key.cluster => {
+                self.end.max(self.start + usize::from(glyph.key.span_cells))
+            }
+            _ => self.end,
+        }
+    }
+
+    /// Whether the run's ink reaches `column` of `row` (see
+    /// [`Self::paint_end`]).
+    pub fn paints(&self, row: usize, column: usize) -> bool {
+        self.row == row && (self.start..self.paint_end()).contains(&column)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

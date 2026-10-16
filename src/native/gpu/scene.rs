@@ -523,7 +523,12 @@ impl GpuState {
                 &runs,
             );
             self.ensure_ligature_glyphs(&mut ligature_runs);
-            self.add_complex_runs(pane.snapshot, &runs, &mut ligature_runs);
+            self.add_complex_runs(
+                pane.snapshot,
+                &runs,
+                &mut ligature_runs,
+                Some((pane.bidi, pane.borrow_blocked)),
+            );
             pane_runs.push(runs);
             pane_ligature_runs.push(ligature_runs);
         }
@@ -1005,7 +1010,7 @@ impl GpuState {
             &color_glyph_runs,
         );
         self.ensure_ligature_glyphs(&mut ligature_runs);
-        self.add_complex_runs(snapshot, &color_glyph_runs, &mut ligature_runs);
+        self.add_complex_runs(snapshot, &color_glyph_runs, &mut ligature_runs, None);
         for overlay in overlay_top {
             ensure_snapshot_glyphs_excluding_color_runs(
                 &mut self.atlas,
@@ -1219,12 +1224,33 @@ impl GpuState {
 
     /// Shape the snapshot's complex-script owners into resident cluster
     /// slots and merge their overlays into `runs` in row-major order.
+    ///
+    /// `pane` carries a split pane's display map and the rows that may not
+    /// lend a blank (`None` for a pane that never borrows); `None` takes the
+    /// single-pane map and the rows the App set with [`Self::set_borrow_rows`].
+    #[allow(clippy::type_complexity)]
     fn add_complex_runs(
         &mut self,
         snapshot: &Snapshot,
         color_runs: &[ColorGlyphRun],
         runs: &mut Vec<LigatureRun>,
+        pane: Option<(Option<&grid::BidiDisplayMap>, Option<&[bool]>)>,
     ) {
+        let columns = 0..snapshot.dimensions.columns;
+        let rules = match pane {
+            Some((map, blocked)) => blocked.map(|blocked| crate::complex_shaping::BorrowRules {
+                map,
+                blocked,
+                columns,
+            }),
+            None => self.borrow_rows.as_ref().map(|(blocked, content)| {
+                crate::complex_shaping::BorrowRules {
+                    map: self.bidi_display.as_ref(),
+                    blocked,
+                    columns: content.clone(),
+                }
+            }),
+        };
         let complex = self.complex_shaper.build_runs_with_switches(
             crate::ligature::ShapingSwitches {
                 ligatures: self.ligatures_enabled,
@@ -1234,6 +1260,7 @@ impl GpuState {
             &self.fonts,
             &mut self.atlas,
             color_runs,
+            rules.as_ref(),
         );
         crate::complex_shaping::merge_runs(runs, complex);
     }

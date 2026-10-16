@@ -243,6 +243,7 @@ mod bidi_lifecycle;
 mod bidi_paragraph;
 mod bidi_pointer;
 mod bidi_setting;
+mod borrow_rows;
 mod broadcast_input;
 mod button_click;
 mod chrome_seam_basis;

@@ -58,6 +58,7 @@ use harfrust::{Buffer, Font, ShapeOptions, ShaperFont};
 
 use crate::atlas::{ClusterFace, ClusterGlyph, FontStyle, GlyphAtlas, ShapedGlyphKey};
 use crate::core::{Cell, Snapshot};
+use crate::graphics::VisiblePlacement;
 use crate::grid::{ColorGlyphRun, ColorRunCoverage, font_style_for_attrs};
 use crate::ligature::{LigatureFonts, LigatureGlyph, LigatureRun};
 use crate::text::FontHandle;
@@ -248,7 +249,10 @@ pub struct ComplexShaper {
     /// Style-face fingerprint and shaping tables, by style index.
     primary: [Option<(u64, Arc<Font>)>; 4],
     fallback: Vec<FaceEntry>,
+    /// Settled presentations per owner text and style, for owners that may
+    /// not borrow their following blank, and for owners that may.
     presented: HashMap<OwnerKey, Presentation>,
+    presented_borrowing: HashMap<OwnerKey, Presentation>,
     shape_calls: u64,
     face_lookups: u64,
     face_generations: [u64; 4],
@@ -266,6 +270,7 @@ impl ComplexShaper {
         self.primary = Default::default();
         self.fallback.clear();
         self.presented.clear();
+        self.presented_borrowing.clear();
         self.face_generations = [0; 4];
     }
 
@@ -289,8 +294,9 @@ impl ComplexShaper {
         fonts: &F,
         atlas: &mut GlyphAtlas,
         color_runs: &[ColorGlyphRun],
+        borrow: Option<&BorrowRules>,
     ) -> Vec<LigatureRun> {
-        self.build_runs(switches.scripts, snapshot, fonts, atlas, color_runs)
+        self.build_runs_borrowing(switches.scripts, snapshot, fonts, atlas, color_runs, borrow)
     }
 
     /// One overlay per eligible owner of `snapshot`, in row-major order,
@@ -303,6 +309,23 @@ impl ComplexShaper {
         fonts: &F,
         atlas: &mut GlyphAtlas,
         color_runs: &[ColorGlyphRun],
+    ) -> Vec<LigatureRun> {
+        self.build_runs_borrowing(enabled, snapshot, fonts, atlas, color_runs, None)
+    }
+
+    /// [`Self::build_runs`] where an owner whose ink is wider than its cells
+    /// may borrow the following blank cell under `borrow` (see
+    /// [`BorrowRules`]); `None` never borrows. A borrowing owner's run keeps
+    /// its source cells; its glyph key spans one more cell
+    /// ([`LigatureRun::paint_end`]).
+    pub fn build_runs_borrowing<F: LigatureFonts>(
+        &mut self,
+        enabled: bool,
+        snapshot: &Snapshot,
+        fonts: &F,
+        atlas: &mut GlyphAtlas,
+        color_runs: &[ColorGlyphRun],
+        borrow: Option<&BorrowRules>,
     ) -> Vec<LigatureRun> {
         let mut runs = Vec::new();
         if !enabled {
@@ -342,7 +365,10 @@ impl ComplexShaper {
                     1
                 };
                 let style = font_style_for_attrs(&cell.attrs);
-                let Some(key) = self.present(cell, style, span, fonts, atlas) else {
+                let may_borrow = borrow.is_some_and(|rules| {
+                    rules.allows(cells, row, col, usize::from(span), &coverage)
+                });
+                let Some(key) = self.present(cell, style, span, may_borrow, fonts, atlas) else {
                     continue;
                 };
                 runs.push(LigatureRun {
@@ -359,19 +385,27 @@ impl ComplexShaper {
         runs
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn present<F: LigatureFonts>(
         &mut self,
         cell: &Cell,
         style: FontStyle,
         span: u8,
+        borrow: bool,
         fonts: &F,
         atlas: &mut GlyphAtlas,
     ) -> Option<ShapedGlyphKey> {
         let owner = OwnerKey::new(style, cell)?;
-        match self.presented.get(&owner) {
+        let presented = if borrow {
+            &self.presented_borrowing
+        } else {
+            &self.presented
+        };
+        match presented.get(&owner) {
             Some(Presentation::PerCell) => return None,
             Some(Presentation::Cluster(key))
-                if key.span_cells == span && atlas.contains_shaped(*key) =>
+                if (key.span_cells == span || (borrow && key.span_cells == span + 1))
+                    && atlas.contains_shaped(*key) =>
             {
                 return Some(*key);
             }
@@ -382,7 +416,7 @@ impl ComplexShaper {
         let (face, fp, data, own_face) = match atlas.cluster_face(primary, owner.scalars()) {
             ClusterFace::Pending => return None,
             ClusterFace::Unavailable => {
-                self.remember(owner, Presentation::PerCell);
+                self.remember(owner, borrow, Presentation::PerCell);
                 return None;
             }
             ClusterFace::Primary => {
@@ -391,14 +425,14 @@ impl ComplexShaper {
                     *slot = shaper_data(primary).map(|data| (fingerprint(primary), Arc::new(data)));
                 }
                 let Some((fp, data)) = slot.clone() else {
-                    self.remember(owner, Presentation::PerCell);
+                    self.remember(owner, borrow, Presentation::PerCell);
                     return None;
                 };
                 (FaceRef::Primary(primary), fp, data, true)
             }
             ClusterFace::Fallback(face) => {
                 let Some((fp, data)) = self.fallback_entry(&face) else {
-                    self.remember(owner, Presentation::PerCell);
+                    self.remember(owner, borrow, Presentation::PerCell);
                     return None;
                 };
                 (FaceRef::Fallback(face), fp, data, false)
@@ -407,20 +441,33 @@ impl ComplexShaper {
         let text: String = owner.scalars().iter().collect();
         let glyphs = self.shape_cached(fp, &data, text);
         let Some(glyphs) = glyphs else {
-            self.remember(owner, Presentation::PerCell);
+            self.remember(owner, borrow, Presentation::PerCell);
             return None;
         };
         // A full atlas is not settled: a later rebuild may have room.
-        let key = atlas.ensure_cluster(face.get(), fp, style, own_face, span, &glyphs)?;
-        self.remember(owner, Presentation::Cluster(key));
+        let key = atlas.ensure_cluster_borrowing(
+            face.get(),
+            fp,
+            style,
+            own_face,
+            span,
+            &glyphs,
+            borrow,
+        )?;
+        self.remember(owner, borrow, Presentation::Cluster(key));
         Some(key)
     }
 
-    fn remember(&mut self, owner: OwnerKey, presentation: Presentation) {
-        if self.presented.len() >= SHAPE_CACHE_CAPACITY {
-            self.presented.clear();
+    fn remember(&mut self, owner: OwnerKey, borrow: bool, presentation: Presentation) {
+        let presented = if borrow {
+            &mut self.presented_borrowing
+        } else {
+            &mut self.presented
+        };
+        if presented.len() >= SHAPE_CACHE_CAPACITY {
+            presented.clear();
         }
-        self.presented.insert(owner, presentation);
+        presented.insert(owner, presentation);
     }
 
     fn fallback_entry(&mut self, face: &Arc<FontHandle>) -> Option<(u64, Arc<Font>)> {
@@ -454,6 +501,161 @@ impl ComplexShaper {
         self.shaped.insert(key, result.clone());
         result
     }
+}
+
+/// Where a shaped owner may borrow its following blank cell. An owner
+/// borrows at most one cell: its visual right neighbor on the same row of the
+/// same pane, and only when that cell is blank (a space with no retained
+/// scalars, not hidden, not a wide cell, not covered by a color glyph) and is
+/// not the owner's own last column. Rows `blocked` marks (an image covers
+/// them, an overlay painter rewrote their text, or they are window chrome)
+/// and cells outside `columns` (chrome columns) never lend. On a row the bidi
+/// `map` reorders, the owner must sit at an even level with the blank drawn
+/// immediately to its right. The cursor cell counts as blank, so typing never
+/// changes a glyph's size by moving the cursor.
+#[derive(Clone, Debug)]
+pub struct BorrowRules<'a> {
+    pub map: Option<&'a crate::grid::BidiDisplayMap>,
+    pub blocked: &'a [bool],
+    pub columns: std::ops::Range<usize>,
+}
+
+impl BorrowRules<'_> {
+    /// Rules that let every owner of an undecorated snapshot borrow.
+    pub fn open(columns: usize) -> BorrowRules<'static> {
+        BorrowRules {
+            map: None,
+            blocked: &[],
+            columns: 0..columns,
+        }
+    }
+
+    /// Whether the owner at `col` of `row`, `span` cells wide, may borrow
+    /// the cell after it. `cells` is the row.
+    pub fn allows(
+        &self,
+        cells: &[Cell],
+        row: usize,
+        col: usize,
+        span: usize,
+        coverage: &ColorRunCoverage,
+    ) -> bool {
+        let next = col + span;
+        if self.blocked.get(row).copied().unwrap_or(false)
+            || !self.columns.contains(&col)
+            || !self.columns.contains(&next)
+        {
+            return false;
+        }
+        let Some(blank) = cells.get(next) else {
+            return false;
+        };
+        if blank.ch != ' '
+            || !blank.combining().is_empty()
+            || blank.wide_continuation
+            || blank.attrs.hidden()
+            || cells
+                .get(next + 1)
+                .is_some_and(|after| after.wide_continuation)
+            || coverage.covers(row, next)
+        {
+            return false;
+        }
+        match self.map.filter(|map| map.row_is_reordered(row)) {
+            Some(map) => {
+                map.level(row, col) % 2 == 0
+                    && map.visual_column(row, next) == map.visual_column(row, col) + span
+            }
+            None => true,
+        }
+    }
+}
+
+/// A text digest of each row that holds a multi-scalar owner, taken before
+/// the overlay painters draw, so the rows they rewrite can be found and kept
+/// from lending a blank ([`BorrowRules`]). Rows without such an owner carry
+/// no digest: nothing on them could borrow before painting, so an owner
+/// found there afterwards was painted and its row never lends.
+#[derive(Clone, Debug, Default)]
+pub struct RowTexts {
+    columns: usize,
+    digests: Vec<Option<u64>>,
+}
+
+impl RowTexts {
+    pub fn capture(snapshot: &Snapshot) -> Self {
+        let columns = snapshot.dimensions.columns;
+        if columns == 0 || !crate::grid::snapshot_shape_is_valid(snapshot) {
+            return Self::default();
+        }
+        let digests = snapshot
+            .cells
+            .chunks(columns)
+            .map(|row| {
+                row.iter()
+                    .any(|cell| !cell.combining().is_empty())
+                    .then(|| row_text_digest(row))
+            })
+            .collect();
+        Self { columns, digests }
+    }
+
+    /// The rows of `painted` (the captured frame after its overlay painters
+    /// drew) that may not lend a blank: rows whose text the painters changed,
+    /// rows that held no multi-scalar owner when captured, and rows the image
+    /// `placements` of the same viewport cover. A frame whose shape changed
+    /// blocks every row.
+    pub fn blocked_rows(&self, painted: &Snapshot, placements: &[VisiblePlacement]) -> Vec<bool> {
+        let rows = painted.dimensions.rows;
+        let columns = painted.dimensions.columns;
+        if columns == 0
+            || columns != self.columns
+            || rows != self.digests.len()
+            || !crate::grid::snapshot_shape_is_valid(painted)
+        {
+            return vec![true; rows];
+        }
+        let mut blocked: Vec<bool> = painted
+            .cells
+            .chunks(columns)
+            .zip(&self.digests)
+            .map(|(row, before)| before.is_none_or(|digest| row_text_digest(row) != digest))
+            .collect();
+        for row in crate::grid::image_rows(placements, rows) {
+            blocked[row] = true;
+        }
+        blocked
+    }
+}
+
+/// `blocked` (rows of an undecorated frame) placed `row_offset` rows down a
+/// decorated frame of `rows` rows; every other row (window chrome) is blocked.
+pub fn embed_blocked_rows(blocked: &[bool], rows: usize, row_offset: usize) -> Vec<bool> {
+    let mut out = vec![true; rows];
+    for (row, &value) in blocked.iter().enumerate() {
+        if let Some(slot) = out.get_mut(row + row_offset) {
+            *slot = value;
+        }
+    }
+    out
+}
+
+/// A fast, non-cryptographic digest of a row's scalars (each cell's base,
+/// its retained scalars, and a cell separator). It runs every frame on every
+/// row holding an owner; a collision could at worst let one overlay-painted
+/// row lend a blank, a presentation-only effect.
+fn row_text_digest(cells: &[Cell]) -> u64 {
+    const SEED: u64 = 0x517c_c1b7_2722_0a95;
+    let mix = |digest: u64, value: u64| (digest.rotate_left(5) ^ value).wrapping_mul(SEED);
+    cells.iter().fold(0, |digest, cell| {
+        let digest = cell
+            .combining()
+            .iter()
+            .fold(mix(digest, u64::from(cell.ch)), |digest, &mark| {
+                mix(digest, u64::from(mark))
+            });
+        mix(digest, 1 << 32)
+    })
 }
 
 /// Merge owner-run overlays into Latin and Arabic ligature runs, keeping the

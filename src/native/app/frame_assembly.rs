@@ -10,7 +10,37 @@ impl App {
     /// that writes into the content snapshot, in paint precedence order.
     /// Shared by the frame and its headless test seam so both paint the same
     /// cells. With a bidi plan, window-level surfaces use a separate top layer.
+    ///
+    /// Returns the rows that may not lend a blank to a shaped owner: rows
+    /// these painters rewrote and rows the viewport's image `placements`
+    /// cover (see [`crate::complex_shaping::RowTexts`]).
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn paint_single_pane_cells(
+        &mut self,
+        snapshot: &mut Snapshot,
+        ctx: &super::overlay_registry::OverlayCtx,
+        visible_buttons: &[crate::core::SnapshotButton],
+        ambiguous_wide: bool,
+        separate_modal: bool,
+        placements: &[crate::graphics::VisiblePlacement],
+    ) -> Vec<bool> {
+        // Nothing borrows while script shaping is off, so skip the capture.
+        let row_texts = if self.settings.script_shaping {
+            crate::complex_shaping::RowTexts::capture(snapshot)
+        } else {
+            crate::complex_shaping::RowTexts::default()
+        };
+        self.paint_single_pane_cell_layers(
+            snapshot,
+            ctx,
+            visible_buttons,
+            ambiguous_wide,
+            separate_modal,
+        );
+        row_texts.blocked_rows(snapshot, placements)
+    }
+
+    fn paint_single_pane_cell_layers(
         &mut self,
         snapshot: &mut Snapshot,
         ctx: &super::overlay_registry::OverlayCtx,
