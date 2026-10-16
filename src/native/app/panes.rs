@@ -1698,16 +1698,7 @@ pub(super) fn place_tab_bar_glyphs(
                 continue;
             }
             if r == center {
-                // A label owner keeps its retained scalars. A glyph whose `ch`
-                // was replaced after the label paint never uses a stale owner
-                // or wide tail.
-                let mut cell = glyph
-                    .owner
-                    .filter(|owner| owner.ch == glyph.ch)
-                    .unwrap_or_else(|| crate::core::Cell::new(glyph.ch, glyph.attrs));
-                cell.attrs = glyph.attrs;
-                cell.wide_continuation = glyph.wide_tail && glyph.ch == ' ';
-                cells[idx] = cell;
+                cells[idx] = glyph.cell();
             } else {
                 // Filler rows extend only the slot background. Copying the full
                 // label attrs would replicate underline/strikethrough/bold

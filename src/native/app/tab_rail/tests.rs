@@ -1560,3 +1560,25 @@ fn a_rail_with_no_slot_rows_paints_no_overflow_indicator() {
         );
     }
 }
+
+/// A rail symbol written onto the tail of a wide label owner replaces the whole
+/// owner, and only within its row.
+#[test]
+fn rail_symbol_replaces_a_wide_owner_whole() {
+    let mut cells = vec![blank_glyph(0, 0, Color::Default, Color::Default); 2 * 6];
+    // Row 1: "a", a wide owner at columns 1-2, "b".
+    let base = 6;
+    cells[base].ch = 'a';
+    cells[base + 1].ch = '\u{65e5}';
+    cells[base + 1].owner = Some(crate::core::Cell::new('\u{65e5}', Attrs::default()));
+    cells[base + 2].wide_tail = true;
+    cells[base + 3].ch = 'b';
+    put_rail_symbol(&mut cells, 6, 1, 2, '!');
+    assert_eq!(cells[base + 2].ch, '!');
+    assert_eq!(cells[base + 1].ch, ' ', "the head does not stay behind");
+    assert!(cells.iter().all(|g| !g.wide_tail && g.owner.is_none()));
+    assert_eq!((cells[base].ch, cells[base + 3].ch), ('a', 'b'));
+    put_rail_symbol(&mut cells, 6, 1, 6, '?');
+    put_rail_symbol(&mut cells, 6, 9, 0, '?');
+    assert!(cells.iter().all(|g| g.ch != '?'), "out of range is ignored");
+}

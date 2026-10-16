@@ -1332,6 +1332,18 @@ impl App {
     /// Test seam (OPEN-NOTICE / P0-2): the current transient notice message, or
     /// `None` when no notice is in flight (the success / default path).
     #[cfg(test)]
+    pub(in crate::native) fn open_notice_raised_at_for_test(&self) -> Option<Instant> {
+        self.open_notice
+            .as_ref()
+            .map(|notice| notice.raised_at_for_test())
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn update_open_notice_for_test(&mut self, now: Instant) {
+        self.update_open_notice(now);
+    }
+
+    #[cfg(test)]
     pub(in crate::native) fn open_notice_message_for_test(&self) -> Option<String> {
         self.open_notice
             .as_ref()

@@ -51,6 +51,11 @@ impl OpenNotice {
     pub(in crate::native) fn message_for_test(&self) -> &str {
         &self.message
     }
+
+    #[cfg(test)]
+    pub(in crate::native) fn raised_at_for_test(&self) -> Instant {
+        self.raised_at
+    }
 }
 
 impl App {
@@ -99,6 +104,14 @@ impl App {
     /// or an attached session dropping a frame). The count comes from the
     /// session writers; one relaxed load when nothing is pending.
     pub(in crate::native) fn raise_input_not_delivered_notice(&mut self) {
+        // Input refused over a dead pipe is refused once per event (a drag
+        // reports every motion). The notice already on screen keeps its window:
+        // re-raising would extend its expiry and redraw for each event.
+        if self.open_notice.as_ref().is_some_and(|notice| {
+            notice.tone == NoticeTone::Failure && notice.message == INPUT_NOT_DELIVERED_NOTICE
+        }) {
+            return;
+        }
         self.raise_open_notice(INPUT_NOT_DELIVERED_NOTICE.to_owned());
     }
 

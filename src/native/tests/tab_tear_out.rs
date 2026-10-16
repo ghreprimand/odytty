@@ -453,3 +453,54 @@ fn x11_setting_is_kept_as_written_and_changes_nothing() {
     app.mouse_left_release_for_test();
     assert!(app.take_move_request().is_some());
 }
+
+/// Every wide head is followed by its wide continuation and every wide
+/// continuation follows a wide head: the grid invariant the presenter relies on.
+fn assert_wide_runs_whole(cells: &[crate::core::Cell], context: &str) {
+    let width = |cell: &crate::core::Cell| {
+        crate::core::text_owners(&cell.ch.to_string(), false)
+            .first()
+            .map_or(1, |&(_, w)| w)
+    };
+    for (i, cell) in cells.iter().enumerate() {
+        if cell.wide_continuation {
+            assert!(
+                i > 0 && !cells[i - 1].wide_continuation && width(&cells[i - 1]) == 2,
+                "{context}: continuation at {i} follows a wide head"
+            );
+        } else if width(cell) == 2 {
+            assert!(
+                cells.get(i + 1).is_some_and(|next| next.wide_continuation),
+                "{context}: wide head at {i} keeps its continuation"
+            );
+        }
+    }
+}
+
+/// The tear-out badge replaces the label cells under it. When the badge starts
+/// on the tail of a wide label owner, the owner's head must not stay behind as
+/// a wide cell with no continuation.
+#[test]
+fn the_tear_out_badge_never_splits_a_wide_label_owner() {
+    for prefix in ["", "x", "xy"] {
+        let mut app = app();
+        let title = format!(
+            "{prefix}\u{65e5}\u{672c}\u{8a9e}\u{65e5}\u{672c}\u{8a9e}\u{65e5}\u{672c}\u{8a9e}"
+        );
+        app.set_session_tab_title_for_test(0, &title);
+        for columns in 20..=30 {
+            assert_wide_runs_whole(&app.tear_out_cells_for_test(columns), "before the badge");
+        }
+        app.set_pointer_px_for_test(12.0, 8.0);
+        app.mouse_left_press_for_test();
+        app.pointer_move_for_test(656.0, 8.0);
+        let (signature, glyphs) = app.tear_out_visual_for_test();
+        assert!(signature && glyphs.contains("New window"));
+        for columns in 20..=30 {
+            assert_wide_runs_whole(
+                &app.tear_out_cells_for_test(columns),
+                &format!("badge, prefix {prefix:?}, {columns} columns"),
+            );
+        }
+    }
+}

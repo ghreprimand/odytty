@@ -234,15 +234,12 @@ impl App {
         }
         if self.tab_tear_out_signature() {
             // The reserved strip contains the badge; terminal cells stay untouched.
-            let label = "New window";
-            let start = output.glyphs.len().saturating_sub(label.len() + 1);
-            for (glyph, ch) in output.glyphs.iter_mut().skip(start).zip(label.chars()) {
-                // The badge replaces whatever label owner or wide tail was here.
-                glyph.set_symbol(ch);
-                let (r, g, b) = colors.foreground;
-                glyph.attrs.foreground = Color::Rgb(r, g, b);
-                glyph.attrs.set_bold(true);
-            }
+            let (r, g, b) = colors.foreground;
+            super::tab_bar::paint_tear_out_badge(
+                &mut output.glyphs,
+                "New window",
+                Color::Rgb(r, g, b),
+            );
         }
         output
     }

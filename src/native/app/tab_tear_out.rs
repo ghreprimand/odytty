@@ -268,6 +268,24 @@ impl App {
             output.glyphs.iter().map(|glyph| glyph.ch).collect(),
         )
     }
+
+    /// The strip row as grid cells, converted exactly as the presenter does.
+    #[cfg(test)]
+    pub(in crate::native) fn tear_out_cells_for_test(
+        &self,
+        columns: usize,
+    ) -> Vec<crate::core::Cell> {
+        self.render_top_bar_widget(
+            columns,
+            0.0,
+            self.resolved_cell().expect("cell"),
+            WindowPadding::ZERO,
+        )
+        .glyphs
+        .iter()
+        .map(|glyph| glyph.cell())
+        .collect()
+    }
 }
 
 #[cfg(test)]

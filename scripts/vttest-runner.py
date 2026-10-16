@@ -1899,15 +1899,26 @@ def cmd_extract(args: argparse.Namespace) -> int:
     # Validate and unpack into a private scratch tree before replacing owned
     # sources. Failed extraction leaves the previous successful tree intact.
     try:
-        with tempfile.TemporaryDirectory(prefix="vttest-extract-", dir=destination) as tmp:
+        with tempfile.TemporaryDirectory(
+            prefix="vttest-extract-", dir=destination, ignore_cleanup_errors=True
+        ) as tmp:
             staged = Path(tmp) / SOURCE_DIRECTORY
             safe_extract(archive, staged, upstream["limits"])
             (staged / SOURCE_MARKER).write_bytes(SOURCE_MARKER_BYTES)
+            aside = Path(tmp) / "previous"
             if target.exists():
-                # Recheck ownership immediately before recursive removal.
+                # Recheck ownership immediately before moving the tree away.
                 source_directory(destination, "extract", required=True)
-                shutil.rmtree(target)
-            staged.rename(target)
+                # Move the previous tree aside rather than deleting it: a
+                # failure installing the new tree restores it, and the scratch
+                # directory removes it only after the install succeeded.
+                target.rename(aside)
+            try:
+                staged.rename(target)
+            except OSError:
+                if aside.exists() and not target.exists():
+                    aside.rename(target)
+                raise
     except OSError as exc:
         raise RunnerError("extract", "source cache could not be replaced") from exc
     print(f"extracted into {target}")
@@ -2335,6 +2346,32 @@ class SelfTest(unittest.TestCase):
             target = root / "upstream-src"
             self.assertEqual((target / "pkg/configure").read_bytes(), b"synthetic sources")
             self.assertFalse((target / "pkg/new.txt").exists())
+            self.assertEqual(list(root.glob("vttest-extract-*")), [])
+
+    def test_extract_install_failure_restores_the_previous_tree(self) -> None:
+        """The previous tree survives a failure after the new one is unpacked."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.extract_fixture(root)
+            with mock.patch(__name__ + ".verify_digest"):
+                cmd_extract(args)
+            target = root / SOURCE_DIRECTORY
+            real_rename = Path.rename
+
+            def refuse_install(source: Path, destination: Path) -> Path:
+                # Fail only the final move of the freshly staged tree.
+                if source.name == SOURCE_DIRECTORY and Path(destination) == target:
+                    raise OSError("synthetic install failure")
+                return real_rename(source, destination)
+
+            with (
+                mock.patch(__name__ + ".verify_digest"),
+                mock.patch.object(Path, "rename", refuse_install),
+                self.assertRaises(RunnerError),
+            ):
+                cmd_extract(args)
+            self.assertEqual((target / "pkg/configure").read_bytes(), b"synthetic sources")
+            self.assertTrue((target / SOURCE_MARKER).is_file())
             self.assertEqual(list(root.glob("vttest-extract-*")), [])
 
     def test_build_uses_owned_source_directory(self) -> None:

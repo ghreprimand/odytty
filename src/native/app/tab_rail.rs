@@ -188,6 +188,31 @@ pub(super) struct TabRailGlyph {
     pub(super) wide_tail: bool,
 }
 
+impl super::tab_bar::ChromeGlyph for TabRailGlyph {
+    fn is_wide_tail(&self) -> bool {
+        self.wide_tail
+    }
+    fn blank_label(&mut self) {
+        self.put(' ');
+    }
+    fn put(&mut self, ch: char) {
+        self.ch = ch;
+        self.owner = None;
+        self.wide_tail = false;
+    }
+}
+
+/// Write one chrome symbol at `(row, col)` of a rail's glyphs without splitting
+/// a wide label owner (see [`super::tab_bar::put_symbol`]).
+fn put_rail_symbol(cells: &mut [TabRailGlyph], rail_cols: usize, row: usize, col: usize, ch: char) {
+    if col >= rail_cols {
+        return;
+    }
+    if let Some(line) = cells.get_mut(row * rail_cols..(row + 1) * rail_cols) {
+        super::tab_bar::put_symbol(line, col, ch);
+    }
+}
+
 impl TabRailGlyph {
     /// The grid cell this glyph paints: a label owner keeps its retained
     /// scalars and a wide owner's second cell is a real wide tail. A glyph
@@ -448,9 +473,8 @@ impl TabRail {
                 && crow < grid_rows
                 && ccol < rail_cols
             {
-                let g = &mut cells[crow * rail_cols + ccol];
-                g.ch = '×';
-                g.attrs = la;
+                put_rail_symbol(&mut cells, rail_cols, crow, ccol, '×');
+                cells[crow * rail_cols + ccol].attrs = la;
             }
             // Bound-workspace marker: a compact link glyph in the
             // text-side accent role (never the theme border), painted in the
@@ -464,9 +488,8 @@ impl TabRail {
                 };
                 let brow = slot.label_row;
                 if brow < grid_rows && badge_col < rail_cols {
-                    let g = &mut cells[brow * rail_cols + badge_col];
-                    g.ch = BOUND_BADGE;
-                    g.attrs.foreground = rgb(bound_accent);
+                    put_rail_symbol(&mut cells, rail_cols, brow, badge_col, BOUND_BADGE);
+                    cells[brow * rail_cols + badge_col].attrs.foreground = rgb(bound_accent);
                 }
             }
             // Unseen workspace activity, or the workspace's progress rollup,
@@ -482,8 +505,9 @@ impl TabRail {
                 };
                 let brow = slot.label_row;
                 if brow < grid_rows {
+                    let badge = progress.map_or(ACTIVITY_BADGE, tab_bar::progress_badge);
+                    put_rail_symbol(&mut cells, rail_cols, brow, badge_col, badge);
                     let g = &mut cells[brow * rail_cols + badge_col];
-                    g.ch = progress.map_or(ACTIVITY_BADGE, tab_bar::progress_badge);
                     g.attrs.foreground = active_lbl;
                     g.attrs.background = slot_bg;
                     g.attrs.set_bold(true);
@@ -522,9 +546,8 @@ impl TabRail {
             let prow = nt_start + (nt_end - nt_start) / 2;
             let pcol = SLOT_LABEL_START_COL.min(rail_cols.saturating_sub(1));
             if prow < grid_rows && pcol < rail_cols {
-                let g = &mut cells[prow * rail_cols + pcol];
-                g.ch = '+';
-                g.attrs = plus_attrs;
+                put_rail_symbol(&mut cells, rail_cols, prow, pcol, '+');
+                cells[prow * rail_cols + pcol].attrs = plus_attrs;
             }
 
             let (picker_bg, picker_fg) = slot_bg_fg(picker_hovered);
@@ -540,9 +563,8 @@ impl TabRail {
             picker_attrs.background = picker_bg;
             let chev_col = NEW_WORKSPACE_PICKER_COL.min(rail_cols.saturating_sub(1));
             if prow < grid_rows && chev_col < rail_cols {
-                let g = &mut cells[prow * rail_cols + chev_col];
-                g.ch = '\u{25be}';
-                g.attrs = picker_attrs;
+                put_rail_symbol(&mut cells, rail_cols, prow, chev_col, '\u{25be}');
+                cells[prow * rail_cols + chev_col].attrs = picker_attrs;
             }
         }
 
@@ -594,9 +616,8 @@ impl TabRail {
             // affordance's alignment. The on-state reads through the triangle
             // flip and the active tint alone - no bold weight, no text label.
             let ccol = SLOT_LABEL_START_COL.min(rail_cols.saturating_sub(1));
-            let g = &mut cells[ctl_row * rail_cols + ccol];
-            g.ch = chevron;
-            g.attrs = a;
+            put_rail_symbol(&mut cells, rail_cols, ctl_row, ccol, chevron);
+            cells[ctl_row * rail_cols + ccol].attrs = a;
         }
 
         // Phosphor Flat draws no chrome quads - the treatment is entirely cell
@@ -874,7 +895,7 @@ fn paint_overflow_indicator(
         }
         let idx = row * rail_cols + col;
         a.background = cells[idx].attrs.background;
-        cells[idx].ch = ch;
+        put_rail_symbol(cells, rail_cols, row, col, ch);
         cells[idx].attrs = a;
     }
 }

@@ -163,12 +163,88 @@ pub(super) struct TabBarGlyph {
 }
 
 impl TabBarGlyph {
+    /// The grid cell this glyph paints: a label owner keeps its retained
+    /// scalars and a wide owner's second cell is a real wide tail. A glyph
+    /// whose `ch` was replaced after the label paint never uses a stale owner
+    /// or tail.
+    pub(super) fn cell(&self) -> crate::core::Cell {
+        let mut cell = self
+            .owner
+            .filter(|owner| owner.ch == self.ch)
+            .unwrap_or_else(|| crate::core::Cell::new(self.ch, self.attrs));
+        cell.attrs = self.attrs;
+        cell.wide_continuation = self.wide_tail && self.ch == ' ';
+        cell
+    }
+
     /// Show a single chrome symbol here, dropping any label owner or wide tail
     /// the column held, so a symbol never inherits a label's extra scalars.
     pub(super) fn set_symbol(&mut self, ch: char) {
         self.ch = ch;
         self.owner = None;
         self.wide_tail = false;
+    }
+}
+
+/// A chrome glyph that can carry a label owner and a wide tail: the shared
+/// surface of the top strip and the workspace rail, so one rewrite rule serves
+/// both painters.
+pub(super) trait ChromeGlyph {
+    /// This column is the second cell of the wide owner to its left.
+    fn is_wide_tail(&self) -> bool;
+    /// Reduce the column to a plain blank, keeping its attributes.
+    fn blank_label(&mut self);
+    /// Show a single chrome symbol, dropping any owner or wide tail.
+    fn put(&mut self, ch: char);
+}
+
+impl ChromeGlyph for TabBarGlyph {
+    fn is_wide_tail(&self) -> bool {
+        self.wide_tail
+    }
+    fn blank_label(&mut self) {
+        self.set_symbol(' ');
+    }
+    fn put(&mut self, ch: char) {
+        self.set_symbol(ch);
+    }
+}
+
+/// Write one chrome symbol at `at` in a row of glyphs without splitting a wide
+/// label owner. A symbol that lands on a wide owner's head or tail replaces the
+/// whole owner: its other cells become plain blanks, so the row never holds a
+/// wide head without its tail or a tail without its head. Out-of-range columns
+/// are ignored.
+pub(super) fn put_symbol<G: ChromeGlyph>(row: &mut [G], at: usize, ch: char) {
+    if at >= row.len() {
+        return;
+    }
+    let mut start = at;
+    while start > 0 && row[start].is_wide_tail() {
+        start -= 1;
+    }
+    let mut end = at + 1;
+    while end < row.len() && row[end].is_wide_tail() {
+        end += 1;
+    }
+    for glyph in &mut row[start..end] {
+        glyph.blank_label();
+    }
+    row[at].put(ch);
+}
+
+/// Paint the tear-out badge over the trailing columns of a strip row. The
+/// badge replaces whatever label owners it covers, whole.
+pub(super) fn paint_tear_out_badge(glyphs: &mut [TabBarGlyph], label: &str, foreground: Color) {
+    let start = glyphs.len().saturating_sub(label.len() + 1);
+    for (offset, ch) in label.chars().enumerate() {
+        let col = start + offset;
+        if col >= glyphs.len() {
+            break;
+        }
+        put_symbol(glyphs, col, ch);
+        glyphs[col].attrs.foreground = foreground;
+        glyphs[col].attrs.set_bold(true);
     }
 }
 
@@ -388,25 +464,24 @@ impl TabBar {
 
             // Close `×` glyph - rendered only for the active or hovered tab.
             if let Some(close_col) = slot.close_col.filter(|_| is_active || is_hovered)
-                && let Some(glyph) = row.get_mut(close_col)
+                && close_col < row.len()
             {
-                glyph.set_symbol('×');
-                glyph.attrs = la;
+                put_symbol(&mut row, close_col, '×');
+                row[close_col].attrs = la;
             }
 
             // Unseen activity is a static dot in the slot's existing left
             // padding. The active tab never shows a stale badge even if a
             // producer has not yet completed its normal clear sweep.
-            if let Some(glyph) = row.get_mut(slot.start_col) {
+            if slot.start_col < row.len() {
                 let progress = source.tab_progress(slot.idx);
                 let activity = !is_active && source.tab_activity(slot.idx);
-                if let Some(progress) = progress {
-                    glyph.set_symbol(progress_badge(progress));
-                    glyph.attrs.foreground = active_lbl;
-                    glyph.attrs.background = slot_bg;
-                    glyph.attrs.set_bold(true);
-                } else if activity {
-                    glyph.set_symbol(ACTIVITY_BADGE);
+                let badge = progress
+                    .map(progress_badge)
+                    .or_else(|| activity.then_some(ACTIVITY_BADGE));
+                if let Some(badge) = badge {
+                    put_symbol(&mut row, slot.start_col, badge);
+                    let glyph = &mut row[slot.start_col];
                     glyph.attrs.foreground = active_lbl;
                     glyph.attrs.background = slot_bg;
                     glyph.attrs.set_bold(true);
@@ -434,9 +509,9 @@ impl TabBar {
             let mut plus_attrs = Attrs::default();
             plus_attrs.foreground = plus_fg;
             plus_attrs.background = plus_bg;
-            if let Some(glyph) = row.get_mut(nt_col) {
-                glyph.set_symbol('+');
-                glyph.attrs = plus_attrs;
+            if nt_col < row.len() {
+                put_symbol(&mut row, nt_col, '+');
+                row[nt_col].attrs = plus_attrs;
             }
 
             let picker_col = nt_col + NEW_TAB_PLUS_COLS;
@@ -447,9 +522,9 @@ impl TabBar {
             let mut picker_attrs = Attrs::default();
             picker_attrs.foreground = picker_fg;
             picker_attrs.background = picker_bg;
-            if let Some(glyph) = row.get_mut(picker_col) {
-                glyph.set_symbol('\u{25be}');
-                glyph.attrs = picker_attrs;
+            if picker_col < row.len() {
+                put_symbol(&mut row, picker_col, '\u{25be}');
+                row[picker_col].attrs = picker_attrs;
             }
         }
 
@@ -1463,5 +1538,46 @@ mod tests {
             "three owners fit three columns"
         );
         assert_eq!(truncate_label("e\u{301}xyz", 3), "e\u{301}x\u{2026}");
+    }
+
+    fn wide_row() -> Vec<TabBarGlyph> {
+        // "a", a wide owner (head and tail), "b".
+        let mut row = vec![blank_glyph(0, Color::Default, Color::Default); 4];
+        for (col, glyph) in row.iter_mut().enumerate() {
+            glyph.col = col;
+        }
+        row[0].ch = 'a';
+        row[1].ch = '\u{65e5}';
+        row[1].owner = Some(crate::core::Cell::new('\u{65e5}', Attrs::default()));
+        row[2].ch = ' ';
+        row[2].wide_tail = true;
+        row[3].ch = 'b';
+        row
+    }
+
+    /// A symbol written onto either half of a wide owner replaces the whole
+    /// owner, so no half survives.
+    #[test]
+    fn put_symbol_replaces_a_wide_owner_whole() {
+        for at in [1, 2] {
+            let mut row = wide_row();
+            put_symbol(&mut row, at, '!');
+            assert_eq!(row[at].ch, '!');
+            assert!(row.iter().all(|g| !g.wide_tail && g.owner.is_none()));
+            let other = 3 - at;
+            assert_eq!(row[other].ch, ' ', "the other half is a plain blank");
+            assert_eq!((row[0].ch, row[3].ch), ('a', 'b'), "neighbours untouched");
+        }
+    }
+
+    #[test]
+    fn put_symbol_on_a_plain_cell_changes_only_that_cell() {
+        let mut row = wide_row();
+        put_symbol(&mut row, 3, '!');
+        assert_eq!(row[3].ch, '!');
+        assert_eq!(row[1], wide_row()[1], "the wide owner stays");
+        assert!(row[2].wide_tail);
+        put_symbol(&mut row, 99, '?');
+        assert_eq!(row.len(), 4, "an out-of-range column is ignored");
     }
 }

@@ -79,3 +79,32 @@ fn a_delivered_mouse_report_raises_no_notice() {
     let app = press_in_reporting_app(false, false);
     assert_eq!(app.open_notice_message_for_test(), None);
 }
+
+/// Every refused report during one notice window shares that window: the
+/// notice is neither re-raised nor given a later expiry by each event, so a
+/// drag over a dead pipe does not hold the banner up or redraw per event.
+#[test]
+fn repeated_refused_reports_keep_one_notice_window() {
+    let mut app = press_in_reporting_app(true, false);
+    let raised = app
+        .open_notice_raised_at_for_test()
+        .expect("the first refusal raises the notice");
+    std::thread::sleep(std::time::Duration::from_millis(15));
+    for _ in 0..3 {
+        app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
+        app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    }
+    assert_eq!(
+        app.open_notice_raised_at_for_test(),
+        Some(raised),
+        "later refusals do not extend the window"
+    );
+    // Once the window has passed, the next refusal raises the notice afresh.
+    app.update_open_notice_for_test(raised + crate::native::app::open_notice::NOTICE_DURATION);
+    assert_eq!(app.open_notice_message_for_test(), None);
+    app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
+    assert_eq!(
+        app.open_notice_message_for_test().as_deref(),
+        Some(INPUT_NOT_DELIVERED_NOTICE)
+    );
+}
