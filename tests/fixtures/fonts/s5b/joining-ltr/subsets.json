@@ -1,0 +1,29 @@
+{
+  "fonttools": "4.63.0",
+  "harfbuzz": "hb-shape (HarfBuzz) 14.5.1",
+  "faces": [
+    {
+      "font": "Mongolian-subset.ttf",
+      "subset_sha256": "21a4b7e8066c776f7e99c10aeb2327b2432caae670b11187648944acf5b22fad",
+      "subset_bytes": 19896,
+      "glyph_count": 158,
+      "units_per_em": 1000,
+      "reference_rows": 7,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+180B",
+        "U+180E",
+        "U+1820",
+        "U+1821",
+        "U+1822",
+        "U+1823",
+        "U+1824",
+        "U+1828",
+        "U+1829",
+        "U+182D",
+        "U+1885"
+      ],
+      "subset_command": "pyftsubset source/NotoSansMongolian-Regular.ttf --unicodes=U+0020,U+180B,U+180E,U+1820,U+1821,U+1822,U+1823,U+1824,U+1828,U+1829,U+182D,U+1885 --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=joining-ltr/Mongolian-subset.ttf"
+    }
+  ]
+}

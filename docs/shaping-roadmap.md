@@ -84,8 +84,8 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | Surface | Current support | Standing position |
 | --- | --- | --- |
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
-| Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | Adlam, Hanifi Rohingya, and Mongolian joining are candidates; Arabic marks outside the supported harakat set, and bases or harakat the font does not map, keep the monochrome path |
-| Syriac, N'Ko, and Mandaic | Contextual joining forms with `script_shaping` on, each letter in the form of its logical position, in logical cell order or in display order while `bidi_reorder` is on; the script's own transparent marks ride their letter with the font's mark positioning; HarfBuzz references cover Syriac (including final alaph), N'Ko (including lajanyalan), and Mandaic | Joining needs a text font that maps the run, as for Arabic; Inherited marks and marks of another script keep the per-cell path; a proportional face draws gaps between joined letters |
+| Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | Arabic marks outside the supported harakat set, and bases or harakat the font does not map, keep the monochrome path |
+| Syriac, N'Ko, Mandaic, Adlam, Hanifi Rohingya, Mongolian | Contextual joining forms with `script_shaping` on, each letter in the form of its logical position, in logical cell order or in display order while `bidi_reorder` is on; the script's own transparent marks (and the Mongolian free variation selectors and vowel separator) ride their letter with the font's mark positioning; HarfBuzz references cover every script, including Syriac final alaph and N'Ko lajanyalan | Joining needs a text font that maps the run, as for Arabic; Inherited marks and marks of another script keep the per-cell path; a proportional face draws gaps between joined letters; Mongolian is horizontal only, vertical text is not supported; the historic joining scripts (Phags-pa, Manichaean, Sogdian, Psalter Pahlavi, Chorasmian, Old Uyghur) are not joined |
 | Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order, each paragraph left to right, right to left, or auto (`bidi_direction`, or SCP from the program), and explicit mode (`CSI 8 l`) for programs that arrange their own text, on the primary and alternate screens; cells, cursor addressing, selection, copy, search, and protocol values stay logical | Rows an image covers keep their logical order. Complex-script owners move as whole spans, keeping their cells adjacent and in order |
 | Northern and southern Indic shaping | With `script_shaping` on, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam owners are shaped with the font (conjuncts, reph, below-base and pre-base forms, ZWJ/ZWNJ requests) and drawn inside the owner's one or two cells, centered, or scaled to a 0.6 floor and then clipped | Owners keep the per-cell path when no font maps every scalar; the cursor block redraws per-cell glyphs; shaping never crosses owners |
 | Khmer/Myanmar shaping | With `script_shaping` on, Khmer and Myanmar owners are shaped with the font (coeng stacks, below-base ro, pre-base and split vowels, medial ra, kinzi, stacker forms, ZWJ requests) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping |
@@ -113,10 +113,11 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
   categories never merge into a shaped span. Live overlay eligibility covers
   ASCII-graphic bases, a curated allowlist of common non-ASCII programming
   operators and arrows (`SHAPING_OPERATOR_ALLOWLIST`), and the joining letters
-  of Arabic, Syriac, N'Ko, and Mandaic. Plain ASCII content without allowlisted
-  scalars or Arabic letters stays byte-identical to the pre-allowlist path,
-  pinned by a differential test. Optional stylistic sets are limited to explicit
-  `ss01`/`ss02` settings (off by default); open-ended `ssXX` remains deferred.
+  of Arabic, Syriac, N'Ko, Mandaic, Adlam, Hanifi Rohingya, and Mongolian. Plain
+  ASCII content without allowlisted scalars or Arabic letters stays
+  byte-identical to the pre-allowlist path, pinned by a differential test.
+  Optional stylistic sets are limited to explicit `ss01`/`ss02` settings (off by
+  default); open-ended `ssXX` remains deferred.
 - **Static color glyphs (COLR/CPAL v0).** The color-glyph path renders static
   COLR/CPAL v0 layer compositions in addition to the existing bitmap-strike
   formats, including stock Windows Segoe UI Emoji, which previously fell back
@@ -152,8 +153,8 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
   byte-identically, pinned by atlas fixtures on the bundled JetBrains Mono
   (which has `zero`) and Victor Mono (which does not).
 - **Independent script shaping control.** `script_shaping` (env
-  `ODYTTY_SCRIPT_SHAPING`), on by default, controls Arabic joining/harakat,
-  Syriac, N'Ko, and Mandaic joining, and complex-script owner forms. The live
+  `ODYTTY_SCRIPT_SHAPING`), on by default, controls Arabic joining/harakat, the
+  joining of the other joining scripts, and complex-script owner forms. The live
   Settings > Rendering row sits next to Programming ligatures, reachable from
   the right-click Settings item. `ligatures` controls Latin/operator forms and
   their optional `ss01`/`ss02` features. Turning either setting off restores
@@ -194,24 +195,29 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
   search, selection, and cursor addressing are unchanged. Mark ink stays
   within the run's cells horizontally and within the glyph slot's overflow
   margin vertically.
-- **Syriac, N'Ko, and Mandaic joining runs.** Joining letters of these scripts
-  (Joining_Type D, R, L, or C in Unicode 17.0.0) form runs of their own
-  script, separate from Arabic and from each other, and are shaped with
-  `harfrust` 0.14.0 in the script's right-to-left direction whether the row
-  is drawn in logical cell order or in display order: each letter takes the
-  form of its logical position, including the Syriac final alaph forms and
-  N'Ko lajanyalan extensions, and the glyphs are placed on their source cells
-  exactly as Arabic joining forms are. Shaping a right-to-left script left to
-  right would treat the cells as visual order and give the first letter its
-  final form. A letter's own transparent marks (Joining_Type T, for example
-  Syriac pthaha and N'Ko tone marks) ride it into the run at the font's mark
-  offsets; an Inherited mark or a mark of another script keeps that cell on
-  the per-cell path and splits the run. As for Arabic, only the text font
+- **Joining runs beyond Arabic.** Joining letters of Syriac, N'Ko, Mandaic,
+  Adlam, Hanifi Rohingya, and Mongolian (Joining_Type D, R, L, or C in
+  Unicode 17.0.0) form runs of their own script, separate from Arabic and
+  from each other, and are shaped with `harfrust` 0.14.0 in the script's
+  horizontal direction (right to left, or left to right for Mongolian)
+  whether the row is drawn in logical cell order or in display order: each
+  letter takes the form of its logical position, including the Syriac final
+  alaph forms and N'Ko lajanyalan extensions, and the glyphs are placed on
+  their source cells exactly as Arabic joining forms are. Shaping a
+  right-to-left script left to right would treat the cells as visual order
+  and give the first letter its final form. A letter's own transparent marks
+  (Joining_Type T, for example Syriac pthaha, N'Ko tone marks, Adlam nukta,
+  and the Mongolian free variation selectors) ride it into the run at the
+  font's mark offsets, as does the Mongolian vowel separator, which the
+  terminal keeps with its preceding letter; an Inherited mark or a mark of
+  another script keeps that cell on the per-cell path and splits the run.
+  Mongolian is drawn horizontally only. As for Arabic, only the text font
   shapes the run: when it does not map a letter or mark, that cell keeps the
   per-cell fallback glyph. Licensed Noto subsets with HarfBuzz 14.5.1
-  references (`tests/fixtures/fonts/s5b/joining`) pin every glyph and mark
-  offset of 19 project-authored runs in both layouts. Explicit-mode
-  paragraphs draw these scripts cell by cell, as they do Arabic.
+  references (`tests/fixtures/fonts/s5b/joining` and `joining-ltr`) pin
+  every glyph and mark offset of 38 project-authored runs in both layouts.
+  Explicit-mode paragraphs draw these scripts cell by cell, as they do
+  Arabic.
 
 ## Measured extent
 
@@ -283,19 +289,19 @@ column; a wide cell keeps its lead and continuation cells together. A mirrored
 character in right-to-left text draws its Unicode 17.0.0 Bidi_Mirroring_Glyph
 counterpart. Each glyph on a reordered row is clipped to its own visual cells.
 Contextual shaping runs split wherever the resolved level changes, so no
-ligature crosses a direction boundary. Joining runs (Arabic, Syriac, N'Ko, and
-Mandaic) are shaped right to left, and each joined glyph is placed on the visual
-cells of its source characters. Left-to-right ligatures are not formed inside
-right-to-left text. Pixel fixtures use a project-authored font. They compare
-each mixed-direction line against the unchanged renderer drawing the
-hand-ordered visual string, covering Hebrew with Latin and digits, a mirrored
-bracket pair, wide cells, a ligature across a direction boundary, Arabic
-lam-alef joining, and color glyphs. A paragraph that begins above the visible
-rows is resolved together with the soft-wrapped rows above it, from scrollback
-or the screen above a scrolled viewport, up to the plan's row and owner caps; a
-longer paragraph keeps the identity layout, as any over-cap paragraph does. A
-mirrored character with no mirroring counterpart (U+2211, for example) draws
-unmirrored.
+ligature crosses a direction boundary. Right-to-left joining runs (Arabic,
+Syriac, N'Ko, Mandaic, Adlam, and Hanifi Rohingya) are shaped right to left, and
+each joined glyph is placed on the visual cells of its source characters.
+Left-to-right ligatures are not formed inside right-to-left text. Pixel fixtures
+use a project-authored font. They compare each mixed-direction line against the
+unchanged renderer drawing the hand-ordered visual string, covering Hebrew with
+Latin and digits, a mirrored bracket pair, wide cells, a ligature across a
+direction boundary, Arabic lam-alef joining, and color glyphs. A paragraph that
+begins above the visible rows is resolved together with the soft-wrapped rows
+above it, from scrollback or the screen above a scrolled viewport, up to the
+plan's row and owner caps; a longer paragraph keeps the identity layout, as any
+over-cap paragraph does. A mirrored character with no mirroring counterpart
+(U+2211, for example) draws unmirrored.
 
 While the setting is on, the live frame draws its content grid in
 display order, and each pane of a split tab plans its own map. Tab-bar and
@@ -468,9 +474,7 @@ Other candidates that fit the anchored overlay model are:
 
 - more operators added through the reviewed scalar allowlist;
 - more explicit, opt-in OpenType features with bounded settings, rather than an
-  unrestricted tag surface;
-- Adlam, Hanifi Rohingya, and horizontal Mongolian joining runs on the same
-  path as Syriac, N'Ko, and Mandaic.
+  unrestricted tag surface.
 
 Each candidate must preserve logical cells, copy/search output, cursor columns,
 wide-cell boundaries, and fallback behavior. A candidate moves to supported

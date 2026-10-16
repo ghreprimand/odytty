@@ -4,11 +4,11 @@
 //! On a row the display map reorders, compatible runs split wherever the
 //! resolved level changes, so no shaping context or ligature crosses a
 //! direction boundary. Each level run is shaped with an explicit direction:
-//! joining runs (Arabic, Syriac, N'Ko, Mandaic) at an odd level shape right
-//! to left. Latin and operator runs at an odd level are not shaped: their
-//! cells draw as scalar glyphs, with mirroring applied at presentation, so a
-//! left-to-right ligature such as `->` never draws inside right-to-left
-//! text. Rows the map leaves in logical order carry no levels and shape
+//! joining runs (Arabic and the other right-to-left joining scripts) at an
+//! odd level shape right to left. Latin and operator runs at an odd level
+//! are not shaped: their cells draw as scalar glyphs, with mirroring applied
+//! at presentation, so a left-to-right ligature such as `->` never draws
+//! inside right-to-left text. Rows the map leaves in logical order carry no levels and shape
 //! exactly as without a map. Rows of an explicit-mode paragraph, in either
 //! direction, hold text the application arranged itself, so no run on them
 //! takes contextual joining: their levels carry [`EXPLICIT_LEVEL`], which also

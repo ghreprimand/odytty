@@ -63,3 +63,35 @@ Subsetting stage, followed by the generator name-table rename:
 ```sh
 pyftsubset source/NotoSansMandaic-Regular.ttf --unicodes=U+0020,U+0840,U+0841,U+0842,U+0843,U+0844,U+0846,U+0848,U+0859,U+085A '--layout-features=*' --no-hinting --no-glyph-names --no-recalc-timestamp '--name-IDs=*' '--name-languages=*' --output-file=joining/Mandaic-subset.ttf
 ```
+
+## Adlam-subset.ttf
+
+- Release archive: https://github.com/notofonts/adlam/releases/download/NotoSansAdlam-v3.002/NotoSansAdlam-v3.002.zip
+- Archive SHA256: `a8fc406361fcbd8ebb44d94fd41f75838965ac0b65e61c98e532aefb13a3c9d3`
+- Source member: `NotoSansAdlam/hinted/ttf/NotoSansAdlam-Regular.ttf`
+- Source face SHA256: `4b51541536a7b28142a4571c16dc56e386c05f345ac9739ef8599d8ad4ed5e54`
+- License: Adlam-OFL.txt
+- Subset SHA256: `e2a1e8e0cf087853d358a0612033d8c47bcf32ee30b90597b8f7c3a14473ebcb`
+- Glyphs: 34; references: 6; units per em: 1000.
+
+Subsetting stage, followed by the generator name-table rename:
+
+```sh
+pyftsubset source/NotoSansAdlam-Regular.ttf --unicodes=U+0020,U+1E900,U+1E922,U+1E923,U+1E924,U+1E925,U+1E926,U+1E927,U+1E944,U+1E94A '--layout-features=*' --no-hinting --no-glyph-names --no-recalc-timestamp '--name-IDs=*' '--name-languages=*' --output-file=joining/Adlam-subset.ttf
+```
+
+## HanifiRohingya-subset.ttf
+
+- Release archive: https://github.com/notofonts/hanifi-rohingya/releases/download/NotoSansHanifiRohingya-v2.102/NotoSansHanifiRohingya-v2.102.zip
+- Archive SHA256: `8f82aadc30901e026c562d0f348749c660fa120fc2c351a300be46b857ab134c`
+- Source member: `NotoSansHanifiRohingya/hinted/ttf/NotoSansHanifiRohingya-Regular.ttf`
+- Source face SHA256: `ce453eaf8807a9a410cdc2ebeb7ae009e90b9e611342ac239aa59b794bdcefdb`
+- License: HanifiRohingya-OFL.txt
+- Subset SHA256: `02c10c54268fd9b394306ec811e75e0edbacbf5047846a5b7b01c6ba4c2893f4`
+- Glyphs: 42; references: 6; units per em: 1000.
+
+Subsetting stage, followed by the generator name-table rename:
+
+```sh
+pyftsubset source/NotoSansHanifiRohingya-Regular.ttf --unicodes=U+0020,U+10D00,U+10D01,U+10D02,U+10D03,U+10D04,U+10D05,U+10D06,U+10D07,U+10D08,U+10D24,U+10D27 '--layout-features=*' --no-hinting --no-glyph-names --no-recalc-timestamp '--name-IDs=*' '--name-languages=*' --output-file=joining/HanifiRohingya-subset.ttf
+```

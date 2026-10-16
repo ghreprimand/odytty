@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Contextual joining scripts beyond Arabic: Syriac, N'Ko, and Mandaic.
+//! Contextual joining scripts beyond Arabic: Syriac, N'Ko, Mandaic, Adlam,
+//! Hanifi Rohingya, and Mongolian (horizontal only).
 //!
 //! A cell joins a run of its script when its base is a joining letter of that
 //! script (Joining_Type D, R, L, or C, from the generated
@@ -11,14 +12,19 @@
 //! face only, as Arabic is. The "plain" comparison for an overlay is each
 //! cell's own cmap glyph, which is what the per-cell path draws.
 //!
-//! Every run is shaped in its script's own direction, right to left for all
-//! three, and its glyphs are read back in logical order, so each cell takes
+//! Every run is shaped in its script's own horizontal direction (right to
+//! left for all but Mongolian, which is set left to right in horizontal
+//! text), and its glyphs are read back in logical order, so each cell takes
 //! the contextual form of its logical position whether the row is drawn in
 //! logical cell order (bidi reordering off) or in display order. Shaping a
 //! right-to-left script left to right would instead treat the cells as
-//! visual order and give the first cell its final form. Inherited marks
-//! (for example U+0308 over Syriac) and marks of another script break the
-//! run, so their cells keep the monochrome combining path. Platform-neutral.
+//! visual order and give the first cell its final form. Mongolian free
+//! variation selectors are transparent marks, and its vowel separator
+//! (U+180E, a format character the terminal keeps with the preceding letter)
+//! rides that letter too, so the font can select the forms both request;
+//! vertical Mongolian is out of scope. Inherited marks (for example U+0308
+//! over Syriac) and marks of another script break the run, so their cells
+//! keep the monochrome combining path. Platform-neutral.
 
 use harfrust::{Buffer, Font, ShapeOptions, ShapePlan, ShaperFont};
 
@@ -33,6 +39,9 @@ pub(super) enum JoiningScript {
     Syriac,
     Nko,
     Mandaic,
+    Adlam,
+    HanifiRohingya,
+    Mongolian,
 }
 
 impl JoiningScript {
@@ -41,6 +50,9 @@ impl JoiningScript {
             1 => Some(Self::Syriac),
             2 => Some(Self::Nko),
             3 => Some(Self::Mandaic),
+            4 => Some(Self::Adlam),
+            5 => Some(Self::HanifiRohingya),
+            6 => Some(Self::Mongolian),
             _ => None,
         }
     }
@@ -51,14 +63,15 @@ impl JoiningScript {
             Self::Syriac => 1,
             Self::Nko => 2,
             Self::Mandaic => 3,
+            Self::Adlam => 4,
+            Self::HanifiRohingya => 5,
+            Self::Mongolian => 6,
         }
     }
 
     /// The script's horizontal direction.
     fn right_to_left(self) -> bool {
-        match self {
-            Self::Arabic | Self::Syriac | Self::Nko | Self::Mandaic => true,
-        }
+        !matches!(self, Self::Mongolian)
     }
 
     fn harfrust_script(self) -> harfrust::Script {
@@ -67,9 +80,15 @@ impl JoiningScript {
             Self::Syriac => harfrust::Script::SYRIAC,
             Self::Nko => harfrust::Script::NKO,
             Self::Mandaic => harfrust::Script::MANDAIC,
+            Self::Adlam => harfrust::Script::ADLAM,
+            Self::HanifiRohingya => harfrust::Script::HANIFI_ROHINGYA,
+            Self::Mongolian => harfrust::Script::MONGOLIAN,
         }
     }
 }
+
+/// U+180E, kept with the preceding Mongolian letter.
+const MONGOLIAN_VOWEL_SEPARATOR: char = '\u{180E}';
 
 /// First scalar of the generated tables; anything below it is in neither.
 const FIRST_TABLE_SCALAR: u32 = 0x0710;
@@ -98,6 +117,7 @@ pub(super) fn other_joining_script(ch: char) -> Option<JoiningScript> {
 pub(super) fn is_joining_mark(script: JoiningScript, ch: char) -> bool {
     match script {
         JoiningScript::Arabic => super::arabic::is_arabic_harakat(ch),
+        JoiningScript::Mongolian if ch == MONGOLIAN_VOWEL_SEPARATOR => true,
         other => lookup(JOINING_MARKS, ch) == Some(other.id()),
     }
 }

@@ -3818,6 +3818,279 @@
         }
       ],
       "direction": "rtl"
+    },
+    {
+      "group": "joining",
+      "script": "adlam",
+      "script_tag": "Adlm",
+      "font": "Adlam-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Adlam Fixture",
+      "release_url": "https://github.com/notofonts/adlam/releases/download/NotoSansAdlam-v3.002/NotoSansAdlam-v3.002.zip",
+      "archive_sha256": "a8fc406361fcbd8ebb44d94fd41f75838965ac0b65e61c98e532aefb13a3c9d3",
+      "source_member": "NotoSansAdlam/hinted/ttf/NotoSansAdlam-Regular.ttf",
+      "source_sha256": "4b51541536a7b28142a4571c16dc56e386c05f345ac9739ef8599d8ad4ed5e54",
+      "source_filename": "NotoSansAdlam-Regular.ttf",
+      "source_family": "NotoSansAdlam",
+      "license_member": "OFL.txt",
+      "license_file": "Adlam-OFL.txt",
+      "license_sha256": "7a2c3842a6ddd5abbc9a6e65d0be2aaa13a2b5cf93c1ec7002465d1eaf95fe4f",
+      "required_scalars": [
+        "U+0020",
+        "U+1E900",
+        "U+1E922",
+        "U+1E923",
+        "U+1E924",
+        "U+1E925",
+        "U+1E926",
+        "U+1E927",
+        "U+1E944",
+        "U+1E94A"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "0e86b3990089b054d8e6a29520589ac7ff3926738e2868e20d1b7f137d337d14",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained.",
+      "cases": [
+        {
+          "id": "adlam-1",
+          "codepoints": [
+            "U+1E922",
+            "U+1E923",
+            "U+1E924"
+          ],
+          "note": "init-medi-fina"
+        },
+        {
+          "id": "adlam-2",
+          "codepoints": [
+            "U+1E900",
+            "U+1E922"
+          ],
+          "note": "capital-small"
+        },
+        {
+          "id": "adlam-3",
+          "codepoints": [
+            "U+1E923",
+            "U+1E944",
+            "U+1E924"
+          ],
+          "note": "alif-lengthener"
+        },
+        {
+          "id": "adlam-4",
+          "codepoints": [
+            "U+1E925",
+            "U+1E94A",
+            "U+1E922"
+          ],
+          "note": "nukta"
+        },
+        {
+          "id": "adlam-5",
+          "codepoints": [
+            "U+1E926",
+            "U+1E927"
+          ],
+          "note": "pair"
+        },
+        {
+          "id": "adlam-6",
+          "codepoints": [
+            "U+1E924",
+            "U+1E925",
+            "U+1E926",
+            "U+1E927"
+          ],
+          "note": "four-letters"
+        }
+      ],
+      "direction": "rtl"
+    },
+    {
+      "group": "joining",
+      "script": "hanifi-rohingya",
+      "script_tag": "Rohg",
+      "font": "HanifiRohingya-subset.ttf",
+      "fixture_family": "OdyTTY Shaping HanifiRohingya Fixture",
+      "release_url": "https://github.com/notofonts/hanifi-rohingya/releases/download/NotoSansHanifiRohingya-v2.102/NotoSansHanifiRohingya-v2.102.zip",
+      "archive_sha256": "8f82aadc30901e026c562d0f348749c660fa120fc2c351a300be46b857ab134c",
+      "source_member": "NotoSansHanifiRohingya/hinted/ttf/NotoSansHanifiRohingya-Regular.ttf",
+      "source_sha256": "ce453eaf8807a9a410cdc2ebeb7ae009e90b9e611342ac239aa59b794bdcefdb",
+      "source_filename": "NotoSansHanifiRohingya-Regular.ttf",
+      "source_family": "NotoSansHanifiRohingya",
+      "license_member": "OFL.txt",
+      "license_file": "HanifiRohingya-OFL.txt",
+      "license_sha256": "418172aa41435c1af908929b26d54ee1c73d789d195b2e7b3a2309616cc71b54",
+      "required_scalars": [
+        "U+0020",
+        "U+10D00",
+        "U+10D01",
+        "U+10D02",
+        "U+10D03",
+        "U+10D04",
+        "U+10D05",
+        "U+10D06",
+        "U+10D07",
+        "U+10D08",
+        "U+10D24",
+        "U+10D27"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "addc4a900f32e670a401766f144d6a1fc1bc7dffed87350e310ef1d68ba404f8",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained.",
+      "cases": [
+        {
+          "id": "hanifi-rohingya-1",
+          "codepoints": [
+            "U+10D01",
+            "U+10D02",
+            "U+10D03"
+          ],
+          "note": "init-medi-fina"
+        },
+        {
+          "id": "hanifi-rohingya-2",
+          "codepoints": [
+            "U+10D01",
+            "U+10D24",
+            "U+10D02"
+          ],
+          "note": "harbahay"
+        },
+        {
+          "id": "hanifi-rohingya-3",
+          "codepoints": [
+            "U+10D05",
+            "U+10D27",
+            "U+10D06"
+          ],
+          "note": "tassi"
+        },
+        {
+          "id": "hanifi-rohingya-4",
+          "codepoints": [
+            "U+10D00",
+            "U+10D01"
+          ],
+          "note": "alef-pair"
+        },
+        {
+          "id": "hanifi-rohingya-5",
+          "codepoints": [
+            "U+10D07",
+            "U+10D08"
+          ],
+          "note": "pair"
+        },
+        {
+          "id": "hanifi-rohingya-6",
+          "codepoints": [
+            "U+10D01",
+            "U+10D02",
+            "U+10D03",
+            "U+10D04"
+          ],
+          "note": "four-letters"
+        }
+      ],
+      "direction": "rtl"
+    },
+    {
+      "group": "joining-ltr",
+      "script": "mongolian",
+      "script_tag": "Mong",
+      "font": "Mongolian-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Mongolian Fixture",
+      "release_url": "https://github.com/notofonts/mongolian/releases/download/NotoSansMongolian-v3.103/NotoSansMongolian-v3.103.zip",
+      "archive_sha256": "ab4ef0e294a7784e4a418523b0b214cda27dc876c03f7501f49ca8a8ba36756c",
+      "source_member": "NotoSansMongolian/hinted/ttf/NotoSansMongolian-Regular.ttf",
+      "source_sha256": "10f9066fe5cedcaa41c17d471bcadc7fb22880ce81ff2c06578671768ff44fbb",
+      "source_filename": "NotoSansMongolian-Regular.ttf",
+      "source_family": "NotoSansMongolian",
+      "license_member": "OFL.txt",
+      "license_file": "Mongolian-OFL.txt",
+      "license_sha256": "4b0bd3e2db2c3ca1c9c02c20b14dc7c3ace614cdd7bcb46065cf4e84c69eb2cf",
+      "required_scalars": [
+        "U+0020",
+        "U+180B",
+        "U+180E",
+        "U+1820",
+        "U+1821",
+        "U+1822",
+        "U+1823",
+        "U+1824",
+        "U+1828",
+        "U+1829",
+        "U+182D",
+        "U+1885"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "b0158b3c0b16c20e22ea662850503a7980111c5c704501e942cc1a7ed12dc011",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained.",
+      "cases": [
+        {
+          "id": "mongolian-1",
+          "codepoints": [
+            "U+1820",
+            "U+1821",
+            "U+1822"
+          ],
+          "note": "init-medi-fina"
+        },
+        {
+          "id": "mongolian-2",
+          "codepoints": [
+            "U+1828",
+            "U+1820"
+          ],
+          "note": "na-a"
+        },
+        {
+          "id": "mongolian-3",
+          "codepoints": [
+            "U+1828",
+            "U+180B",
+            "U+1820"
+          ],
+          "note": "fvs1"
+        },
+        {
+          "id": "mongolian-4",
+          "codepoints": [
+            "U+1820",
+            "U+180E",
+            "U+1821"
+          ],
+          "note": "vowel-separator"
+        },
+        {
+          "id": "mongolian-5",
+          "codepoints": [
+            "U+1823",
+            "U+1824"
+          ],
+          "note": "pair"
+        },
+        {
+          "id": "mongolian-6",
+          "codepoints": [
+            "U+1828",
+            "U+1821",
+            "U+1829",
+            "U+1822"
+          ],
+          "note": "four-letters"
+        },
+        {
+          "id": "mongolian-7",
+          "codepoints": [
+            "U+182D",
+            "U+1885",
+            "U+1820"
+          ],
+          "note": "ali-gali"
+        }
+      ]
     }
   ]
 }

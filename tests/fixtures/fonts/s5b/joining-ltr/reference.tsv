@@ -1,0 +1,11 @@
+# hb-shape (HarfBuzz) 14.5.1
+# fontTools 4.63.0
+# font units; UTF-8 byte clusters; LTR; language und; cluster level 0; OT
+font	codepoints	glyph_ids	clusters	x_offset	y_offset	x_advance	note
+Mongolian-subset.ttf	U+1820 U+1821 U+1822	68,77,85	0,3,6	0,0,0	0,0,0	776,284,501	init-medi-fina
+Mongolian-subset.ttf	U+1828 U+1820	113,64	0,3	0,0	0,0	492,427	na-a
+Mongolian-subset.ttf	U+1828 U+180B U+1820	108,53,64	0,0,6	0,0,0	0,0,0	492,0,427	fvs1
+Mongolian-subset.ttf	U+1820 U+180E U+1821	69,1,80	0,3,6	0,0,0	0,0,0	919,55,415	vowel-separator
+Mongolian-subset.ttf	U+1823 U+1824	91,104	0,3	0,0	0,0	1065,634	pair
+Mongolian-subset.ttf	U+1828 U+1821 U+1829 U+1822	113,77,118,85	0,3,6,9	0,0,0,0	0,0,0,0	492,284,614,501	four-letters
+Mongolian-subset.ttf	U+182D U+1885 U+1820	135,49,64	0,0,6	0,-788,0	0,0,0	788,0,427	ali-gali

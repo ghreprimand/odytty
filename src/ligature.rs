@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Presentation-only shaped runs anchored to logical terminal cells.
 //! Compatible ASCII/operator owners and the joining owners of Arabic, Syriac,
-//! N'Ko, and Mandaic shape into clipped overlay spans; shaped advances never
-//! move columns. Copy, search, selection and cursor stay cell-owned. Runs split
-//! on face, shaping kind (Latin, or one joining script), eligibility and bidi
-//! level.
+//! N'Ko, Mandaic, Adlam, Hanifi Rohingya, and Mongolian shape into clipped
+//! overlay spans; shaped advances never move columns. Copy, search, selection
+//! and cursor stay cell-owned. Runs split on face, shaping kind (Latin, or one
+//! joining script), eligibility and bidi level.
 //!
 //! Combining marks remain on the monochrome path except a joining script's
 //! transparent marks on a joining letter of that script (the Arabic harakat,

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Syriac, N'Ko, and Mandaic joining runs against HarfBuzz 14.5.1 references
-//! for the licensed Noto subsets in `tests/fixtures/fonts/s5b/joining`. Every
-//! reference row is one project-authored run, shaped right to left as
-//! production shapes it; each cell must draw exactly the glyphs of its
-//! reference cluster, with marks at the reference's offsets from their base,
-//! in logical order and in display order.
+//! Joining runs of Syriac, N'Ko, Mandaic, Adlam, Hanifi Rohingya, and
+//! Mongolian against HarfBuzz 14.5.1 references for the licensed Noto subsets
+//! in `tests/fixtures/fonts/s5b/joining` (right to left) and `joining-ltr`
+//! (Mongolian, left to right). Every reference row is one project-authored
+//! run, shaped in its script's direction as production shapes it; each cell
+//! must draw exactly the glyphs of its reference clusters, with marks at the
+//! reference's offsets from their base, in logical order and in display
+//! order.
 
 use super::*;
 use crate::core::Terminal;
@@ -19,6 +21,8 @@ impl LigatureFonts for Fonts {
 }
 
 const REFERENCES: &str = include_str!("../../tests/fixtures/fonts/s5b/joining/reference.tsv");
+const LTR_REFERENCES: &str =
+    include_str!("../../tests/fixtures/fonts/s5b/joining-ltr/reference.tsv");
 
 fn face(name: &str) -> FontHandle {
     let bytes: &[u8] = match name {
@@ -28,6 +32,15 @@ fn face(name: &str) -> FontHandle {
         "NKo-subset.ttf" => include_bytes!("../../tests/fixtures/fonts/s5b/joining/NKo-subset.ttf"),
         "Mandaic-subset.ttf" => {
             include_bytes!("../../tests/fixtures/fonts/s5b/joining/Mandaic-subset.ttf")
+        }
+        "Adlam-subset.ttf" => {
+            include_bytes!("../../tests/fixtures/fonts/s5b/joining/Adlam-subset.ttf")
+        }
+        "HanifiRohingya-subset.ttf" => {
+            include_bytes!("../../tests/fixtures/fonts/s5b/joining/HanifiRohingya-subset.ttf")
+        }
+        "Mongolian-subset.ttf" => {
+            include_bytes!("../../tests/fixtures/fonts/s5b/joining-ltr/Mongolian-subset.ttf")
         }
         other => panic!("unknown fixture {other}"),
     };
@@ -44,8 +57,14 @@ struct Reference {
 }
 
 fn references(font: &str) -> Vec<Reference> {
+    let right_to_left = font != "Mongolian-subset.ttf";
+    let table = if right_to_left {
+        REFERENCES
+    } else {
+        LTR_REFERENCES
+    };
     let mut out = Vec::new();
-    for line in REFERENCES.lines() {
+    for line in table.lines() {
         if line.starts_with('#') || line.starts_with("font\t") {
             continue;
         }
@@ -65,7 +84,7 @@ fn references(font: &str) -> Vec<Reference> {
         };
         let (ids, clusters, dx, dy, advance) =
             (numbers(2), numbers(3), numbers(4), numbers(5), numbers(6));
-        // Visual pen positions, then logical order (the run is right to left).
+        // Visual pen positions, then logical order.
         let mut pen = 0;
         let mut placed = Vec::new();
         for index in 0..ids.len() {
@@ -77,7 +96,9 @@ fn references(font: &str) -> Vec<Reference> {
             ));
             pen += advance[index];
         }
-        placed.reverse();
+        if right_to_left {
+            placed.reverse();
+        }
         let mut clusters = std::collections::BTreeMap::<usize, Vec<_>>::new();
         let mut first = None;
         for (id, cluster, x, y) in placed {
@@ -173,14 +194,32 @@ fn assert_runs_match_references(font_name: &str) {
         );
         let logical = LigatureShaper::new().build_runs(true, &snapshot, &fonts, &[]);
         let map = BidiDisplayMap::plan(&snapshot, &[false]);
-        assert!(!map.is_identity(), "{} reorders", reference.note);
+        // Right-to-left runs reorder; horizontal Mongolian is left to right
+        // and keeps the identity layout.
+        assert_eq!(
+            map.is_identity(),
+            font_name == "Mongolian-subset.ttf",
+            "{} layout",
+            reference.note
+        );
         let display = LigatureShaper::new().build_runs_bidi(&snapshot, &fonts, &[], &map);
         for (label, runs) in [("logical", &logical), ("display", &display)] {
             let got = drawn(&snapshot, runs, &font, cells);
             for (column, start) in starts.iter().enumerate() {
+                // Every reference cluster that starts inside this cell, such
+                // as a Mongolian vowel separator kept with its letter.
+                let end = starts
+                    .get(column + 1)
+                    .copied()
+                    .unwrap_or(reference.text.len());
+                let expected: Vec<_> = reference
+                    .clusters
+                    .range(*start..end)
+                    .flat_map(|(_, glyphs)| glyphs.iter().copied())
+                    .collect();
                 assert_eq!(
                     sorted(got[column].clone()),
-                    sorted(reference.clusters[start].clone()),
+                    sorted(expected),
                     "{font_name} {} {label} cell {column}",
                     reference.note
                 );
@@ -226,6 +265,21 @@ fn mandaic_run_takes_joining_forms() {
 }
 
 #[test]
+fn adlam_run_takes_joining_forms() {
+    assert_runs_match_references("Adlam-subset.ttf");
+}
+
+#[test]
+fn hanifi_rohingya_run_takes_joining_forms() {
+    assert_runs_match_references("HanifiRohingya-subset.ttf");
+}
+
+#[test]
+fn horizontal_mongolian_run_takes_joining_forms() {
+    assert_runs_match_references("Mongolian-subset.ttf");
+}
+
+#[test]
 fn joining_tables_hold_each_scripts_letters_and_marks() {
     for (ch, script) in [
         ('\u{0710}', JoiningScript::Syriac),
@@ -235,12 +289,26 @@ fn joining_tables_hold_each_scripts_letters_and_marks() {
         ('\u{07FA}', JoiningScript::Nko),
         ('\u{0840}', JoiningScript::Mandaic),
         ('\u{0858}', JoiningScript::Mandaic),
+        ('\u{1E900}', JoiningScript::Adlam),
+        ('\u{1E943}', JoiningScript::Adlam),
+        ('\u{10D00}', JoiningScript::HanifiRohingya),
+        ('\u{1820}', JoiningScript::Mongolian),
+        ('\u{180A}', JoiningScript::Mongolian),
     ] {
         assert_eq!(joining_script(ch), Some(script), "{:04X}", u32::from(ch));
     }
     // Punctuation, digits, the abbreviation mark, and other scripts.
     for ch in [
-        'a', '\u{0700}', '\u{070F}', '\u{07C0}', '\u{085E}', '\u{05D0}', '\u{1820}',
+        'a',
+        '\u{0700}',
+        '\u{070F}',
+        '\u{07C0}',
+        '\u{085E}',
+        '\u{05D0}',
+        '\u{1E950}',
+        '\u{10D30}',
+        '\u{1810}',
+        '\u{180E}',
     ] {
         assert_eq!(joining_script(ch), None, "{:04X}", u32::from(ch));
     }
@@ -252,6 +320,11 @@ fn joining_tables_hold_each_scripts_letters_and_marks() {
         (JoiningScript::Nko, '\u{07EB}'),
         (JoiningScript::Nko, '\u{07FD}'),
         (JoiningScript::Mandaic, '\u{0859}'),
+        (JoiningScript::Adlam, '\u{1E944}'),
+        (JoiningScript::HanifiRohingya, '\u{10D24}'),
+        (JoiningScript::Mongolian, '\u{180B}'),
+        (JoiningScript::Mongolian, '\u{180E}'),
+        (JoiningScript::Mongolian, '\u{1885}'),
         (JoiningScript::Arabic, '\u{064E}'),
     ] {
         assert!(is_joining_mark(script, mark), "{:04X}", u32::from(mark));
@@ -261,6 +334,8 @@ fn joining_tables_hold_each_scripts_letters_and_marks() {
     assert!(!is_joining_mark(JoiningScript::Nko, '\u{0730}'));
     assert!(!is_joining_mark(JoiningScript::Syriac, '\u{0308}'));
     assert!(!is_joining_mark(JoiningScript::Syriac, '\u{064E}'));
+    // The vowel separator rides Mongolian letters only.
+    assert!(!is_joining_mark(JoiningScript::Adlam, '\u{180E}'));
 }
 
 #[test]
@@ -283,6 +358,31 @@ fn joining_runs_never_mix_scripts_or_carry_foreign_marks() {
     assert_eq!(bounds("\u{0712}\u{0730}\u{0712}\u{0712}"), [(0, 3)]);
     assert_eq!(bounds("\u{0712}\u{0308}\u{0712}\u{0712}"), [(1, 3)]);
     assert_eq!(bounds("\u{0712}\u{07EB}\u{0712}\u{0712}"), [(1, 3)]);
+}
+
+#[test]
+fn adlam_rohingya_and_mongolian_runs_stay_apart_and_keep_their_marks() {
+    let coverage = ColorRunCoverage::new(&[], 12, 1);
+    let bounds = |text: &str| -> Vec<(usize, usize)> {
+        let snapshot = terminal(text, 12).snapshot();
+        compatible_run_bounds(&snapshot.cells[..12], 0, &coverage)
+            .into_iter()
+            .map(|(start, end, _)| (start, end))
+            .collect()
+    };
+    assert_eq!(
+        bounds("\u{1E922}\u{1E923}\u{10D01}\u{10D02}\u{1820}\u{1821}"),
+        [(0, 2), (2, 4), (4, 6)]
+    );
+    // The Mongolian vowel separator and a free variation selector stay with
+    // their letter, which stays in its run.
+    assert_eq!(
+        bounds("\u{1820}\u{180E}\u{1821}\u{1828}\u{180B}\u{1820}"),
+        [(0, 4)]
+    );
+    // Adlam nukta rides its letter; a Hanifi Rohingya sign on Adlam does not.
+    assert_eq!(bounds("\u{1E925}\u{1E94A}\u{1E922}"), [(0, 2)]);
+    assert_eq!(bounds("\u{1E925}\u{10D24}\u{1E922}\u{1E923}"), [(1, 3)]);
 }
 
 #[test]

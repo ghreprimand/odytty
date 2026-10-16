@@ -64,6 +64,50 @@
         "U+085A"
       ],
       "subset_command": "pyftsubset source/NotoSansMandaic-Regular.ttf --unicodes=U+0020,U+0840,U+0841,U+0842,U+0843,U+0844,U+0846,U+0848,U+0859,U+085A --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=joining/Mandaic-subset.ttf"
+    },
+    {
+      "font": "Adlam-subset.ttf",
+      "subset_sha256": "e2a1e8e0cf087853d358a0612033d8c47bcf32ee30b90597b8f7c3a14473ebcb",
+      "subset_bytes": 7468,
+      "glyph_count": 34,
+      "units_per_em": 1000,
+      "reference_rows": 6,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+1E900",
+        "U+1E922",
+        "U+1E923",
+        "U+1E924",
+        "U+1E925",
+        "U+1E926",
+        "U+1E927",
+        "U+1E944",
+        "U+1E94A"
+      ],
+      "subset_command": "pyftsubset source/NotoSansAdlam-Regular.ttf --unicodes=U+0020,U+1E900,U+1E922,U+1E923,U+1E924,U+1E925,U+1E926,U+1E927,U+1E944,U+1E94A --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=joining/Adlam-subset.ttf"
+    },
+    {
+      "font": "HanifiRohingya-subset.ttf",
+      "subset_sha256": "02c10c54268fd9b394306ec811e75e0edbacbf5047846a5b7b01c6ba4c2893f4",
+      "subset_bytes": 4908,
+      "glyph_count": 42,
+      "units_per_em": 1000,
+      "reference_rows": 6,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+10D00",
+        "U+10D01",
+        "U+10D02",
+        "U+10D03",
+        "U+10D04",
+        "U+10D05",
+        "U+10D06",
+        "U+10D07",
+        "U+10D08",
+        "U+10D24",
+        "U+10D27"
+      ],
+      "subset_command": "pyftsubset source/NotoSansHanifiRohingya-Regular.ttf --unicodes=U+0020,U+10D00,U+10D01,U+10D02,U+10D03,U+10D04,U+10D05,U+10D06,U+10D07,U+10D08,U+10D24,U+10D27 --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=joining/HanifiRohingya-subset.ttf"
     }
   ]
 }

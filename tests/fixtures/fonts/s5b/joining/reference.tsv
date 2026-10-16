@@ -21,3 +21,15 @@ Mandaic-subset.ttf	U+0841 U+0840	3,8	3,0	0,0	0,0	545,775	right-joining-final
 Mandaic-subset.ttf	U+0840 U+0841	9,5	3,0	0,0	0,0	894,534	right-joining-control
 Mandaic-subset.ttf	U+0844 U+085A U+0846	29,43,24	6,0,0	0,398,0	0,0,0	271,0,734	vocalization-mark
 Mandaic-subset.ttf	U+0848 U+0841 U+0848	32,10,35	6,3,0	0,0,0	0,0,0	696,750,576	three-letters
+Adlam-subset.ttf	U+1E922 U+1E923 U+1E924	22,18,7	8,4,0	0,0,0	0,0,0	606,625,669	init-medi-fina
+Adlam-subset.ttf	U+1E900 U+1E922	6,3	4,0	0,0	0,0	669,715	capital-small
+Adlam-subset.ttf	U+1E923 U+1E944 U+1E924	22,9,17	8,0,0	0,0,0	0,0,0	606,0,625	alif-lengthener
+Adlam-subset.ttf	U+1E925 U+1E94A U+1E922	6,19,27	8,0,0	0,196,0	0,92,0	669,0,588	nukta
+Adlam-subset.ttf	U+1E926 U+1E927	30,13	4,0	0,0	0,0	885,709	pair
+Adlam-subset.ttf	U+1E924 U+1E925 U+1E926 U+1E927	30,14,28,23	12,8,4,0	0,0,0,0	0,0,0,0	885,749,588,616	four-letters
+HanifiRohingya-subset.ttf	U+10D01 U+10D02 U+10D03	8,13,18	8,4,0	0,0,0	0,0,0	506,459,389	init-medi-fina
+HanifiRohingya-subset.ttf	U+10D01 U+10D24 U+10D02	12,41,18	8,0,0	0,181,0	0,0,0	504,0,389	harbahay
+HanifiRohingya-subset.ttf	U+10D05 U+10D27 U+10D06	32,40,38	8,0,0	0,316,0	0,0,0	626,0,559	tassi
+HanifiRohingya-subset.ttf	U+10D00 U+10D01	16,22	4,0	0,0	0,0	456,488	alef-pair
+HanifiRohingya-subset.ttf	U+10D07 U+10D08	24,30	4,0	0,0	0,0	566,699	pair
+HanifiRohingya-subset.ttf	U+10D01 U+10D02 U+10D03 U+10D04	4,9,13,18	12,8,4,0	0,0,0,0	0,0,0,0	536,461,459,389	four-letters
