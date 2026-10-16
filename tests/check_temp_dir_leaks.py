@@ -227,13 +227,13 @@ def self_test() -> int:
     assert not is_ignored_powershell_probe("__PSScriptPolicy_probe.ps1", "win32")
     root = Path(tempfile.mkdtemp(prefix="otl-selftest-"))
     try:
-        assert not leftovers(root)
+        assert not leftovers(root, "linux")
         (root / "odytty-sniff-1-2-3").mkdir()
         (root / "odytty-sniff-4-5-6").mkdir()
         (root / "stray.txt").write_text("x")
         (root / probe).write_text("x")
         (root / "__PSScriptPolicyTest_directory").mkdir()
-        found = leftovers(root)
+        found = leftovers(root, "linux")
         assert found == Counter(
             {
                 "odytty-sniff": 2,
