@@ -111,6 +111,13 @@ fn joining_script(ch: char) -> Option<JoiningScript> {
     }
 }
 
+/// Whether `ch` is a joining letter: Arabic or one of the other contextual
+/// joining scripts. The block cursor redraws such a cell from its shaped run
+/// so the letter keeps its joined form under the cursor.
+pub(crate) fn is_joining_letter(ch: char) -> bool {
+    joining_script(ch).is_some()
+}
+
 #[inline]
 fn shaping_kind(ch: char) -> Option<ShapingKind> {
     if let Some(script) = joining_script(ch) {

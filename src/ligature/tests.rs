@@ -1002,3 +1002,41 @@ fn split_refuses_to_cut_through_an_oversized_cluster() {
     assert_eq!(whole.len(), 1);
     assert_eq!((whole[0].start, whole[0].end), (0, 255));
 }
+
+/// Guard: a Latin ligature run keeps the per-cell block cursor redraw, so a
+/// cursor inside `->` draws the scalar under it exactly as without runs.
+#[test]
+fn block_cursor_inside_a_latin_ligature_keeps_the_per_cell_redraw() {
+    let fonts = Fonts(text::load_bundled_font().expect("bundled font"));
+    let atlas_font = text::load_bundled_font().expect("bundled font");
+    let mut terminal = Terminal::new(4, 1);
+    terminal.advance(b"->\r\x1b[1C");
+    let snap = terminal.snapshot();
+    let runs = LigatureShaper::new().build_runs(true, &snap, &fonts, &[]);
+    assert!(runs.iter().any(|run| run.covers(0, 1)), "the arrow shapes");
+    let mut atlas = GlyphAtlas::build(&atlas_font, 24.0);
+    for glyph in runs.iter().flat_map(|run| run.glyphs.iter()) {
+        let _ = atlas.ensure_shaped(&atlas_font, glyph.key);
+    }
+    let mut per_cell = Vec::new();
+    append_cursor_vertices_with_origin(
+        &mut per_cell,
+        &snap,
+        &atlas,
+        CursorStyle::Block,
+        [0.0, 0.0],
+        CursorRenderParams::default(),
+    );
+    let mut with_runs = Vec::new();
+    crate::grid::append_cursor_vertices_with_runs(
+        &mut with_runs,
+        &snap,
+        &atlas,
+        CursorStyle::Block,
+        [0.0, 0.0],
+        CursorRenderParams::default(),
+        None,
+        &runs,
+    );
+    assert_eq!(with_runs, per_cell);
+}

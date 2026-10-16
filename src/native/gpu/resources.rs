@@ -18,7 +18,7 @@ use crate::complex_shaping::{ComplexShaper, merge_runs};
 use crate::core::{CursorStyle, Snapshot};
 use crate::emoji::{ColorGlyphAtlas, EmojiRasterizer};
 use crate::grid::{self, ColorGlyphRun, ColorGlyphVertex, CursorRenderParams, SolidQuad, Vertex};
-use crate::ligature::LigatureShaper;
+use crate::ligature::{LigatureRun, LigatureShaper};
 use crate::text::{GlyphAtlas, SubpixelMode};
 use crate::theme::{Theme, VisualEffect};
 
@@ -393,6 +393,10 @@ pub(in crate::native) struct GpuState {
     pub(super) retained_cursor_streak: Option<CursorStreakRequest>,
     pub(super) color_glyph_vertices: Vec<ColorGlyphVertex>,
     pub(super) color_glyph_runs: Vec<ColorGlyphRun>,
+    /// The shaping runs of the last single-pane cell build, kept so a
+    /// cursor-only rebuild redraws a shaped cluster under the block cursor
+    /// from the same runs the cells drew. Empty after a split-pane build.
+    pub(super) ligature_runs: Vec<LigatureRun>,
     pub(super) vertex_count: u32,
     pub(super) cell_vertex_count: u32,
     pub(super) background_vertex_count: u32,
@@ -1068,13 +1072,15 @@ impl GpuState {
             grid::ChromePin::NONE,
         );
         let cell_vertex_count = vertices.len() as u32;
-        grid::append_cursor_vertices_with_origin(
+        grid::append_cursor_vertices_with_runs(
             &mut vertices,
             initial_snapshot,
             &atlas,
             CursorStyle::Block,
             origin,
             CursorRenderParams::default(),
+            None,
+            &initial_ligature_runs,
         );
         let vertex_count = vertices.len() as u32;
         let background_vertex_count = background_vertex_count(initial_snapshot);
@@ -1153,6 +1159,7 @@ impl GpuState {
             retained_cursor_streak: None,
             color_glyph_vertices,
             color_glyph_runs: initial_color_glyph_runs,
+            ligature_runs: initial_ligature_runs,
             vertex_count,
             cell_vertex_count,
             background_vertex_count,

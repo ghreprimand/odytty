@@ -4327,3 +4327,121 @@ mod decoration_seams {
         assert_ne!(underline.color, floored, "the lift moved the color");
     }
 }
+
+// ---- Spacing marks of a two-cell owner on the per-cell path ----
+
+fn spacing_mark_atlas() -> (crate::text::FontHandle, GlyphAtlas) {
+    let font = crate::text::FontHandle::try_from_vec(
+        include_bytes!("../../tests/fixtures/fonts/combining-marks.ttf").to_vec(),
+    )
+    .expect("project-authored font fixture");
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    for ch in ['\u{0915}', '\u{0903}', 'x'] {
+        atlas
+            .ensure_styled(&font, FontStyle::Regular, ch)
+            .expect("fixture glyph");
+    }
+    (font, atlas)
+}
+
+/// Pixel x extent of every glyph quad drawn from `uv`.
+fn glyph_spans(verts: &[Vertex], uv: [f32; 4]) -> Vec<[f32; 2]> {
+    verts
+        .chunks(INSTANCES_PER_QUAD)
+        .filter(|quad| quad[0].is_glyph == 1.0 && quad[0].uv == [uv[0], uv[1]])
+        .map(|quad| [quad[0].pos[0], quad[0].end_pos[0]])
+        .collect()
+}
+
+/// `ka` followed by the spacing mark visarga forms one two-cell owner at
+/// column `column` of a four-column row.
+fn ka_visarga(prefix: &str, cursor_visible: bool) -> Snapshot {
+    let mut term = Terminal::new(4, 1);
+    if !cursor_visible {
+        term.advance(b"\x1b[?25l");
+    }
+    term.advance(format!("{prefix}\u{0915}\u{0903}").as_bytes());
+    let column = prefix.chars().count();
+    term.advance(format!("\x1b[1;{}H", column + 1).as_bytes());
+    let snapshot = term.snapshot();
+    assert_eq!(snapshot.cells[column].grapheme(), "\u{0915}\u{0903}");
+    assert!(
+        snapshot.cells[column + 1].wide_continuation,
+        "ka plus visarga is a two-cell owner"
+    );
+    snapshot
+}
+
+/// Fails before the anchor rule: the per-cell path drew the retained visarga
+/// at the owner's lead origin, over the consonant. It now sits in the owner's
+/// second cell, clear of the consonant's ink.
+#[test]
+fn per_cell_spacing_mark_draws_in_second_cell() {
+    let (_font, atlas) = spacing_mark_atlas();
+    let cell_w = atlas.cell.width as f32;
+    let ka = atlas
+        .glyph_quad_styled(FontStyle::Regular, '\u{0915}')
+        .expect("ka quad");
+    let visarga = atlas
+        .combining_mark_quad(FontStyle::Regular, '\u{0903}')
+        .expect("visarga quad");
+    for (prefix, column) in [("", 0.0), ("x", 1.0)] {
+        let snapshot = ka_visarga(prefix, false);
+        let verts = build_vertices(&snapshot, &atlas);
+        let ka_spans = glyph_spans(&verts, ka.uv);
+        let mark_spans = glyph_spans(&verts, visarga.uv);
+        assert_eq!(ka_spans.len(), 1, "{prefix:?}");
+        assert_eq!(mark_spans.len(), 1, "{prefix:?}");
+        let lead = column * cell_w;
+        assert!(
+            mark_spans[0][0] >= lead + cell_w && mark_spans[0][1] <= lead + 2.0 * cell_w,
+            "{prefix:?}: visarga {:?} sits in the second cell from {lead}",
+            mark_spans[0]
+        );
+        assert!(
+            mark_spans[0][0] >= ka_spans[0][1],
+            "{prefix:?}: visarga {:?} clears ka {:?}",
+            mark_spans[0],
+            ka_spans[0]
+        );
+    }
+}
+
+/// A one-cell owner keeps every retained scalar at its own origin, and a
+/// nonspacing mark of a two-cell owner keeps the lead anchor.
+#[test]
+fn spacing_mark_anchor_applies_only_to_spacing_marks_of_two_cell_owners() {
+    assert_eq!(retained_scalar_dx('\u{0903}', 1.0, 10.0), 0.0);
+    assert_eq!(retained_scalar_dx('\u{0903}', 2.0, 10.0), 10.0);
+    assert_eq!(retained_scalar_dx('\u{0301}', 2.0, 10.0), 0.0);
+    assert_eq!(retained_scalar_dx('\u{094D}', 2.0, 10.0), 0.0);
+}
+
+/// Cursor-pass twin. Fails before the anchor rule: the block cursor redrew
+/// the visarga at the lead origin, over the consonant inside the block. The
+/// mark now anchors in the second cell, outside the one-cell block, so the
+/// block draws only the consonant and the content pass's visarga keeps its
+/// color.
+#[test]
+fn block_cursor_spacing_mark_stays_in_second_cell() {
+    let (_font, atlas) = spacing_mark_atlas();
+    let cell_w = atlas.cell.width as f32;
+    let ka = atlas
+        .glyph_quad_styled(FontStyle::Regular, '\u{0915}')
+        .expect("ka quad");
+    let visarga = atlas
+        .combining_mark_quad(FontStyle::Regular, '\u{0903}')
+        .expect("visarga quad");
+    for (prefix, column) in [("", 0.0), ("x", 1.0)] {
+        let snapshot = ka_visarga(prefix, true);
+        let mut cursor = Vec::new();
+        append_cursor_vertices(&mut cursor, &snapshot, &atlas, CursorStyle::Block);
+        assert_eq!(glyph_spans(&cursor, ka.uv).len(), 1, "{prefix:?}");
+        let block = [column * cell_w, (column + 1.0) * cell_w];
+        assert_eq!(
+            glyph_spans(&cursor, visarga.uv),
+            Vec::<[f32; 2]>::new(),
+            "{prefix:?}: no visarga ink inside the block {block:?}"
+        );
+    }
+}

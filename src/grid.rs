@@ -52,8 +52,9 @@ use crate::core::{
 #[cfg(test)]
 use crate::emoji::ColorGlyphAtlas;
 use crate::emoji::ColorGlyphKey;
-use crate::ligature::LigatureRun;
+use crate::ligature::{LigatureGlyph, LigatureRun};
 use crate::text::{self, FontStyle, GlyphAtlas};
+use std::ops::Range;
 
 #[cfg(test)]
 thread_local! {
@@ -86,6 +87,78 @@ fn cell_draws_base_glyph(ch: char) -> bool {
 #[inline]
 fn cell_draws_combining_marks(ch: char) -> bool {
     ch != PLACEHOLDER_CHAR
+}
+
+/// Horizontal pen shift, in pixels, of a retained scalar the per-cell path
+/// draws for an owner `span` cells wide. A spacing mark (Grapheme_Cluster_Break
+/// SpacingMark, for example U+0903 Devanagari visarga) of a two-cell owner
+/// advances past its base, so it sits at the owner's second cell; every other
+/// retained scalar, and every scalar of a one-cell owner, keeps the lead
+/// cell's origin. The bidi map keeps a two-cell owner's cells adjacent with
+/// the lead on the left, so the second cell is always the lead plus one.
+fn retained_scalar_dx(mark: char, span: f32, cell_w: f32) -> f32 {
+    if span > 1.0 && crate::core::is_spacing_mark(mark) {
+        cell_w
+    } else {
+        0.0
+    }
+}
+
+/// Whether the block cursor redraws `run` for a cell whose base is `ch`: a
+/// font-shaped owner (a cluster slot) or a joining run. Latin ligature runs
+/// keep the per-cell redraw.
+fn cursor_redraws_run(run: &LigatureRun, ch: char) -> bool {
+    run.glyphs.iter().any(|glyph| glyph.key.cluster) || crate::ligature::is_joining_letter(ch)
+}
+
+/// The visual columns a shaping run draws across: its own columns in logical
+/// order, or on a reordered row (`map` is `Some` only there) the run's span
+/// when its cells share one level and so sit adjacent in one direction.
+/// `None` sends the run's cells back to scalar glyphs.
+fn run_visual_span(run: &LigatureRun, map: Option<&BidiDisplayMap>) -> Option<Range<usize>> {
+    match map {
+        Some(map) => map.uniform_visual_span(run.row, run.start..run.end),
+        None => Some(run.start..run.end),
+    }
+}
+
+/// Whether a shaping run draws its shaped glyphs (every glyph resident and a
+/// visual span available) instead of its cells' scalar glyphs. The content
+/// pass and the block cursor share this rule.
+fn run_draws_shaped(run: &LigatureRun, atlas: &GlyphAtlas, map: Option<&BidiDisplayMap>) -> bool {
+    run.glyphs
+        .iter()
+        .all(|glyph| atlas.contains_shaped(glyph.key))
+        && run_visual_span(run, map).is_some()
+}
+
+/// Pixel x of a shaped run glyph's slot, with visual column 0 at `origin_x`
+/// and every cell shifted by `dx`. In logical order the slot starts at the
+/// run's first visual column. On a reordered row the atlas drew the glyph
+/// with its pen at `anchor_cell`, so the slot shifts until that pen lands on
+/// the leftmost visual cell of the glyph's source cluster.
+fn run_glyph_x0(
+    run: &LigatureRun,
+    glyph: &LigatureGlyph,
+    visual: &Range<usize>,
+    origin_x: f32,
+    dx: f32,
+    cell_w: f32,
+    map: Option<&BidiDisplayMap>,
+) -> f32 {
+    match map {
+        Some(map) => {
+            let anchor = usize::from(glyph.key.anchor_cell);
+            let source = run.start + anchor;
+            let end = (source + usize::from(glyph.source_cells.max(1))).min(run.end);
+            let pen = (source..end.max(source + 1))
+                .map(|column| map.visual_column(run.row, column))
+                .min()
+                .unwrap_or(visual.start);
+            origin_x + (pen as f32 - anchor as f32) * cell_w + dx
+        }
+        None => origin_x + visual.start as f32 * cell_w + dx,
+    }
 }
 
 /// Append one solid, non-glyph quad to an existing vertex list.
@@ -1256,19 +1329,10 @@ fn build_cells_core(
             // BIDI: on a reordered row a run draws only when its cells share
             // one level (adjacent on screen, one direction); otherwise its
             // cells fall back to scalar glyphs.
-            let ligature_box = |run: &LigatureRun| match reordered(row) {
-                Some(map) => map.uniform_visual_span(row, run.start..run.end),
-                None => Some(run.start..run.end),
-            };
             let ligature = ligature_runs
                 .get(ligature_index)
                 .filter(|run| run.covers(row, col))
-                .filter(|run| {
-                    run.glyphs
-                        .iter()
-                        .all(|glyph| atlas.contains_shaped(glyph.key))
-                })
-                .filter(|run| ligature_box(run).is_some());
+                .filter(|run| run_draws_shaped(run, atlas, reordered(row)));
             let style = font_style_for_attrs(&cell.attrs);
             // BIDI: a mirrored cell presents its Bidi_Mirroring_Glyph, falling
             // back to its own glyph when that character is not in the atlas.
@@ -1294,7 +1358,9 @@ fn build_cells_core(
             // Marks draw even over a space base (a mark can attach to one) and
             // follow the base glyph's seam-clipping rule. Wide bases and
             // stacked multi-mark clusters render at the same single-cell
-            // anchor, a bounded approximation rather than full mark positioning.
+            // anchor, a bounded approximation rather than full mark positioning,
+            // except a spacing mark of a two-cell owner, which sits in the
+            // owner's second cell (`retained_scalar_dx`).
             if !cell.attrs.hidden()
                 && cell_draws_combining_marks(cell.ch)
                 && !color_coverage.covers(row, col)
@@ -1302,7 +1368,8 @@ fn build_cells_core(
             {
                 for &mark in cell.combining() {
                     if let Some(bounds) = atlas.combining_mark_quad(style, mark) {
-                        push_cell_glyph(out, [x0, y0, decoration_y0], bounds, fg, seam, clip);
+                        let mark_x0 = x0 + retained_scalar_dx(mark, span, cell_w);
+                        push_cell_glyph(out, [mark_x0, y0, decoration_y0], bounds, fg, seam, clip);
                     }
                 }
             }
@@ -1316,7 +1383,7 @@ fn build_cells_core(
                 // (a shaping run never crosses the rail↔content seam - the band
                 // and content carry distinct attrs - so one dx spans the run).
                 let run_dx = chrome_pin.cell_dx(run.start);
-                let visual = ligature_box(run).unwrap_or(run.start..run.end);
+                let visual = run_visual_span(run, reordered(row)).unwrap_or(run.start..run.end);
                 let span_x0 = origin[0] + visual.start as f32 * cell_w + run_dx;
                 let span_x1 = origin[0] + visual.end as f32 * cell_w + run_dx;
                 let grid_top = if chrome_pin.active()
@@ -1332,24 +1399,15 @@ fn build_cells_core(
                 let grid_bottom = origin[1] + rows as f32 * cell_h + chrome_pin.cell_dy(row, col);
                 for glyph in run.glyphs.iter() {
                     if let Some(bounds) = atlas.shaped_glyph_quad(glyph.key) {
-                        // BIDI: the atlas drew the glyph with its pen at
-                        // `anchor_cell`; shift the slot so that pen lands on
-                        // the leftmost visual cell of the glyph's source
-                        // cluster. Identity placement keeps `span_x0`.
-                        let glyph_x0 = match reordered(row) {
-                            Some(map) => {
-                                let anchor = usize::from(glyph.key.anchor_cell);
-                                let source = run.start + anchor;
-                                let end =
-                                    (source + usize::from(glyph.source_cells.max(1))).min(run.end);
-                                let pen = (source..end.max(source + 1))
-                                    .map(|column| map.visual_column(row, column))
-                                    .min()
-                                    .unwrap_or(visual.start);
-                                origin[0] + (pen as f32 - anchor as f32) * cell_w + run_dx
-                            }
-                            None => span_x0,
-                        };
+                        let glyph_x0 = run_glyph_x0(
+                            run,
+                            glyph,
+                            &visual,
+                            origin[0],
+                            run_dx,
+                            cell_w,
+                            reordered(row),
+                        );
                         push_glyph_quad_clipped_rect(
                             out,
                             glyph_x0,
@@ -1505,6 +1563,7 @@ pub fn append_cursor_vertices(
         [0.0, 0.0],
         CursorRenderParams::default(),
         None,
+        &[],
     );
 }
 
@@ -1541,6 +1600,35 @@ pub fn append_cursor_vertices_with_origin_and_bidi(
     params: CursorRenderParams,
     bidi: Option<&BidiDisplayMap>,
 ) {
+    append_cursor_vertices_with_runs(
+        out,
+        snapshot,
+        atlas,
+        cursor_style,
+        origin,
+        params,
+        bidi,
+        &[],
+    );
+}
+
+/// [`append_cursor_vertices_with_origin_and_bidi`] with the frame's shaping
+/// runs, in the row-major order the cell build takes them. A block cursor on
+/// a cell of a font-shaped owner or a joining run redraws that run's shaped
+/// glyphs, clipped to the block, instead of the cell's own scalar glyphs, so
+/// the cluster keeps its shaped form under the cursor. Latin ligature runs
+/// keep the per-cell redraw.
+#[allow(clippy::too_many_arguments)]
+pub fn append_cursor_vertices_with_runs(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    cursor_style: CursorStyle,
+    origin: [f32; 2],
+    params: CursorRenderParams,
+    bidi: Option<&BidiDisplayMap>,
+    ligature_runs: &[LigatureRun],
+) {
     let cell_w = atlas.cell.width as f32;
     let cell_h = atlas.cell.height as f32;
     push_cursor(
@@ -1553,6 +1641,7 @@ pub fn append_cursor_vertices_with_origin_and_bidi(
         origin,
         params,
         bidi,
+        ligature_runs,
     );
 }
 
@@ -1640,6 +1729,7 @@ fn push_cursor(
     origin: [f32; 2],
     params: CursorRenderParams,
     bidi: Option<&BidiDisplayMap>,
+    ligature_runs: &[LigatureRun],
 ) {
     if !snapshot.cursor_visible || params.follower_active {
         return;
@@ -1736,6 +1826,37 @@ fn push_cursor(
                 block_color,
                 0.0,
             );
+            // A cell of a font-shaped owner or a joining run redraws the
+            // run's shaped glyphs, placed exactly as the content pass placed
+            // them and clipped to the block, so ink outside the block keeps
+            // its content-pass color.
+            let reordered = bidi.filter(|map| map.row_is_reordered(row));
+            let run_index = ligature_runs
+                .partition_point(|run| run.row < row || (run.row == row && run.end <= col));
+            let shaped_run = ligature_runs
+                .get(run_index)
+                .filter(|run| run.covers(row, col))
+                .filter(|run| cursor_redraws_run(run, cell.ch))
+                .filter(|run| run_draws_shaped(run, atlas, reordered));
+            if let Some(run) = shaped_run {
+                let visual = run_visual_span(run, reordered).unwrap_or(run.start..run.end);
+                let block = [x0, y0, x0 + cell_w, y0 + cell_h];
+                for glyph in run.glyphs.iter() {
+                    if let Some(bounds) = atlas.shaped_glyph_quad(glyph.key) {
+                        let glyph_x0 = run_glyph_x0(
+                            run,
+                            glyph,
+                            &visual,
+                            origin[0],
+                            params.offset[0],
+                            cell_w,
+                            reordered,
+                        );
+                        push_glyph_quad_clipped_rect(out, glyph_x0, y0, bounds, glyph_color, block);
+                    }
+                }
+                return;
+            }
             if !cell.attrs.hidden()
                 && cell_draws_base_glyph(cell.ch)
                 && let Some(bounds) =
@@ -1747,12 +1868,21 @@ fn push_cursor(
             // the same contrast-derived color as the base (see the content
             // pass for the anchoring rule). Placeholder cells suppress marks
             // here as well - same sibling rule as the content pass.
+            // A spacing mark of a two-cell owner sits in the owner's second
+            // cell, as in the content pass; it is clipped to the block, so
+            // the content pass's ink there keeps its own color.
             if !cell.attrs.hidden() && cell_draws_combining_marks(cell.ch) {
                 for &mark in cell.combining() {
                     if let Some(bounds) =
                         atlas.combining_mark_quad(font_style_for_attrs(&cell.attrs), mark)
                     {
-                        push_cell_glyph(out, [x0, y0, y0], bounds, glyph_color, None, owner_clip);
+                        let dx = retained_scalar_dx(mark, owner_span, cell_w);
+                        let clip = if dx > 0.0 {
+                            Some([x0, x0 + cell_w])
+                        } else {
+                            owner_clip
+                        };
+                        push_cell_glyph(out, [x0 + dx, y0, y0], bounds, glyph_color, None, clip);
                     }
                 }
             }

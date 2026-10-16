@@ -670,7 +670,7 @@ The support boundary is explicit:
 | Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | Arabic marks outside the supported harakat set, and harakat the font does not map, keep the monochrome path |
 | Syriac, N'Ko, Mandaic, Adlam, Hanifi Rohingya, Mongolian | Contextual joining forms with `script_shaping` on, each letter in the form of its logical position, in logical cell order or in display order while `bidi_reorder` is on; the script's own transparent marks (and the Mongolian free variation selectors and vowel separator) ride their letter with the font's mark positioning; HarfBuzz references cover every script, including Syriac final alaph and N'Ko lajanyalan | Joining needs a text font that maps the run, as for Arabic; Inherited marks and marks of another script keep the per-cell path; a proportional face draws gaps between joined letters; Mongolian is horizontal only, vertical text is not supported; the historic joining scripts (Phags-pa, Manichaean, Sogdian, Psalter Pahlavi, Chorasmian, Old Uyghur) are not joined |
 | Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order, each paragraph left to right, right to left, or auto (`bidi_direction`, or SCP from the program), and explicit mode (`CSI 8 l`) for programs that arrange their own text, on the primary and alternate screens; cells, cursor addressing, selection, copy, search, and protocol values stay logical | Rows an image covers keep their logical order. Complex-script owners move as whole spans, keeping their cells adjacent and in order |
-| Northern and southern Indic shaping | With `script_shaping` on, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam owners are shaped with the font (conjuncts, reph, below-base and pre-base forms, ZWJ/ZWNJ requests) and drawn inside the owner's one or two cells, centered, or scaled to a 0.6 floor and then clipped | Owners keep the per-cell path when no font maps every scalar; the cursor block redraws per-cell glyphs; shaping never crosses owners |
+| Northern and southern Indic shaping | With `script_shaping` on, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam owners are shaped with the font (conjuncts, reph, below-base and pre-base forms, ZWJ/ZWNJ requests) and drawn inside the owner's one or two cells, centered, or scaled to a 0.6 floor and then clipped | Owners keep the per-cell path when no font maps every scalar, where a spacing mark of a two-cell owner draws in the second cell; the Block cursor redraws the shaped glyphs clipped to its cell; shaping never crosses owners |
 | Khmer/Myanmar shaping | With `script_shaping` on, Khmer and Myanmar owners are shaped with the font (coeng stacks, below-base ro, pre-base and split vowels, medial ra, kinzi, stacker forms, ZWJ requests) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping |
 | Thai/Lao/Tibetan shaping | With `script_shaping` on, Thai, Lao, and Tibetan owners are shaped with the font (SARA AM decomposition, tone-mark and descender alternates, stacked tone and vowel marks, precomposed Tibetan subjoined stacks) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping; widths are unchanged, so tone marks and Tibetan subjoined letters stay in their one-cell owners |
 | Sinhala shaping | With `script_shaping` on, Sinhala owners are shaped with the font (ZWJ conjunct requests, pre-base and split vowels) and fitted inside their one or two cells by the same rule | Shaping never crosses owners; ZWNJ breaks ownership; widths and logical copy stay unchanged |
@@ -727,7 +727,9 @@ in stored order. If the active font lacks a combining mark, OdyTTY omits that
 mark instead of drawing a tofu box over the base glyph. The glyph atlas treats
 exactly the Unicode 17.0.0 nonspacing and enclosing marks (General_Category
 Mn and Me) as marks drawn over the base cell; spacing marks (Mc) draw from
-their own pen position like other glyphs.
+their own pen position like other glyphs. On this per-cell path a spacing mark
+(Grapheme_Cluster_Break SpacingMark) of a two-cell owner draws in the owner's
+second cell, after its base, rather than over the base.
 
 Supported box-drawing, block and shade elements, Braille, Powerline separators,
 and Symbols for Legacy Computing sextants, octants, diagonal-edged blocks
@@ -2355,9 +2357,12 @@ destination without delaying terminal state or input.
 Keyboard and IME activity keep a requested blinking cursor visible; blinking
 resumes after a short quiet period and parks visibly on after prolonged idle.
 In an unfocused window, a Block cursor becomes a hollow outline while Bar and
-Underline keep their normal forms. Cursor motion, trail, glow, easing, and
-follower presentation advance only in the focused pane of a split, where they
-stay clipped and do not wake idle panes.
+Underline keep their normal forms. A Block cursor on a font-shaped cluster or
+on a letter of a joining script redraws the shaped glyphs, clipped to the
+block, so the cluster keeps its shaped form under the cursor; inside a Latin
+ligature it redraws the single character under it. Cursor motion, trail,
+glow, easing, and follower presentation advance only in the focused pane of a
+split, where they stay clipped and do not wake idle panes.
 
 The aura follows the active Block, Bar, or Underline geometry without changing
 terminal state or input behavior. Its strength is adjustable through

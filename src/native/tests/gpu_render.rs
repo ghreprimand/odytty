@@ -1143,6 +1143,7 @@ fn cursor_layer_full_and_cursor_only(
         &[],
         params,
         None,
+        &[],
     );
 
     let mut cursor_only = Vec::new();
@@ -1155,6 +1156,7 @@ fn cursor_layer_full_and_cursor_only(
         &[],
         params,
         None,
+        &[],
     );
 
     assert_eq!(&full[cell_vertices..], cursor_only.as_slice());

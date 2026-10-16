@@ -113,12 +113,13 @@ pub(in crate::native) fn append_cursor_layer_vertices(
     overlays: &[SolidQuad],
     params: CursorRenderParams,
     bidi: Option<&grid::BidiDisplayMap>,
+    ligature_runs: &[LigatureRun],
 ) {
     out.reserve(overlays.len() * grid::INSTANCES_PER_QUAD);
     for &overlay in overlays {
         grid::push_solid_quad(out, overlay);
     }
-    grid::append_cursor_vertices_with_origin_and_bidi(
+    grid::append_cursor_vertices_with_runs(
         out,
         snapshot,
         atlas,
@@ -126,6 +127,7 @@ pub(in crate::native) fn append_cursor_layer_vertices(
         origin,
         params,
         bidi,
+        ligature_runs,
     );
 }
 
@@ -689,7 +691,7 @@ impl GpuState {
                 retained_cursor_overlays.extend_from_slice(pane.overlays);
                 retained_cursor_glow = pane.cursor_glow;
                 retained_cursor_streak = pane.cursor_streak;
-                grid::append_cursor_vertices_with_origin_and_bidi(
+                grid::append_cursor_vertices_with_runs(
                     &mut tail,
                     pane.snapshot,
                     &self.atlas,
@@ -697,6 +699,7 @@ impl GpuState {
                     pane.origin,
                     cursor_params,
                     pane.bidi,
+                    ligature_runs,
                 );
             }
             // The pane's own overlays (selection / search) and cursor ride its
@@ -712,6 +715,9 @@ impl GpuState {
         self.write_cursor_streak_instance(cursor_streak_instance);
         self.retained_cursor_overlays = retained_cursor_overlays;
         self.retained_cursor_glow = retained_cursor_glow;
+        // A cursor-only rebuild serves the single-pane path; split-pane runs
+        // belong to pane snapshots it never draws.
+        self.ligature_runs.clear();
         self.retained_cursor_streak = retained_cursor_streak;
 
         // Wash the wallpaper wherever no pane grid covers it (padding
@@ -1059,6 +1065,7 @@ impl GpuState {
             self.bidi_display.as_ref(),
         );
         self.color_glyph_runs = color_glyph_runs;
+        self.ligature_runs = ligature_runs;
         let background_vertices = background_vertex_count(snapshot).min(self.vertices.len() as u32);
         if self.needs_edge_wash() {
             // The pin-aware wash covers the gap strips between the
@@ -1137,6 +1144,7 @@ impl GpuState {
             overlays,
             cursor_params,
             self.bidi_display.as_ref(),
+            &self.ligature_runs,
         );
         self.rebuild_cursor_glow(
             snapshot,
@@ -1415,6 +1423,7 @@ impl GpuState {
             overlays,
             params,
             self.bidi_display.as_ref(),
+            &self.ligature_runs,
         );
         self.rebuild_cursor_glow(
             snapshot,

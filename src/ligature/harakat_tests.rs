@@ -342,3 +342,62 @@ fn an_attached_mark_with_a_cell_advance_does_not_push_later_marks() {
         .collect();
     assert_eq!(offsets, [(shadda, TOP_OFFSET), (kasra, [600, 0])]);
 }
+
+/// Fails before the shaped cursor redraw: a block cursor on a joined letter
+/// drew the letter's isolated cmap glyph. It now redraws the joining run's
+/// shaped glyph (the initial form here) clipped to the block, and never the
+/// isolated form.
+#[test]
+fn block_cursor_keeps_the_joined_form_of_its_letter() {
+    let _guard = crate::test_lock::render_globals_lock();
+    let font = font();
+    let mut terminal = Terminal::new(10, 1);
+    terminal.advance(format!("{BEH}{BEH}\x1b[1;1H").as_bytes());
+    let snapshot = terminal.snapshot();
+    assert!(snapshot.cursor_visible);
+    let runs = LigatureShaper::new().build_runs(true, &snapshot, &Fonts(font.clone()), &[]);
+    let mut atlas = GlyphAtlas::build(&font, PX);
+    atlas.ensure(&font, BEH);
+    for glyph in runs.iter().flat_map(|run| run.glyphs.iter()) {
+        atlas.ensure_shaped(&font, glyph.key);
+    }
+    let initial = runs
+        .iter()
+        .flat_map(|run| run.glyphs.iter())
+        .find(|glyph| glyph.key.glyph_id == BEH_INIT)
+        .expect("initial beh in the run")
+        .key;
+    let initial = atlas.shaped_glyph_quad(initial).expect("initial ink").uv;
+    let isolated = atlas
+        .glyph_quad_styled(FontStyle::Regular, BEH)
+        .expect("isolated beh")
+        .uv;
+    let mut cursor = Vec::new();
+    crate::grid::append_cursor_vertices_with_runs(
+        &mut cursor,
+        &snapshot,
+        &atlas,
+        crate::core::CursorStyle::Block,
+        [0.0, 0.0],
+        crate::grid::CursorRenderParams::default(),
+        None,
+        &runs,
+    );
+    let inside = |vertex: &&Vertex, uv: [f32; 4]| {
+        (uv[0] - 1e-6..=uv[2] + 1e-6).contains(&vertex.uv[0])
+            && (uv[1] - 1e-6..=uv[3] + 1e-6).contains(&vertex.uv[1])
+    };
+    assert!(
+        glyph_vertices(&cursor).any(|vertex| inside(&vertex, initial)),
+        "the block redraws the initial form"
+    );
+    assert!(
+        !glyph_vertices(&cursor).any(|vertex| inside(&vertex, isolated)),
+        "the block never draws the isolated form"
+    );
+    let cell_w = atlas.cell.width as f32;
+    assert!(
+        glyph_vertices(&cursor).all(|vertex| vertex.pos[0] >= 0.0 && vertex.end_pos[0] <= cell_w),
+        "the redraw stays inside the block"
+    );
+}

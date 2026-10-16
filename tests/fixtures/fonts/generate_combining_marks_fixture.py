@@ -9,8 +9,9 @@ Every glyph is one bar. Letters and the spacing marks (General_Category Mc)
 advance one cell and draw the bar inside that advance. Nonspacing and
 enclosing marks (Mn and Me) advance zero and draw the bar left of the pen,
 where a mark typeset after its base lands. Coverage: space, M, x, the
-unchanged mark U+0301, the spacing marks U+0903 and U+302E, and the Unicode
-15.1 to 17 marks U+A670, U+11F5A, and U+1E6E3.
+Devanagari letter ka U+0915 (a base for the spacing mark), the unchanged
+mark U+0301, the spacing marks U+0903 and U+302E, and the Unicode 15.1 to 17
+marks U+A670, U+11F5A, and U+1E6E3.
 """
 
 from pathlib import Path
@@ -29,6 +30,7 @@ GLYPHS = [
     ("M", 0x4D, False),
     ("x", 0x78, False),
     ("uni0301", 0x301, True),
+    ("uni0915", 0x915, False),
     ("uni0903", 0x903, False),
     ("uni302E", 0x302E, False),
     ("uniA670", 0xA670, True),

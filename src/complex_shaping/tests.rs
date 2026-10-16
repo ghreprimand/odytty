@@ -20,6 +20,7 @@ use crate::grid::{
 use crate::selection::{CellPoint, SelectionRange, selected_text};
 
 mod cross_cutting;
+mod cursor;
 mod fallback_chain;
 mod khmer_myanmar;
 mod thai_lao_tibetan;
