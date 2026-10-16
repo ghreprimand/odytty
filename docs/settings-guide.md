@@ -104,7 +104,9 @@ shell_key_enhancement = on
 
 `bidi_reorder` ships off. With it on, right-to-left runs such as Hebrew and
 Arabic are drawn in display order on the primary screen; terminal cells, the
-cursor, selection, and copy stay logical. `font_zero` ships off. With it on, `0`
+cursor, selection, and copy stay logical. `bidi_direction` (`ltr` by default,
+`rtl`, or `auto`) sets the direction of paragraphs that do not choose their
+own with the BiDi escape sequence SCP. `font_zero` ships off. With it on, `0`
 is drawn with the body font's OpenType `zero` feature (a slashed or dotted
 zero) when the font has one. Both apply live. See the
 [runtime-knob reference](runtime-knobs.md) and
@@ -112,6 +114,7 @@ zero) when the font has one. Both apply live. See the
 
 ```conf
 bidi_reorder = on
+bidi_direction = auto
 font_zero = on
 ```
 

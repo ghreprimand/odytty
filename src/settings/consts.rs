@@ -45,6 +45,8 @@ pub const LIGATURE_SS02_ENV: &str = "ODYTTY_LIGATURE_SS02";
 pub const FONT_ZERO_ENV: &str = "ODYTTY_FONT_ZERO";
 /// Bidirectional display reordering (`bidi_reorder`).
 pub const BIDI_REORDER_ENV: &str = "ODYTTY_BIDI_REORDER";
+/// Paragraph direction for bidirectional text (`bidi_direction`).
+pub const BIDI_DIRECTION_ENV: &str = "ODYTTY_BIDI_DIRECTION";
 pub const KITTY_NAMED_TRANSPORTS_ENV: &str = "ODYTTY_KITTY_NAMED_TRANSPORTS";
 /// Process-wide secure keyboard entry. Honored on macOS only. On Windows and
 /// Linux the key is accepted and ignored.
@@ -208,6 +210,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     LIGATURE_SS02_ENV,
     FONT_ZERO_ENV,
     BIDI_REORDER_ENV,
+    BIDI_DIRECTION_ENV,
     KITTY_NAMED_TRANSPORTS_ENV,
     SECURE_KEYBOARD_INPUT_ENV,
     KEYBINDS_ENV,
@@ -804,8 +807,9 @@ pub const DEFAULT_LIGATURE_SS02: bool = false;
 pub const DEFAULT_FONT_ZERO: bool = false;
 
 /// Bidirectional display reordering (`ODYTTY_BIDI_REORDER`): when on, the
-/// primary screen draws right-to-left runs in display order with a
-/// left-to-right paragraph level. The alternate screen is never reordered.
+/// primary screen draws right-to-left runs in display order, each paragraph
+/// at its own direction or `bidi_direction`. The alternate screen is never
+/// reordered.
 /// Cells, cursor addressing, selection, copy, search, and every protocol value
 /// stay logical. Off by default.
 pub const DEFAULT_BIDI_REORDER: bool = false;

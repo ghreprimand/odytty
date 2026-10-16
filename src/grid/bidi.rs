@@ -19,6 +19,16 @@
 //! and [`BidiDisplayMap::embedded`] places a content map inside a decorated
 //! frame whose chrome rows and columns stay in identity layout.
 //!
+//! Each paragraph is planned with its stored bidi properties
+//! ([`ParagraphBidi`], from the BiDi recommendation's BDSM and SCP): an
+//! implicit paragraph resolves at its own direction, or at the
+//! `bidi_direction` setting when it has none; an explicit paragraph is the
+//! identity layout when left to right and the exact reversal of each row when
+//! right to left (auto counts as left to right there, since the application
+//! arranged the text itself). Layout padding cells (the blank a wide
+//! character that did not fit leaves at a row end) take no part in level
+//! resolution and sit at the row end in the paragraph direction.
+//!
 //! Known limit: a Bidi_Mirrored character with no Bidi_Mirroring_Glyph pair
 //! (U+2211, for example) draws unmirrored.
 //!
@@ -27,8 +37,9 @@
 use std::ops::Range;
 
 use crate::core::{
-    BidiLayout, BidiOwner, Cell, MAX_BIDI_OWNER_WIDTH, MAX_BIDI_PARAGRAPH_OWNERS,
-    MAX_BIDI_PARAGRAPH_ROWS, Snapshot, bidi_mirroring_glyph,
+    BidiBaseDirection, BidiLayout, BidiOwner, Cell, MAX_BIDI_OWNER_WIDTH,
+    MAX_BIDI_PARAGRAPH_OWNERS, MAX_BIDI_PARAGRAPH_ROWS, ParagraphBidi, ParagraphDirection,
+    Snapshot, bidi_mirroring_glyph,
 };
 
 /// The most rows above a snapshot that can belong to a paragraph the plan
@@ -50,6 +61,43 @@ pub struct BidiParagraphContext {
     /// The paragraph extends further up than [`max_bidi_context_rows`]: it is
     /// over the plan's cap, so the first paragraph keeps the identity layout.
     pub overflow: bool,
+    /// The bidi properties of the paragraph the context rows open (its first
+    /// row's); used only when `rows` is not empty.
+    pub properties: ParagraphBidi,
+}
+
+/// The paragraph properties a plan follows: each snapshot row's stored
+/// [`ParagraphBidi`] (missing rows count as the default) and the
+/// `bidi_direction` setting a paragraph with the default direction takes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BidiParagraphs<'a> {
+    pub properties: &'a [ParagraphBidi],
+    pub default_direction: BidiBaseDirection,
+}
+
+impl BidiParagraphs<'_> {
+    /// The layout of one paragraph of `owners` with `properties`.
+    fn layout(
+        &self,
+        properties: ParagraphBidi,
+        owners: &[BidiOwner<'_>],
+        row_counts: &[usize],
+    ) -> BidiLayout {
+        let direction = match properties.direction() {
+            ParagraphDirection::Default => self.default_direction,
+            ParagraphDirection::LeftToRight => BidiBaseDirection::LeftToRight,
+            ParagraphDirection::RightToLeft => BidiBaseDirection::RightToLeft,
+        };
+        if properties.explicit() {
+            BidiLayout::plan_explicit(
+                owners,
+                row_counts,
+                direction == BidiBaseDirection::RightToLeft,
+            )
+        } else {
+            BidiLayout::plan_in(owners, row_counts, direction)
+        }
+    }
 }
 
 /// Visual placement of every cell of one snapshot.
@@ -70,6 +118,10 @@ pub struct BidiDisplayMap {
     mirrors: Vec<Option<char>>,
     /// Whether each row's placement differs from the identity layout.
     reordered_rows: Vec<bool>,
+    /// Whether each row belongs to an explicit-mode paragraph the map
+    /// reverses: the application arranged its text, so presentation must not
+    /// apply contextual joining to it.
+    explicit_rows: Vec<bool>,
 }
 
 impl BidiDisplayMap {
@@ -82,11 +134,25 @@ impl BidiDisplayMap {
 
     /// [`Self::plan`] with the rows above the snapshot that open its first
     /// paragraph. Only snapshot rows are mapped; context rows only take part
-    /// in resolving the paragraph.
+    /// in resolving the paragraph. Every paragraph is implicit and left to
+    /// right.
     pub fn plan_with_context(
         snapshot: &Snapshot,
         wrapped: &[bool],
         context: &BidiParagraphContext,
+    ) -> Self {
+        Self::plan_with_paragraphs(snapshot, wrapped, context, BidiParagraphs::default())
+    }
+
+    /// [`Self::plan_with_context`] with each paragraph's stored properties
+    /// and the setting default for paragraphs without a direction of their
+    /// own. A paragraph takes the properties of its first row: the context's
+    /// for a paragraph that opens above the snapshot.
+    pub fn plan_with_paragraphs(
+        snapshot: &Snapshot,
+        wrapped: &[bool],
+        context: &BidiParagraphContext,
+        paragraphs: BidiParagraphs<'_>,
     ) -> Self {
         let columns = snapshot.dimensions.columns;
         let rows = snapshot.dimensions.rows;
@@ -115,18 +181,26 @@ impl BidiDisplayMap {
                 last += 1;
             }
             let mut paragraph: Vec<&[Cell]> = Vec::with_capacity(last + 1 - first);
+            let mut properties = paragraphs
+                .properties
+                .get(first)
+                .copied()
+                .unwrap_or_default();
             if first == 0 {
                 if context.overflow {
                     first = last + 1;
                     continue;
                 }
                 paragraph.extend(padded.iter().map(Vec::as_slice));
+                if !padded.is_empty() {
+                    properties = context.properties;
+                }
             }
             let leading = paragraph.len();
             for row in first..=last {
                 paragraph.push(&snapshot.cells[row * columns..(row + 1) * columns]);
             }
-            map.plan_paragraph(&paragraph, leading, first);
+            map.plan_paragraph(&paragraph, leading, first, &paragraphs, properties);
             first = last + 1;
         }
         map.build_inverse();
@@ -148,6 +222,7 @@ impl BidiDisplayMap {
             levels: vec![0; cells],
             mirrors: vec![None; cells],
             reordered_rows: vec![false; rows],
+            explicit_rows: vec![false; rows],
         }
     }
 
@@ -172,6 +247,7 @@ impl BidiDisplayMap {
         for row in 0..self.rows {
             let frame_row = row + row_offset;
             frame.reordered_rows[frame_row] = self.reordered_rows[row];
+            frame.explicit_rows[frame_row] = self.explicit_rows[row];
             for column in 0..self.columns {
                 let source = row * self.columns + column;
                 let target = frame_row * columns + column + column_offset;
@@ -186,17 +262,32 @@ impl BidiDisplayMap {
 
     /// Plan one paragraph of physical `rows`, the first `leading` of which lie
     /// above the snapshot; snapshot row `first_row` is `rows[leading]`.
-    fn plan_paragraph(&mut self, rows: &[&[Cell]], leading: usize, first_row: usize) {
+    fn plan_paragraph(
+        &mut self,
+        rows: &[&[Cell]],
+        leading: usize,
+        first_row: usize,
+        paragraphs: &BidiParagraphs<'_>,
+        properties: ParagraphBidi,
+    ) {
         let columns = self.columns;
         let mut text = String::new();
         // (paragraph row, lead column, byte range, width) of each owner in
         // logical order.
         let mut owners: Vec<(usize, usize, Range<usize>, u8)> = Vec::new();
         let mut row_counts = Vec::with_capacity(rows.len());
+        // Layout padding columns of each row, in logical order.
+        let mut padding: Vec<Vec<usize>> = Vec::with_capacity(rows.len());
         for (paragraph_row, cells) in rows.iter().enumerate() {
             let before = owners.len();
+            let mut row_padding = Vec::new();
             let mut column = 0;
             while column < columns {
+                if cells[column].layout_padding {
+                    row_padding.push(column);
+                    column += 1;
+                    continue;
+                }
                 let start = text.len();
                 text.push_str(&cells[column].grapheme());
                 let mut width = 1usize;
@@ -210,6 +301,7 @@ impl BidiDisplayMap {
                 column += usize::from(width.max(1));
             }
             row_counts.push(owners.len() - before);
+            padding.push(row_padding);
         }
         let plan_owners: Vec<BidiOwner<'_>> = owners
             .iter()
@@ -218,24 +310,36 @@ impl BidiDisplayMap {
                 width: *width,
             })
             .collect();
-        let BidiLayout::Reordered(plan) = BidiLayout::plan(&plan_owners, &row_counts) else {
+        let BidiLayout::Reordered(plan) = paragraphs.layout(properties, &plan_owners, &row_counts)
+        else {
             return;
         };
-        for (owner, (paragraph_row, lead, bytes, width)) in owners.iter().enumerate() {
-            let Some(row) = paragraph_row
+        let paragraph_level = plan.paragraph_level();
+        let right_to_left = paragraph_level % 2 == 1;
+        let visible = |paragraph_row: usize| {
+            paragraph_row
                 .checked_sub(leading)
                 .map(|visible| first_row + visible)
-            else {
+        };
+        for (owner, (paragraph_row, lead, bytes, width)) in owners.iter().enumerate() {
+            let Some(row) = visible(*paragraph_row) else {
                 continue;
             };
             let Some((plan_row, span)) = plan.owner_visual_span(owner) else {
                 continue;
             };
             debug_assert_eq!(plan_row, *paragraph_row);
+            // Padding sits at the row end in the paragraph direction, so a
+            // right-to-left row's owners start after it.
+            let shift = if right_to_left {
+                padding[*paragraph_row].len()
+            } else {
+                0
+            };
             let level = plan.owner_level(owner).unwrap_or(0);
             for subcell in 0..usize::from(*width) {
                 let index = row * columns + lead + subcell;
-                self.visual[index] = (span.start + subcell) as u32;
+                self.visual[index] = (shift + span.start + subcell) as u32;
                 self.levels[index] = level;
             }
             if plan.is_mirrored(owner) {
@@ -244,8 +348,26 @@ impl BidiDisplayMap {
                     .next()
                     .and_then(bidi_mirroring_glyph);
             }
-            if span.start != *lead || level != 0 {
+            if shift + span.start != *lead || level != 0 {
                 self.reordered_rows[row] = true;
+            }
+        }
+        for (paragraph_row, row_padding) in padding.iter().enumerate() {
+            let Some(row) = visible(paragraph_row) else {
+                continue;
+            };
+            self.explicit_rows[row] = properties.explicit();
+            for (index, column) in row_padding.iter().enumerate() {
+                let visual = if right_to_left {
+                    row_padding.len() - 1 - index
+                } else {
+                    columns - row_padding.len() + index
+                };
+                self.visual[row * columns + column] = visual as u32;
+                self.levels[row * columns + column] = paragraph_level;
+                if visual != *column || paragraph_level != 0 {
+                    self.reordered_rows[row] = true;
+                }
             }
         }
     }
@@ -281,6 +403,7 @@ impl BidiDisplayMap {
             self.mirrors[index] = None;
         }
         self.reordered_rows[row] = false;
+        self.explicit_rows[row] = false;
     }
 
     /// Reset to identity every row whose characters differ between `planned`
@@ -333,6 +456,12 @@ impl BidiDisplayMap {
     /// owner resolved to a non-zero level.
     pub fn row_is_reordered(&self, row: usize) -> bool {
         self.reordered_rows.get(row).copied().unwrap_or(false)
+    }
+
+    /// Whether `row` belongs to an explicit-mode paragraph the map arranges
+    /// (right to left): presentation draws no contextual joining on it.
+    pub fn row_is_explicit(&self, row: usize) -> bool {
+        self.explicit_rows.get(row).copied().unwrap_or(false)
     }
 
     /// Visual column of the cell at logical (`row`, `column`); the logical

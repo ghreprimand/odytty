@@ -83,7 +83,7 @@ This matrix is the same support statement carried by [`docs/features.md`](featur
 | --- | --- | --- |
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
 | Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | More joining-script coverage is a candidate; Arabic marks outside the supported harakat set, and bases or harakat the font does not map, keep the monochrome path |
-| Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order on the primary screen with a left-to-right paragraph level; cells, cursor addressing, selection, copy, search, and protocol values stay logical | The alternate screen and right-to-left paragraph levels are not reordered. Complex-script owners move as whole spans, keeping their cells adjacent and in order |
+| Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order on the primary screen, each paragraph left to right, right to left, or auto (`bidi_direction`, or SCP from the program), and explicit mode (`CSI 8 l`) for programs that arrange their own text; cells, cursor addressing, selection, copy, search, and protocol values stay logical | The alternate screen is not reordered. Complex-script owners move as whole spans, keeping their cells adjacent and in order |
 | Northern and southern Indic shaping | With `script_shaping` on, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam owners are shaped with the font (conjuncts, reph, below-base and pre-base forms, ZWJ/ZWNJ requests) and drawn inside the owner's one or two cells, centered, or scaled to a 0.6 floor and then clipped | Owners keep the per-cell path when no font maps every scalar; the cursor block redraws per-cell glyphs; shaping never crosses owners; Bengali ka, virama, ra shapes differently in `harfrust` 0.8.4 than in HarfBuzz 14.5.1, kept as an asserted known difference |
 | Khmer/Myanmar shaping | With `script_shaping` on, Khmer and Myanmar owners are shaped with the font (coeng stacks, below-base ro, pre-base and split vowels, medial ra, kinzi, stacker forms, ZWJ requests) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping |
 | Thai/Lao/Tibetan shaping | With `script_shaping` on, Thai, Lao, and Tibetan owners are shaped with the font (SARA AM decomposition, tone-mark and descender alternates, stacked tone and vowel marks, precomposed Tibetan subjoined stacks) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping; widths are unchanged, so tone marks and Tibetan subjoined letters stay in their one-cell owners |
@@ -214,7 +214,10 @@ Bidirectional display reordering is a bounded, opt-in setting:
 `bidi_reorder` (Settings > Rendering > Bidirectional text, the right-click
 **Reorder Right-to-Left Text** toggle, or `ODYTTY_BIDI_REORDER=on`), off by
 default. While it is on, the primary screen draws right-to-left runs (Hebrew,
-Arabic) in display order with a left-to-right paragraph level. With it off,
+Arabic) in display order, each paragraph at the direction a program selected
+with SCP or else at `bidi_direction` (`ltr`, `rtl`, or `auto`); paragraphs a
+program marks explicit with `CSI 8 l` are never reordered, only reversed
+column for column when right to left. With it off,
 right-to-left input is stored and drawn in logical cell order, exactly as
 before; Arabic joining forms are then shaped within that order. The menu
 toggle applies to the running window; Save in Settings persists it.
@@ -229,16 +232,16 @@ row in logical order.
 The setting changes presentation only. Cells, cursor addressing and movement,
 selection endpoints, copy, search results, scrollback export, and every
 terminal protocol value stay logical. Plain limits: the alternate screen
-(full-screen programs) is never reordered; the paragraph level is always left
-to right, with no right-to-left paragraphs; shaped complex-script owners move
+(full-screen programs) is never reordered; shaped complex-script owners move
 as whole spans without splitting or changing their internal cell order; a
 mirrored character without a Unicode mirroring counterpart draws unmirrored;
 block-selection export is not reordered or specially handled;
 image placements are not reordered.
 
 The plan comes from a headless module, `src/core/bidi`: for one
-wrapped logical line it resolves UAX #9 levels with the paragraph level forced
-to left to right, applies the line rules to each physical row, and returns
+wrapped logical line it resolves UAX #9 levels at a left-to-right,
+right-to-left, or auto paragraph level (or reverses each row of an
+explicit-mode right-to-left paragraph without resolving levels), applies the line rules to each physical row, and returns
 reversible owner-to-visual-span and visual-column-to-owner maps with
 mirrored-glyph flags. Paragraphs over its owner, byte, or row cap get the
 complete identity layout. It passes every case of the Unicode 17.0.0

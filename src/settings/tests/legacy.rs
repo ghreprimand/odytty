@@ -173,6 +173,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "ss01",
             "ss02",
             "bidi_reorder",
+            "bidi_direction",
             "kitty_named_transports",
             "text_gamma",
             "text_brightness",

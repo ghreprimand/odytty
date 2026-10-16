@@ -178,9 +178,8 @@ Known gaps include the following:
 - Windows detached and resumable session hosting.
 - Font shaping for Brahmic scripts outside the enabled blocks; they keep
   per-cell drawing.
-- Right-to-left paragraph levels and alternate-screen bidirectional
-  reordering (reordering is an opt-in, off-by-default setting for the primary
-  screen).
+- Alternate-screen bidirectional reordering (reordering is an opt-in,
+  off-by-default setting for the primary screen).
 - Live tab drag follow on X11 (the window appears on release).
 - Chinese, Japanese and Korean text on Windows and macOS needs a terminal font
   that includes it; the stock-font fallback does not cover those scripts.

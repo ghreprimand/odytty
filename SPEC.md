@@ -2448,8 +2448,8 @@ reconfiguration without reapplying the theme.
 - Kitty `I=` addressing on display (`a=p`) and delete (`d=n`/`d=N`) commands,
   and the `S=`/`O=` partial-read keys
 
-- Bidirectional reordering beyond the bounded `bidi_reorder` setting:
-  right-to-left paragraph levels and the alternate screen
+- Bidirectional reordering beyond the bounded `bidi_reorder` setting: the
+  alternate screen
 
 - Complex-script shaping for script groups the owner-run classifier does not
   enable, and shaping across owner boundaries
@@ -2935,9 +2935,9 @@ and raw feature tags are not exposed.
 Bidirectional text; the right-click Reorder Right-to-Left Text toggle, shown
 with a check mark while on) draws right-to-left runs in display order. Each
 frame of the primary screen plans a display map from the visible rows and the
-soft-wrapped paragraph above them, with the paragraph level forced to left to
-right and the plan's row and owner caps; an over-cap paragraph keeps the
-identity layout. The alternate screen is never planned. Window-level menus,
+soft-wrapped paragraph above them, each paragraph at its own direction (see
+below) and within the plan's row and owner caps; an over-cap paragraph keeps
+the identity layout. The alternate screen is never planned. Window-level menus,
 panels, pickers, dialogs, and rename fields composite in logical order above
 the terminal without changing its display map. Inline text such as IME
 pre-edit, the search query band, and status labels returns its painted row to
@@ -2965,8 +2965,26 @@ with it. The value survives reflow, scrollback, alternate-screen entry and
 exit of the primary rows, and snapshots (an optional section written only when
 some value is not the default). RIS and DECSTR restore implicit mode and the
 default direction. Box mirroring (`?2500`), autodetection (`?2501`), arrow
-swapping (`?1243`), and SPD are not implemented and report 0. The display does
-not read these properties yet: frames are unchanged.
+swapping (`?1243`), and SPD are not implemented and report 0.
+
+While `bidi_reorder` is on, the display follows these properties. A paragraph
+takes the properties of its first row, including a first row in scrollback
+above the viewport. In implicit mode its paragraph level is 0 for left to
+right, 1 for right to left, and for the default direction the
+`bidi_direction` setting (`ODYTTY_BIDI_DIRECTION`: `ltr`, the default; `rtl`;
+or `auto`, UAX #9 rules P2 and P3, the first strong character outside
+isolates, left to right without one). A right-to-left paragraph starts at the
+right edge: logical column 0, and trailing blanks, which rule L1 returns to
+the paragraph level, fill the row from the left. In explicit mode the
+application has already arranged the text: a left-to-right paragraph keeps
+the identity layout, and a right-to-left one is the exact reversal of each
+row's owners, every owner at level 1 so mirrored characters draw mirrored,
+with no level resolution and no contextual joining (Arabic runs on such a row
+draw cell by cell). Auto counts as left to right in explicit mode. Layout
+padding cells take no part in level resolution and sit at the row end in the
+paragraph direction. With `bidi_reorder` off every paragraph keeps the
+identity layout whatever its properties; the properties are still tracked and
+reported.
 
 #### Wide-Glyph Wrap Padding
 

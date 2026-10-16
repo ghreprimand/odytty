@@ -542,6 +542,8 @@ impl Settings {
             DEFAULT_BIDI_REORDER,
             &mut warn,
         );
+        let bidi_direction =
+            parse_bidi_direction_setting(get(BIDI_DIRECTION_ENV).as_deref(), &mut warn);
         let kitty_named_transports = parse_bool_setting(
             get(KITTY_NAMED_TRANSPORTS_ENV).as_deref(),
             KITTY_NAMED_TRANSPORTS_ENV,
@@ -1070,6 +1072,7 @@ impl Settings {
             ligature_ss02,
             font_zero,
             bidi_reorder,
+            bidi_direction,
             kitty_named_transports,
             secure_keyboard_input,
             key_bindings,

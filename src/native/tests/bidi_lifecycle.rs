@@ -46,6 +46,7 @@ fn plan_of(terminal: &Terminal, offset: usize) -> BidiDisplayMap {
     let context = BidiParagraphContext {
         rows: rows.into_iter().map(|row| row.cells).collect(),
         overflow,
+        ..Default::default()
     };
     BidiDisplayMap::plan_with_context(&snapshot, &wrapped, &context)
 }

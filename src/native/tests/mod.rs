@@ -238,6 +238,7 @@ mod bidi_autoscroll;
 mod bidi_effects;
 mod bidi_input;
 mod bidi_lifecycle;
+mod bidi_paragraph;
 mod bidi_pointer;
 mod bidi_setting;
 mod broadcast_input;

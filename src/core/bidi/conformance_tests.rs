@@ -4,20 +4,18 @@
 //!
 //! The committed corpus is a deterministic strided subset of each file (see
 //! `tests/fixtures/unicode-bidi/README.md`); the exact pass and total counts
-//! below are asserted, so any change in either direction fails. Left-to-right
-//! cases (paragraph direction 0) run through the public [`BidiLayout::plan`]
-//! path, one owner per scalar on one row, including its identity shortcut.
-//! Right-to-left and auto-direction cases exercise the same level resolution,
-//! line rule, and reordering through the internal entry points, because the
-//! plan forces paragraph level 0. Each test case is one line, so L1 and L2 run
-//! on the whole paragraph; rules L3 and L4 are outside both files.
+//! below are asserted, so any change in either direction fails. Every case,
+//! left to right, right to left, and auto, runs through the public
+//! [`BidiLayout::plan_in`] path with its paragraph direction, one owner per
+//! scalar on one row, including the identity shortcut. Each test case is one
+//! line, so L1 and L2 run on the whole paragraph; rules L3 and L4 are outside
+//! both files.
 //!
 //! The full files can be checked with the ignored test
 //! `full_unicode_bidi_corpus`, given `ODYTTY_UCD_BIDI_DIR` naming a directory
 //! that holds them.
 
-use super::resolve::{apply_line_rules, resolve_paragraph, visual_order};
-use super::{BidiIdentityReason, BidiLayout, BidiOwner};
+use super::{BidiBaseDirection, BidiIdentityReason, BidiLayout, BidiOwner};
 
 const CHARACTER_SUBSET: &str =
     include_str!("../../../tests/fixtures/unicode-bidi/BidiCharacterTest-subset.txt");
@@ -32,6 +30,14 @@ enum Direction {
 }
 
 impl Direction {
+    fn base(self) -> BidiBaseDirection {
+        match self {
+            Direction::Ltr => BidiBaseDirection::LeftToRight,
+            Direction::Rtl => BidiBaseDirection::RightToLeft,
+            Direction::Auto => BidiBaseDirection::Auto,
+        }
+    }
+
     fn index(self) -> usize {
         match self {
             Direction::Ltr => 0,
@@ -93,34 +99,29 @@ fn full_corpus_outcome_rejects_an_empty_file() {
 /// Resolved paragraph level, per-scalar line levels, and visual order.
 fn evaluate(scalars: &[char], direction: Direction) -> Option<(u8, Vec<u8>, Vec<usize>)> {
     let text: String = scalars.iter().collect();
-    if direction == Direction::Ltr {
-        let owners: Vec<BidiOwner<'_>> = text
-            .char_indices()
-            .map(|(start, scalar)| BidiOwner {
-                text: &text[start..start + scalar.len_utf8()],
-                width: 1,
-            })
-            .collect();
-        return match BidiLayout::plan(&owners, &[owners.len()]) {
-            BidiLayout::Identity(BidiIdentityReason::LeftToRightOnly) => {
-                Some((0, vec![0; owners.len()], (0..owners.len()).collect()))
-            }
-            BidiLayout::Identity(_) => None,
-            BidiLayout::Reordered(plan) => Some((
-                plan.paragraph_level(),
-                (0..owners.len())
-                    .map(|owner| plan.owner_level(owner).unwrap_or(u8::MAX))
-                    .collect(),
-                plan.visual_owners(0)?.collect(),
-            )),
-        };
+    let owners: Vec<BidiOwner<'_>> = text
+        .char_indices()
+        .map(|(start, scalar)| BidiOwner {
+            text: &text[start..start + scalar.len_utf8()],
+            width: 1,
+        })
+        .collect();
+    match BidiLayout::plan_in(&owners, &[owners.len()], direction.base()) {
+        // Only a left-to-right or auto paragraph takes the shortcut.
+        BidiLayout::Identity(BidiIdentityReason::LeftToRightOnly)
+            if direction != Direction::Rtl =>
+        {
+            Some((0, vec![0; owners.len()], (0..owners.len()).collect()))
+        }
+        BidiLayout::Identity(_) => None,
+        BidiLayout::Reordered(plan) => Some((
+            plan.paragraph_level(),
+            (0..owners.len())
+                .map(|owner| plan.owner_level(owner).unwrap_or(u8::MAX))
+                .collect(),
+            plan.visual_owners(0)?.collect(),
+        )),
     }
-    let base = (direction == Direction::Rtl).then_some(1);
-    let paragraph = resolve_paragraph(&text, base);
-    let mut levels = paragraph.levels.clone();
-    apply_line_rules(&paragraph.classes, &mut levels, paragraph.paragraph);
-    let order = visual_order(&levels);
-    Some((paragraph.paragraph, levels, order))
 }
 
 /// Compare against expected levels (`None` for scalars removed by X9) and the

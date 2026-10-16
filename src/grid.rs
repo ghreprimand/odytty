@@ -29,7 +29,7 @@ mod glyph_quads;
 mod model;
 
 pub use background::{BackgroundTreatment, BackgroundTreatmentParams, MAX_BG_TREATMENT_DARKEN};
-pub use bidi::{BidiDisplayMap, BidiParagraphContext, max_bidi_context_rows};
+pub use bidi::{BidiDisplayMap, BidiParagraphContext, BidiParagraphs, max_bidi_context_rows};
 pub use clipping::VClip;
 pub(crate) use clipping::{
     clip_quads_to_rect, clip_quads_vertical, extend_first_row_bg_to_top, subtract_rects_from_quads,
@@ -1819,6 +1819,8 @@ fn rgb_from_tuple(color: (u8, u8, u8)) -> RgbColor {
     RgbColor::new(color.0, color.1, color.2)
 }
 
+#[cfg(test)]
+mod bidi_direction_tests;
 #[cfg(test)]
 mod bidi_tests;
 #[cfg(test)]

@@ -8,7 +8,10 @@
 //! runs at an odd level are not shaped: their cells draw as scalar glyphs,
 //! with mirroring applied at presentation, so a left-to-right ligature such as
 //! `->` never draws inside right-to-left text. Rows the map leaves in logical
-//! order carry no levels and shape exactly as without a map.
+//! order carry no levels and shape exactly as without a map. Rows of an
+//! explicit-mode paragraph hold text the application arranged itself, so no
+//! run on them takes contextual joining: their levels carry
+//! [`EXPLICIT_LEVEL`], which also keeps their row-cache keys apart.
 
 use swash::shape::Direction;
 
@@ -24,12 +27,25 @@ use crate::{
     ligature::{LatinShapingFeatures, LigatureRun},
 };
 
+/// Marks a level on a row of an explicit-mode paragraph. UAX #9 levels stay
+/// below 128, so the bit never collides with a level, and it keeps a level's
+/// parity.
+pub(super) const EXPLICIT_LEVEL: u8 = 0x80;
+
 /// The level vector that keys and segments `row`: every cell's resolved level
-/// when `bidi` reorders the row, empty otherwise.
+/// when `bidi` reorders the row, with [`EXPLICIT_LEVEL`] set on an
+/// explicit-mode row, and empty otherwise.
 pub(super) fn row_levels(bidi: Option<&BidiDisplayMap>, row: usize, columns: usize) -> Vec<u8> {
     match bidi {
         Some(map) if map.row_is_reordered(row) => {
-            (0..columns).map(|column| map.level(row, column)).collect()
+            let marker = if map.row_is_explicit(row) {
+                EXPLICIT_LEVEL
+            } else {
+                0
+            };
+            (0..columns)
+                .map(|column| map.level(row, column) | marker)
+                .collect()
         }
         _ => Vec::new(),
     }
@@ -57,7 +73,8 @@ impl LigatureShaper {
                     segment_end += 1;
                 }
                 let right_to_left = segment_level % 2 == 1;
-                let arabic = is_arabic_joining_base(cells[segment].ch);
+                let explicit = segment_level & EXPLICIT_LEVEL != 0;
+                let arabic = !explicit && is_arabic_joining_base(cells[segment].ch);
                 if segment_end - segment >= 2 && (!right_to_left || arabic) {
                     let direction = if right_to_left {
                         Direction::RightToLeft

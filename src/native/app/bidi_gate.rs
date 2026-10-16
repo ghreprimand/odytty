@@ -4,8 +4,9 @@
 //!
 //! While the setting is on, the single-pane frame and each content pane of a
 //! split frame showing the primary screen plan a [`BidiDisplayMap`] for their
-//! content grid (with the paragraph context above the viewport and a
-//! left-to-right paragraph level), reset rows changed by inline text painters
+//! content grid (with the paragraph context above the viewport, each
+//! paragraph's stored BDSM and SCP properties, and the `bidi_direction`
+//! setting for paragraphs without a direction), reset rows changed by inline text painters
 //! back to identity, and hand the map to the renderer. Window-level panels and
 //! rename fields composite above the terminal without changing its map. The
 //! alternate screen is never planned. The single-pane map is placed inside the
@@ -57,6 +58,12 @@ impl App {
         self.settings.bidi_reorder
     }
 
+    /// The direction of paragraphs that did not select their own
+    /// (`bidi_direction`).
+    pub(super) fn bidi_base_direction(&self) -> crate::core::BidiBaseDirection {
+        self.settings.bidi_direction.base()
+    }
+
     /// Flip `bidi_reorder` live (the right-click Reorder Right-to-Left Text
     /// row), through the same apply path as a Settings edit. Not written to
     /// odytty.conf; Settings > Rendering > Bidirectional text with Save
@@ -77,7 +84,7 @@ impl App {
         offset: usize,
     ) -> Option<BidiDisplayMap> {
         (self.bidi_reorder_on() && self.sessions.active_is_single_pane())
-            .then(|| plan_content_map(terminal, snapshot, offset))
+            .then(|| plan_content_map(terminal, snapshot, offset, self.bidi_base_direction()))
             .flatten()
     }
 
@@ -100,7 +107,8 @@ impl App {
         if !self.bidi_reorder_on() {
             return None;
         }
-        plan_content_map(terminal, snapshot, offset).map(|map| (map, snapshot.clone()))
+        plan_content_map(terminal, snapshot, offset, self.bidi_base_direction())
+            .map(|map| (map, snapshot.clone()))
     }
 
     /// Record the maps each content pane of the presented split frame used,
@@ -119,6 +127,7 @@ impl App {
         if !self.bidi_reorder_on() {
             return;
         }
+        let base = self.bidi_base_direction();
         let map = {
             let terminal = crate::native::lock_recover(&self.terminal);
             let offset = self
@@ -126,7 +135,7 @@ impl App {
                 .offset()
                 .min(terminal.screen().scrollback_len());
             let snapshot = terminal.snapshot_with_scrollback(offset);
-            plan_content_map(&terminal, &snapshot, offset)
+            plan_content_map(&terminal, &snapshot, offset, base)
         };
         if self.sessions.active_is_single_pane() {
             self.bidi_frame_map = map;
@@ -282,31 +291,44 @@ pub(super) fn finish_bidi_plan(
     })
 }
 
-/// Plan the content map from the terminal's soft-wrap flags and the
-/// paragraph context above the viewport. `None` on the alternate screen,
-/// which is never reordered.
+/// Plan the content map from the terminal's soft-wrap flags, each
+/// paragraph's stored bidi properties, the paragraph context above the
+/// viewport, and `default_direction` (`bidi_direction`) for paragraphs without
+/// a direction of their own. `None` on the alternate screen, which is never
+/// reordered.
 pub(super) fn plan_content_map(
     terminal: &crate::core::Terminal,
     snapshot: &Snapshot,
     offset: usize,
+    default_direction: crate::core::BidiBaseDirection,
 ) -> Option<BidiDisplayMap> {
     if terminal.on_alternate_screen() {
         return None;
     }
-    use crate::grid::{BidiParagraphContext, max_bidi_context_rows};
-    let wrapped: Vec<bool> = terminal
+    use crate::grid::{BidiParagraphContext, BidiParagraphs, max_bidi_context_rows};
+    let (wrapped, properties): (Vec<bool>, Vec<_>) = terminal
         .visible_search_rows(offset)
         .iter()
-        .map(|row| row.wrapped)
-        .collect();
+        .map(|row| (row.wrapped, row.paragraph_bidi))
+        .unzip();
     let max_rows = max_bidi_context_rows(snapshot.dimensions.columns);
     let (rows, overflow) = terminal.paragraph_context_rows(offset, max_rows);
     let context = BidiParagraphContext {
+        properties: rows
+            .first()
+            .map(|row| row.paragraph_bidi)
+            .unwrap_or_default(),
         rows: rows.into_iter().map(|row| row.cells).collect(),
         overflow,
     };
-    Some(BidiDisplayMap::plan_with_context(
-        snapshot, &wrapped, &context,
+    Some(BidiDisplayMap::plan_with_paragraphs(
+        snapshot,
+        &wrapped,
+        &context,
+        BidiParagraphs {
+            properties: &properties,
+            default_direction,
+        },
     ))
 }
 

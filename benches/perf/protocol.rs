@@ -2,7 +2,7 @@
 //! Fixed internal regression rows. This module changes no terminal behavior.
 use super::*;
 use odytty::complex_shaping::ComplexShaper;
-use odytty::grid::{BidiDisplayMap, BidiParagraphContext, max_bidi_context_rows};
+use odytty::grid::{BidiDisplayMap, BidiParagraphContext, BidiParagraphs, max_bidi_context_rows};
 
 const PANES: usize = 4;
 const FRAME_OPS: usize = 200;
@@ -54,6 +54,38 @@ fn geometry(
     black_box(&vertices);
 }
 
+/// The live frame's plan, as the native frame builds it: soft-wrap flags,
+/// each paragraph's stored properties, the context above the viewport, and
+/// the default left-to-right direction.
+fn plan_frame(
+    terminal: &Terminal,
+    snapshot: &odytty::core::Snapshot,
+    offset: usize,
+) -> BidiDisplayMap {
+    let (wrapped, properties): (Vec<bool>, Vec<_>) = terminal
+        .visible_search_rows(offset)
+        .iter()
+        .map(|row| (row.wrapped, row.paragraph_bidi))
+        .unzip();
+    let (rows, overflow) = terminal.paragraph_context_rows(offset, max_bidi_context_rows(COLS));
+    BidiDisplayMap::plan_with_paragraphs(
+        snapshot,
+        &wrapped,
+        &BidiParagraphContext {
+            properties: rows
+                .first()
+                .map(|row| row.paragraph_bidi)
+                .unwrap_or_default(),
+            rows: rows.into_iter().map(|row| row.cells).collect(),
+            overflow,
+        },
+        BidiParagraphs {
+            properties: &properties,
+            default_direction: Default::default(),
+        },
+    )
+}
+
 fn bidi_rows() {
     let font = FontHandle::try_from_vec(
         include_bytes!("../../tests/fixtures/fonts/bidi-mixed.ttf").to_vec(),
@@ -85,23 +117,7 @@ fn bidi_rows() {
                 measure(&name, FRAME_OPS, || {
                     for terminal in &terminals {
                         let snapshot = terminal.snapshot_with_scrollback(offset);
-                        let map = on.then(|| {
-                            let wrapped: Vec<_> = terminal
-                                .visible_search_rows(offset)
-                                .iter()
-                                .map(|row| row.wrapped)
-                                .collect();
-                            let (rows, overflow) = terminal
-                                .paragraph_context_rows(offset, max_bidi_context_rows(COLS));
-                            BidiDisplayMap::plan_with_context(
-                                &snapshot,
-                                &wrapped,
-                                &BidiParagraphContext {
-                                    rows: rows.into_iter().map(|row| row.cells).collect(),
-                                    overflow,
-                                },
-                            )
-                        });
+                        let map = on.then(|| plan_frame(terminal, &snapshot, offset));
                         geometry(&mut vertices, &snapshot, &atlas, &[], map.as_ref());
                     }
                 });
@@ -113,23 +129,7 @@ fn bidi_rows() {
                         for terminal in &mut terminals {
                             terminal.advance(line.as_bytes());
                             let snapshot = terminal.snapshot();
-                            let map = on.then(|| {
-                                let wrapped: Vec<_> = terminal
-                                    .visible_search_rows(0)
-                                    .iter()
-                                    .map(|row| row.wrapped)
-                                    .collect();
-                                let (rows, overflow) =
-                                    terminal.paragraph_context_rows(0, max_bidi_context_rows(COLS));
-                                BidiDisplayMap::plan_with_context(
-                                    &snapshot,
-                                    &wrapped,
-                                    &BidiParagraphContext {
-                                        rows: rows.into_iter().map(|row| row.cells).collect(),
-                                        overflow,
-                                    },
-                                )
-                            });
+                            let map = on.then(|| plan_frame(terminal, &snapshot, 0));
                             geometry(&mut vertices, &snapshot, &atlas, &[], map.as_ref());
                         }
                     });

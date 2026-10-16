@@ -24,6 +24,7 @@ use super::*;
 // restores on every exit path, including a panicking one, so these tests do
 // not hand-restore a baseline.
 mod automation;
+mod bidi_direction;
 mod config_quoting;
 mod cursor;
 mod font_zero;
@@ -58,6 +59,7 @@ mod system_theme;
 fn every_reload_test_holds_the_render_globals_lock() {
     let sources = [
         ("automation.rs", include_str!("automation.rs")),
+        ("bidi_direction.rs", include_str!("bidi_direction.rs")),
         ("config_quoting.rs", include_str!("config_quoting.rs")),
         ("cursor.rs", include_str!("cursor.rs")),
         ("font_zero.rs", include_str!("font_zero.rs")),

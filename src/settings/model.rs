@@ -93,6 +93,46 @@ impl AmbiguousWidth {
     }
 }
 
+/// Paragraph direction for bidirectional text (`bidi_direction`): the
+/// direction of every paragraph that did not select its own with the BiDi
+/// recommendation's SCP sequence. Left to right is the default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BidiDirection {
+    #[default]
+    LeftToRight,
+    RightToLeft,
+    /// The first strong character decides (UAX #9 rules P2 and P3).
+    Auto,
+}
+
+impl BidiDirection {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::LeftToRight => "ltr",
+            Self::RightToLeft => "rtl",
+            Self::Auto => "auto",
+        }
+    }
+
+    pub(super) fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "ltr" | "left-to-right" => Some(Self::LeftToRight),
+            "rtl" | "right-to-left" => Some(Self::RightToLeft),
+            "auto" => Some(Self::Auto),
+            _ => None,
+        }
+    }
+
+    /// The display plan's base direction.
+    pub fn base(self) -> crate::core::BidiBaseDirection {
+        match self {
+            Self::LeftToRight => crate::core::BidiBaseDirection::LeftToRight,
+            Self::RightToLeft => crate::core::BidiBaseDirection::RightToLeft,
+            Self::Auto => crate::core::BidiBaseDirection::Auto,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct KeyBindingModifiers {
     pub ctrl: bool,
@@ -1052,11 +1092,13 @@ pub struct Settings {
     /// [`Self::ligatures`]. Only `zero` is exposed: no stylistic sets or raw
     /// feature tags. Cell metrics are unchanged.
     pub font_zero: bool,
-    /// Bidirectional display reordering on the primary screen, with a
-    /// left-to-right paragraph level. Off by default. The alternate screen is
-    /// never reordered; cells, cursor addressing, selection, copy, search, and
-    /// protocol values stay logical.
+    /// Bidirectional display reordering on the primary screen. Off by
+    /// default. The alternate screen is never reordered; cells, cursor
+    /// addressing, selection, copy, search, and protocol values stay logical.
     pub bidi_reorder: bool,
+    /// The direction of paragraphs that did not select one with SCP, while
+    /// `bidi_reorder` is on. Left to right by default.
+    pub bidi_direction: BidiDirection,
     /// Whether Kitty graphics may read file, temporary-file, and POSIX
     /// shared-memory transports named by terminal output. Off by default;
     /// direct and chunked-inline graphics remain available.
@@ -1585,6 +1627,7 @@ impl Default for Settings {
             ligature_ss02: DEFAULT_LIGATURE_SS02,
             font_zero: DEFAULT_FONT_ZERO,
             bidi_reorder: DEFAULT_BIDI_REORDER,
+            bidi_direction: BidiDirection::LeftToRight,
             kitty_named_transports: DEFAULT_KITTY_NAMED_TRANSPORTS,
             secure_keyboard_input: DEFAULT_SECURE_KEYBOARD_INPUT,
             key_bindings: Vec::new(),

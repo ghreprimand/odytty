@@ -519,6 +519,7 @@ fn context_of(terminal: &Terminal) -> BidiParagraphContext {
     BidiParagraphContext {
         rows: rows.into_iter().map(|row| row.cells).collect(),
         overflow,
+        ..Default::default()
     }
 }
 
@@ -588,6 +589,7 @@ fn context_overflow_keeps_only_the_first_paragraph_in_identity_layout() {
     let overflow = BidiParagraphContext {
         rows: Vec::new(),
         overflow: true,
+        ..Default::default()
     };
     let map = BidiDisplayMap::plan_with_context(&snapshot, &wrapped_flags(&terminal), &overflow);
     assert!(!map.row_is_reordered(0), "over-cap paragraph is identity");

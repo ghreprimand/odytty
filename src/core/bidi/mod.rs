@@ -10,10 +10,17 @@
 //! The contract:
 //!
 //! - **Paragraph.** One wrapped logical line, split into its physical rows. The
-//!   paragraph level is forced to 0 (left to right). Levels are resolved once
+//!   paragraph level comes from a [`BidiBaseDirection`]: 0 (left to right),
+//!   1 (right to left), or rules P2 and P3 (auto: the first strong character
+//!   outside isolates, left to right without one). Levels are resolved once
 //!   for the whole paragraph; the line rule L1 and the reordering rule L2 then
 //!   run on each physical row separately, so an owner never moves to another
 //!   physical row.
+//! - **Explicit mode.** A paragraph in the BiDi recommendation's explicit mode
+//!   (BDSM reset) holds text the application already arranged.
+//!   [`BidiLayout::plan_explicit`] gives left to right the identity layout and
+//!   right to left the exact reversal of each row's owners, every owner at
+//!   level 1 so mirrored characters present mirrored; no level is resolved.
 //! - **Owners.** The input is a sequence of [`BidiOwner`] units in logical
 //!   order: a base scalar with its attached marks, or a blank, each with its
 //!   cell width. A wide owner keeps its cells adjacent and its internal
@@ -28,8 +35,9 @@
 //!   every visual column: logical owner to visual span, and visual column to
 //!   logical owner and subcell. It also reports each owner's level, width,
 //!   and whether its base scalar is Bidi_Mirrored at an odd level.
-//! - **Identity.** A paragraph with nothing that can raise a level, or one over
-//!   an explicit cap, or malformed input, gets [`BidiLayout::Identity`]: the
+//! - **Identity.** A left-to-right or auto paragraph with nothing that can
+//!   raise a level, an explicit left-to-right paragraph, a paragraph over a
+//!   cap, or malformed input gets [`BidiLayout::Identity`]: the
 //!   complete identity layout, never a partially reordered prefix. Caps are
 //!   checked before any bidi work starts.
 //!
@@ -55,6 +63,8 @@ mod resolve;
 mod conformance_tests;
 #[cfg(test)]
 mod data_tests;
+#[cfg(test)]
+mod direction_tests;
 #[cfg(test)]
 mod tests;
 
@@ -86,11 +96,27 @@ pub struct BidiOwner<'a> {
     pub width: u8,
 }
 
+/// Where a paragraph's embedding level comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum BidiBaseDirection {
+    /// Level 0.
+    #[default]
+    LeftToRight,
+    /// Level 1.
+    RightToLeft,
+    /// Rules P2 and P3: the first strong character outside isolates decides,
+    /// and a paragraph without one is left to right.
+    Auto,
+}
+
 /// Why a paragraph received identity layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BidiIdentityReason {
-    /// Nothing in the paragraph can resolve to a non-zero level.
+    /// A left-to-right or auto paragraph in which nothing can resolve to a
+    /// non-zero level.
     LeftToRightOnly,
+    /// An explicit-mode left-to-right paragraph: the application arranged it.
+    ExplicitLeftToRight,
     /// More than [`MAX_BIDI_PARAGRAPH_OWNERS`] owners.
     OwnerCap,
     /// More than [`MAX_BIDI_PARAGRAPH_BYTES`] bytes of owner text.
@@ -115,13 +141,41 @@ pub enum BidiLayout {
 }
 
 impl BidiLayout {
-    /// Plan the paragraph made of `owners`, whose physical rows hold
-    /// `row_owner_counts[0]`, `row_owner_counts[1]`, ... owners in turn.
-    /// Never panics.
+    /// Plan the left-to-right paragraph made of `owners`, whose physical
+    /// rows hold `row_owner_counts[0]`, `row_owner_counts[1]`, ... owners in
+    /// turn. Never panics.
     pub fn plan(owners: &[BidiOwner<'_>], row_owner_counts: &[usize]) -> BidiLayout {
-        match check_input(owners, row_owner_counts) {
+        Self::plan_in(owners, row_owner_counts, BidiBaseDirection::LeftToRight)
+    }
+
+    /// [`Self::plan`] with the paragraph level taken from `base`. Never
+    /// panics.
+    pub fn plan_in(
+        owners: &[BidiOwner<'_>],
+        row_owner_counts: &[usize],
+        base: BidiBaseDirection,
+    ) -> BidiLayout {
+        match check_input(owners, row_owner_counts, base) {
             Err(reason) => BidiLayout::Identity(reason),
-            Ok(bytes) => build(owners, row_owner_counts, bytes),
+            Ok(bytes) => build(owners, row_owner_counts, bytes, base),
+        }
+    }
+
+    /// The layout of an explicit-mode paragraph: identity when left to right,
+    /// otherwise each row's owners in reverse order at level 1, with no level
+    /// resolution. The caps and shape rules of [`Self::plan`] apply. Never
+    /// panics.
+    pub fn plan_explicit(
+        owners: &[BidiOwner<'_>],
+        row_owner_counts: &[usize],
+        right_to_left: bool,
+    ) -> BidiLayout {
+        if !right_to_left {
+            return BidiLayout::Identity(BidiIdentityReason::ExplicitLeftToRight);
+        }
+        match check_input(owners, row_owner_counts, BidiBaseDirection::RightToLeft) {
+            Err(reason) => BidiLayout::Identity(reason),
+            Ok(_) => build_reversed(owners, row_owner_counts),
         }
     }
 
@@ -157,7 +211,7 @@ pub struct BidiVisualCell {
 }
 
 impl BidiPlan {
-    /// The paragraph embedding level (always 0 for now).
+    /// The paragraph embedding level.
     pub fn paragraph_level(&self) -> u8 {
         self.paragraph_level
     }
@@ -236,6 +290,7 @@ impl BidiPlan {
 fn check_input(
     owners: &[BidiOwner<'_>],
     row_owner_counts: &[usize],
+    base: BidiBaseDirection,
 ) -> Result<usize, BidiIdentityReason> {
     if owners.len() > MAX_BIDI_PARAGRAPH_OWNERS {
         return Err(BidiIdentityReason::OwnerCap);
@@ -262,10 +317,15 @@ fn check_input(
     if !shape_ok {
         return Err(BidiIdentityReason::MalformedInput);
     }
-    let any_raise = owners
-        .iter()
-        .flat_map(|owner| owner.text.chars())
-        .any(|scalar| resolve::can_raise_level(data::bidi_class(scalar)));
+    // A right-to-left paragraph is never the identity layout. An auto
+    // paragraph with nothing that can raise a level has no strong
+    // right-to-left character, so it resolves to level 0 like a left-to-right
+    // one.
+    let any_raise = base == BidiBaseDirection::RightToLeft
+        || owners
+            .iter()
+            .flat_map(|owner| owner.text.chars())
+            .any(|scalar| resolve::can_raise_level(data::bidi_class(scalar)));
     if !any_raise {
         return Err(BidiIdentityReason::LeftToRightOnly);
     }
@@ -274,7 +334,12 @@ fn check_input(
 
 /// Build the complete plan for validated input. Every index fits `u32`
 /// because the caps keep owners, rows, and columns far below `u32::MAX`.
-fn build(owners: &[BidiOwner<'_>], row_owner_counts: &[usize], bytes: usize) -> BidiLayout {
+fn build(
+    owners: &[BidiOwner<'_>],
+    row_owner_counts: &[usize],
+    bytes: usize,
+    base: BidiBaseDirection,
+) -> BidiLayout {
     let mut text = String::with_capacity(bytes);
     let mut first_scalar = Vec::with_capacity(owners.len() + 1);
     let mut scalars = 0usize;
@@ -284,7 +349,12 @@ fn build(owners: &[BidiOwner<'_>], row_owner_counts: &[usize], bytes: usize) -> 
         scalars += owner.text.chars().count();
     }
     first_scalar.push(scalars);
-    let paragraph = resolve::resolve_paragraph(&text, Some(0));
+    let base_level = match base {
+        BidiBaseDirection::LeftToRight => Some(0),
+        BidiBaseDirection::RightToLeft => Some(1),
+        BidiBaseDirection::Auto => None,
+    };
+    let paragraph = resolve::resolve_paragraph(&text, base_level);
 
     let mut levels = vec![0u8; owners.len()];
     let mut owner_row = vec![0u32; owners.len()];
@@ -328,7 +398,38 @@ fn build(owners: &[BidiOwner<'_>], row_owner_counts: &[usize], bytes: usize) -> 
     }
     row_owner_start.push(owner_start as u32);
     row_column_start.push(column_owners.len() as u32);
+    finish(
+        owners,
+        paragraph.paragraph,
+        levels,
+        Arrangement {
+            owner_row,
+            owner_column,
+            row_owner_start,
+            row_column_start,
+            visual_owners,
+            column_owners,
+        },
+    )
+}
 
+/// The visual placement half of a [`BidiPlan`].
+struct Arrangement {
+    owner_row: Vec<u32>,
+    owner_column: Vec<u32>,
+    row_owner_start: Vec<u32>,
+    row_column_start: Vec<u32>,
+    visual_owners: Vec<u32>,
+    column_owners: Vec<u32>,
+}
+
+/// Complete a plan from its levels and placement: mirroring and widths.
+fn finish(
+    owners: &[BidiOwner<'_>],
+    paragraph_level: u8,
+    levels: Vec<u8>,
+    arrangement: Arrangement,
+) -> BidiLayout {
     let mirrored = owners
         .iter()
         .zip(&levels)
@@ -337,17 +438,61 @@ fn build(owners: &[BidiOwner<'_>], row_owner_counts: &[usize], bytes: usize) -> 
         })
         .collect();
     BidiLayout::Reordered(Box::new(BidiPlan {
-        paragraph_level: paragraph.paragraph,
+        paragraph_level,
         levels,
         widths: owners.iter().map(|owner| owner.width).collect(),
         mirrored,
-        owner_row,
-        owner_column,
-        row_owner_start,
-        row_column_start,
-        visual_owners,
-        column_owners,
+        owner_row: arrangement.owner_row,
+        owner_column: arrangement.owner_column,
+        row_owner_start: arrangement.row_owner_start,
+        row_column_start: arrangement.row_column_start,
+        visual_owners: arrangement.visual_owners,
+        column_owners: arrangement.column_owners,
     }))
+}
+
+/// The explicit right-to-left plan for validated input: every row's owners
+/// in reverse logical order, each at level 1.
+fn build_reversed(owners: &[BidiOwner<'_>], row_owner_counts: &[usize]) -> BidiLayout {
+    let mut owner_row = vec![0u32; owners.len()];
+    let mut owner_column = vec![0u32; owners.len()];
+    let mut row_owner_start = Vec::with_capacity(row_owner_counts.len() + 1);
+    let mut row_column_start = Vec::with_capacity(row_owner_counts.len() + 1);
+    let mut visual_owners = Vec::with_capacity(owners.len());
+    let total_columns: usize = owners.iter().map(|owner| usize::from(owner.width)).sum();
+    let mut column_owners = Vec::with_capacity(total_columns);
+    let mut owner_start = 0usize;
+    for (row, count) in row_owner_counts.iter().enumerate() {
+        let owner_end = owner_start + count;
+        row_owner_start.push(owner_start as u32);
+        row_column_start.push(column_owners.len() as u32);
+        let mut column = 0u32;
+        for owner in (owner_start..owner_end).rev() {
+            owner_row[owner] = row as u32;
+            owner_column[owner] = column;
+            visual_owners.push(owner as u32);
+            for _ in 0..owners[owner].width {
+                column_owners.push(owner as u32);
+            }
+            column += u32::from(owners[owner].width);
+        }
+        owner_start = owner_end;
+    }
+    row_owner_start.push(owner_start as u32);
+    row_column_start.push(column_owners.len() as u32);
+    finish(
+        owners,
+        1,
+        vec![1; owners.len()],
+        Arrangement {
+            owner_row,
+            owner_column,
+            row_owner_start,
+            row_column_start,
+            visual_owners,
+            column_owners,
+        },
+    )
 }
 
 /// Whether `scalar` is a bidi format control: an explicit embedding,

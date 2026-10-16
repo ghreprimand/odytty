@@ -285,6 +285,26 @@ pub(super) fn parse_ambiguous_width_setting(
     }
 }
 
+pub(super) fn parse_bidi_direction_setting(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> BidiDirection {
+    let Some(raw) = raw else {
+        return BidiDirection::LeftToRight;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return BidiDirection::LeftToRight;
+    }
+    BidiDirection::parse(trimmed).unwrap_or_else(|| {
+        warn(&format!(
+            "{BIDI_DIRECTION_ENV}={trimmed:?} is not ltr|rtl|auto; using ltr"
+        ));
+        BidiDirection::LeftToRight
+    })
+}
+
 pub(super) fn parse_font_size(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     let Some(raw) = raw else {
         return DEFAULT_FONT_SIZE_PX;

@@ -123,6 +123,7 @@ impl Settings {
             "ss02" => bool_display(self.ligature_ss02).to_owned(),
             "font_zero" => bool_display(self.font_zero).to_owned(),
             "bidi_reorder" => bool_display(self.bidi_reorder).to_owned(),
+            "bidi_direction" => self.bidi_direction.as_str().to_owned(),
             "kitty_named_transports" => bool_display(self.kitty_named_transports).to_owned(),
             "secure_keyboard_input" => bool_display(self.secure_keyboard_input).to_owned(),
             "synthetic_styles" => bool_display(self.synthetic_styles).to_owned(),
