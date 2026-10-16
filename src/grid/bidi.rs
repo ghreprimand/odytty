@@ -29,6 +29,10 @@
 //! character that did not fit leaves at a row end) take no part in level
 //! resolution and sit at the row end in the paragraph direction.
 //!
+//! A row an image covers keeps the identity layout
+//! ([`BidiDisplayMap::reset_image_rows`]): images never move with text, so
+//! text on an image row reads in logical order.
+//!
 //! Known limit: a Bidi_Mirrored character with no Bidi_Mirroring_Glyph pair
 //! (U+2211, for example) draws unmirrored.
 //!
@@ -38,9 +42,10 @@ use std::ops::Range;
 
 use crate::core::{
     BidiBaseDirection, BidiLayout, BidiOwner, Cell, MAX_BIDI_OWNER_WIDTH,
-    MAX_BIDI_PARAGRAPH_OWNERS, MAX_BIDI_PARAGRAPH_ROWS, ParagraphBidi, ParagraphDirection,
-    Snapshot, bidi_mirroring_glyph,
+    MAX_BIDI_PARAGRAPH_OWNERS, MAX_BIDI_PARAGRAPH_ROWS, PLACEHOLDER_CHAR, ParagraphBidi,
+    ParagraphDirection, Snapshot, bidi_mirroring_glyph,
 };
+use crate::graphics::VisiblePlacement;
 
 /// The most rows above a snapshot that can belong to a paragraph the plan
 /// would still reorder at `columns`. A paragraph that needs more context rows
@@ -404,6 +409,46 @@ impl BidiDisplayMap {
         }
         self.reordered_rows[row] = false;
         self.explicit_rows[row] = false;
+    }
+
+    /// Return to identity every row an image covers: the rows of each
+    /// visible placement (one more above or below when its pixel offset moves
+    /// it into a neighbor), and every reordered row of `snapshot` holding a
+    /// Kitty Unicode placeholder cell. Images are placed in logical screen
+    /// geometry and can span rows, so a covered row keeps its logical order
+    /// and image, text, and pointer agree. `placements` and `snapshot` come
+    /// from the same viewport as the map.
+    pub fn reset_image_rows(&mut self, snapshot: &Snapshot, placements: &[VisiblePlacement]) {
+        if self.is_identity() {
+            return;
+        }
+        for placement in placements {
+            let first = if placement.pixel_offset_y < 0 {
+                placement.row.saturating_sub(1)
+            } else {
+                placement.row
+            };
+            let rows = placement.display_rows.max(1) + usize::from(placement.pixel_offset_y > 0);
+            let end = placement.row.saturating_add(rows).min(self.rows);
+            for row in first..end {
+                self.reset_row(row);
+            }
+        }
+        if !crate::grid::snapshot_shape_is_valid(snapshot)
+            || snapshot.dimensions.columns != self.columns
+        {
+            return;
+        }
+        for (row, cells) in snapshot
+            .cells
+            .chunks(self.columns)
+            .enumerate()
+            .take(self.rows)
+        {
+            if self.reordered_rows[row] && cells.iter().any(|cell| cell.ch == PLACEHOLDER_CHAR) {
+                self.reset_row(row);
+            }
+        }
     }
 
     /// Reset to identity every row whose characters differ between `planned`

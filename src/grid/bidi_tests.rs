@@ -1023,3 +1023,57 @@ fn placement_hash_tracks_placement_alone() {
     reset.reset_row(0);
     assert_eq!(reset.placement_hash(), identity.placement_hash());
 }
+
+/// Pixel fixture: a right-to-left paragraph row covered by a Sixel image draws
+/// its text exactly as the logical-order production path does, while the
+/// uncovered row above still draws in display order.
+#[test]
+fn sixel_covered_row_keeps_logical_text_order() {
+    let _render = crate::test_lock::render_globals_lock();
+    let text = "\x1b[2 k\u{05D0}\u{05D1} \u{05D2}\r\n\u{05D3}\u{05D4} \u{05D0}\x1b[2;9H\x1bPq#0;2;100;0;0#0~~~~\x1b\\";
+    let (mut atlas, fonts) = setup();
+    let terminal = terminal(text, 10, 3);
+    assert!(
+        terminal
+            .visible_graphics(0)
+            .iter()
+            .any(|image| image.row == 1),
+        "the Sixel image covers row 1"
+    );
+    let snapshot = terminal.snapshot();
+    let (wrapped, properties): (Vec<bool>, Vec<_>) = terminal
+        .visible_search_rows(0)
+        .iter()
+        .map(|row| (row.wrapped, row.paragraph_bidi))
+        .unzip();
+    let mut map = BidiDisplayMap::plan_with_paragraphs(
+        &snapshot,
+        &wrapped,
+        &BidiParagraphContext::default(),
+        BidiParagraphs {
+            properties: &properties,
+            default_direction: crate::core::BidiBaseDirection::LeftToRight,
+        },
+    );
+    assert!(
+        map.row_is_reordered(1),
+        "the fixture row reorders before the reset"
+    );
+    map.reset_image_rows(&snapshot, &terminal.visible_graphics(0));
+    assert!(map.row_is_reordered(0));
+    assert!(!map.row_is_reordered(1));
+    let runs = LigatureShaper::new().build_runs_bidi(&snapshot, &fonts, &[], &map);
+    ensure_runs(&mut atlas, &fonts, &runs);
+    let mut verts = Vec::new();
+    build_cell_vertices_with_bidi_into(&mut verts, &snapshot, &atlas, &[], &runs, &map);
+    let frame = composite(&snapshot, &atlas, &verts);
+    let production = production_frame(text, 10, 3);
+    assert!(
+        frame.block(1, 0..10) == production.block(1, 0..10),
+        "the covered row draws in logical order"
+    );
+    assert!(
+        frame.block(0, 0..10) != production.block(0, 0..10),
+        "the uncovered row still draws in display order"
+    );
+}

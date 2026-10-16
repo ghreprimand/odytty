@@ -5,20 +5,20 @@
 //! While the setting is on, the single-pane frame and each content pane of a
 //! split frame showing the primary screen plan a [`BidiDisplayMap`] for their
 //! content grid (with the paragraph context above the viewport, each
-//! paragraph's stored BDSM and SCP properties, and the `bidi_direction`
-//! setting for paragraphs without a direction), reset rows changed by inline text painters
-//! back to identity, and hand the map to the renderer. Window-level panels and
-//! rename fields composite above the terminal without changing its map. The
-//! alternate screen is never planned. The single-pane map is placed inside the
-//! decorated frame, so chrome stays in identity layout; split chrome strips
-//! never take a map. The pointer maps a content cell under the pointer to the
-//! logical cell drawn there through the focused content map, so selection,
-//! hover, and every cell-encoded mouse report address logical cells. An
-//! SGR-pixel report moves by whole cells onto the logical cell and keeps its
-//! offset inside the cell. The cursor effects (slide, trail, follower, and
-//! aura) run in drawn columns, so they start and end where the cursor block is
-//! drawn. Cursor, selection, search, copy, and every terminal protocol value
-//! stay logical.
+//! paragraph's stored BDSM and SCP properties, and the `bidi_direction` setting
+//! for paragraphs without a direction), reset rows an image covers and rows
+//! changed by inline text painters back to identity, and hand the map to the
+//! renderer. Window-level panels and rename fields composite above the terminal
+//! without changing its map. The alternate screen is never planned. The
+//! single-pane map is placed inside the decorated frame, so chrome stays in
+//! identity layout; split chrome strips never take a map. The pointer maps a
+//! content cell under the pointer to the logical cell drawn there through the
+//! focused content map, so selection, hover, and every cell-encoded mouse
+//! report address logical cells. An SGR-pixel report moves by whole cells onto
+//! the logical cell and keeps its offset inside the cell. The cursor effects
+//! (slide, trail, follower, and aura) run in drawn columns, so they start and
+//! end where the cursor block is drawn. Cursor, selection, search, copy, and
+//! every terminal protocol value stay logical.
 //!
 //! With the setting off every method here returns the identity answer and no
 //! map is planned. Platform-neutral.
@@ -321,7 +321,7 @@ pub(super) fn plan_content_map(
         rows: rows.into_iter().map(|row| row.cells).collect(),
         overflow,
     };
-    Some(BidiDisplayMap::plan_with_paragraphs(
+    let mut map = BidiDisplayMap::plan_with_paragraphs(
         snapshot,
         &wrapped,
         &context,
@@ -329,7 +329,14 @@ pub(super) fn plan_content_map(
             properties: &properties,
             default_direction,
         },
-    ))
+    );
+    // Rows an image covers keep the identity layout (images never move with
+    // text). Sixel, iTerm2, Kitty direct, and Kitty placeholder placements all
+    // arrive through the visible-graphics walk of the same viewport.
+    if !map.is_identity() {
+        map.reset_image_rows(snapshot, &terminal.visible_graphics(offset));
+    }
+    Some(map)
 }
 
 #[cfg(test)]

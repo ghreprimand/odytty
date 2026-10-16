@@ -645,10 +645,12 @@ program that arranges its own text sends `CSI 8 l` (explicit mode): its
 paragraphs are then never reordered, only mirrored column for column when
 right to left, and draw without contextual joining; `CSI 8 h` restores the
 default implicit mode. The alternate screen used by full-screen programs is
-never reordered, and image placements are not reordered. A shaped complex-script owner is
-never split: inside a right-to-left isolate it moves as one unit, keeps its
-cells adjacent and in order, and draws its shaped glyphs across their visual
-columns.
+never reordered. Images never move with text: a row covered by a Sixel,
+iTerm2, or Kitty image (including Kitty Unicode placeholder cells) keeps its
+logical order, so text beside an image reads left to right. A shaped
+complex-script owner is never split: inside a right-to-left isolate it moves
+as one unit, keeps its cells adjacent and in order, and draws its shaped
+glyphs across their visual columns.
 
 The support boundary is explicit:
 

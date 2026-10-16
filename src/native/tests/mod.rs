@@ -236,6 +236,7 @@ mod audit_ui_liveness;
 mod background_model_sync;
 mod bidi_autoscroll;
 mod bidi_effects;
+mod bidi_images;
 mod bidi_input;
 mod bidi_lifecycle;
 mod bidi_paragraph;

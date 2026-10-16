@@ -56,7 +56,7 @@ fn geometry(
 
 /// The live frame's plan, as the native frame builds it: soft-wrap flags,
 /// each paragraph's stored properties, the context above the viewport, and
-/// the default left-to-right direction.
+/// the default left-to-right direction, with image rows reset.
 fn plan_frame(
     terminal: &Terminal,
     snapshot: &odytty::core::Snapshot,
@@ -68,7 +68,7 @@ fn plan_frame(
         .map(|row| (row.wrapped, row.paragraph_bidi))
         .unzip();
     let (rows, overflow) = terminal.paragraph_context_rows(offset, max_bidi_context_rows(COLS));
-    BidiDisplayMap::plan_with_paragraphs(
+    let mut map = BidiDisplayMap::plan_with_paragraphs(
         snapshot,
         &wrapped,
         &BidiParagraphContext {
@@ -83,7 +83,12 @@ fn plan_frame(
             properties: &properties,
             default_direction: Default::default(),
         },
-    )
+    );
+    // Rows an image covers keep the identity layout, as in the live frame.
+    if !map.is_identity() {
+        map.reset_image_rows(snapshot, &terminal.visible_graphics(offset));
+    }
+    map
 }
 
 fn bidi_rows() {

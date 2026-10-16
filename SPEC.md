@@ -2986,6 +2986,14 @@ paragraph direction. With `bidi_reorder` off every paragraph keeps the
 identity layout whatever its properties; the properties are still tracked and
 reported.
 
+A row an image covers keeps the identity layout: every row of a visible
+Sixel, iTerm2, or Kitty placement (one row more where a Kitty pixel offset
+moves the image into a neighbor) and every reordered row holding a Kitty
+Unicode placeholder cell. Images are placed in logical screen geometry and
+can span rows, which a per-row permutation cannot keep whole, so image, text,
+and pointer stay aligned; text on such a row reads in logical order. This
+applies to the single-pane frame and to every split pane.
+
 #### Wide-Glyph Wrap Padding
 
 When a two-column owner does not fit at the right edge, the generated blank

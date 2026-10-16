@@ -236,7 +236,8 @@ terminal protocol value stay logical. Plain limits: the alternate screen
 as whole spans without splitting or changing their internal cell order; a
 mirrored character without a Unicode mirroring counterpart draws unmirrored;
 block-selection export is not reordered or specially handled;
-image placements are not reordered.
+a row covered by an image keeps its logical order, so images never move with
+text and the text beside them is not reordered.
 
 The plan comes from a headless module, `src/core/bidi`: for one
 wrapped logical line it resolves UAX #9 levels at a left-to-right,
