@@ -197,8 +197,8 @@ owner shaping for the supported scripts (`script_shaping`) are drawn as overlays
 over exactly the cells their source text occupies, and the per-cell glyphs they
 replace are not drawn again. When `bidi_reorder` is on (off by default) the
 renderer consumes a bidirectional display plan that places each owner's cells in
-display order on the primary screen. Cell ownership, cursor addressing,
-selection, copy, and search stay logical. See
+display order on the primary and alternate screens. Cell ownership, cursor
+addressing, selection, copy, and search stay logical. See
 [`shaping-roadmap.md`](shaping-roadmap.md) for the supported scripts and the
 exact boundary.
 

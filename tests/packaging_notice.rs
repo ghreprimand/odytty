@@ -32,6 +32,7 @@ const GENERATED_TABLES: &[&str] = &[
     "src/core/grapheme/data.rs",
     "src/core/indic/data.rs",
     "src/core/indic/linked.rs",
+    "src/ligature/joining_data.rs",
 ];
 
 const LICENSE_FIXTURES: &[&str] = &[

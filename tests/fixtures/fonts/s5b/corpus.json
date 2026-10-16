@@ -3548,6 +3548,276 @@
           "note": "extended-vowel"
         }
       ]
+    },
+    {
+      "group": "joining",
+      "script": "syriac",
+      "script_tag": "Syrc",
+      "font": "Syriac-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Syriac Fixture",
+      "release_url": "https://github.com/notofonts/syriac/releases/download/NotoSansSyriac-v3.000/NotoSansSyriac-v3.000.zip",
+      "archive_sha256": "1d31ac6f3f221332005e10d74af6e0e9bb2fb4ed67c306788d12acba33616538",
+      "source_member": "NotoSansSyriac/hinted/ttf/NotoSansSyriac-Regular.ttf",
+      "source_sha256": "4440929bf1a47bb50179e8d8495641d208c63d607355e451f29ea2d3e5343290",
+      "source_filename": "NotoSansSyriac-Regular.ttf",
+      "source_family": "NotoSansSyriac",
+      "license_member": "../OFL.txt",
+      "license_file": "Syriac-OFL.txt",
+      "license_sha256": "efbc74c9bbad125c0ab624d299caf15110b1c98e28e989bf05408c586d13272e",
+      "required_scalars": [
+        "U+0020",
+        "U+0710",
+        "U+0712",
+        "U+0713",
+        "U+0715",
+        "U+0720",
+        "U+0721",
+        "U+072B",
+        "U+0730",
+        "U+0731"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "6442860dad2700aabece2ac7252680b1a5bfc0987cec1ca0c3d605ab8f0b7975",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained.",
+      "cases": [
+        {
+          "id": "syriac-1",
+          "codepoints": [
+            "U+0712",
+            "U+0712",
+            "U+0712"
+          ],
+          "note": "init-medi-fina"
+        },
+        {
+          "id": "syriac-2",
+          "codepoints": [
+            "U+072B",
+            "U+0720",
+            "U+0721",
+            "U+0710"
+          ],
+          "note": "final-alaph"
+        },
+        {
+          "id": "syriac-3",
+          "codepoints": [
+            "U+0712",
+            "U+0715",
+            "U+0710"
+          ],
+          "note": "alaph-after-dalath"
+        },
+        {
+          "id": "syriac-4",
+          "codepoints": [
+            "U+0712",
+            "U+0730",
+            "U+0712"
+          ],
+          "note": "mark-above"
+        },
+        {
+          "id": "syriac-5",
+          "codepoints": [
+            "U+0713",
+            "U+0731",
+            "U+0712"
+          ],
+          "note": "mark-below"
+        },
+        {
+          "id": "syriac-6",
+          "codepoints": [
+            "U+0710",
+            "U+0712"
+          ],
+          "note": "right-joining-control"
+        },
+        {
+          "id": "syriac-7",
+          "codepoints": [
+            "U+0720",
+            "U+0710"
+          ],
+          "note": "lamadh-alaph"
+        }
+      ],
+      "direction": "rtl"
+    },
+    {
+      "group": "joining",
+      "script": "nko",
+      "script_tag": "Nkoo",
+      "font": "NKo-subset.ttf",
+      "fixture_family": "OdyTTY Shaping NKo Fixture",
+      "release_url": "https://github.com/notofonts/nko/releases/download/NotoSansNKo-v2.004/NotoSansNKo-v2.004.zip",
+      "archive_sha256": "8324d3c34a9006a22e121fbe7454ddd0006513a715de027005e894c8a2dafbb2",
+      "source_member": "NotoSansNKo/hinted/ttf/NotoSansNKo-Regular.ttf",
+      "source_sha256": "c756efb2c40f754107d76fa4e401fc3b8b7edec5cc65db549d3d0236ac6d08a1",
+      "source_filename": "NotoSansNKo-Regular.ttf",
+      "source_family": "NotoSansNKo",
+      "license_member": "OFL.txt",
+      "license_file": "NKo-OFL.txt",
+      "license_sha256": "ea2d784b2fcabce7de1b583168218c84911bd3a1a881596a2c8def516779b69e",
+      "required_scalars": [
+        "U+0020",
+        "U+07CA",
+        "U+07CB",
+        "U+07CC",
+        "U+07CF",
+        "U+07D2",
+        "U+07D3",
+        "U+07EB",
+        "U+07F2",
+        "U+07FA"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "ddddb5913f75b8f4af1e50386b5ecdfa909b58685994f120b116a3ae5a1c8c48",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained.",
+      "cases": [
+        {
+          "id": "nko-1",
+          "codepoints": [
+            "U+07CA",
+            "U+07CB",
+            "U+07CC"
+          ],
+          "note": "init-medi-fina"
+        },
+        {
+          "id": "nko-2",
+          "codepoints": [
+            "U+07D3",
+            "U+07EB",
+            "U+07D3"
+          ],
+          "note": "tone-mark"
+        },
+        {
+          "id": "nko-3",
+          "codepoints": [
+            "U+07CA",
+            "U+07FA",
+            "U+07CA"
+          ],
+          "note": "lajanyalan"
+        },
+        {
+          "id": "nko-4",
+          "codepoints": [
+            "U+07CF",
+            "U+07F2",
+            "U+07CB"
+          ],
+          "note": "nasalization-mark"
+        },
+        {
+          "id": "nko-5",
+          "codepoints": [
+            "U+07D2",
+            "U+07CA"
+          ],
+          "note": "pair"
+        },
+        {
+          "id": "nko-6",
+          "codepoints": [
+            "U+07D3",
+            "U+07CA",
+            "U+07D3",
+            "U+07CA"
+          ],
+          "note": "four-letters"
+        }
+      ],
+      "direction": "rtl"
+    },
+    {
+      "group": "joining",
+      "script": "mandaic",
+      "script_tag": "Mand",
+      "font": "Mandaic-subset.ttf",
+      "fixture_family": "OdyTTY Shaping Mandaic Fixture",
+      "release_url": "https://github.com/notofonts/mandaic/releases/download/NotoSansMandaic-v2.003/NotoSansMandaic-v2.003.zip",
+      "archive_sha256": "e36cd42da5e7397feee3a3b1046a9d1f0328d29a9fb4c27c716fde630f26a7f4",
+      "source_member": "NotoSansMandaic/hinted/ttf/NotoSansMandaic-Regular.ttf",
+      "source_sha256": "0ecb2440205b9fe02fce714ddda98bb59892d4f7eacce2c1f12028b172a34de8",
+      "source_filename": "NotoSansMandaic-Regular.ttf",
+      "source_family": "NotoSansMandaic",
+      "license_member": "OFL.txt",
+      "license_file": "Mandaic-OFL.txt",
+      "license_sha256": "691a19a71ed8810e13c9afaa68cdc5765849532e999642dd989ad1f22cd7e593",
+      "required_scalars": [
+        "U+0020",
+        "U+0840",
+        "U+0841",
+        "U+0842",
+        "U+0843",
+        "U+0844",
+        "U+0846",
+        "U+0848",
+        "U+0859",
+        "U+085A"
+      ],
+      "repertoire_basis": "Input cases, space, and canonical/compatibility decomposition scalars needed by the shaper.",
+      "source_license_sha256": "b5a142ed5fe40575370ceffe3f611ce95bb12afcffd363bed18cbf6f624daa13",
+      "license_normalization": "Trailing whitespace removed; complete wording and notices retained.",
+      "cases": [
+        {
+          "id": "mandaic-1",
+          "codepoints": [
+            "U+0841",
+            "U+0842",
+            "U+0843"
+          ],
+          "note": "init-medi-fina"
+        },
+        {
+          "id": "mandaic-2",
+          "codepoints": [
+            "U+0841",
+            "U+0859",
+            "U+0842"
+          ],
+          "note": "affrication-mark"
+        },
+        {
+          "id": "mandaic-3",
+          "codepoints": [
+            "U+0841",
+            "U+0840"
+          ],
+          "note": "right-joining-final"
+        },
+        {
+          "id": "mandaic-4",
+          "codepoints": [
+            "U+0840",
+            "U+0841"
+          ],
+          "note": "right-joining-control"
+        },
+        {
+          "id": "mandaic-5",
+          "codepoints": [
+            "U+0844",
+            "U+085A",
+            "U+0846"
+          ],
+          "note": "vocalization-mark"
+        },
+        {
+          "id": "mandaic-6",
+          "codepoints": [
+            "U+0848",
+            "U+0841",
+            "U+0848"
+          ],
+          "note": "three-letters"
+        }
+      ],
+      "direction": "rtl"
     }
   ]
 }

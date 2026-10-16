@@ -184,18 +184,53 @@ fn explicit_paragraph_draws_no_joining_overlay() {
     let _render = crate::test_lock::render_globals_lock();
     let fonts = Fonts(font());
     let word = "\u{0628}\u{0644}\u{0627}";
-    let implicit = terminal(&format!("\x1b[2 k{word}"), 8, 1);
-    let map = plan(&implicit, BidiBaseDirection::LeftToRight);
-    let runs = LigatureShaper::new().build_runs_bidi(&implicit.snapshot(), &fonts, &[], &map);
-    assert!(!runs.is_empty(), "an implicit paragraph joins the run");
-    let explicit = terminal(&format!("\x1b[8l\x1b[2 k{word}"), 8, 1);
-    let map = plan(&explicit, BidiBaseDirection::LeftToRight);
-    assert!(map.row_is_explicit(0));
-    let runs = LigatureShaper::new().build_runs_bidi(&explicit.snapshot(), &fonts, &[], &map);
-    assert!(
-        runs.is_empty(),
-        "explicit text is drawn cell by cell: {runs:?}"
+    // Right to left, then left to right: an explicit left-to-right
+    // paragraph keeps the identity layout and still takes no joining.
+    for scp in ["\x1b[2 k", "\x1b[1 k"] {
+        let implicit = terminal(&format!("{scp}{word}"), 8, 1);
+        let map = plan(&implicit, BidiBaseDirection::LeftToRight);
+        let runs = LigatureShaper::new().build_runs_bidi(&implicit.snapshot(), &fonts, &[], &map);
+        assert!(
+            !runs.is_empty(),
+            "{scp:?}: an implicit paragraph joins the run"
+        );
+        let explicit = terminal(&format!("\x1b[8l{scp}{word}"), 8, 1);
+        let map = plan(&explicit, BidiBaseDirection::LeftToRight);
+        assert!(map.row_is_explicit(0));
+        let runs = LigatureShaper::new().build_runs_bidi(&explicit.snapshot(), &fonts, &[], &map);
+        assert!(
+            runs.is_empty(),
+            "{scp:?}: explicit text is drawn cell by cell: {runs:?}"
+        );
+    }
+}
+
+#[test]
+fn explicit_paragraph_draws_no_syriac_joining_overlay() {
+    let _render = crate::test_lock::render_globals_lock();
+    let fonts = Fonts(
+        FontHandle::try_from_vec(
+            include_bytes!("../../tests/fixtures/fonts/s5b/joining/Syriac-subset.ttf").to_vec(),
+        )
+        .expect("Syriac fixture parses"),
     );
+    let word = "\u{0712}\u{0712}\u{0712}";
+    for scp in ["\x1b[2 k", "\x1b[1 k"] {
+        let implicit = terminal(&format!("{scp}{word}"), 8, 1);
+        let map = plan(&implicit, BidiBaseDirection::LeftToRight);
+        let runs = LigatureShaper::new().build_runs_bidi(&implicit.snapshot(), &fonts, &[], &map);
+        assert!(
+            !runs.is_empty(),
+            "{scp:?}: an implicit paragraph joins the run"
+        );
+        let explicit = terminal(&format!("\x1b[8l{scp}{word}"), 8, 1);
+        let map = plan(&explicit, BidiBaseDirection::LeftToRight);
+        let runs = LigatureShaper::new().build_runs_bidi(&explicit.snapshot(), &fonts, &[], &map);
+        assert!(
+            runs.is_empty(),
+            "{scp:?}: explicit text is drawn cell by cell: {runs:?}"
+        );
+    }
 }
 
 #[test]

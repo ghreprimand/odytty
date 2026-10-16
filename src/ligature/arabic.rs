@@ -73,16 +73,7 @@ pub(super) fn is_arabic_harakat(ch: char) -> bool {
         .any(|&(first, last)| (first..=last).contains(&value))
 }
 
-/// Whether a cell with base `cell.ch` may carry its combining marks into an
-/// Arabic joining run. A cell without marks always may.
-#[inline]
-pub(super) fn marks_join_arabic_run(cell: &Cell) -> bool {
-    let marks = cell.combining();
-    marks.is_empty()
-        || (is_arabic_joining_base(cell.ch) && marks.iter().all(|&m| is_arabic_harakat(m)))
-}
-
-/// Sub-ranges excluding unmapped Arabic bases and retained marks. Unmarked
+/// Sub-ranges excluding unmapped joining letters and retained marks. Unmarked
 /// Latin/operator runs retain their compatibility bounds.
 pub(super) fn mapped_mark_segments(
     cells: &[Cell],
@@ -93,7 +84,7 @@ pub(super) fn mapped_mark_segments(
     let mut segments = Vec::new();
     let mut segment = start;
     for (column, cell) in cells.iter().enumerate().take(end).skip(start) {
-        let unmapped = (is_arabic_joining_base(cell.ch) && font.glyph_id(cell.ch).0 == 0)
+        let unmapped = (super::joining_script(cell.ch).is_some() && font.glyph_id(cell.ch).0 == 0)
             || cell
                 .combining()
                 .iter()

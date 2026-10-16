@@ -66,10 +66,12 @@ brackets and mirroring (`src/core/bidi/`), emoji presentation and sequence
 widths (`src/core/emoji_width/`), grapheme cluster break properties
 (`src/core/grapheme/`), Indic cluster, width and virama-link properties
 (`src/core/indic/`), script properties for owner shaping
-(`src/complex_shaping/script_data.rs`), and the glyph atlas combining-mark
-table (`src/atlas/marks.rs`). Each generated file names its source files and
-records their checksums in its header. The data is copyright Unicode, Inc. and
-is distributed under the Unicode License v3, reproduced here in full:
+(`src/complex_shaping/script_data.rs`), joining letters and transparent marks of
+the joining scripts beyond Arabic (`src/ligature/joining_data.rs`), and the
+glyph atlas combining-mark table (`src/atlas/marks.rs`). Each generated file
+names its source files and records their checksums in its header. The data is
+copyright Unicode, Inc. and is distributed under the Unicode License v3,
+reproduced here in full:
 
 UNICODE LICENSE V3
 

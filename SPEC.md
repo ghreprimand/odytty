@@ -384,7 +384,7 @@ decision, not a trade-off pending revisitation.
 |---------|-------|
 | Font file parsing and glyph outlines | `skrifa` |
 | Glyph coverage rasterization | `ab_glyph_rasterizer` |
-| Complex-script shaping for the enabled script groups | `harfrust` |
+| Complex-script owner shaping; Syriac, N'Ko, and Mandaic joining | `harfrust` |
 | Latin ligature, Arabic joining, and emoji shaping; bitmap and COLR v0 glyph rasterization | `swash` |
 | COLR v1 and SVG glyph rasterization | `tiny-skia` |
 | Kitty graphics payload decompression, bounded at the call site | `flate2` |
@@ -2883,18 +2883,18 @@ terminal-grid model.
 `ligatures` is a default-on presentation setting. Eligible same-style ASCII runs
 are shaped with `swash::ShapeContext` and contextual alternates, while the
 terminal model retains its source owners and fixed cell positions.
-`ligatures = off` restores per-cell Latin/operator glyphs exactly. Arabic
-joining and complex-script owner forms follow the separate default-on
-`script_shaping` setting (`ODYTTY_SCRIPT_SHAPING`). Each setting applies live
-from Settings > Rendering, reachable from the right-click menu. Script shaping
-off restores per-cell glyphs for its scripts. Arabic joining and complex-script
-owner forms are independent of `ligatures`. Complex-script fallback owner runs start
-at the primary face's em size, then fit their actual ink once to the reserved
-span and vertical overflow allowance, with a 0.6 scale floor and clipping
-beyond it. Tall fallback line metrics do not impose an earlier reduction.
-Optional stylistic sets `ss01` and
-`ss02` (off by default) apply to ligature shaping. Both switches share the same
-paths on Linux Wayland, Linux X11, macOS, and Windows.
+`ligatures = off` restores per-cell Latin/operator glyphs exactly. Contextual
+joining (Arabic, Syriac, N'Ko, and Mandaic) and complex-script owner forms
+follow the separate default-on `script_shaping` setting
+(`ODYTTY_SCRIPT_SHAPING`). Each setting applies live from Settings > Rendering,
+reachable from the right-click menu. Script shaping off restores per-cell glyphs
+for its scripts. Arabic joining and complex-script owner forms are independent
+of `ligatures`. Complex-script fallback owner runs start at the primary face's
+em size, then fit their actual ink once to the reserved span and vertical
+overflow allowance, with a 0.6 scale floor and clipping beyond it. Tall fallback
+line metrics do not impose an earlier reduction. Optional stylistic sets `ss01`
+and `ss02` (off by default) apply to ligature shaping. Both switches share the
+same paths on Linux Wayland, Linux X11, macOS, and Windows.
 
 The renderer caches deterministic per-row shape plans, bounded to 512 rows, so
 unchanged rows are not reshaped in the render hot loop. Contextual atlas entries
@@ -2978,14 +2978,14 @@ isolates, left to right without one). A right-to-left paragraph starts at the
 right edge: logical column 0, and trailing blanks, which rule L1 returns to
 the paragraph level, fill the row from the left. In explicit mode the
 application has already arranged the text: a left-to-right paragraph keeps
-the identity layout, and a right-to-left one is the exact reversal of each
-row's owners, every owner at level 1 so mirrored characters draw mirrored,
-with no level resolution and no contextual joining (Arabic runs on such a row
-draw cell by cell). Auto counts as left to right in explicit mode. Layout
-padding cells take no part in level resolution and sit at the row end in the
-paragraph direction. With `bidi_reorder` off every paragraph keeps the
-identity layout whatever its properties; the properties are still tracked and
-reported.
+the identity layout, and a right-to-left one is the exact reversal of each row's
+owners, every owner at level 1 so mirrored characters draw mirrored, with no
+level resolution. Neither takes contextual joining: Arabic, Syriac, N'Ko, and
+Mandaic runs on an explicit row draw cell by cell. Auto counts as left to right
+in explicit mode. Layout padding cells take no part in level resolution and sit
+at the row end in the paragraph direction. With `bidi_reorder` off every
+paragraph keeps the identity layout whatever its properties; the properties are
+still tracked and reported.
 
 A row an image covers keeps the identity layout: every row of a visible
 Sixel, iTerm2, or Kitty placement (one row more where a Kitty pixel offset
@@ -3084,7 +3084,10 @@ With script shaping on, Arabic harakat on an Arabic letter inside a
 joining run of two or more cells are drawn instead by the shaping overlay at
 the font's mark-positioned offsets, and only when the text font maps the base
 and every mark on that cell; the monochrome path does not draw them again (see
-[`docs/shaping-roadmap.md`](docs/shaping-roadmap.md)).
+[`docs/shaping-roadmap.md`](docs/shaping-roadmap.md)). Syriac, N'Ko, and Mandaic
+marks of the letter's own script (Joining_Type T in Unicode 17.0.0) ride their
+letter into its joining run the same way; Inherited marks and marks of another
+script keep the monochrome path.
 
 With script shaping on, each width owner of an enabled script group is
 shaped on its own with `harfrust` 0.14.0 (script and horizontal direction

@@ -317,6 +317,18 @@ impl BidiDisplayMap {
             .collect();
         let BidiLayout::Reordered(plan) = paragraphs.layout(properties, &plan_owners, &row_counts)
         else {
+            // An explicit left-to-right paragraph keeps the identity layout
+            // but still draws without contextual joining.
+            if properties.explicit() {
+                for paragraph_row in 0..rows.len() {
+                    if let Some(explicit) = paragraph_row
+                        .checked_sub(leading)
+                        .and_then(|visible| self.explicit_rows.get_mut(first_row + visible))
+                    {
+                        *explicit = true;
+                    }
+                }
+            }
             return;
         };
         let paragraph_level = plan.paragraph_level();
@@ -503,8 +515,8 @@ impl BidiDisplayMap {
         self.reordered_rows.get(row).copied().unwrap_or(false)
     }
 
-    /// Whether `row` belongs to an explicit-mode paragraph the map arranges
-    /// (right to left): presentation draws no contextual joining on it.
+    /// Whether `row` belongs to an explicit-mode paragraph, in either
+    /// direction: presentation draws no contextual joining on it.
     pub fn row_is_explicit(&self, row: usize) -> bool {
         self.explicit_rows.get(row).copied().unwrap_or(false)
     }

@@ -571,34 +571,40 @@ Fresh profiles enable Programming ligatures for Latin/operator runs and the
 independent Script shaping setting for Arabic and the complex-script groups
 listed below. Both rows sit in Settings > Rendering, reachable from the
 right-click Settings item. Shaping runs cover eligible ASCII graphics, a
-curated allowlist of common non-ASCII operators and arrows, Arabic joining
-bases, and the width owners of the enabled complex-script groups, and change
-only presentation: the terminal model's logical cells and source text are
-unchanged, so copying, selection, search, cursor placement, and wide-cell
-behavior retain their ordinary semantics. Latin/operator runs enable OpenType `calt` and
-`liga` together; optional stylistic sets `ss01` and `ss02` are off by default
-(`ss01 = on` / `ODYTTY_LIGATURE_SS01=on`, and likewise for `ss02`). Arabic
-joining is shaped in **logical left-to-right cell order** unless bidirectional
-reordering is on (below). In logical order each letter takes the contextual
-form its typed neighbors give it, but the letters sit left to right, so their
-connecting strokes face away from each other and a word does not draw as one
-connected shape; with reordering on it does. Each joined glyph is drawn from
-its own cell's left edge, so strokes connect only when the text font's joining
-forms advance exactly one cell, as in a monospace face; a proportional face
-loaded through the `font` path setting, which is not checked for monospace,
-draws gaps between joined letters. Arabic letters carrying harakat (fatha,
-kasra, shadda, and the other Arabic nonspacing marks) stay in their joining
-run when the shaping face maps their base and every mark, and the marks are
-drawn where the font's mark positioning places them. An uncovered base or mark
-splits the run and keeps that cell on scalar fallback. Shaping caches validate
-the regular, bold, italic and bold-italic faces before reusing glyph plans.
-Unsupported fonts and runs render through the normal per-cell path. Set
+curated allowlist of common non-ASCII operators and arrows, the joining letters
+of Arabic, Syriac, N'Ko, and Mandaic, and the width owners of the enabled
+complex-script groups, and change only presentation: the terminal model's
+logical cells and source text are unchanged, so copying, selection, search,
+cursor placement, and wide-cell behavior retain their ordinary semantics.
+Latin/operator runs enable OpenType `calt` and `liga` together; optional
+stylistic sets `ss01` and `ss02` are off by default (`ss01 = on` /
+`ODYTTY_LIGATURE_SS01=on`, and likewise for `ss02`). Arabic joining is shaped in
+**logical left-to-right cell order** unless bidirectional reordering is on
+(below). In logical order each letter takes the contextual form its typed
+neighbors give it, but the letters sit left to right, so their connecting
+strokes face away from each other and a word does not draw as one connected
+shape; with reordering on it does. Each joined glyph is drawn from its own
+cell's left edge, so strokes connect only when the text font's joining forms
+advance exactly one cell, as in a monospace face; a proportional face loaded
+through the `font` path setting, which is not checked for monospace, draws gaps
+between joined letters. Arabic letters carrying harakat (fatha, kasra, shadda,
+and the other Arabic nonspacing marks) stay in their joining run when the
+shaping face maps their base and every mark, and the marks are drawn where the
+font's mark positioning places them. An uncovered base or mark splits the run
+and keeps that cell on scalar fallback. Syriac, N'Ko, and Mandaic letters form
+joining runs of their own script by the same rules, shaped with `harfrust` in
+their right-to-left direction so each letter takes the form of its logical
+position, including the Syriac final alaph forms; the script's own vowel points
+and tone marks ride their letter, and an Inherited mark (such as a Latin
+diaeresis over Syriac) keeps that cell on the per-cell path. Shaping caches
+validate the regular, bold, italic and bold-italic faces before reusing glyph
+plans. Unsupported fonts and runs render through the normal per-cell path. Set
 `ligatures = off` in Settings or configuration, or `ODYTTY_LIGATURES=off` for
 one launch, to restore per-cell Latin/operator rendering. Set `script_shaping =
-off` or `ODYTTY_SCRIPT_SHAPING=off` to restore per-cell Arabic and complex-script
-glyphs. Both settings reload live on Linux Wayland, Linux X11, macOS, and
-Windows. Disabling programming ligatures no longer disables Arabic joining
-or complex-script shaping, which remain on by default.
+off` or `ODYTTY_SCRIPT_SHAPING=off` to restore per-cell Arabic and
+complex-script glyphs. Both settings reload live on Linux Wayland, Linux X11,
+macOS, and Windows. Disabling programming ligatures no longer disables Arabic
+joining or complex-script shaping, which remain on by default.
 
 The alternate zero is a separate legibility control. `font_zero = on`
 (Settings > Fonts > Alternate zero, reachable from the right-click menu's
@@ -626,40 +632,40 @@ row in logical order.
 Bidirectional text is an opt-in display setting. `bidi_reorder = on`
 (Settings > Rendering > Bidirectional text, the right-click **Reorder
 Right-to-Left Text** toggle, or `ODYTTY_BIDI_REORDER=on`) draws right-to-left
-runs such as Hebrew and Arabic in display order on the primary screen. It is
-off by default and applies live; the menu
-toggle affects the running window, and Save in Settings persists it. Arabic
-joining runs are then shaped right to left, programming ligatures form only
-within one direction (a `->` inside right-to-left text draws as separate,
-mirrored characters), and mirrored brackets draw their mirrored glyphs. Cells, cursor addressing and movement, selection, copy,
-search, scrollback export, and mouse reports stay logical: a selection that
-crosses a direction boundary can show as separate segments on screen, and
-copy returns the logical text. The pointer, hyperlink hover, and cursor
-effects follow the cells as drawn. Each paragraph takes its direction from
-`bidi_direction` (Settings > Rendering > Paragraph direction or
+runs such as Hebrew and Arabic in display order. It is off by default and
+applies live; the menu toggle affects the running window, and Save in Settings
+persists it. Joining runs (Arabic, Syriac, N'Ko, and Mandaic) are then drawn
+right to left, programming ligatures form only within one direction (a `->`
+inside right-to-left text draws as separate, mirrored characters), and mirrored
+brackets draw their mirrored glyphs. Cells, cursor addressing and movement,
+selection, copy, search, scrollback export, and mouse reports stay logical: a
+selection that crosses a direction boundary can show as separate segments on
+screen, and copy returns the logical text. The pointer, hyperlink hover, and
+cursor effects follow the cells as drawn. Each paragraph takes its direction
+from `bidi_direction` (Settings > Rendering > Paragraph direction or
 `ODYTTY_BIDI_DIRECTION`: `ltr`, the default; `rtl`, where lines start at the
-right edge; or `auto`, where the first strong letter decides), unless a
-program selects one with the BiDi escape sequence SCP (`CSI 1 SP k` left to
-right, `CSI 2 SP k` right to left, `CSI 0 SP k` back to the setting). A
-program that arranges its own text sends `CSI 8 l` (explicit mode): its
-paragraphs are then never reordered, only mirrored column for column when
-right to left, and draw without contextual joining; `CSI 8 h` restores the
-default implicit mode. Full-screen programs on the alternate screen are
-reordered the same way; the explicit mode applies to rows stamped after it,
-so a program sends `CSI 8 l` before entering the alternate screen or clears
-the screen after sending it. Images never move with text: a row covered by a
-Sixel, iTerm2, or Kitty image (including Kitty Unicode placeholder cells) keeps
-its logical order, so text beside an image reads left to right. A shaped
-complex-script owner is never split: inside a right-to-left isolate it moves as
-one unit, keeps its cells adjacent and in order, and draws its shaped glyphs
-across their visual columns.
+right edge; or `auto`, where the first strong letter decides), unless a program
+selects one with the BiDi escape sequence SCP (`CSI 1 SP k` left to right, `CSI
+2 SP k` right to left, `CSI 0 SP k` back to the setting). A program that
+arranges its own text sends `CSI 8 l` (explicit mode): its paragraphs are then
+never reordered, only mirrored column for column when right to left, and draw
+without contextual joining; `CSI 8 h` restores the default implicit mode.
+Full-screen programs on the alternate screen are reordered the same way; the
+explicit mode applies to rows stamped after it, so a program sends `CSI 8 l`
+before entering the alternate screen or clears the screen after sending it.
+Images never move with text: a row covered by a Sixel, iTerm2, or Kitty image
+(including Kitty Unicode placeholder cells) keeps its logical order, so text
+beside an image reads left to right. A shaped complex-script owner is never
+split: inside a right-to-left isolate it moves as one unit, keeps its cells
+adjacent and in order, and draws its shaped glyphs across their visual columns.
 
 The support boundary is explicit:
 
 | Surface | Current support | Standing position |
 | --- | --- | --- |
 | Latin and programming operators | ASCII `calt`+`liga`, a curated non-ASCII operator allowlist, opt-in `ss01`/`ss02` overlays, and an opt-in alternate zero (`zero`) | More curated operators and named, bounded legibility features are candidates within the current overlay model; open-ended stylistic sets and raw feature tags are not |
-| Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | More joining-script coverage is a candidate; Arabic marks outside the supported harakat set, and harakat the font does not map, keep the monochrome path |
+| Arabic | Contextual joining forms in logical left-to-right cell order, or shaped right to left in display order while `bidi_reorder` is on; harakat ride their base into the joining run with the font's mark positioning | Adlam, Hanifi Rohingya, and Mongolian joining are candidates; Arabic marks outside the supported harakat set, and harakat the font does not map, keep the monochrome path |
+| Syriac, N'Ko, and Mandaic | Contextual joining forms with `script_shaping` on, each letter in the form of its logical position, in logical cell order or in display order while `bidi_reorder` is on; the script's own transparent marks ride their letter with the font's mark positioning; HarfBuzz references cover Syriac (including final alaph), N'Ko (including lajanyalan), and Mandaic | Joining needs a text font that maps the run, as for Arabic; Inherited marks and marks of another script keep the per-cell path; a proportional face draws gaps between joined letters |
 | Bidirectional layout | Opt-in `bidi_reorder` (off by default): right-to-left runs drawn in display order, each paragraph left to right, right to left, or auto (`bidi_direction`, or SCP from the program), and explicit mode (`CSI 8 l`) for programs that arrange their own text, on the primary and alternate screens; cells, cursor addressing, selection, copy, search, and protocol values stay logical | Rows an image covers keep their logical order. Complex-script owners move as whole spans, keeping their cells adjacent and in order |
 | Northern and southern Indic shaping | With `script_shaping` on, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, and Malayalam owners are shaped with the font (conjuncts, reph, below-base and pre-base forms, ZWJ/ZWNJ requests) and drawn inside the owner's one or two cells, centered, or scaled to a 0.6 floor and then clipped | Owners keep the per-cell path when no font maps every scalar; the cursor block redraws per-cell glyphs; shaping never crosses owners |
 | Khmer/Myanmar shaping | With `script_shaping` on, Khmer and Myanmar owners are shaped with the font (coeng stacks, below-base ro, pre-base and split vowels, medial ra, kinzi, stacker forms, ZWJ requests) and fitted inside the owner's cells by the same rule | Same limits as Indic owner shaping |

@@ -33,11 +33,17 @@ impl LigatureFonts for Fonts {
 /// Fixture font, its atlas holding every character the fixtures draw, and
 /// the shaping font set.
 fn setup() -> (GlyphAtlas, Fonts) {
-    let font = font();
+    setup_with(
+        font(),
+        "\u{05D0}\u{05D1}\u{05D2}\u{05D3}\u{05D4}\u{0628}\u{0644}\u{0627}\u{754C}\u{3001}",
+    )
+}
+
+/// `font`, its atlas holding every character of `chars`, and its shaping
+/// font set.
+fn setup_with(font: FontHandle, chars: &str) -> (GlyphAtlas, Fonts) {
     let mut atlas = GlyphAtlas::build(&font, PX);
-    for ch in
-        "\u{05D0}\u{05D1}\u{05D2}\u{05D3}\u{05D4}\u{0628}\u{0644}\u{0627}\u{754C}\u{3001}".chars()
-    {
+    for ch in chars.chars() {
         atlas.ensure(&font, ch);
     }
     (atlas, Fonts(font))
@@ -144,7 +150,19 @@ fn ensure_runs(atlas: &mut GlyphAtlas, fonts: &Fonts, runs: &[LigatureRun]) {
 /// The unchanged production path: logical order, live ligature runs when
 /// `ligatures` is on.
 fn production_frame_with(text: &str, cols: usize, rows: usize, ligatures: bool) -> Frame {
-    let (mut atlas, fonts) = setup();
+    production_frame_in(setup(), text, cols, rows, ligatures).0
+}
+
+/// [`production_frame_with`] on the font and atlas of `setup`, with its
+/// vertices.
+fn production_frame_in(
+    setup: (GlyphAtlas, Fonts),
+    text: &str,
+    cols: usize,
+    rows: usize,
+    ligatures: bool,
+) -> (Frame, Vec<Vertex>) {
+    let (mut atlas, fonts) = setup;
     let snapshot = terminal(text, cols, rows).snapshot();
     let runs = LigatureShaper::new().build_runs(ligatures, &snapshot, &fonts, &[]);
     ensure_runs(&mut atlas, &fonts, &runs);
@@ -163,7 +181,7 @@ fn production_frame_with(text: &str, cols: usize, rows: usize, ligatures: bool) 
         None,
         ChromePin::NONE,
     );
-    composite(&snapshot, &atlas, &verts)
+    (composite(&snapshot, &atlas, &verts), verts)
 }
 
 fn production_frame(text: &str, cols: usize, rows: usize) -> Frame {
@@ -172,7 +190,17 @@ fn production_frame(text: &str, cols: usize, rows: usize) -> Frame {
 
 /// Display order with the frame's directional ligature runs.
 fn bidi_frame(text: &str, cols: usize, rows: usize) -> (Frame, Vec<Vertex>, BidiDisplayMap) {
-    let (mut atlas, fonts) = setup();
+    bidi_frame_in(setup(), text, cols, rows)
+}
+
+/// [`bidi_frame`] on the font and atlas of `setup`.
+fn bidi_frame_in(
+    setup: (GlyphAtlas, Fonts),
+    text: &str,
+    cols: usize,
+    rows: usize,
+) -> (Frame, Vec<Vertex>, BidiDisplayMap) {
+    let (mut atlas, fonts) = setup;
     let terminal = terminal(text, cols, rows);
     let snapshot = terminal.snapshot();
     let map = display_map(&terminal);
@@ -361,6 +389,89 @@ fn arabic_joining_run_draws_right_to_left_with_its_lam_alef_ligature() {
     assert!(
         frame.block(0, 4..5) != production_frame("\u{0628}", 8, 1).block(0, 0..1),
         "beh is drawn in its initial form"
+    );
+}
+
+/// The licensed Syriac subset, its atlas, and its shaping font set.
+fn syriac_setup() -> (GlyphAtlas, Fonts) {
+    let font = FontHandle::try_from_vec(
+        include_bytes!("../../tests/fixtures/fonts/s5b/joining/Syriac-subset.ttf").to_vec(),
+    )
+    .expect("Syriac fixture parses");
+    setup_with(font, "\u{0712}\u{0720}\u{0721}\u{072B}\u{0710} x")
+}
+
+#[test]
+fn syriac_joining_run_draws_its_logical_forms_on_the_visual_cells() {
+    let _render = crate::test_lock::render_globals_lock();
+    // x, space, shin lamadh mim alaph, space, x. Each letter keeps the
+    // joining form of its logical position; display order puts the word
+    // right to left. The fixture face is proportional, so a joined glyph's
+    // ink overruns its cell: the logical frame lets it spill, a reordered row
+    // clips it near its visual cell. Each glyph quad of the reordered row
+    // must therefore be a piece of the same atlas glyph the logical frame
+    // draws, moved by exactly its cell's visual displacement.
+    let logical = "x \u{072B}\u{0720}\u{0721}\u{0710} x";
+    let (production, production_verts) = production_frame_in(syriac_setup(), logical, 8, 1, true);
+    assert!(
+        production != production_frame_in(syriac_setup(), logical, 8, 1, false).0,
+        "the logical-order path joins the run, so the fixture is live"
+    );
+    let (frame, verts, map) = bidi_frame_in(syriac_setup(), logical, 8, 1);
+    assert_eq!(
+        (2..6).map(|c| map.visual_column(0, c)).collect::<Vec<_>>(),
+        [5, 4, 3, 2]
+    );
+    let cell_w = syriac_setup().0.cell.width as f32;
+    let glyphs = |verts: &[Vertex]| -> Vec<Vertex> {
+        verts
+            .as_chunks::<INSTANCES_PER_QUAD>()
+            .0
+            .iter()
+            .map(|quad| quad[0])
+            .filter(|v| v.is_glyph > 0.5 && v.end_pos[0] > v.pos[0])
+            .collect()
+    };
+    let unclipped = glyphs(&production_verts);
+    let mut placed = 0;
+    for piece in glyphs(&verts) {
+        let visual = (((piece.pos[0] + piece.end_pos[0]) / 2.0) / cell_w) as usize;
+        if !(2..6).contains(&visual) {
+            continue;
+        }
+        let column = map.logical_column(0, visual);
+        // The logical quad of the same atlas glyph: the same UV rows and
+        // overlapping UV columns. The piece may include blank slot margin
+        // the logical quad trims, so positions map through the atlas scale.
+        let whole = unclipped
+            .iter()
+            .find(|v| {
+                (v.uv[1] - piece.uv[1]).abs() < 1e-6
+                    && (v.end_uv[1] - piece.end_uv[1]).abs() < 1e-6
+                    && v.uv[0] < piece.end_uv[0]
+                    && piece.uv[0] < v.end_uv[0]
+            })
+            .unwrap_or_else(|| panic!("visual cell {visual} draws a glyph of the logical frame"));
+        let scale = (whole.end_pos[0] - whole.pos[0]) / (whole.end_uv[0] - whole.uv[0]);
+        let logical_x = whole.pos[0] + (piece.uv[0] - whole.uv[0]) * scale;
+        let shift = (visual as f32 - column as f32) * cell_w;
+        assert!(
+            (piece.pos[0] - logical_x - shift).abs() < 0.01,
+            "logical cell {column} draws its joined form at visual cell {visual}"
+        );
+        placed += 1;
+    }
+    assert!(
+        placed >= 4,
+        "every letter draws on its visual cell: {placed}"
+    );
+    assert!(frame.block(0, 0..2) == production.block(0, 0..2));
+    assert!(frame.block(0, 6..8) == production.block(0, 6..8));
+    // The run was joined, not drawn as isolated letters.
+    let isolated = production_frame_in(syriac_setup(), "\u{072B}", 8, 1, true).0;
+    assert!(
+        production.block(0, 2..3) != isolated.block(0, 0..1),
+        "shin is drawn in its initial form"
     );
 }
 

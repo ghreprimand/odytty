@@ -1,0 +1,23 @@
+# hb-shape (HarfBuzz) 14.5.1
+# fontTools 4.63.0
+# font units; UTF-8 byte clusters; RTL; language und; cluster level 0; OT
+font	codepoints	glyph_ids	clusters	x_offset	y_offset	x_advance	note
+Syriac-subset.ttf	U+0712 U+0712 U+0712	8,9,10	4,2,0	0,0,0	0,0,0	968,740,730	init-medi-fina
+Syriac-subset.ttf	U+072B U+0720 U+0721 U+0710	36,23,19,28	6,4,2,0	0,-60,0,0	0,0,0,0	986,836,338,739	final-alaph
+Syriac-subset.ttf	U+0712 U+0715 U+0710	3,16,10	4,2,0	0,0,0	0,0,0	930,525,730	alaph-after-dalath
+Syriac-subset.ttf	U+0712 U+0730 U+0712	8,29,10	4,0,0	0,341,0	0,-23,0	968,0,730	mark-above
+Syriac-subset.ttf	U+0713 U+0731 U+0712	8,30,14	4,0,0	0,248,0	0,-157,0	968,0,718	mark-below
+Syriac-subset.ttf	U+0710 U+0712	7,2	2,0	0,0	0,0	958,930	right-joining-control
+Syriac-subset.ttf	U+0720 U+0710	35,20	2,0	0,0	0,0	1064,341	lamadh-alaph
+NKo-subset.ttf	U+07CA U+07CB U+07CC	17,15,13	4,2,0	0,0,0	0,0,0	437,660,265	init-medi-fina
+NKo-subset.ttf	U+07D3 U+07EB U+07D3	26,8,28	4,0,0	0,219,0	0,0,0	419,0,419	tone-mark
+NKo-subset.ttf	U+07CA U+07FA U+07CA	11,10,13	4,2,0	0,0,0	0,0,0	265,417,265	lajanyalan
+NKo-subset.ttf	U+07CF U+07F2 U+07CB	14,9,22	4,0,0	0,239,0	0,0,0	660,0,551	nasalization-mark
+NKo-subset.ttf	U+07D2 U+07CA	11,25	2,0	0,0	0,0	265,685	pair
+NKo-subset.ttf	U+07D3 U+07CA U+07D3 U+07CA	11,27,12,28	6,4,2,0	0,0,0,0	0,0,0,0	265,419,265,419	four-letters
+Mandaic-subset.ttf	U+0841 U+0842 U+0843	17,15,8	6,3,0	0,0,0	0,0,0	687,492,775	init-medi-fina
+Mandaic-subset.ttf	U+0841 U+0859 U+0842	12,42,8	6,0,0	0,304,0	0,0,0	520,0,775	affrication-mark
+Mandaic-subset.ttf	U+0841 U+0840	3,8	3,0	0,0	0,0	545,775	right-joining-final
+Mandaic-subset.ttf	U+0840 U+0841	9,5	3,0	0,0	0,0	894,534	right-joining-control
+Mandaic-subset.ttf	U+0844 U+085A U+0846	29,43,24	6,0,0	0,398,0	0,0,0	271,0,734	vocalization-mark
+Mandaic-subset.ttf	U+0848 U+0841 U+0848	32,10,35	6,3,0	0,0,0	0,0,0	696,750,576	three-letters

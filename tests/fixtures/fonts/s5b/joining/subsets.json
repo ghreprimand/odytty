@@ -1,0 +1,69 @@
+{
+  "fonttools": "4.63.0",
+  "harfbuzz": "hb-shape (HarfBuzz) 14.5.1",
+  "faces": [
+    {
+      "font": "Syriac-subset.ttf",
+      "subset_sha256": "8a8994377f40c90257f3600c83650f0c69312b72d17e839b6d03d24f5a7c0ad2",
+      "subset_bytes": 9500,
+      "glyph_count": 41,
+      "units_per_em": 1000,
+      "reference_rows": 7,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+0710",
+        "U+0712",
+        "U+0713",
+        "U+0715",
+        "U+0720",
+        "U+0721",
+        "U+072B",
+        "U+0730",
+        "U+0731"
+      ],
+      "subset_command": "pyftsubset source/NotoSansSyriac-Regular.ttf --unicodes=U+0020,U+0710,U+0712,U+0713,U+0715,U+0720,U+0721,U+072B,U+0730,U+0731 --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=joining/Syriac-subset.ttf"
+    },
+    {
+      "font": "NKo-subset.ttf",
+      "subset_sha256": "8b4f140ca3757cf821234987525ba6a80deb112eda8a6fc10c16ac780cc05399",
+      "subset_bytes": 4640,
+      "glyph_count": 29,
+      "units_per_em": 1000,
+      "reference_rows": 6,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+07CA",
+        "U+07CB",
+        "U+07CC",
+        "U+07CF",
+        "U+07D2",
+        "U+07D3",
+        "U+07EB",
+        "U+07F2",
+        "U+07FA"
+      ],
+      "subset_command": "pyftsubset source/NotoSansNKo-Regular.ttf --unicodes=U+0020,U+07CA,U+07CB,U+07CC,U+07CF,U+07D2,U+07D3,U+07EB,U+07F2,U+07FA --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=joining/NKo-subset.ttf"
+    },
+    {
+      "font": "Mandaic-subset.ttf",
+      "subset_sha256": "81a415abf3f9a3662111faf3ad88f4e56d4e04b804747a123cf227957a956ca8",
+      "subset_bytes": 6940,
+      "glyph_count": 44,
+      "units_per_em": 1000,
+      "reference_rows": 6,
+      "unicode_repertoire": [
+        "U+0020",
+        "U+0840",
+        "U+0841",
+        "U+0842",
+        "U+0843",
+        "U+0844",
+        "U+0846",
+        "U+0848",
+        "U+0859",
+        "U+085A"
+      ],
+      "subset_command": "pyftsubset source/NotoSansMandaic-Regular.ttf --unicodes=U+0020,U+0840,U+0841,U+0842,U+0843,U+0844,U+0846,U+0848,U+0859,U+085A --layout-features=* --no-hinting --no-glyph-names --no-recalc-timestamp --name-IDs=* --name-languages=* --output-file=joining/Mandaic-subset.ttf"
+    }
+  ]
+}

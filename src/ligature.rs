@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Presentation-only swash runs anchored to logical terminal cells. Compatible
-//! ASCII/operator or Arabic joining owners shape into clipped overlay spans;
-//! shaped advances never move columns. Copy, search, selection and cursor stay
-//! cell-owned. Runs split on face, shaping kind, eligibility and bidi level.
+//! Presentation-only shaped runs anchored to logical terminal cells.
+//! Compatible ASCII/operator owners and the joining owners of Arabic, Syriac,
+//! N'Ko, and Mandaic shape into clipped overlay spans; shaped advances never
+//! move columns. Copy, search, selection and cursor stay cell-owned. Runs split
+//! on face, shaping kind (Latin, or one joining script), eligibility and bidi
+//! level.
 //!
-//! Combining marks remain on the monochrome path except Arabic harakat on an
-//! Arabic joining base. Color-covered, hidden and continuation cells do not
-//! join these runs. Latin features are calt, liga and bounded optional ss01/ss02;
-//! Arabic runs use their display-plan direction when reordered. The alternate
-//! zero feature applies to both passes and does not itself create an overlay.
+//! Combining marks remain on the monochrome path except a joining script's
+//! transparent marks on a joining letter of that script (the Arabic harakat,
+//! and the generated tables for the other scripts). Color-covered, hidden and
+//! continuation cells do not join these runs. Latin features are calt, liga
+//! and bounded optional ss01/ss02; joining runs use their display-plan
+//! direction when reordered. Arabic shapes with swash, the other joining
+//! scripts with harfrust (see the `joining` module). The alternate zero
+//! feature applies to both passes and does not itself create an overlay.
 
 use std::collections::{HashMap, VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
@@ -24,12 +29,15 @@ mod arabic;
 mod bidi;
 #[cfg(test)]
 mod harakat_tests;
+mod joining;
+mod joining_data;
+#[cfg(test)]
+mod joining_tests;
 #[cfg(test)]
 mod zero_tests;
 
-use arabic::{
-    cluster_pen_offset, is_arabic_joining_base, mapped_mark_segments, marks_join_arabic_run,
-};
+use arabic::{cluster_pen_offset, is_arabic_joining_base, mapped_mark_segments};
+use joining::{JoiningScript, cmap_glyphs, is_joining_mark, other_joining_script};
 
 use crate::atlas::{FontStyle, ShapedGlyphKey};
 use crate::core::{Cell, Snapshot};
@@ -84,23 +92,45 @@ fn is_allowlisted_operator(ch: char) -> bool {
 }
 
 /// Shaping kind for compatible-run membership. Latin/operator runs use
-/// `calt`+`liga` (and optional `ss01`/`ss02`); Arabic runs use `Script::Arabic`
-/// joining. Kinds never merge into one run.
+/// `calt`+`liga` (and optional `ss01`/`ss02`); joining runs use their script's
+/// contextual joining. Kinds never merge into one run, so neither do two
+/// joining scripts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ShapingKind {
     Latin,
-    Arabic,
+    Joining(JoiningScript),
+}
+
+/// The joining script of a joining letter `ch`, Arabic first.
+#[inline]
+fn joining_script(ch: char) -> Option<JoiningScript> {
+    if is_arabic_joining_base(ch) {
+        Some(JoiningScript::Arabic)
+    } else {
+        other_joining_script(ch)
+    }
 }
 
 #[inline]
 fn shaping_kind(ch: char) -> Option<ShapingKind> {
-    if is_arabic_joining_base(ch) {
-        Some(ShapingKind::Arabic)
+    if let Some(script) = joining_script(ch) {
+        Some(ShapingKind::Joining(script))
     } else if ch.is_ascii_graphic() || is_allowlisted_operator(ch) {
         Some(ShapingKind::Latin)
     } else {
         None
     }
+}
+
+/// Whether a cell may carry its combining marks into a joining run: every
+/// retained mark is a transparent mark of its joining letter's script. A cell
+/// without marks always may.
+#[inline]
+fn marks_join_run(cell: &Cell) -> bool {
+    let marks = cell.combining();
+    marks.is_empty()
+        || joining_script(cell.ch)
+            .is_some_and(|script| marks.iter().all(|&mark| is_joining_mark(script, mark)))
 }
 
 /// Optional Latin stylistic-set tags applied when the master ligatures switch
@@ -252,9 +282,14 @@ pub struct ShapingSwitches {
     pub scripts: bool,
 }
 
-/// Deterministic FIFO row-plan cache plus the reusable swash shaping context.
+/// Deterministic FIFO row-plan cache plus the reusable swash shaping context
+/// and, per style, the harfrust tables of the text face and the shaping plan
+/// of each script for joining scripts other than Arabic.
 pub struct LigatureShaper {
     context: ShapeContext,
+    joining_fonts: [Option<Arc<harfrust::Font>>; 4],
+    /// At most one plan per style and joining script.
+    joining_plans: Vec<(FontStyle, JoiningScript, Arc<harfrust::ShapePlan>)>,
     entries: HashMap<u64, RowBucket>,
     fifo: VecDeque<(u64, Arc<RowKey>)>,
     entry_count: usize,
@@ -275,6 +310,8 @@ impl LigatureShaper {
     pub fn new() -> Self {
         Self {
             context: ShapeContext::new(),
+            joining_fonts: Default::default(),
+            joining_plans: Vec::new(),
             entries: HashMap::new(),
             fifo: VecDeque::new(),
             entry_count: 0,
@@ -295,6 +332,8 @@ impl LigatureShaper {
         self.entry_count = 0;
         self.face_fingerprints = [None; 4];
         self.face_generations = [0; 4];
+        self.joining_fonts = Default::default();
+        self.joining_plans.clear();
     }
 
     pub fn cached_rows(&self) -> usize {
@@ -375,7 +414,7 @@ impl LigatureShaper {
         )
     }
 
-    /// Build runs with independent Latin/operator and Arabic switches.
+    /// Build runs with independent Latin/operator and joining-script switches.
     /// A switch change invalidates cached row plans, including bidi levels.
     pub fn build_runs_with_switches<F: LigatureFonts>(
         &mut self,
@@ -501,6 +540,36 @@ impl LigatureShaper {
         RowPlan { runs }
     }
 
+    /// The harfrust tables of `font` for style `style`, parsed once per
+    /// style until the faces change.
+    fn joining_font(&mut self, style: FontStyle, font: &FontHandle) -> Option<Arc<harfrust::Font>> {
+        let slot = &mut self.joining_fonts[font_style_index(style)];
+        if slot.is_none() {
+            *slot = crate::complex_shaping::shaper_data(font).map(Arc::new);
+        }
+        slot.clone()
+    }
+
+    /// The shaping plan of `script` on the style's text face, built once
+    /// until the faces change.
+    fn joining_plan(
+        &mut self,
+        style: FontStyle,
+        script: JoiningScript,
+        data: &harfrust::Font,
+    ) -> Arc<harfrust::ShapePlan> {
+        if let Some((_, _, plan)) = self
+            .joining_plans
+            .iter()
+            .find(|(s, j, _)| *s == style && *j == script)
+        {
+            return Arc::clone(plan);
+        }
+        let plan = Arc::new(joining::plan(data, script));
+        self.joining_plans.push((style, script, Arc::clone(&plan)));
+        plan
+    }
+
     fn shape_compatible_run(
         &mut self,
         run_text: &RunText,
@@ -513,11 +582,26 @@ impl LigatureShaper {
         else {
             return Vec::new();
         };
-        let arabic = run_text.text.chars().any(is_arabic_joining_base);
-        if (arabic && !self.switches.scripts) || (!arabic && !self.switches.ligatures) {
+        // A run holds one shaping kind, so its first scalar names it.
+        let joining = run_text.text.chars().next().and_then(joining_script);
+        if (joining.is_some() && !self.switches.scripts)
+            || (joining.is_none() && !self.switches.ligatures)
+        {
             return Vec::new();
         }
-        let (off, on) = if arabic {
+        let (off, on) = if let Some(script) = joining.filter(|&s| s != JoiningScript::Arabic) {
+            // Each cell's own glyph against the joined run, shaped in the
+            // script's direction whatever the row's layout; placement maps
+            // the logical clusters to cells.
+            let Some(data) = self.joining_font(style, font) else {
+                return Vec::new();
+            };
+            let plan = self.joining_plan(style, script, &data);
+            let Some(on) = joining::shape_joining_run(&data, &plan, run_text, script) else {
+                return Vec::new();
+            };
+            (cmap_glyphs(run_text, font), on)
+        } else if joining.is_some() {
             // Joining forms vs cmap defaults (typically isolated). Live runs
             // pass LTR: cells stay in logical order. With bidi reordering on,
             // the renderer passes RTL for a right-to-left level run; swash still reports
@@ -561,7 +645,7 @@ impl LigatureShaper {
                 ),
             )
         };
-        // A marked Arabic cell always draws through the overlay, even where
+        // A marked joining cell always draws through the overlay, even where
         // joining leaves its glyph ids unchanged, so its marks take their
         // shaped positions consistently across a run.
         let marked_columns = on
@@ -580,7 +664,7 @@ impl LigatureShaper {
                 fingerprint
             }
         };
-        // Arabic joining ligatures such as lam-alef and Latin `liga`
+        // Joining ligatures such as Arabic lam-alef and Latin `liga`
         // substitutions may emit fewer glyphs than cells. Keep the logical
         // model unchanged by clipping the shaped presentation to the complete
         // source run.
@@ -792,10 +876,10 @@ fn eligible_cell_kind(
     coverage: &ColorRunCoverage,
 ) -> Option<ShapingKind> {
     // Wide continuations, hidden cells, color-glyph coverage, and combining
-    // marks other than Arabic harakat on an Arabic joining base always break
+    // marks other than a joining script's own marks on its letter always break
     // runs so those cells stay on their dedicated paths (mono combining, wide
     // lead, color emoji). Platform-neutral - no cfg(windows) divergence.
-    if cell.wide_continuation || !marks_join_arabic_run(cell) || cell.attrs.hidden() {
+    if cell.wide_continuation || !marks_join_run(cell) || cell.attrs.hidden() {
         return None;
     }
     if coverage.covers(row, column) {
