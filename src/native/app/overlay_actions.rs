@@ -178,6 +178,8 @@ impl App {
                 .set_context_menu_pane_read_only(self.active_pane_read_only());
             self.overlay
                 .set_context_menu_bidi_reorder(self.settings.bidi_reorder);
+            self.overlay
+                .set_context_menu_bidi_direction(self.settings.bidi_direction);
             self.overlay.set_context_menu_broadcast(
                 self.is_broadcast_receiver(self.sessions.active_id()),
                 self.broadcast_active(),
@@ -390,6 +392,10 @@ impl App {
             OverlayOutcome::ContextMenuToggleBidiReorder => {
                 self.flush_pending_overlay_settings();
                 self.toggle_bidi_reorder();
+            }
+            OverlayOutcome::ContextMenuSetBidiDirection(direction) => {
+                self.flush_pending_overlay_settings();
+                self.set_bidi_direction(direction);
             }
             OverlayOutcome::ContextMenuToggleBroadcast => {
                 self.flush_pending_overlay_settings();

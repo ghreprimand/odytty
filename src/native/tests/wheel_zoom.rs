@@ -77,6 +77,98 @@ fn ctrl_wheel_zooms_font_when_reporting_off() {
     assert_eq!(app.font_size_px_for_test(), base);
 }
 
+/// A zoom reaches the Settings panel as an unsaved edit over its saved
+/// baseline: a later panel edit of another row keeps the zoomed size instead
+/// of writing the panel's older size back.
+#[test]
+fn ctrl_wheel_zoom_survives_a_later_settings_edit() {
+    use winit::keyboard::{Key as WinitKey, NamedKey};
+    let mut app = build_app(b"");
+    let base = app.font_size_px_for_test();
+    app.set_ctrl_modifier_for_test(true);
+    app.dispatch_wheel_for_test(1.0);
+    app.set_ctrl_modifier_for_test(false);
+    assert_eq!(app.font_size_px_for_test(), base + 1.0);
+
+    app.open_settings_section_for_test("Rendering");
+    let signature = app.overlay_signature_for_test();
+    let target = signature
+        .panel
+        .entries
+        .iter()
+        .position(|entry| entry.key == "bidi_reorder")
+        .expect("bidi_reorder row");
+    for _ in signature.panel.selected..target {
+        app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::ArrowDown), false, false);
+    }
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
+    app.flush_pending_overlay_settings_for_test();
+    assert!(
+        app.bidi_reorder_setting_for_test(),
+        "the panel edit applied"
+    );
+    assert_eq!(
+        app.font_size_px_for_test(),
+        base + 1.0,
+        "the panel edit keeps the zoomed size"
+    );
+}
+
+/// A zoom while a panel edit is still queued keeps both: the queued edit is
+/// applied before the zoom, so it cannot be applied later over the zoom and
+/// undo it.
+#[test]
+fn ctrl_wheel_zoom_keeps_a_queued_settings_edit() {
+    use winit::keyboard::{Key as WinitKey, NamedKey};
+    let mut app = build_app(b"");
+    let base = app.font_size_px_for_test();
+    assert!(!app.bidi_reorder_setting_for_test());
+    app.open_settings_section_for_test("Rendering");
+    let signature = app.overlay_signature_for_test();
+    let target = signature
+        .panel
+        .entries
+        .iter()
+        .position(|entry| entry.key == "bidi_reorder")
+        .expect("bidi_reorder row");
+    for _ in signature.panel.selected..target {
+        app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::ArrowDown), false, false);
+    }
+    // A held key's repeat queues its edit for the next frame. The search
+    // chord then closes the panel without applying it, and closing search
+    // again frees the wheel for the zoom.
+    app.drive_overlay_repeat_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
+    app.open_search_for_test();
+    app.open_search_for_test();
+    assert!(
+        app.pending_overlay_settings_for_test(),
+        "the panel edit is still queued"
+    );
+
+    app.set_ctrl_modifier_for_test(true);
+    app.dispatch_wheel_for_test(1.0);
+    app.set_ctrl_modifier_for_test(false);
+    app.flush_pending_overlay_settings_for_test();
+    assert!(
+        app.bidi_reorder_setting_for_test(),
+        "the queued panel edit applied"
+    );
+    assert_eq!(
+        app.font_size_px_for_test(),
+        base + 1.0,
+        "applying the queued edit keeps the zoomed size"
+    );
+    app.open_settings_section_for_test("Rendering");
+    assert_eq!(
+        app.settings_panel_displayed_value_for_test("bidi_reorder"),
+        Some("on".to_owned())
+    );
+    assert_eq!(
+        app.settings_panel_displayed_value_for_test("font_size"),
+        Some(format!("{}", base + 1.0))
+    );
+}
+
 #[test]
 fn plain_wheel_without_ctrl_never_zooms() {
     // The byte-identical default path: a wheel with no Ctrl scrolls scrollback

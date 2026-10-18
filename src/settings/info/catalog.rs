@@ -397,7 +397,7 @@ impl Settings {
                 env: BIDI_DIRECTION_ENV,
                 name: "Paragraph direction",
                 value: self.bidi_direction.as_str().to_owned(),
-                description: "Direction of bidirectional paragraphs while Bidirectional text is on. ltr (default) starts lines at the left edge, rtl at the right edge, and auto takes the direction of each paragraph's first strong letter. A program can choose a paragraph's direction with the BiDi escape sequence SCP (CSI 1 SP k or CSI 2 SP k), which overrides this setting for that paragraph, and can turn reordering off for its own output with CSI 8 l.",
+                description: "Direction of bidirectional paragraphs while Bidirectional text is on. ltr (default) starts lines at the left edge, rtl at the right edge, and auto takes the direction of each paragraph's first strong letter. A program can choose a paragraph's direction with the BiDi escape sequence SCP (CSI 1 SP k or CSI 2 SP k), which overrides this setting for that paragraph, and can turn reordering off for its own output with CSI 8 l. While Bidirectional text is on, the terminal right-click menu offers the three directions for the running window.",
                 kind: SettingKind::Enum,
                 range: None,
                 options: &["ltr", "rtl", "auto"],

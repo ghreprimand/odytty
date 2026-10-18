@@ -2972,10 +2972,13 @@ swapping (`?1243`), and SPD are not implemented and report 0.
 While `bidi_reorder` is on, the display follows these properties. A paragraph
 takes the properties of its first row, including a first row in scrollback
 above the viewport. In implicit mode its paragraph level is 0 for left to
-right, 1 for right to left, and for the default direction the
-`bidi_direction` setting (`ODYTTY_BIDI_DIRECTION`: `ltr`, the default; `rtl`;
-or `auto`, UAX #9 rules P2 and P3, the first strong character outside
-isolates, left to right without one). A right-to-left paragraph starts at the
+right, 1 for right to left, and for the default direction the `bidi_direction`
+setting (`ODYTTY_BIDI_DIRECTION`, Settings > Rendering > Paragraph direction, or
+the right-click Left-to-Right Paragraphs, Right-to-Left Paragraphs, and
+Automatic Paragraph Direction rows, shown below Reorder Right-to-Left Text while
+it is on with a check mark on the current direction; `ltr`, the default; `rtl`;
+or `auto`, UAX #9 rules P2 and P3, the first strong character outside isolates,
+left to right without one). A right-to-left paragraph starts at the
 right edge: logical column 0, and trailing blanks, which rule L1 returns to
 the paragraph level, fill the row from the left. In explicit mode the
 application has already arranged the text: a left-to-right paragraph keeps

@@ -631,36 +631,39 @@ or panel shows both, the field on top, as it does with reordering off.
 Inline IME pre-edit, the search query band, and status text keeps the painted
 row in logical order.
 
-Bidirectional text is an opt-in display setting. `bidi_reorder = on`
-(Settings > Rendering > Bidirectional text, the right-click **Reorder
-Right-to-Left Text** toggle, or `ODYTTY_BIDI_REORDER=on`) draws right-to-left
-runs such as Hebrew and Arabic in display order. It is off by default and
-applies live; the menu toggle affects the running window, and Save in Settings
-persists it. Right-to-left joining runs (Arabic, Syriac, N'Ko, Mandaic, Adlam,
-and Hanifi Rohingya) are then drawn right to left, programming ligatures form
-only within one direction (a `->` inside right-to-left text draws as separate,
-mirrored characters), and mirrored brackets draw their mirrored glyphs. Cells,
-cursor addressing and movement, selection, copy, search, scrollback export, and
-mouse reports stay logical: a selection that crosses a direction boundary can
-show as separate segments on screen, and copy returns the logical text. The
-pointer, hyperlink hover, and cursor effects follow the cells as drawn. Each
-paragraph takes its direction from `bidi_direction` (Settings > Rendering >
-Paragraph direction or `ODYTTY_BIDI_DIRECTION`: `ltr`, the default; `rtl`, where
-lines start at the right edge; or `auto`, where the first strong letter
-decides), unless a program selects one with the BiDi escape sequence SCP (`CSI 1
-SP k` left to right, `CSI 2 SP k` right to left, `CSI 0 SP k` back to the
-setting). A program that arranges its own text sends `CSI 8 l` (explicit mode):
-its paragraphs are then never reordered, only mirrored column for column when
-right to left, and draw without contextual joining; `CSI 8 h` restores the
-default implicit mode. Full-screen programs on the alternate screen are
-reordered the same way; the explicit mode applies to rows stamped after it, so a
-program sends `CSI 8 l` before entering the alternate screen or clears the
-screen after sending it. Images never move with text: a row covered by a Sixel,
-iTerm2, or Kitty image (including Kitty Unicode placeholder cells) keeps its
-logical order, so text beside an image reads left to right. A shaped
-complex-script owner is never split: inside a right-to-left isolate it moves as
-one unit, keeps its cells adjacent and in order, and draws its shaped glyphs
-across their visual columns.
+Bidirectional text is an opt-in display setting. `bidi_reorder = on` (Settings >
+Rendering > Bidirectional text, the right-click **Reorder Right-to-Left Text**
+toggle, or `ODYTTY_BIDI_REORDER=on`) draws right-to-left runs such as Hebrew and
+Arabic in display order. It is off by default and applies live; menu changes
+affect the running window, the Settings panel shows them as unsaved changes, and
+Save in Settings persists them. Right-to-left joining runs (Arabic, Syriac,
+N'Ko, Mandaic, Adlam, and Hanifi Rohingya) are then drawn right to left,
+programming ligatures form only within one direction (a `->` inside
+right-to-left text draws as separate, mirrored characters), and mirrored
+brackets draw their mirrored glyphs. Cells, cursor addressing and movement,
+selection, copy, search, scrollback export, and mouse reports stay logical: a
+selection that crosses a direction boundary can show as separate segments on
+screen, and copy returns the logical text. The pointer, hyperlink hover, and
+cursor effects follow the cells as drawn. Each paragraph takes its direction
+from `bidi_direction` (Settings > Rendering > Paragraph direction, the
+right-click **Left-to-Right Paragraphs**, **Right-to-Left Paragraphs**, and
+**Automatic Paragraph Direction** rows shown below the reordering toggle while
+it is on, or `ODYTTY_BIDI_DIRECTION`: `ltr`, the default; `rtl`, where lines
+start at the right edge; or `auto`, where the first strong letter decides),
+unless a program selects one with the BiDi escape sequence SCP (`CSI 1 SP k`
+left to right, `CSI 2 SP k` right to left, `CSI 0 SP k` back to the setting). A
+program that arranges its own text sends `CSI 8 l` (explicit mode): its
+paragraphs are then never reordered, only mirrored column for column when right
+to left, and draw without contextual joining; `CSI 8 h` restores the default
+implicit mode. Full-screen programs on the alternate screen are reordered the
+same way; the explicit mode applies to rows stamped after it, so a program sends
+`CSI 8 l` before entering the alternate screen or clears the screen after
+sending it. Images never move with text: a row covered by a Sixel, iTerm2, or
+Kitty image (including Kitty Unicode placeholder cells) keeps its logical order,
+so text beside an image reads left to right. A shaped complex-script owner is
+never split: inside a right-to-left isolate it moves as one unit, keeps its
+cells adjacent and in order, and draws its shaped glyphs across their visual
+columns.
 
 The support boundary is explicit:
 

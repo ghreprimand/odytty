@@ -143,6 +143,14 @@ impl OverlayUi {
         self.context_menu.set_bidi_reorder(on);
     }
 
+    /// Record the paragraph direction for an open content menu.
+    pub(in crate::native) fn set_context_menu_bidi_direction(
+        &mut self,
+        direction: crate::settings::BidiDirection,
+    ) {
+        self.context_menu.set_bidi_direction(direction);
+    }
+
     /// Record the window, layout, and move facts on an open content, tab, or
     /// empty-strip menu.
     pub(in crate::native) fn set_context_menu_window_actions(
@@ -1042,6 +1050,15 @@ impl OverlayUi {
                     ContextMenuItem::ReorderRtlText | ContextMenuItem::ReorderRtlTextChecked => {
                         OverlayOutcome::ContextMenuToggleBidiReorder
                     }
+                    ContextMenuItem::ParagraphLtr => OverlayOutcome::ContextMenuSetBidiDirection(
+                        crate::settings::BidiDirection::LeftToRight,
+                    ),
+                    ContextMenuItem::ParagraphRtl => OverlayOutcome::ContextMenuSetBidiDirection(
+                        crate::settings::BidiDirection::RightToLeft,
+                    ),
+                    ContextMenuItem::ParagraphAuto => OverlayOutcome::ContextMenuSetBidiDirection(
+                        crate::settings::BidiDirection::Auto,
+                    ),
                     ContextMenuItem::BroadcastToPane | ContextMenuItem::RemovePaneFromBroadcast => {
                         OverlayOutcome::ContextMenuToggleBroadcast
                     }

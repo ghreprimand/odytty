@@ -301,6 +301,8 @@ impl ContextMenuUi {
             .filter(|item| {
                 !matches!(item, ContextMenuItem::ReorderRtlTextChecked) || self.bidi_reorder
             })
+            // The paragraph direction rows act only while reordering is on.
+            .filter(|item| item.paragraph_direction().is_none() || self.bidi_reorder)
             // Broadcast pair: exactly one row shows, keyed to whether the
             // focused pane is a receiver; Stop Broadcast shows only while on.
             .filter(|item| {
@@ -406,7 +408,7 @@ impl ContextMenuUi {
         let items = self.visible_items();
         let longest_label = items
             .iter()
-            .map(|item| item.label().chars().count())
+            .map(|item| self.item_label(*item).chars().count())
             .max()
             .unwrap_or(0);
         let longest_accel = items

@@ -19,7 +19,7 @@ impl ContextMenuUi {
             }
             prev_section = Some(section);
             out.push(ContextMenuRow::Item {
-                label: item.label(),
+                label: self.item_label(*item),
                 accelerator: self.accelerator_for_item(*item).map(str::to_owned),
                 focused: item_index == self.focused,
                 enabled: self.item_enabled(*item),
@@ -45,6 +45,7 @@ impl ContextMenuUi {
             bound_workspace: self.bound_workspace,
             pane_read_only: self.pane_read_only,
             bidi_reorder: self.bidi_reorder,
+            bidi_direction: self.bidi_direction,
             pane_broadcast: self.pane_broadcast,
             broadcast_active: self.broadcast_active,
             workspace_count: self.workspace_count,

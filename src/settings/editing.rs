@@ -78,6 +78,33 @@ impl SettingsEditOverlay {
         self.settings = Settings::from_edit_values(&self.values).unwrap_or_else(|_| new.clone());
     }
 
+    /// Adopt live settings changed outside the editor and not saved. The
+    /// saved baseline stays, so the changed values count as unsaved edits;
+    /// the editor's own pending edits of other keys are kept.
+    pub fn adopt_unsaved(&mut self, new: &Settings) {
+        let shown = self.settings.to_edit_values();
+        let live = new.to_edit_values();
+        for env in shown
+            .keys()
+            .chain(live.keys())
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
+        {
+            if shown.get(env) == live.get(env) {
+                continue;
+            }
+            match live.get(env) {
+                Some(value) => {
+                    self.values.insert(env, value.clone());
+                }
+                None => {
+                    self.values.remove(env);
+                }
+            }
+        }
+        self.settings = Settings::from_edit_values(&self.values).unwrap_or_else(|_| new.clone());
+    }
+
     pub fn apply_raw(
         &mut self,
         key: &'static str,

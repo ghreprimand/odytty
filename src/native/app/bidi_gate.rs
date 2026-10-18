@@ -66,13 +66,27 @@ impl App {
     }
 
     /// Flip `bidi_reorder` live (the right-click Reorder Right-to-Left Text
-    /// row), through the same apply path as a Settings edit. Not written to
-    /// odytty.conf; Settings > Rendering > Bidirectional text with Save
-    /// persists it.
+    /// row). Not written to odytty.conf; Settings > Rendering > Bidirectional
+    /// text with Save persists it.
     pub(super) fn toggle_bidi_reorder(&mut self) {
-        let mut settings = self.settings.clone();
-        settings.bidi_reorder = !settings.bidi_reorder;
-        self.apply_overlay_settings(settings);
+        self.apply_unsaved_external_edit(|settings| {
+            settings.bidi_reorder = !settings.bidi_reorder;
+            true
+        });
+    }
+
+    /// Set `bidi_direction` live (the right-click direction rows), so every
+    /// paragraph without its own direction is laid out again on the next
+    /// frame. Not written to odytty.conf; Settings > Rendering > Paragraph
+    /// direction with Save persists it.
+    pub(super) fn set_bidi_direction(&mut self, direction: crate::settings::BidiDirection) {
+        self.apply_unsaved_external_edit(|settings| {
+            if settings.bidi_direction == direction {
+                return false;
+            }
+            settings.bidi_direction = direction;
+            true
+        });
     }
 
     /// The display map for the single-pane content grid `snapshot` at
@@ -457,6 +471,13 @@ impl App {
     /// Test seam: the live `bidi_reorder` setting value.
     pub(in crate::native) fn bidi_reorder_setting_for_test(&self) -> bool {
         self.settings.bidi_reorder
+    }
+
+    /// Test seam: the live `bidi_direction` setting value.
+    pub(in crate::native) fn bidi_direction_setting_for_test(
+        &self,
+    ) -> crate::settings::BidiDirection {
+        self.settings.bidi_direction
     }
 
     /// Test seam: turn the test override on or off without presenting a frame.

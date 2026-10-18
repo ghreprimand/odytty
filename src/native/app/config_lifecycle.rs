@@ -30,6 +30,14 @@ pub(super) enum SettingsApplySource {
     /// reflects the change instead of showing a stale copy. Any future
     /// out-of-panel toggle that needs the seam uses this variant.
     ExternalChrome,
+    /// A live change made outside the panel and not written to odytty.conf
+    /// (the right-click bidi rows, the Ctrl+wheel zoom). The open or closed
+    /// panel adopts the live value as an unsaved edit over its saved
+    /// baseline, so it shows the running value and Save persists it. As an
+    /// [`OverlayEdit`] echo the panel would keep its older copy and write it
+    /// back on its next edit; as [`ExternalChrome`] it would become the clean
+    /// baseline that Save never writes.
+    UnsavedExternal,
 }
 
 pub(super) fn bloom_options(settings: &Settings) -> BloomOptions {
@@ -113,6 +121,19 @@ impl App {
     pub(super) fn flush_pending_overlay_settings(&mut self) {
         if let Some(settings) = self.pending_overlay_settings.take() {
             self.apply_overlay_settings(settings);
+        }
+    }
+
+    /// Change settings live from outside the Settings panel (the right-click
+    /// bidi rows, the Ctrl+wheel zoom) as an unsaved edit, not written to
+    /// odytty.conf. A panel edit still queued for the next frame is applied
+    /// first, so the change starts from it and cannot be undone when the
+    /// queue is applied later. `edit` returns false to change nothing.
+    pub(super) fn apply_unsaved_external_edit(&mut self, edit: impl FnOnce(&mut Settings) -> bool) {
+        self.flush_pending_overlay_settings();
+        let mut settings = self.settings.clone();
+        if edit(&mut settings) {
+            self.apply_settings_through_reload_seam(settings, SettingsApplySource::UnsavedExternal);
         }
     }
 
@@ -681,6 +702,9 @@ impl App {
         match source {
             SettingsApplySource::ConfigReload => self.overlay.refresh_settings(&self.settings),
             SettingsApplySource::OverlayEdit => self.overlay.apply_settings(&self.settings),
+            SettingsApplySource::UnsavedExternal => {
+                self.overlay.adopt_unsaved_settings(&self.settings)
+            }
             SettingsApplySource::ExternalChrome => self
                 .overlay
                 .rebase_settings_panel_onto_external(&self.settings),

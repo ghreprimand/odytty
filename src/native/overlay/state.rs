@@ -214,6 +214,14 @@ impl OverlayUi {
         self.panel.rebase_onto_external(settings);
     }
 
+    /// Adopt a live setting changed outside the panel and not saved: the
+    /// panel keeps its saved baseline and shows the live value as an unsaved
+    /// edit, so Save writes it.
+    pub(in crate::native) fn adopt_unsaved_settings(&mut self, settings: &Settings) {
+        self.settings = settings.clone();
+        self.panel.adopt_unsaved_external(settings);
+    }
+
     pub(in crate::native) fn set_settings_environment_overrides(
         &mut self,
         keys: Vec<&'static str>,
@@ -680,6 +688,22 @@ impl OverlayUi {
                 crate::native::context_menu_ui::ContextMenuRow::Separator => None,
             })
             .collect()
+    }
+
+    /// Test seam: the label of the open context menu's focused item.
+    #[cfg(test)]
+    pub(in crate::native) fn context_menu_focused_label_for_test(&self) -> Option<&'static str> {
+        self.context_menu
+            .rows()
+            .into_iter()
+            .find_map(|row| match row {
+                crate::native::context_menu_ui::ContextMenuRow::Item {
+                    label,
+                    focused: true,
+                    ..
+                } => Some(label),
+                _ => None,
+            })
     }
 
     pub(in crate::native) fn is_risky_paste(&self) -> bool {

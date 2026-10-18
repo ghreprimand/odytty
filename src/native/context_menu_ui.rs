@@ -77,7 +77,7 @@ use crate::settings::BindableAction;
 /// `ALL` so every pre-existing accelerator-array index stays stable, and they
 /// never touch the content menu's separator geometry (that surface filters them
 /// out and they compose their own tight sections).
-pub(super) const CONTEXT_MENU_ITEMS: usize = 82;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 85;
 
 /// The arrangement of the tab a menu was opened on, snapshotted at open time.
 /// Selects which of Stack / Float / Tile Panes show (the one already in force
@@ -358,6 +358,8 @@ pub(super) struct ContextMenuSignature {
     /// Whether bidi reordering is on: selects the checked or unchecked
     /// Reorder Right-to-Left Text row, so a toggle must repaint the menu.
     pub(super) bidi_reorder: bool,
+    /// The paragraph direction: selects the checked direction row.
+    pub(super) bidi_direction: crate::settings::BidiDirection,
     /// Whether the focused pane is a broadcast receiver and whether broadcast
     /// is on: they select the broadcast rows, so a change must repaint.
     pub(super) pane_broadcast: bool,
@@ -454,6 +456,10 @@ pub(super) struct ContextMenuUi {
     /// content-surface open via [`Self::set_bidi_reorder`]. Selects which half
     /// of the Reorder Right-to-Left Text pair shows. Reset on every open.
     bidi_reorder: bool,
+    /// The paragraph direction (`bidi_direction`), applied with
+    /// [`Self::set_bidi_direction`] after a content-surface open. Selects the
+    /// checked direction row. Reset on every open.
+    bidi_direction: crate::settings::BidiDirection,
     /// Whether the focused pane is a broadcast receiver, applied with
     /// [`Self::set_broadcast`] after a content-surface open. Reset on every
     /// open.

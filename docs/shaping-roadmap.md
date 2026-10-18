@@ -249,8 +249,10 @@ program selected with SCP or else at `bidi_direction` (`ltr`, `rtl`, or `auto`);
 paragraphs a program marks explicit with `CSI 8 l` are never reordered, only
 reversed column for column when right to left. With it off, right-to-left input
 is stored and drawn in logical cell order, exactly as before; Arabic joining
-forms are then shaped within that order. The menu toggle applies to the running
-window; Save in Settings persists it.
+forms are then shaped within that order. While reordering is on, the menu also
+offers the three paragraph directions as check-marked rows. Menu changes
+affect the running window and show in Settings as unsaved changes; Save in
+Settings persists them.
 
 Window-level menus, panels, pickers, dialogs, and rename fields keep the
 terminal display map beneath them. Their own text draws in logical order.

@@ -116,6 +116,9 @@ pub(in crate::native) enum OverlayOutcome {
     /// Turn bidi display reordering on or off (Reorder Right-to-Left Text).
     /// The menu has closed itself.
     ContextMenuToggleBidiReorder,
+    /// Set the paragraph direction (`bidi_direction`) from a direction radio
+    /// row. The menu has closed itself.
+    ContextMenuSetBidiDirection(crate::settings::BidiDirection),
     /// Add the focused pane to the broadcast receivers or remove it (Broadcast
     /// to This Pane / Remove Pane from Broadcast). The menu has closed itself.
     ContextMenuToggleBroadcast,

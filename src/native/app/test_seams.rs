@@ -2487,6 +2487,12 @@ impl App {
         self.overlay.context_menu_labels_for_test()
     }
 
+    /// Test seam: the open context menu's focused item label.
+    #[cfg(test)]
+    pub(in crate::native) fn context_menu_focused_label_for_test(&self) -> Option<&'static str> {
+        self.overlay.context_menu_focused_label_for_test()
+    }
+
     /// Test seam: move the pointer onto the top-strip tab at `idx` (the strip
     /// hit-test the production right-click uses) and set the pointer cell to
     /// match. Returns whether such a tab was found.

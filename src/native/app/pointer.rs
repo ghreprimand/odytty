@@ -1073,21 +1073,27 @@ impl App {
     /// a `font_size` settings edit would - no separate resize path. A no-op when
     /// the clamp leaves the size unchanged (already at the min/max), so zooming
     /// past the bound does nothing. The change is applied live but not written
-    /// to disk: the same transient behavior as dragging the overlay slider
-    /// without saving.
+    /// to disk: the Settings panel shows the new size as an unsaved edit, the
+    /// same as dragging its slider without saving, and its Save persists it.
+    /// A panel edit still queued for the next frame is applied first.
     fn adjust_font_size_by(&mut self, steps: i32) {
-        let current = self.settings.font_size_px;
-        let next_px = (current + steps as f32).clamp(
-            crate::settings::MIN_FONT_SIZE_PX,
-            crate::settings::MAX_FONT_SIZE_PX,
-        );
-        if (next_px - current).abs() < f32::EPSILON {
-            return;
+        let mut zoomed = None;
+        self.apply_unsaved_external_edit(|settings| {
+            let current = settings.font_size_px;
+            let next_px = (current + steps as f32).clamp(
+                crate::settings::MIN_FONT_SIZE_PX,
+                crate::settings::MAX_FONT_SIZE_PX,
+            );
+            if (next_px - current).abs() < f32::EPSILON {
+                return false;
+            }
+            settings.font_size_px = next_px;
+            zoomed = Some(next_px);
+            true
+        });
+        if let Some(next_px) = zoomed {
+            self.show_font_size_hud(next_px);
         }
-        let mut next = self.settings.clone();
-        next.font_size_px = next_px;
-        self.apply_overlay_settings(next);
-        self.show_font_size_hud(next_px);
     }
 
     fn handle_primary_paste(&mut self) {

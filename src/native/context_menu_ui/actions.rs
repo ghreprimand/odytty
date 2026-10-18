@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::CONTEXT_MENU_ITEMS;
-use crate::settings::BindableAction;
+use crate::settings::{BidiDirection, BindableAction};
 
 /// The selectable actions in the menu, in display order (separator excluded).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +75,14 @@ pub(in crate::native) enum ContextMenuItem {
     /// Turn bidirectional display reordering off. Content surface only, shown
     /// with a check mark while reordering is on.
     ReorderRtlTextChecked,
+    /// Set the paragraph direction (`bidi_direction`) to left to right. The
+    /// three direction rows are radio rows: content surface only, shown while
+    /// reordering is on, the current direction checked. No default chord.
+    ParagraphLtr,
+    /// Set the paragraph direction to right to left.
+    ParagraphRtl,
+    /// Set the paragraph direction to automatic (first strong letter).
+    ParagraphAuto,
     /// Open the settings panel (always enabled, D-IN2-SETTINGS).
     Settings,
     /// Open the key-remap editor overlay directly. Always enabled; same
@@ -359,6 +367,10 @@ impl ContextMenuItem {
         // Settings; exactly one half is visible.
         Self::ReorderRtlText,
         Self::ReorderRtlTextChecked,
+        // The paragraph direction radio rows follow the toggle they depend on.
+        Self::ParagraphLtr,
+        Self::ParagraphRtl,
+        Self::ParagraphAuto,
         Self::Settings,
         Self::KeyboardShortcuts,
         Self::ConnectionManager,
@@ -503,7 +515,12 @@ impl ContextMenuItem {
             | Self::NavDuplicate
             | Self::NavMove
             | Self::NavClose => 3,
-            Self::ReorderRtlText | Self::ReorderRtlTextChecked | Self::Settings => 4,
+            Self::ReorderRtlText
+            | Self::ReorderRtlTextChecked
+            | Self::ParagraphLtr
+            | Self::ParagraphRtl
+            | Self::ParagraphAuto
+            | Self::Settings => 4,
             Self::KeyboardShortcuts
             | Self::ConnectionManager
             | Self::CommandPalette
@@ -591,6 +608,9 @@ impl ContextMenuItem {
             Self::StopBroadcast => "Stop Broadcast",
             Self::ReorderRtlText => "Reorder Right-to-Left Text",
             Self::ReorderRtlTextChecked => "\u{2713} Reorder Right-to-Left Text",
+            Self::ParagraphLtr => "Left-to-Right Paragraphs",
+            Self::ParagraphRtl => "Right-to-Left Paragraphs",
+            Self::ParagraphAuto => "Automatic Paragraph Direction",
             Self::Settings => "Settings",
             Self::KeyboardShortcuts => "Keyboard Shortcuts",
             Self::ConnectionManager => "Connection Manager",
@@ -605,6 +625,28 @@ impl ContextMenuItem {
             Self::RevealPath => "Reveal in File Manager",
             Self::DetachSwitch => "Detach & switch",
         }
+    }
+
+    /// The paragraph direction a direction radio row selects, or `None` for
+    /// every other item.
+    pub(in crate::native) fn paragraph_direction(self) -> Option<BidiDirection> {
+        match self {
+            Self::ParagraphLtr => Some(BidiDirection::LeftToRight),
+            Self::ParagraphRtl => Some(BidiDirection::RightToLeft),
+            Self::ParagraphAuto => Some(BidiDirection::Auto),
+            _ => None,
+        }
+    }
+
+    /// The label of a direction radio row with its check mark, shown on the
+    /// row that matches the current direction.
+    pub(in crate::native) fn checked_label(self) -> Option<&'static str> {
+        Some(match self {
+            Self::ParagraphLtr => "\u{2713} Left-to-Right Paragraphs",
+            Self::ParagraphRtl => "\u{2713} Right-to-Left Paragraphs",
+            Self::ParagraphAuto => "\u{2713} Automatic Paragraph Direction",
+            _ => return None,
+        })
     }
 
     /// The command-palette row this item dispatches, for the window, layout, and
@@ -702,6 +744,10 @@ impl ContextMenuItem {
             // The bidi reordering pair has no default chord.
             | Self::ReorderRtlText
             | Self::ReorderRtlTextChecked
+            // The paragraph direction rows have no default chord either.
+            | Self::ParagraphLtr
+            | Self::ParagraphRtl
+            | Self::ParagraphAuto
             // The profile-choosing New rows have no bindable action.
             | Self::NewTabWithProfile
             | Self::NewWorkspaceWithProfile

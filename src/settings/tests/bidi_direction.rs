@@ -80,3 +80,35 @@ fn bidi_direction_has_a_reloadable_rendering_row() {
     assert!(matches!(row.kind, SettingKind::Enum));
     assert_eq!(row.options, &["ltr", "rtl", "auto"]);
 }
+
+/// A live change made outside the editor and not saved becomes an unsaved
+/// edit over the saved baseline; the editor's own pending edit of another key
+/// stays.
+#[test]
+fn adopt_unsaved_keeps_the_saved_baseline_and_pending_edits() {
+    let base = Settings::default();
+    let mut edits = SettingsEditOverlay::new(&base);
+    edits
+        .apply_raw("font_size", "24")
+        .expect("a pending panel edit");
+    let live = Settings {
+        bidi_reorder: true,
+        bidi_direction: BidiDirection::RightToLeft,
+        font_size_px: 24.0,
+        ..base.clone()
+    };
+    edits.adopt_unsaved(&live);
+    assert!(edits.settings().bidi_reorder);
+    assert_eq!(edits.settings().bidi_direction, BidiDirection::RightToLeft);
+    assert_eq!(edits.settings().font_size_px, 24.0);
+    let mut keys: Vec<_> = edits.changes().into_iter().map(|edit| edit.key).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["bidi_direction", "bidi_reorder", "font_size"]);
+
+    // Adopting the same live settings again changes nothing.
+    edits.adopt_unsaved(&live);
+    assert_eq!(edits.changed_count(), 3);
+    // Saving makes them the baseline.
+    edits.mark_saved();
+    assert_eq!(edits.changed_count(), 0);
+}

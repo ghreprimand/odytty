@@ -106,7 +106,10 @@ shell_key_enhancement = on
 Arabic are drawn in display order, including in full-screen programs; terminal
 cells, the cursor, selection, and copy stay logical. `bidi_direction` (`ltr` by
 default, `rtl`, or `auto`) sets the direction of paragraphs that do not choose
-their own with the BiDi escape sequence SCP. `font_zero` ships off. With it on,
+their own with the BiDi escape sequence SCP. While reordering is on, the
+terminal right-click menu also offers both: Reorder Right-to-Left Text and the
+three paragraph direction rows affect the running window, show in Settings as
+unsaved changes, and are kept with Save. `font_zero` ships off. With it on,
 `0` is drawn with the body font's OpenType `zero` feature (a slashed or dotted
 zero) when the font has one. Both apply live. See the
 [runtime-knob reference](runtime-knobs.md) and

@@ -203,6 +203,25 @@ impl SettingsPanel {
         self.clamp();
     }
 
+    /// Take a live value changed outside the panel and not written to disk as
+    /// an unsaved edit: the saved baseline stays, so the row shows the live
+    /// value and Save persists it. Navigation is kept as in
+    /// [`Self::rebase_onto_external`].
+    pub(in crate::native) fn adopt_unsaved_external(&mut self, settings: &Settings) {
+        self.edits.adopt_unsaved(settings);
+        let selected_key = self
+            .entries
+            .get(self.selected)
+            .map(|entry| entry.key)
+            .unwrap_or("theme");
+        self.all_entries = self.edits.settings().setting_info();
+        self.refresh_entries_after_commit();
+        if let Some(pos) = self.entries.iter().position(|e| e.key == selected_key) {
+            self.selected = pos;
+        }
+        self.clamp();
+    }
+
     pub(in crate::native) fn save_succeeded(&mut self, changed: usize) {
         self.edits.mark_saved();
         self.all_entries = self.edits.settings().setting_info();

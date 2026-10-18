@@ -19,6 +19,7 @@ impl Default for ContextMenuUi {
             bound_workspace: false,
             pane_read_only: false,
             bidi_reorder: false,
+            bidi_direction: crate::settings::BidiDirection::LeftToRight,
             pane_broadcast: false,
             broadcast_active: false,
             workspace_count: 0,
@@ -113,6 +114,7 @@ impl ContextMenuUi {
         self.bound_workspace = bound_workspace;
         self.pane_read_only = false;
         self.bidi_reorder = false;
+        self.bidi_direction = crate::settings::BidiDirection::LeftToRight;
         self.pane_broadcast = false;
         self.broadcast_active = false;
         self.window_actions = WindowMenuActions::default();
@@ -171,6 +173,7 @@ impl ContextMenuUi {
         self.bound_workspace = false;
         self.pane_read_only = false;
         self.bidi_reorder = false;
+        self.bidi_direction = crate::settings::BidiDirection::LeftToRight;
         self.pane_broadcast = false;
         self.broadcast_active = false;
         self.window_actions = WindowMenuActions::default();
@@ -217,6 +220,7 @@ impl ContextMenuUi {
         self.bound_workspace = false;
         self.pane_read_only = false;
         self.bidi_reorder = false;
+        self.bidi_direction = crate::settings::BidiDirection::LeftToRight;
         self.pane_broadcast = false;
         self.broadcast_active = false;
         self.window_actions = WindowMenuActions::default();
@@ -286,6 +290,24 @@ impl ContextMenuUi {
     /// the Reorder Right-to-Left Text row shows checked or unchecked.
     pub(in crate::native) fn set_bidi_reorder(&mut self, on: bool) {
         self.recompose(|menu| menu.bidi_reorder = on);
+    }
+
+    /// Record the paragraph direction for a content-surface menu, so the
+    /// matching direction row shows checked.
+    pub(in crate::native) fn set_bidi_direction(
+        &mut self,
+        direction: crate::settings::BidiDirection,
+    ) {
+        self.recompose(|menu| menu.bidi_direction = direction);
+    }
+
+    /// The label painted for `item`: the direction row matching the current
+    /// paragraph direction carries its check mark.
+    pub(super) fn item_label(&self, item: ContextMenuItem) -> &'static str {
+        match (item.paragraph_direction(), item.checked_label()) {
+            (Some(direction), Some(checked)) if direction == self.bidi_direction => checked,
+            _ => item.label(),
+        }
     }
 
     /// Record the broadcast state for a content-surface menu: whether the
@@ -407,6 +429,9 @@ impl ContextMenuUi {
             ContextMenuItem::ClosePane => true,
             ContextMenuItem::MakePaneReadOnly | ContextMenuItem::MakePaneWritable => true,
             ContextMenuItem::ReorderRtlText | ContextMenuItem::ReorderRtlTextChecked => true,
+            ContextMenuItem::ParagraphLtr
+            | ContextMenuItem::ParagraphRtl
+            | ContextMenuItem::ParagraphAuto => true,
             ContextMenuItem::BroadcastToPane
             | ContextMenuItem::RemovePaneFromBroadcast
             | ContextMenuItem::StopBroadcast => true,
