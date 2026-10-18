@@ -181,8 +181,6 @@ Known gaps include the following:
 - Font shaping outside the tuned script groups has HarfBuzz reference
   fixtures for 17 scripts (see `docs/shaping-roadmap.md`); other scripts'
   owners are shaped without a recorded reference.
-- Chinese, Japanese and Korean text on Windows and macOS needs a terminal font
-  that includes it; the stock-font fallback does not cover those scripts.
 
 Performance evidence is in the [published benchmarks](docs/benchmark-results.md).
 The terminal core and visual layer are deliberately separate; see the

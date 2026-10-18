@@ -6,8 +6,8 @@
 //! of most of Hebrew, Arabic and the Indic and Southeast Asian scripts, and
 //! neither platform has a fontconfig-style per-codepoint query, so a primary
 //! face without those scripts drew boxes. This module names the stock system
-//! faces that carry them, one column per platform, and resolves a codepoint to
-//! the first of them that maps it.
+//! faces that carry them and CJK, one column per platform, and resolves each
+//! codepoint to the first of them that maps it.
 //!
 //! Order: the atlas consults the static chain (bundled faces, host Nerd face,
 //! symbol tail) first, so no glyph the chain already covers changes provider.
@@ -95,7 +95,70 @@ impl ScriptFaces {
 /// Javanese, Chakma, Tai Tham, N'Ko, Tifinagh and Vai, Kefa, Plantagenet
 /// Cherokee and Euphemia CAS. It ships no Grantha face. Sangam MN and the Noto
 /// files live in the Supplemental folder, inside the scan depth.
+/// CJK uses Microsoft YaHei/JhengHei, Yu Gothic and Malgun Gothic on Windows;
+/// PingFang, Hiragino and Apple SD Gothic Neo on macOS, when installed.
 pub(super) const SCRIPT_FALLBACK: &[ScriptFaces] = &[
+    // Han, shared CJK punctuation and Bopomofo. The fixed order chooses a
+    // provider by coverage; it does not infer a language or change cell widths.
+    ScriptFaces {
+        ranges: &[
+            (0x2E80, 0x2FFF),
+            (0x3000, 0x303F),
+            (0x3100, 0x312F),
+            (0x31A0, 0x31EF),
+            (0x3200, 0x33FF),
+            (0x3400, 0x4DBF),
+            (0x4E00, 0x9FFF),
+            (0xF900, 0xFAFF),
+            (0xFE10, 0xFE1F),
+            (0xFE30, 0xFE4F),
+            (0xFF00, 0xFF60),
+            (0xFFE0, 0xFFEE),
+            (0x20000, 0x2FA1F),
+            (0x30000, 0x3347F),
+        ],
+        windows: &[("msyh", 0), ("msjh", 0), ("yugothr", 0), ("malgun", 0)],
+        macos: &[
+            ("pingfang", 0),
+            ("hiragino", 0),
+            ("hirakaku", 0),
+            ("ヒラギノ", 0),
+            ("ヒラキノ", 0),
+            ("applesdgothicneo", 0),
+        ],
+    },
+    // The unvoiced Japanese hint matches NFD after filename normalization
+    // filters combining marks.
+    // Hiragana, Katakana, their extensions and halfwidth Katakana.
+    ScriptFaces {
+        ranges: &[
+            (0x3040, 0x30FF),
+            (0x31F0, 0x31FF),
+            (0xFF61, 0xFF9F),
+            (0x1AFF0, 0x1AFFF),
+            (0x1B000, 0x1B16F),
+        ],
+        windows: &[("yugothr", 0), ("msgothic", 0), ("msyh", 0)],
+        macos: &[
+            ("hiragino", 0),
+            ("hirakaku", 0),
+            ("ヒラギノ", 0),
+            ("ヒラキノ", 0),
+            ("pingfang", 0),
+        ],
+    },
+    ScriptFaces {
+        ranges: &[
+            (0x1100, 0x11FF),
+            (0x3130, 0x318F),
+            (0xA960, 0xA97F),
+            (0xAC00, 0xD7AF),
+            (0xD7B0, 0xD7FF),
+            (0xFFA0, 0xFFDC),
+        ],
+        windows: &[("malgun", 0)],
+        macos: &[("applesdgothicneo", 0)],
+    },
     ScriptFaces {
         ranges: &[(0x0590, 0x05FF), (0xFB1D, 0xFB4F)],
         windows: &[("segoeui", 0), ("arial", 0)],

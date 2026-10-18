@@ -2,7 +2,7 @@
 //! Script-face ordering against fixture inventories. The files are
 //! project-licensed script subsets written under the stock Windows file names,
 //! so the lookup order, coverage check and caching run the same on every
-//! platform; the real system fonts are exercised by the Windows-only test.
+//! platform; the real system fonts are exercised on Windows and macOS.
 
 use super::*;
 
@@ -122,7 +122,7 @@ fn codepoints_outside_every_group_are_never_looked_up() {
         '\u{00E9}',
         '\u{03B1}',
         '\u{0416}',
-        '\u{4E2D}',
+        '\u{10348}',
         '\u{2192}',
         '\u{1F600}',
         '\u{0378}',
@@ -365,7 +365,7 @@ fn each_macos_stock_file_name_resolves_its_script() {
 #[cfg(any(windows, target_os = "macos"))]
 fn check_real_system_faces(required: &[char]) {
     // A code point outside every script group settles at once, with no worker.
-    for ch in ['A', '\u{4E2D}', '\u{2192}'] {
+    for ch in ['A', '\u{10348}', '\u{2192}'] {
         assert!(matches!(
             crate::text::runtime_resolve_symbol_font(ch),
             crate::atlas::RuntimeSymbol::Ready(None)
@@ -446,4 +446,85 @@ fn stock_macos_faces_resolve_the_acceptance_sheet_samples() {
         '\u{05D0}', '\u{0628}', '\u{0915}', '\u{0B95}', '\u{0D9A}', '\u{0E01}', '\u{1780}',
         '\u{1019}', '\u{A98F}',
     ]);
+}
+
+const CJK_LOOKUP: &[u8] = include_bytes!("../../tests/fixtures/fonts/cjk-fallback.ttf");
+
+#[test]
+fn cjk_stock_names_resolve_each_script_and_reuse_the_cached_face() {
+    for (platform, files, samples) in [
+        (
+            Platform::Windows,
+            &["msyh.ttc", "msjh.ttc"][..],
+            &[0x3001, 0x3105, 0x4E2D, 0x754C, 0xFA11, 0x20000][..],
+        ),
+        (
+            Platform::Windows,
+            &["YuGothR.ttc"][..],
+            &[0x3042, 0x30A2, 0x31F0, 0xFF71][..],
+        ),
+        (
+            Platform::Windows,
+            &["malgun.ttf"][..],
+            &[0x1100, 0xAC00, 0xFFA1][..],
+        ),
+        (
+            Platform::Macos,
+            &["PingFang.ttc"][..],
+            &[0x3001, 0x3105, 0x4E2D, 0x754C, 0xFA11, 0x20000][..],
+        ),
+        (
+            Platform::Macos,
+            &[
+                "Hiragino Sans W3.ttc",
+                "HiraKakuProN-W3.otf",
+                "ヒラギノ角ゴシック W3.ttc",
+            ][..],
+            &[0x3042, 0x30A2, 0x31F0, 0xFF71][..],
+        ),
+        (
+            Platform::Macos,
+            &["AppleSDGothicNeo.ttc"][..],
+            &[0x1100, 0xAC00, 0xFFA1][..],
+        ),
+    ] {
+        for name in files {
+            let (mut resolver, _dir) = resolver_on(platform, &[(name, CJK_LOOKUP)]);
+            for &cp in samples {
+                let ch = char::from_u32(cp).unwrap();
+                let first = resolver
+                    .resolve(ch)
+                    .unwrap_or_else(|| panic!("{platform:?} {name}: U+{cp:04X}"));
+                assert!(font_provides_outline_glyph(&first, ch));
+                assert!(Arc::ptr_eq(&first, &resolver.resolve(ch).unwrap()));
+            }
+            assert_eq!(resolver.loaded_faces(), 1);
+        }
+    }
+}
+
+#[test]
+fn cjk_mismatched_or_absent_candidates_do_not_draw_notdef() {
+    for (platform, first, next) in [
+        (Platform::Windows, "msyh.ttc", "msjh.ttc"),
+        (Platform::Macos, "PingFang.ttc", "Hiragino Sans W3.ttc"),
+    ] {
+        let (mut resolver, _dir) =
+            resolver_on(platform, &[(first, DEVANAGARI), (next, CJK_LOOKUP)]);
+        let face = resolver
+            .resolve('\u{754C}')
+            .expect("next CJK candidate answers");
+        assert!(font_provides_outline_glyph(&face, '\u{754C}'));
+        let (mut absent, _dir) = resolver_on(platform, &[(first, DEVANAGARI)]);
+        assert!(absent.resolve('\u{754C}').is_none());
+    }
+}
+
+#[test]
+fn cjk_nfd_hiragino_filename_resolves() {
+    // A decomposed filename has separate dakuten marks on ki and ko.
+    let filename = "ヒラキ\u{3099}ノ角コ\u{3099}シック W3.ttc";
+    let (mut resolver, _dir) = resolver_on(Platform::Macos, &[(filename, CJK_LOOKUP)]);
+    let face = resolver.resolve('\u{3042}').expect("NFD Hiragino answers");
+    assert!(font_provides_outline_glyph(&face, '\u{3042}'));
 }

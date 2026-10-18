@@ -673,4 +673,52 @@ mod tests {
             crate::atlas::ClusterFace::Unavailable
         ));
     }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    fn check_system_cjk_runtime_fallback() {
+        let primary = text::load_font().expect("bundled face loads");
+        let samples = ['\u{4E2D}', '\u{3042}', '\u{30A2}', '\u{AC00}'];
+        let mut atlas = text::GlyphAtlas::build(&primary, 20.0);
+        atlas.set_fallback_fonts(Vec::new());
+        install_runtime_symbol_resolver(&mut atlas, true);
+        for ch in samples {
+            assert_eq!(primary.glyph_id(ch).0, 0, "premise U+{:04X}", ch as u32);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            loop {
+                match atlas.cluster_face(&primary, &[ch]) {
+                    crate::atlas::ClusterFace::Pending => {
+                        assert!(std::time::Instant::now() < deadline, "CJK worker timed out");
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                    }
+                    crate::atlas::ClusterFace::Fallback(face) => {
+                        assert_ne!(face.glyph_id(ch).0, 0, "U+{:04X}", ch as u32);
+                        break;
+                    }
+                    other => panic!("CJK U+{:04X} did not resolve: {other:?}", ch as u32),
+                }
+            }
+        }
+        let mut off = text::GlyphAtlas::build(&primary, 20.0);
+        install_runtime_symbol_resolver(&mut off, false);
+        for ch in samples {
+            assert!(matches!(
+                off.cluster_face(&primary, &[ch]),
+                crate::atlas::ClusterFace::Unavailable
+            ));
+        }
+    }
+
+    /// The Windows CI leg uses installed stock CJK faces, never fixture paths.
+    #[cfg(windows)]
+    #[test]
+    fn windows_cjk_runtime_fallback_settles_on_stock_faces() {
+        check_system_cjk_runtime_fallback();
+    }
+
+    /// The macOS CI leg uses installed stock CJK faces, never fixture paths.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_cjk_runtime_fallback_settles_on_stock_faces() {
+        check_system_cjk_runtime_fallback();
+    }
 }

@@ -485,6 +485,21 @@ same faces through the same fallback call, so a shaped run is fitted to the em
 size of the face that resolves its base. Disabling symbol fallback turns this
 off with the rest of the chain. Linux fontconfig fallback is unchanged.
 
+CJK uses the same lazy script lookup when the primary and static fallback
+faces miss. For Han, shared CJK punctuation and Bopomofo, Windows tries
+Microsoft YaHei, Microsoft JhengHei, Yu Gothic, then Malgun Gothic. For kana
+it tries Yu Gothic, MS Gothic, then Microsoft YaHei; for Hangul, Malgun Gothic.
+For Han and shared CJK forms, macOS tries PingFang, installed Hiragino faces
+in a fixed filename order, then Apple SD Gothic Neo. For kana it tries those
+Hiragino faces in the same order, then PingFang; for Hangul, Apple SD Gothic
+Neo. This fixed order does not infer a language or choose regional Han
+forms from the locale. The corresponding system fonts must be installed;
+OdyTTY does not download language font packs, and missing coverage still draws
+the missing-glyph box. Existing static-chain providers and terminal cell
+widths, cursor movement, selection, copy, wrapping and reflow are unchanged.
+Disabling symbol fallback disables this lookup. Linux retains fontconfig
+fallback.
+
 Collection faces load independently under the 256 MiB retained
 font limit, including discovery in larger collections. Extracted faces repair
 standalone checksums and discard invalidated digital signatures. Font paths

@@ -3220,6 +3220,21 @@ queueing the worker. A face absent from a system leaves its script boxed there.
 Complex-script owners use the same call, so the chosen face must map every
 scalar of the owner and is fitted by the owner em-size rule.
 
+CJK uses the same lazy script lookup when the primary and static fallback
+faces miss. For Han, shared CJK punctuation and Bopomofo, Windows tries
+Microsoft YaHei, Microsoft JhengHei, Yu Gothic, then Malgun Gothic. For kana
+it tries Yu Gothic, MS Gothic, then Microsoft YaHei; for Hangul, Malgun Gothic.
+For Han and shared CJK forms, macOS tries PingFang, installed Hiragino faces
+in a fixed filename order, then Apple SD Gothic Neo. For kana it tries those
+Hiragino faces in the same order, then PingFang; for Hangul, Apple SD Gothic
+Neo. This fixed order does not infer a language or choose regional Han
+forms from the locale. The corresponding system fonts must be installed;
+OdyTTY does not download language font packs, and missing coverage still draws
+the missing-glyph box. Existing static-chain providers and terminal cell
+widths, cursor movement, selection, copy, wrapping and reflow are unchanged.
+Disabling symbol fallback disables this lookup. Linux retains fontconfig
+fallback.
+
 Monochrome glyph coverage validates finite positive scales and finite
 positions, and refuses pixel bounds larger than 4,096 pixels on either axis
 before scan conversion. Degenerate font metrics cannot request an unbounded
