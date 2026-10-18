@@ -11,10 +11,7 @@ use super::*;
 /// stale-alias fallback is the headless-observable decision.)
 #[test]
 fn bound_workspace_stale_host_falls_back_to_local_with_notice() {
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_workspace_binding_for_test(Some("ghost-host".to_owned()));
     assert_eq!(
         app.active_workspace_binding_for_test().as_deref(),
@@ -41,10 +38,7 @@ fn bound_workspace_stale_host_falls_back_to_local_with_notice() {
 /// reports it; New Tab then returns to the local path.
 #[test]
 fn unbind_active_workspace_clears_the_binding() {
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_workspace_binding_for_test(Some("edge".to_owned()));
     app.unbind_active_workspace();
     assert_eq!(app.active_workspace_binding_for_test(), None);
@@ -63,10 +57,7 @@ fn unbind_active_workspace_clears_the_binding() {
 fn single_workspace_default_shows_no_workspace_rail() {
     // A single-workspace launch is ZERO chrome change from a top-only tab
     // bar - the auto rail stays hidden until a second workspace exists.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_rail_width_manual_for_test(16);
     // Two tabs → top bar; one workspace + auto rail → no rail band.
@@ -92,10 +83,7 @@ fn single_workspace_default_shows_no_workspace_rail() {
 fn workspace_rail_always_shows_with_a_single_workspace() {
     // `workspace_rail = always` pins the rail even with one workspace
     // (alongside the top bar).
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_rail_width_manual_for_test(16);
     app.set_workspace_rail_for_test("always");
@@ -114,10 +102,7 @@ fn clicking_a_workspace_rail_slot_switches_the_active_workspace() {
     // press now ARMS a drag-to-reorder gesture and the switch fires on release
     // (a click that never crossed the movement threshold), so the click is a
     // press+release pair with the pointer parked on the same slot.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_workspace_rail_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
@@ -151,10 +136,7 @@ fn clicking_a_workspace_rail_slot_switches_the_active_workspace() {
 
 #[test]
 fn workspace_drag_rearms_after_activation_without_pointer_motion() {
-    let Some(mut app) = rail_drag_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_drag_app();
 
     // Drive the real CursorMoved + MouseInput route once, then activate a
     // different workspace on release. Activation clears every session's
@@ -175,9 +157,9 @@ fn workspace_drag_rearms_after_activation_without_pointer_motion() {
 
 /// RAIL-DRAG shared setup: a left-rail app with three named workspaces (a, b, c)
 /// and the active one at index 2 (c), the cell + rail geometry the drop-target
-/// math is expressed against. `None` when no PTY is available.
-fn rail_drag_app() -> Option<App> {
-    let mut app = tab_bar_app()?;
+/// math is expressed against.
+fn rail_drag_app() -> App {
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_workspace_rail_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
@@ -188,7 +170,7 @@ fn rail_drag_app() -> Option<App> {
     app.rename_workspace_for_test(2, "c");
     assert_eq!(app.active_workspace_index_for_test(), 2);
     assert_eq!(app.workspace_names_for_test(), vec!["a", "b", "c"]);
-    Some(app)
+    app
 }
 
 #[test]
@@ -197,10 +179,7 @@ fn dragging_a_workspace_slot_reorders_it_and_follows_the_active_by_identity() {
     // y = 32/80/128 px), and release: `a` lands at the end and the active
     // workspace still follows its identity (c), reusing the shipped
     // `move_workspace` engine for the commit.
-    let Some(mut app) = rail_drag_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_drag_app();
     // Press on slot 0's label cell (row 1) - arms the gesture, no switch yet.
     app.set_pointer_px_for_test(12.0, 24.0);
     app.mouse_left_press_for_test();
@@ -237,10 +216,7 @@ fn dragging_a_workspace_slot_reorders_it_and_follows_the_active_by_identity() {
 
 #[test]
 fn workspace_drag_real_route_commits_a_neighbour_drop() {
-    let Some(mut app) = rail_drag_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_drag_app();
 
     // Lift c from slot 2 and hover the compacted b slot. This is the adjacent
     // route that previously resolved back to origin_idx and silently reverted.
@@ -256,10 +232,7 @@ fn workspace_drag_real_route_commits_a_neighbour_drop() {
 
 #[test]
 fn workspace_drag_threshold_is_symmetric_across_real_neighbour_midpoints() {
-    let Some(mut up) = rail_drag_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut up = rail_drag_app();
     // Slot midpoints are y=32, 80, 128. Grab the middle slot at its center;
     // both directions remain no-op until the proxy center crosses the adjacent
     // slot's real midpoint.
@@ -270,10 +243,7 @@ fn workspace_drag_threshold_is_symmetric_across_real_neighbour_midpoints() {
     up.pointer_move_for_test(12.0, 31.0);
     assert_eq!(up.rail_ws_drag_for_test(), Some((true, 0)));
 
-    let Some(mut down) = rail_drag_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut down = rail_drag_app();
     down.set_pointer_px_for_test(12.0, 80.0);
     down.mouse_left_press_for_test();
     down.pointer_move_for_test(12.0, 127.0);
@@ -287,10 +257,7 @@ fn workspace_drag_invalidates_retained_chrome_on_arm_move_and_release() {
     // The rail is chrome, not terminal content. Every gesture phase must bump
     // the presentation epoch or the render cache can retain the prior frame
     // until an unrelated timer or terminal update changes its signature.
-    let Some(mut app) = rail_drag_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_drag_app();
     app.set_pointer_px_for_test(12.0, 24.0);
     let before_arm = app.presentation_epoch_for_test();
     app.mouse_left_press_for_test();
@@ -319,10 +286,7 @@ fn a_sub_threshold_press_stays_a_click_and_does_not_reorder() {
     // A tiny move under the movement threshold keeps the gesture a click: the
     // slot activates on release and the rail order is untouched (no accidental
     // reorder from click jitter).
-    let Some(mut app) = rail_drag_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_drag_app();
     app.set_pointer_px_for_test(12.0, 24.0);
     app.mouse_left_press_for_test();
     // Move ~2.8px (< 5px threshold): never arms.
@@ -349,10 +313,7 @@ fn a_sub_threshold_press_stays_a_click_and_does_not_reorder() {
 fn escape_cancels_a_workspace_drag_leaving_the_order_untouched() {
     // Once armed, Escape aborts the gesture with the rail order unchanged and the
     // drag state cleared - the cancel-on-escape ergonomic.
-    let Some(mut app) = rail_drag_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_drag_app();
     app.set_pointer_px_for_test(12.0, 24.0);
     app.mouse_left_press_for_test();
     app.pointer_move_for_test(12.0, 140.0);
@@ -380,10 +341,7 @@ fn a_workspace_drag_holds_the_autohide_rail_open() {
     // The rail must not vanish mid-gesture: an in-flight drag pins the auto-hide
     // rail open (via `rail_pinned_open`), and the hold releases when the drag
     // ends. Verified through the same predicate `rail_overlay_visible` consults.
-    let Some(mut app) = rail_drag_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_drag_app();
     assert!(!app.rail_pinned_open_for_test(), "no hold before a drag");
     app.set_pointer_px_for_test(12.0, 24.0);
     app.mouse_left_press_for_test();
@@ -403,10 +361,7 @@ fn an_autohide_workspace_drag_uses_cursor_moved_and_reorders() {
     // Exercise the live route for the floating rail: CursorMoved first lands on
     // a revealed workspace slot, MouseInput arms the gesture, and later
     // CursorMoved must bypass auto-hide hover to advance the drag itself.
-    let Some(mut app) = rail_drag_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_drag_app();
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_rail_autohide_for_test(true);
     app.force_rail_reveal_for_test();
@@ -438,10 +393,7 @@ fn an_autohide_workspace_drag_uses_cursor_moved_and_reorders() {
 #[test]
 fn autohide_overlay_retains_reorder_quads_on_both_sides() {
     for side in ["left", "right"] {
-        let Some(mut app) = rail_drag_app() else {
-            eprintln!("skipping: no PTY available");
-            return;
-        };
+        let mut app = rail_drag_app();
         app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
         app.set_workspace_rail_for_test(side);
         app.set_tab_rail_autohide_for_test(true);
@@ -477,10 +429,7 @@ fn autohide_overlay_retains_reorder_quads_on_both_sides() {
 fn a_dragged_workspace_order_persists_through_the_shape_snapshot() {
     // The reorder rides the shape-snapshot autosave path (the same one the
     // context-menu Move Up/Down uses), so a dragged order survives a restart.
-    let Some(mut app) = rail_drag_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_drag_app();
     app.set_pointer_px_for_test(12.0, 24.0);
     app.mouse_left_press_for_test();
     app.pointer_move_for_test(12.0, 140.0);
@@ -503,11 +452,11 @@ fn a_dragged_workspace_order_persists_through_the_shape_snapshot() {
 /// This is the case the shipped drag tests missed -- they only drove a
 /// single-pane active tab, so the multipane left-press branch (which swallowed
 /// every rail press once the active tab was split) was never on the path.
-fn rail_drag_split_app() -> Option<App> {
-    let mut app = rail_drag_app()?;
+fn rail_drag_split_app() -> App {
+    let mut app = rail_drag_app();
     let dims = NativeOptions::default().initial_grid;
-    let (terminal, writer, pty, _bytes) = recorded_session(dims)?;
-    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    let (terminal, writer, headless, _bytes) = recorded_session(dims);
+    app.seed_headless_split_pane_with_for_test(true, terminal, writer, headless);
     // `test_cell` / `test_surface` are per-session (reached via Deref to the
     // active pane); the split focused a fresh pane, so re-apply them there. A
     // window wide enough that the reserved left rail leaves a real content region
@@ -519,7 +468,7 @@ fn rail_drag_split_app() -> Option<App> {
         2,
         "the active workspace tab is a two-pane split"
     );
-    Some(app)
+    app
 }
 
 #[test]
@@ -530,10 +479,7 @@ fn a_rail_drag_reorders_even_when_the_active_tab_is_split() {
     // no pane, and the bare return killed the gesture. The added x-bound restores
     // chrome routing: the press arms the drag, motion advances it, and release
     // commits the reorder, exactly as on a single-pane tab.
-    let Some(mut app) = rail_drag_split_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_drag_split_app();
     // Press rail slot 0 (a): with the split active tab this must still ARM the
     // gesture rather than being swallowed by the multipane branch.
     app.set_pointer_px_for_test(12.0, 24.0);
@@ -569,10 +515,7 @@ fn a_plain_rail_click_switches_workspace_when_the_active_tab_is_split() {
     // The click sibling of the drag: a press+release (no motion) on a rail slot
     // switches the active workspace even with a split active tab -- direct proof
     // the rail press is no longer swallowed by the multipane branch.
-    let Some(mut app) = rail_drag_split_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_drag_split_app();
     // Active starts at c (index 2). Click rail slot 0 (a).
     app.set_pointer_px_for_test(12.0, 24.0);
     app.mouse_left_press_for_test();
@@ -589,10 +532,7 @@ fn a_revealed_autohide_rail_click_switches_workspace_over_a_split_tab() {
     // With auto-hide the floating rail reserves no columns, so its overlay sits
     // inside the split content rect. A revealed rail press must bypass pane focus
     // and reach the workspace chrome route.
-    let Some(mut app) = rail_drag_split_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_drag_split_app();
     app.set_tab_rail_autohide_for_test(true);
     app.force_rail_reveal_for_test();
     app.set_pointer_px_for_test(12.0, 24.0);
@@ -613,10 +553,7 @@ fn a_revealed_autohide_rail_click_switches_workspace_over_a_split_tab() {
 fn a_hidden_autohide_rail_does_not_steal_a_split_pane_press() {
     // The same x coordinate belongs to terminal content while the floating rail
     // is hidden. It must keep the existing focus-follows-click behavior.
-    let Some(mut app) = rail_drag_split_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_drag_split_app();
     app.set_tab_rail_autohide_for_test(true);
     app.set_pointer_px_for_test(12.0, 24.0);
     assert!(!app.rail_overlay_visible_for_test());
@@ -641,10 +578,7 @@ fn a_hidden_autohide_rail_does_not_steal_a_split_pane_press() {
 fn a_revealed_autohide_rail_click_keeps_the_single_pane_route() {
     // The multipane guard is absent on a single-pane tab, so the established
     // workspace chrome route remains unchanged.
-    let Some(mut app) = rail_drag_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = rail_drag_app();
     app.set_tab_rail_autohide_for_test(true);
     app.force_rail_reveal_for_test();
     app.set_pointer_px_for_test(12.0, 24.0);
@@ -659,10 +593,7 @@ fn a_revealed_autohide_rail_click_keeps_the_single_pane_route() {
 fn the_rail_plus_slot_resolves_to_a_new_workspace_hit() {
     // §7.4: the rail `+` slot is New Workspace - it resolves to a `NewTab` hit on
     // the WORKSPACE band (dispatched to `handle_new_workspace`).
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_workspace_rail_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
@@ -686,10 +617,7 @@ fn the_rail_plus_slot_resolves_to_a_new_workspace_hit() {
 fn the_shared_rename_field_retargets_the_workspace_name() {
     // §7.1: the rename field is shared with the tab bar; on the rail it re-targets
     // `Workspace.name`.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_workspace_rail_for_test("left");
     app.rename_workspace_for_test(0, "old");
@@ -711,10 +639,7 @@ fn the_shared_rename_field_retargets_the_workspace_name() {
 /// debounce quiet window elapses - a drag/rapid-edit stream is one write, not N.
 #[test]
 fn shape_autosave_debounces_a_mutation_burst_into_one_write() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
     app.set_primary_instance_for_test(true);
 
     let t0 = Instant::now();
@@ -724,7 +649,7 @@ fn shape_autosave_debounces_a_mutation_burst_into_one_write() {
     assert!(!app.autosave_pending_for_test());
 
     // A shape mutation arms the debounce but does not write within the window.
-    assert!(add_workspace(&mut app));
+    add_workspace(&mut app);
     app.run_about_to_wait_maintenance_for_test(t0 + std::time::Duration::from_millis(10));
     assert!(
         app.autosave_pending_for_test(),
@@ -737,7 +662,7 @@ fn shape_autosave_debounces_a_mutation_burst_into_one_write() {
     );
 
     // A further mutation re-arms (coalesces) rather than writing twice.
-    assert!(add_workspace(&mut app));
+    add_workspace(&mut app);
     app.run_about_to_wait_maintenance_for_test(t0 + std::time::Duration::from_millis(500));
     assert_eq!(app.autosave_saves_for_test(), 0);
 
@@ -759,14 +684,11 @@ fn shape_autosave_debounces_a_mutation_burst_into_one_write() {
 /// mutation and a full debounce window (only the lock holder saves).
 #[test]
 fn shape_autosave_is_inert_on_a_non_primary_instance() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
     // Default construction is non-primary (set_primary_instance never called).
     let t0 = Instant::now();
     app.run_about_to_wait_maintenance_for_test(t0);
-    assert!(add_workspace(&mut app));
+    add_workspace(&mut app);
     app.run_about_to_wait_maintenance_for_test(t0 + std::time::Duration::from_secs(3));
     assert_eq!(app.autosave_saves_for_test(), 0);
     assert!(!app.autosave_pending_for_test());
@@ -783,10 +705,7 @@ fn shape_autosave_is_inert_on_a_non_primary_instance() {
 /// platform-neutral (Unix and Windows share this path).
 #[test]
 fn switching_back_to_a_scrolled_up_tab_does_not_strand_the_viewport() {
-    let Some((mut app, _fx)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fx) = app_with_two_sessions();
     app.set_test_cell_for_test(cell(8, 16));
     // Fill tab 0's scrollback past its 24-row screen, then baseline it with a
     // render frame (as the live path would once it has been on screen).
@@ -841,10 +760,7 @@ fn switching_back_to_a_scrolled_up_tab_does_not_strand_the_viewport() {
 /// off the tail, and no reconcile can make it drift.
 #[test]
 fn switching_back_to_a_live_bottom_tab_stays_live() {
-    let Some((mut app, _fx)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fx) = app_with_two_sessions();
     app.set_test_cell_for_test(cell(8, 16));
     let seed: Vec<u8> = (0..200)
         .flat_map(|i| format!("line{i}\r\n").into_bytes())
@@ -880,17 +796,11 @@ fn switching_back_to_a_live_bottom_tab_stays_live() {
 // took an off-theme gray only after a split.
 #[test]
 fn multipane_overlay_top_uses_the_live_terminal_palette_not_default() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
     // Split the active tab so the multi-pane overlay path is exercised.
     let dims = NativeOptions::default().initial_grid;
-    let Some((terminal, writer, pty, _bytes)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    let (terminal, writer, headless, _bytes) = recorded_session(dims);
+    app.seed_headless_split_pane_with_for_test(true, terminal, writer, headless);
     assert_eq!(app.active_pane_count_for_test(), 2);
 
     // Headless geometry so `multipane_geometry()` resolves without a GPU.

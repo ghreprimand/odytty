@@ -3,30 +3,35 @@
 
 use super::*;
 
+/// A pane whose real shell child has already exited with `status`. This is the
+/// one fixture here that needs a real PTY: the held-exit tests assert the
+/// status the child actually reported. It fails the test loudly when no shell
+/// can start, instead of skipping.
 #[allow(clippy::type_complexity)]
 fn recorded_exited_session(
     dims: Dimensions,
     status: i32,
-) -> Option<(
+) -> (
     Arc<Mutex<Terminal>>,
     PtyWriter,
     Arc<Mutex<PtySession>>,
     Arc<Mutex<Vec<u8>>>,
-)> {
+) {
     let command = format!("exit {status}");
-    let session = PtySession::spawn_shell_command(dims, &command).ok()?;
+    let session =
+        PtySession::spawn_shell_command(dims, &command).expect("spawn the exiting test shell");
     let _ = crate::test_stall::read_to_end_within(
         &session,
         std::time::Duration::from_secs(60),
         "read exited session output",
     );
-    let _ = session.take_writer().ok()?;
+    let _ = session.take_writer().expect("take the exited shell writer");
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let pty = Arc::new(Mutex::new(session));
-    Some((terminal, writer, pty, bytes))
+    (terminal, writer, pty, bytes)
 }
 
 // --- right rail (mirror of the left rail) ---
@@ -37,10 +42,7 @@ fn right_rail_hit_test_is_x_flipped_to_the_far_side() {
     // (after the content columns), so a click on the rail band there is a tab
     // hit while a click in the LEFT content area is not (the flip of
     // `click_right_of_the_rail_is_not_a_tab_hit`).
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("right");
     // Two workspaces give the rail two slots; the active workspace holds a
@@ -79,10 +81,7 @@ fn right_and_left_rails_grow_the_decorated_snapshot_identically() {
     // Both rails grow the single-pane decorated snapshot by `rail_cols` columns
     // (never rows); only the side the content sits on differs. The dims are
     // therefore identical - the mirror is a placement, not a size, difference.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_session_title_override_for_test(0, Some("aa"));
 
@@ -106,10 +105,7 @@ fn right_rail_leaves_the_content_origin_unshifted_for_overlays() {
     // unmoved: IME-candidate / click-hint / overlay quads anchored in content
     // space need no shift. This is the asymmetry vs the left rail (which shifts
     // content right by the reserved band).
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
 
     app.set_tab_bar_placement_for_test("right");
@@ -140,10 +136,7 @@ fn right_rail_scrollbar_stays_in_the_content_not_under_the_rail() {
     // edge - never under it. So a press resolves to exactly one target: the thumb
     // grabs the scrollbar (and is not a tab hit), and the rail band is a tab
     // action (and never grabs the scrollbar).
-    let Some((mut app, fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, fixtures) = app_with_two_sessions();
     // Scrollback on the active (first) session so the thumb is visible.
     {
         let mut terminal = fixtures[0].0.lock().expect("terminal");
@@ -204,10 +197,7 @@ fn right_rail_scrollbar_stays_in_the_content_not_under_the_rail() {
 
 #[test]
 fn visible_tab_bar_row_has_no_default_background_cells() {
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
 
     let backgrounds = app
@@ -219,10 +209,7 @@ fn visible_tab_bar_row_has_no_default_background_cells() {
 
 #[test]
 fn title_override_controls_effective_tab_label_and_clear_restores_osc_title() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
 
     app.set_session_tab_title_for_test(0, "osc-title");
     assert_eq!(
@@ -249,11 +236,8 @@ fn title_override_controls_effective_tab_label_and_clear_restores_osc_title() {
 
 #[test]
 fn rename_modal_commits_edits_cancels_and_empty_commit_clears_override() {
-    let Some((mut app, fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let [(_, _, bytes_a), _] = fixtures;
+    let (mut app, fixtures) = app_with_two_sessions();
+    let [(_, bytes_a), _] = fixtures;
 
     app.set_session_tab_title_for_test(0, "shell");
     assert!(app.begin_rename_tab_for_test(0));
@@ -309,10 +293,7 @@ fn rename_input_origin(cols: usize, rows: usize) -> (usize, usize) {
 fn rename_field_click_places_caret_and_drag_selects() {
     // A click positions the caret, a drag extends a selection,
     // and typing replaces the selected span.
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
     let (cols, rows) = app.grid_dims_for_test();
     let (input_row, input_left) = rename_input_origin(cols, rows);
     // The drag is delivered as a real pointer position, which needs a cell size.
@@ -359,10 +340,7 @@ fn rename_field_click_places_caret_and_drag_selects() {
 fn rename_field_double_click_selects_word_and_backspace_replaces_it() {
     // A double-click selects the word under the pointer, and a
     // subsequent Backspace deletes the whole selection.
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
     let (cols, rows) = app.grid_dims_for_test();
     let (input_row, input_left) = rename_input_origin(cols, rows);
 
@@ -391,15 +369,12 @@ fn rename_field_double_click_selects_word_and_backspace_replaces_it() {
 fn shell_exit_for_last_session_requests_app_exit() {
     let options = NativeOptions::default();
     let dims = options.initial_grid;
-    let Some((terminal, writer, pty, _bytes)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let mut app = App::new(
+    let (terminal, writer, headless, _bytes) = recorded_session(dims);
+    let mut app = App::new_headless(
         options,
         terminal,
         writer,
-        pty,
+        headless,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -422,10 +397,7 @@ fn held_exit_reports_numeric_status_and_waits_for_a_non_release_key() {
         ..NativeOptions::default()
     };
     let dims = options.initial_grid;
-    let Some((terminal, writer, pty, bytes)) = recorded_exited_session(dims, 7) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (terminal, writer, pty, bytes) = recorded_exited_session(dims, 7);
     let mut app = App::new(
         options,
         terminal,
@@ -487,15 +459,8 @@ fn hold_is_initial_session_only_and_dismissal_focuses_a_survivor() {
         ..NativeOptions::default()
     };
     let dims = options.initial_grid;
-    let Some((initial_terminal, initial_writer, initial_pty, _)) = recorded_exited_session(dims, 7)
-    else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((later_terminal, later_writer, later_pty, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (initial_terminal, initial_writer, initial_pty, _) = recorded_exited_session(dims, 7);
+    let (later_terminal, later_writer, later_headless, _) = recorded_session(dims);
     let mut app = App::new(
         options,
         initial_terminal,
@@ -505,7 +470,7 @@ fn hold_is_initial_session_only_and_dismissal_focuses_a_survivor() {
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
     let initial = app.active_session_token_for_test();
-    app.push_session_for_test(later_terminal, later_writer, later_pty);
+    app.push_headless_session_with_for_test(later_terminal, later_writer, later_headless);
     let survivor = app
         .session_token_at_position_for_test(1)
         .expect("later session");
@@ -529,10 +494,7 @@ fn hold_is_initial_session_only_and_dismissal_focuses_a_survivor() {
 
 #[test]
 fn switching_sessions_restores_per_session_title_viewport_selection_and_search() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
 
     app.advance_tab_bytes_at_position_for_test(0, b"\x1b]2;session-alpha\x07");
     app.advance_tab_bytes_at_position_for_test(1, b"\x1b]2;session-beta\x07");
@@ -561,10 +523,7 @@ fn switching_sessions_restores_per_session_title_viewport_selection_and_search()
 
 #[test]
 fn redraw_for_non_active_session_only_marks_that_session_dirty() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
 
     app.set_tab_needs_rebuild_at_position_for_test(0, false);
     app.set_tab_needs_rebuild_at_position_for_test(1, false);
@@ -582,10 +541,7 @@ fn redraw_for_non_active_session_only_marks_that_session_dirty() {
 
 #[test]
 fn stale_shell_exit_for_closed_first_tab_is_a_no_op() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
 
     let removed = app
         .session_token_at_position_for_test(0)
@@ -604,17 +560,10 @@ fn stale_shell_exit_for_closed_first_tab_is_a_no_op() {
 
 #[test]
 fn stale_shell_exit_after_prefix_close_keeps_split_collapsed() {
-    let Some((mut app, _bytes)) = single_session_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal, writer, pty, _)) = recorded_session(NativeOptions::default().initial_grid)
-    else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _bytes) = single_session_app();
+    let (terminal, writer, headless, _) = recorded_session(NativeOptions::default().initial_grid);
 
-    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    app.seed_headless_split_pane_with_for_test(true, terminal, writer, headless);
     let closed = app.active_session_token_for_test();
     assert_eq!(app.active_pane_count_for_test(), 2);
 
@@ -640,28 +589,19 @@ fn stale_shell_exit_after_prefix_close_keeps_split_collapsed() {
 fn closing_middle_tab_preserves_remaining_session_tokens_and_active_session() {
     let options = NativeOptions::default();
     let dims = options.initial_grid;
-    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_c, writer_c, pty_c, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let mut app = App::new(
+    let (terminal_a, writer_a, headless_a, _) = recorded_session(dims);
+    let (terminal_b, writer_b, headless_b, _) = recorded_session(dims);
+    let (terminal_c, writer_c, headless_c, _) = recorded_session(dims);
+    let mut app = App::new_headless(
         options,
         terminal_a,
         writer_a,
-        pty_a,
+        headless_a,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
-    app.push_session_for_test(terminal_b, writer_b, pty_b);
-    app.push_session_for_test(terminal_c, writer_c, pty_c);
+    app.push_headless_session_with_for_test(terminal_b, writer_b, headless_b);
+    app.push_headless_session_with_for_test(terminal_c, writer_c, headless_c);
 
     let first = app
         .session_token_at_position_for_test(0)
@@ -687,10 +627,7 @@ fn closing_middle_tab_preserves_remaining_session_tokens_and_active_session() {
 
 #[test]
 fn token_position_round_trip_holds_after_switches() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
 
     assert!(app.switch_to_session_for_test(1));
     let first = app
@@ -707,10 +644,7 @@ fn token_position_round_trip_holds_after_switches() {
 
 #[test]
 fn close_all_sessions_empties_and_terminates() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
 
     app.close_all_sessions_for_test();
 

@@ -1588,45 +1588,9 @@ impl App {
     /// Test seam (W2): inject a recorded session as a fresh workspace (its own
     /// single-pane tab) and SWITCH to it, so the rail has multiple slots to
     /// hit-test and the active workspace is single-tab (no top bar competes with
-    /// the rail in geometry tests). Mirrors [`Self::push_session_for_test`] one
-    /// level up. Returns the new workspace's rail index.
-    pub(in crate::native) fn push_workspace_for_test(
-        &mut self,
-        terminal: Arc<Mutex<Terminal>>,
-        writer: PtyWriter,
-        pty: Arc<Mutex<PtySession>>,
-    ) -> usize {
-        let id = self
-            .sessions
-            .iter()
-            .map(|s| s.id.0)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1);
-        self.sessions.push_workspace(Session::new(
-            crate::native::session::SessionToken(id),
-            terminal,
-            writer,
-            pty,
-            None,
-        ));
-        // `test_cell` / `test_surface` are per-session (accessed via Deref to the
-        // active session), so carry the current values onto the freshly-active
-        // workspace's session - otherwise the headless geometry (resolved_cell /
-        // resolved_surface) goes unset after the switch.
-        let cell = self.test_cell;
-        let surface = self.test_surface;
-        let idx = self.sessions.workspace_count().saturating_sub(1);
-        let _ = self.sessions.switch_workspace(idx);
-        self.test_cell = cell;
-        self.test_surface = surface;
-        self.recompute_grid_for_tab_bar();
-        idx
-    }
-
-    /// Headless variant of [`Self::push_workspace_for_test`]: push a workspace
-    /// backed by a [`crate::native::session::HeadlessSession`] instead of a real
-    /// PTY, so a pure rail/workspace UI test creates no OS child.
+    /// the rail in geometry tests). The session is backed by a
+    /// [`crate::native::session::HeadlessSession`], so no OS child is created.
+    /// Returns the new workspace's rail index.
     #[cfg(test)]
     pub(in crate::native) fn push_headless_workspace_for_test(
         &mut self,
@@ -1634,6 +1598,19 @@ impl App {
         writer: PtyWriter,
         dimensions: crate::core::Dimensions,
     ) -> usize {
+        let headless = Arc::new(crate::native::session::HeadlessSession::new(dimensions));
+        self.push_headless_workspace_with_for_test(terminal, writer, headless)
+    }
+
+    /// [`Self::push_headless_workspace_for_test`] over a caller-held headless
+    /// backing state, so the test can read the pane's recorded resizes.
+    #[cfg(test)]
+    pub(in crate::native) fn push_headless_workspace_with_for_test(
+        &mut self,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        headless: Arc<crate::native::session::HeadlessSession>,
+    ) -> usize {
         let id = self
             .sessions
             .iter()
@@ -1641,7 +1618,6 @@ impl App {
             .max()
             .unwrap_or(0)
             .saturating_add(1);
-        let headless = Arc::new(crate::native::session::HeadlessSession::new(dimensions));
         self.sessions.push_workspace(Session::new_headless(
             crate::native::session::SessionToken(id),
             terminal,
@@ -2804,6 +2780,9 @@ impl App {
         self.sessions.iter().count()
     }
 
+    /// Test seam: push a second tab backed by a real PTY session. Only a test
+    /// that asserts kernel PTY state needs this; every other multi-tab test
+    /// uses [`Self::push_headless_session_with_for_test`].
     #[cfg(test)]
     pub(in crate::native) fn push_session_for_test(
         &mut self,
@@ -2828,15 +2807,28 @@ impl App {
         self.sessions.position_of_token(id).unwrap_or(0)
     }
 
-    /// Headless variant of [`Self::push_session_for_test`]: push a second tab
-    /// backed by a [`crate::native::session::HeadlessSession`] instead of a real
-    /// PTY, so a pure multi-tab UI test creates no OS child.
+    /// Test seam: push a second tab backed by a
+    /// [`crate::native::session::HeadlessSession`], so a pure multi-tab UI test
+    /// creates no OS child.
     #[cfg(test)]
     pub(in crate::native) fn push_headless_session_for_test(
         &mut self,
         terminal: Arc<Mutex<Terminal>>,
         writer: PtyWriter,
         dimensions: crate::core::Dimensions,
+    ) -> usize {
+        let headless = Arc::new(crate::native::session::HeadlessSession::new(dimensions));
+        self.push_headless_session_with_for_test(terminal, writer, headless)
+    }
+
+    /// [`Self::push_headless_session_for_test`] over a caller-held headless
+    /// backing state, so the test can read the tab's recorded resizes.
+    #[cfg(test)]
+    pub(in crate::native) fn push_headless_session_with_for_test(
+        &mut self,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        headless: Arc<crate::native::session::HeadlessSession>,
     ) -> usize {
         let next_id = self
             .sessions
@@ -2845,7 +2837,6 @@ impl App {
             .max()
             .unwrap_or(0)
             .saturating_add(1);
-        let headless = Arc::new(crate::native::session::HeadlessSession::new(dimensions));
         let id = self.sessions.push(Session::new_headless(
             crate::native::session::SessionToken(next_id),
             terminal,
@@ -3653,43 +3644,7 @@ impl App {
         self.sessions.active_is_zoomed()
     }
 
-    /// Test seam (§7 K2): seed the active tab into a two-pane split headlessly
-    /// (the production split spawns a PTY, which needs an event-loop proxy the
-    /// test App lacks). Splits the focused leaf along `columns ? Columns : Rows`
-    /// using the supplied recorded session as the new pane. Returns the new
-    /// pane's focused-pane id.
-    #[cfg(test)]
-    pub(in crate::native) fn seed_split_pane_for_test(
-        &mut self,
-        columns: bool,
-        terminal: Arc<Mutex<Terminal>>,
-        writer: PtyWriter,
-        pty: Arc<Mutex<PtySession>>,
-    ) -> usize {
-        let axis = if columns {
-            crate::native::layout::SplitAxis::Columns
-        } else {
-            crate::native::layout::SplitAxis::Rows
-        };
-        let next_id = self
-            .sessions
-            .iter()
-            .map(|session| session.id.0)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1);
-        let session = crate::native::session::Session::new(
-            crate::native::session::SessionToken(next_id),
-            terminal,
-            writer,
-            pty,
-            None,
-        );
-        let token = self.sessions.split_active_for_test(axis, session);
-        token.0 as usize
-    }
-
-    /// Unix-only attached-session sibling of [`Self::seed_split_pane_for_test`].
+    /// Unix-only attached-session sibling of [`Self::seed_headless_split_pane_for_test`].
     /// It grafts the supplied socket-backed production session into the active
     /// pane tree so drag/release tests can observe real `ClientFrame::Resize`
     /// traffic rather than a mock counter.
@@ -3743,10 +3698,12 @@ impl App {
         self.settle_divider_for_surface_change();
     }
 
-    /// Headless variant of [`Self::seed_split_pane_for_test`]: split off a second
-    /// pane backed by a [`crate::native::session::HeadlessSession`] instead of a
-    /// real PTY, so a pure split-UI test creates no OS child. `dimensions` sizes
-    /// the new pane's headless resize state.
+    /// Test seam (§7 K2): seed the active tab into a two-pane split headlessly
+    /// (the production split spawns a PTY, which needs an event-loop proxy the
+    /// test App lacks). Splits the focused leaf along `columns ? Columns : Rows`
+    /// with a new pane backed by a [`crate::native::session::HeadlessSession`],
+    /// so no OS child is created. `dimensions` sizes the new pane's headless
+    /// resize state. Returns the new pane's focused-pane id.
     #[cfg(test)]
     pub(in crate::native) fn seed_headless_split_pane_for_test(
         &mut self,
@@ -3754,6 +3711,20 @@ impl App {
         terminal: Arc<Mutex<Terminal>>,
         writer: PtyWriter,
         dimensions: crate::core::Dimensions,
+    ) -> usize {
+        let headless = Arc::new(crate::native::session::HeadlessSession::new(dimensions));
+        self.seed_headless_split_pane_with_for_test(columns, terminal, writer, headless)
+    }
+
+    /// [`Self::seed_headless_split_pane_for_test`] over a caller-held headless
+    /// backing state, so the test can read the pane's recorded resizes.
+    #[cfg(test)]
+    pub(in crate::native) fn seed_headless_split_pane_with_for_test(
+        &mut self,
+        columns: bool,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        headless: Arc<crate::native::session::HeadlessSession>,
     ) -> usize {
         let axis = if columns {
             crate::native::layout::SplitAxis::Columns
@@ -3767,7 +3738,6 @@ impl App {
             .max()
             .unwrap_or(0)
             .saturating_add(1);
-        let headless = Arc::new(crate::native::session::HeadlessSession::new(dimensions));
         let session = crate::native::session::Session::new_headless(
             crate::native::session::SessionToken(next_id),
             terminal,

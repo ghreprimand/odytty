@@ -75,80 +75,283 @@ fn gpu_surface_present_modes_are_selected_by_the_policy_helper() {
     for path in files {
         let source = fs::read_to_string(&path)
             .unwrap_or_else(|error| panic!("failed reading {}: {error}", path.display()));
-        let mut offset = 0;
-        while let Some(relative) = source[offset..].find("SurfaceConfiguration {") {
-            let start = offset + relative;
-            let block_start = start + "SurfaceConfiguration {".len();
-            let Some(relative_end) = source[block_start..].find("};") else {
-                panic!("unterminated SurfaceConfiguration in {}", path.display());
-            };
-            let block = &source[block_start..block_start + relative_end];
-            configurations += 1;
-
-            let mode_field = block
-                .lines()
-                .map(str::trim)
-                .find(|line| line.starts_with("present_mode") || line.starts_with("r#present_mode"))
-                .unwrap_or_else(|| {
-                    panic!(
-                        "SurfaceConfiguration has no present_mode in {}",
-                        path.display()
-                    )
-                });
-            let binding = if let Some((_, value)) = mode_field.split_once(':') {
-                value.trim().trim_end_matches(',').trim()
-            } else {
-                mode_field.trim_end_matches(',').trim()
-            };
-
-            if binding.starts_with("select_present_mode(") {
-                // Inline policy call: the configuration cannot bypass the helper.
-            } else {
-                let binding = binding.trim_end_matches(',');
-                let declaration = format!("let {binding} =");
-                let function_start = source[..start].rfind("fn ").unwrap_or(0);
-                let function_source = &source[function_start..start];
-                let declaration_start = function_source.rfind(&declaration).unwrap_or_else(|| {
-                    panic!(
-                        "{} has no local {binding} present-mode binding",
-                        path.display()
-                    )
-                });
-                let initializer = function_source[declaration_start + declaration.len()..]
-                    .split(';')
-                    .next()
-                    .unwrap_or_default()
-                    .trim();
-                assert!(
-                    initializer.starts_with("select_present_mode("),
-                    "{} configures present_mode through {binding:?}, not select_present_mode",
-                    path.display(),
-                );
-            }
-            offset = block_start + relative_end + 2;
-        }
-
-        let mut assignment_offset = 0;
-        while let Some(relative) = source[assignment_offset..].find(".present_mode") {
-            let field_end = assignment_offset + relative + ".present_mode".len();
-            let suffix = source[field_end..].trim_start();
-            if let Some(rhs) = suffix.strip_prefix('=')
-                && !rhs.starts_with('=')
-            {
-                let statement = rhs.split(';').next().unwrap_or(rhs);
-                assert!(
-                    statement.contains("revalidate_present_mode("),
-                    "{} mutates a surface present_mode outside revalidate_present_mode",
-                    path.display(),
-                );
-            }
-            assignment_offset = field_end;
-        }
+        configurations += scan_present_mode_policy(&source)
+            .unwrap_or_else(|violation| panic!("{}: {violation}", path.display()));
     }
     assert!(
         configurations > 0,
         "GPU source scan found no SurfaceConfiguration literals"
     );
+}
+
+/// One lexical token of a Rust source file. Comments and the contents of
+/// string and character literals never become tokens, so text inside them
+/// cannot satisfy or trip the policy scan.
+#[derive(Debug, PartialEq, Eq)]
+enum Token {
+    Ident(String),
+    Punct(&'static str),
+    Literal,
+}
+
+const OPERATORS: [&str; 24] = [
+    "<<=", ">>=", "..=", "==", "=>", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "%=", "^=", "&=",
+    "|=", "::", "->", "..", "&&", "||", "<<", ">>", "=",
+];
+const SINGLE_PUNCT: [&str; 18] = [
+    "{", "}", "(", ")", "[", "]", ";", ",", ".", ":", "<", ">", "&", "|", "!", "#", "?", "@",
+];
+
+fn tokenize(source: &str) -> Vec<Token> {
+    let chars: Vec<char> = source.chars().collect();
+    let mut tokens = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let next = chars.get(i + 1).copied();
+        if c.is_whitespace() {
+            i += 1;
+        } else if c == '/' && next == Some('/') {
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+        } else if c == '/' && next == Some('*') {
+            let mut depth = 1;
+            i += 2;
+            while i < chars.len() && depth > 0 {
+                if chars[i] == '/' && chars.get(i + 1) == Some(&'*') {
+                    depth += 1;
+                    i += 2;
+                } else if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
+                    depth -= 1;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+        } else if let Some(end) = string_literal_end(&chars, i) {
+            tokens.push(Token::Literal);
+            i = end;
+        } else if c == '\'' {
+            // A character literal closes within a few characters; otherwise
+            // this is a lifetime or loop label.
+            let closes = if next == Some('\\') {
+                chars[i + 2..].iter().take(10).position(|&x| x == '\'')
+            } else if chars.get(i + 2) == Some(&'\'') {
+                Some(0)
+            } else {
+                None
+            };
+            if let Some(offset) = closes {
+                tokens.push(Token::Literal);
+                i += if next == Some('\\') { 3 + offset } else { 3 };
+            } else {
+                i += 1;
+            }
+        } else if c.is_alphabetic() || c == '_' {
+            let start = if c == 'r'
+                && next == Some('#')
+                && chars
+                    .get(i + 2)
+                    .is_some_and(|x| x.is_alphabetic() || *x == '_')
+            {
+                i + 2
+            } else {
+                i
+            };
+            let mut end = start;
+            while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_') {
+                end += 1;
+            }
+            tokens.push(Token::Ident(chars[start..end].iter().collect()));
+            i = end;
+        } else if c.is_ascii_digit() {
+            while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            tokens.push(Token::Literal);
+        } else if let Some(operator) = OPERATORS.iter().find(|operator| {
+            chars[i..]
+                .iter()
+                .take(3)
+                .collect::<String>()
+                .starts_with(**operator)
+        }) {
+            tokens.push(Token::Punct(operator));
+            i += operator.len();
+        } else {
+            if let Some(single) = SINGLE_PUNCT.iter().find(|p| p.starts_with(c)) {
+                tokens.push(Token::Punct(single));
+            }
+            i += 1;
+        }
+    }
+    tokens
+}
+
+/// End index (exclusive) of a string literal starting at `start`: plain,
+/// byte, C, or raw with any number of `#`. `None` when none starts here.
+fn string_literal_end(chars: &[char], start: usize) -> Option<usize> {
+    let mut i = start;
+    while matches!(chars.get(i), Some('b' | 'c')) && i < start + 1 {
+        i += 1;
+    }
+    let raw = chars.get(i) == Some(&'r');
+    if raw {
+        i += 1;
+    }
+    let mut hashes = 0;
+    while raw && chars.get(i) == Some(&'#') {
+        hashes += 1;
+        i += 1;
+    }
+    if chars.get(i) != Some(&'"') {
+        return None;
+    }
+    i += 1;
+    while i < chars.len() {
+        if !raw && chars[i] == '\\' {
+            i += 2;
+        } else if chars[i] == '"'
+            && chars[i + 1..]
+                .iter()
+                .take(hashes)
+                .filter(|c| **c == '#')
+                .count()
+                == hashes
+        {
+            return Some(i + 1 + hashes);
+        } else {
+            i += 1;
+        }
+    }
+    Some(chars.len())
+}
+
+/// Index of the token that closes the bracket opened at `open`.
+fn matching_close(tokens: &[Token], open: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for (index, token) in tokens.iter().enumerate().skip(open) {
+        match token {
+            Token::Punct("{" | "(" | "[") => depth += 1,
+            Token::Punct("}" | ")" | "]") => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Whether `tokens` starts with a call to `name`.
+fn starts_with_call(tokens: &[Token], name: &str) -> bool {
+    matches!(
+        tokens,
+        [Token::Ident(first), Token::Punct("("), ..] if first == name
+    )
+}
+
+/// Check one source file against the present-mode policy and return how many
+/// `SurfaceConfiguration` literals it holds: every literal takes its
+/// `present_mode` from `select_present_mode`, directly or through a local
+/// binding in the same function, and every later assignment to a
+/// `present_mode` field goes through `revalidate_present_mode`.
+fn scan_present_mode_policy(source: &str) -> Result<usize, String> {
+    let tokens = tokenize(source);
+    let mut configurations = 0;
+    for (start, token) in tokens.iter().enumerate() {
+        let is_literal = matches!(token, Token::Ident(name) if name == "SurfaceConfiguration")
+            && tokens.get(start + 1) == Some(&Token::Punct("{"))
+            && !matches!(
+                start.checked_sub(1).and_then(|before| tokens.get(before)),
+                Some(Token::Ident(keyword)) if matches!(keyword.as_str(), "struct" | "for" | "impl" | "enum" | "trait")
+            );
+        if is_literal {
+            configurations += 1;
+            let close = matching_close(&tokens, start + 1)
+                .ok_or("unterminated SurfaceConfiguration literal")?;
+            check_configuration(&tokens, start, &tokens[start + 2..close])?;
+        }
+        if matches!(token, Token::Punct("."))
+            && matches!(tokens.get(start + 1), Some(Token::Ident(name)) if name == "present_mode")
+            && tokens.get(start + 2) == Some(&Token::Punct("="))
+        {
+            let end = tokens[start + 3..]
+                .iter()
+                .position(|token| *token == Token::Punct(";"))
+                .map_or(tokens.len(), |offset| start + 3 + offset);
+            let revalidated = tokens[start + 3..end].windows(2).any(|pair| {
+                pair[1] == Token::Punct("(")
+                    && pair[0] == Token::Ident("revalidate_present_mode".into())
+            });
+            if !revalidated {
+                return Err(
+                    "mutates a surface present_mode outside revalidate_present_mode".into(),
+                );
+            }
+        }
+    }
+    Ok(configurations)
+}
+
+/// Check the fields of one literal whose type name sits at `start`.
+fn check_configuration(tokens: &[Token], start: usize, fields: &[Token]) -> Result<(), String> {
+    // Split the literal into top-level `name: value` fields.
+    let mut value: Option<&[Token]> = None;
+    let mut field_start = 0;
+    let mut depth = 0usize;
+    for index in 0..=fields.len() {
+        let at_end = index == fields.len();
+        match fields.get(index) {
+            Some(Token::Punct("{" | "(" | "[")) => depth += 1,
+            Some(Token::Punct("}" | ")" | "]")) => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        if at_end || (depth == 0 && fields[index] == Token::Punct(",")) {
+            let field = &fields[field_start..index];
+            if let [Token::Ident(name), rest @ ..] = field
+                && name == "present_mode"
+            {
+                value = Some(match rest {
+                    [Token::Punct(":"), initializer @ ..] => initializer,
+                    // Field init shorthand: the binding has the field's name.
+                    _ => &field[..1],
+                });
+            }
+            field_start = index + 1;
+        }
+    }
+    let value = value.ok_or("SurfaceConfiguration has no present_mode")?;
+    if starts_with_call(value, "select_present_mode") {
+        return Ok(());
+    }
+    let [Token::Ident(binding)] = value else {
+        return Err("configures present_mode with an expression, not select_present_mode".into());
+    };
+    // Find `let <binding> = <initializer>;` earlier in the same function.
+    let function_start = tokens[..start]
+        .iter()
+        .rposition(|token| *token == Token::Ident("fn".into()))
+        .unwrap_or(0);
+    let declaration = tokens[function_start..start]
+        .windows(3)
+        .rposition(|window| {
+            window[0] == Token::Ident("let".into())
+                && window[1] == Token::Ident(binding.clone())
+                && window[2] == Token::Punct("=")
+        })
+        .ok_or_else(|| format!("no local {binding} present-mode binding"))?;
+    let initializer = &tokens[function_start + declaration + 3..start];
+    if starts_with_call(initializer, "select_present_mode") {
+        Ok(())
+    } else {
+        Err(format!(
+            "configures present_mode through {binding:?}, not select_present_mode"
+        ))
+    }
 }
 
 fn rust_sources_recursively(directory: &Path) -> Vec<PathBuf> {
@@ -165,4 +368,90 @@ fn rust_sources_recursively(directory: &Path) -> Vec<PathBuf> {
         }
     }
     sources
+}
+
+#[cfg(test)]
+mod policy_scan_tests {
+    use super::scan_present_mode_policy;
+
+    #[test]
+    fn inline_and_bound_selection_pass_and_count_each_literal() {
+        let source = r#"
+            fn a() {
+                let config = wgpu::SurfaceConfiguration {
+                    usage: U::X,
+                    present_mode: select_present_mode(&offered, wayland),
+                };
+            }
+            fn b() {
+                let present_mode = select_present_mode(&offered, wayland);
+                let config = wgpu::SurfaceConfiguration { present_mode, size: Extent { w: 1, h: 2 } };
+            }
+        "#;
+        assert_eq!(scan_present_mode_policy(source), Ok(2));
+    }
+
+    #[test]
+    fn comments_and_strings_cannot_fool_or_trip_the_scan() {
+        let source = r##"
+            // cfg.present_mode = PresentMode::Fifo;
+            /* nested /* SurfaceConfiguration { */ present_mode: Fifo, */
+            fn a() {
+                let note = "SurfaceConfiguration { present_mode: Fifo }; .present_mode = x;";
+                let raw = r#"cfg.present_mode = bad;"#;
+                let config = SurfaceConfiguration {
+                    // present_mode: PresentMode::Fifo,
+                    present_mode: select_present_mode(&offered, w),
+                    label: "};",
+                };
+            }
+        "##;
+        assert_eq!(scan_present_mode_policy(source), Ok(1));
+    }
+
+    #[test]
+    fn a_comment_does_not_stand_in_for_the_policy_call() {
+        let source = r#"
+            fn a() {
+                let mode = PresentMode::Fifo; // select_present_mode(
+                let config = SurfaceConfiguration { present_mode: mode };
+            }
+        "#;
+        assert!(scan_present_mode_policy(source).is_err());
+    }
+
+    #[test]
+    fn bypasses_are_rejected_whatever_the_spacing() {
+        for source in [
+            "fn a() { let c = SurfaceConfiguration { present_mode: PresentMode::Fifo }; }",
+            "fn a() { let c = SurfaceConfiguration{present_mode:PresentMode::Fifo,}; }",
+            "fn a() { let c = SurfaceConfiguration { usage: U::X }; }",
+            "fn a() { let m = fallback(); let c = SurfaceConfiguration { present_mode: m }; }",
+            "fn a() { c . present_mode = PresentMode::Fifo; }",
+            "fn a() { c.present_mode=PresentMode::Fifo; }",
+            "fn a() { c.present_mode = other(select_present_mode); }",
+        ] {
+            assert!(scan_present_mode_policy(source).is_err(), "{source}");
+        }
+    }
+
+    #[test]
+    fn revalidated_assignments_and_comparisons_pass() {
+        let source = r#"
+            fn a() {
+                self.config.present_mode =
+                    revalidate_present_mode(self.config.present_mode, &caps.present_modes);
+                if self.config.present_mode == PresentMode::Fifo {}
+                let same = self.config.present_mode >= x;
+            }
+        "#;
+        assert_eq!(scan_present_mode_policy(source), Ok(0));
+    }
+
+    #[test]
+    fn declarations_and_impls_of_the_type_are_not_literals() {
+        let source = "struct SurfaceConfiguration { present_mode: u8 } \
+                      impl Default for SurfaceConfiguration { fn default() -> Self { todo!() } }";
+        assert_eq!(scan_present_mode_policy(source), Ok(0));
+    }
 }

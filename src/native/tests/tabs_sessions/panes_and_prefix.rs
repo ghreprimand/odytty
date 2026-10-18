@@ -27,10 +27,7 @@ fn row_changed(before: &Snapshot, after: &Snapshot, row: usize, columns: usize) 
 
 #[test]
 fn focused_pane_overlay_maps_selection_with_the_pane_grid() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
     // Wrapped selection on the focused session: absolute row 0, columns 0..=70.
     app.set_selection_range_for_test(0, 0, 0, 70);
     let metrics = cell(10, 20);
@@ -62,10 +59,7 @@ fn focused_pane_overlay_maps_selection_with_the_pane_grid() {
 
 #[test]
 fn focused_pane_overlay_paints_focused_pane_search_matches() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
     // Searchable content in the focused session, then a query that matches it.
     app.advance_tab_bytes_at_position_for_test(0, b"needle\r\n");
     app.drive_search_for_test("needle");
@@ -91,10 +85,7 @@ fn focused_pane_overlay_paints_focused_pane_search_matches() {
 
 #[test]
 fn per_pane_overlay_paints_a_selection_even_for_a_background_pane() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
     // A wrapped selection on absolute row 0, columns 0..=70.
     app.set_selection_range_for_test(0, 0, 0, 70);
     let pane_grid = Dimensions::new(40, 4);
@@ -123,10 +114,7 @@ fn per_pane_overlay_paints_a_selection_even_for_a_background_pane() {
 
 #[test]
 fn per_pane_overlay_gates_the_search_bar_to_the_focused_pane() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
     app.advance_tab_bytes_at_position_for_test(0, b"needle\r\n");
     app.drive_search_for_test("needle");
     assert!(
@@ -191,10 +179,7 @@ fn per_pane_overlay_gates_the_search_bar_to_the_focused_pane() {
 
 #[test]
 fn bare_pane_chord_without_prefix_is_plain_input() {
-    let Some((mut app, bytes)) = single_session_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, bytes) = single_session_app();
     // `%` (Shift+%) with no pending prefix is ordinary text - the engine returns
     // Inactive and the byte reaches the PTY exactly as before §7.
     app.drive_char_with_mods_for_test('%', false, true);
@@ -205,10 +190,7 @@ fn bare_pane_chord_without_prefix_is_plain_input() {
 
 #[test]
 fn single_pane_passes_ctrl_b_through_to_pty() {
-    let Some((mut app, bytes)) = single_session_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, bytes) = single_session_app();
     assert_eq!(app.active_pane_count_for_test(), 1);
     // Byte-identity guarantee: on a single-pane tab the prefix engine is gated
     // out, so Ctrl-b reaches the PTY as the literal 0x02 (readline
@@ -222,18 +204,11 @@ fn single_pane_passes_ctrl_b_through_to_pty() {
 
 #[test]
 fn split_tab_engages_prefix_capture() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal, writer, pty, bytes)) =
-        recorded_session(NativeOptions::default().initial_grid)
-    else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
+    let (terminal, writer, headless, bytes) =
+        recorded_session(NativeOptions::default().initial_grid);
     // Split so the active tab now holds two panes; focus lands on the new pane.
-    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    app.seed_headless_split_pane_with_for_test(true, terminal, writer, headless);
     assert_eq!(app.active_pane_count_for_test(), 2);
     // Now Ctrl-b IS the multiplexer prefix: it enters pending and forwards
     // nothing to the focused pane's PTY (tmux semantics, unchanged from before
@@ -254,20 +229,13 @@ fn split_tab_engages_prefix_capture() {
 
 #[test]
 fn closing_a_split_back_to_single_pane_restores_ctrl_b_passthrough() {
-    let Some((mut app, fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, fixtures) = app_with_two_sessions();
     // bytes_a is the original (pane A) PTY; focus returns to it after the new
     // pane is closed.
-    let [(_, _, bytes_a), _] = fixtures;
-    let Some((terminal, writer, pty, _new_bytes)) =
-        recorded_session(NativeOptions::default().initial_grid)
-    else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    let [(_, bytes_a), _] = fixtures;
+    let (terminal, writer, headless, _new_bytes) =
+        recorded_session(NativeOptions::default().initial_grid);
+    app.seed_headless_split_pane_with_for_test(true, terminal, writer, headless);
     assert_eq!(app.active_pane_count_for_test(), 2);
     // Ctrl-b x closes the focused (new) pane, collapsing back to a single pane;
     // focus returns to pane A. The close handler cancels any pending prefix as
@@ -290,18 +258,11 @@ fn closing_a_split_back_to_single_pane_restores_ctrl_b_passthrough() {
 
 #[test]
 fn prefix_then_unknown_key_fires_nothing() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
     // The prefix engine only engages on a split tab, so seed two panes first.
-    let Some((terminal, writer, pty, bytes)) =
-        recorded_session(NativeOptions::default().initial_grid)
-    else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    let (terminal, writer, headless, bytes) =
+        recorded_session(NativeOptions::default().initial_grid);
+    app.seed_headless_split_pane_with_for_test(true, terminal, writer, headless);
     assert_eq!(app.active_pane_count_for_test(), 2);
     app.drive_char_with_mods_for_test('b', true, false); // prefix
     app.drive_char_with_mods_for_test('q', false, false); // not in the table
@@ -313,18 +274,11 @@ fn prefix_then_unknown_key_fires_nothing() {
 
 #[test]
 fn prefix_focus_next_cycles_panes() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
     // Seed the active tab into a two-pane column split; focus lands on the new
     // (right) pane.
-    let Some((terminal, writer, pty, _)) = recorded_session(NativeOptions::default().initial_grid)
-    else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let new_pane = app.seed_split_pane_for_test(true, terminal, writer, pty);
+    let (terminal, writer, headless, _) = recorded_session(NativeOptions::default().initial_grid);
+    let new_pane = app.seed_headless_split_pane_with_for_test(true, terminal, writer, headless);
     assert_eq!(app.active_pane_count_for_test(), 2);
     assert_eq!(app.focused_pane_id_for_test(), new_pane);
     // Ctrl-b o cycles focus to the other pane in tree order.
@@ -353,24 +307,24 @@ type SplitPathFixture = (
     crate::test_dirs::AbsentProgram,
 );
 
-fn split_app_with_path_in_left_pane() -> Option<SplitPathFixture> {
+fn split_app_with_path_in_left_pane() -> SplitPathFixture {
     let cols = 40usize;
     let rows = 20usize;
     let cw = 8u32;
     let ch = 16u32;
     let dims = Dimensions::new(cols, rows);
     // The left/original pane holds the path.
-    let (t_left, w_left, p_left, b_left) = recorded_session(dims)?;
+    let (t_left, w_left, headless_left, b_left) = recorded_session(dims);
     t_left
         .lock()
         .expect("left terminal")
         .advance(b"/proj/src/main.rs:42");
     let left_id = 0usize; // the first session's token id
-    let mut app = App::new(
+    let mut app = App::new_headless(
         NativeOptions::default(),
         t_left,
         w_left,
-        p_left,
+        headless_left,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -382,8 +336,9 @@ fn split_app_with_path_in_left_pane() -> Option<SplitPathFixture> {
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
     // Split along columns; focus lands on the NEW (right) pane, so the left pane
     // with the path is the non-focused one.
-    let (t_right, w_right, p_right, b_right) = recorded_session(dims)?;
-    let right_id = app.seed_split_pane_for_test(true, t_right, w_right, p_right);
+    let (t_right, w_right, headless_right, b_right) = recorded_session(dims);
+    let right_id =
+        app.seed_headless_split_pane_with_for_test(true, t_right, w_right, headless_right);
     assert_ne!(right_id, left_id, "focus is on the new right pane");
     app.set_test_cell_for_test(cell(cw, ch));
     app.set_test_surface_for_test(cols as u32 * cw, rows as u32 * ch, WindowPadding::ZERO);
@@ -395,7 +350,7 @@ fn split_app_with_path_in_left_pane() -> Option<SplitPathFixture> {
     // process, and the ladder still reports the path handled.
     let opener = crate::test_dirs::AbsentProgram::new();
     app.set_interactive_paths_editor_for_test(&opener.program);
-    Some((app, left_id, [b_left, b_right], opener))
+    (app, left_id, [b_left, b_right], opener)
 }
 
 #[test]
@@ -407,10 +362,7 @@ fn ctrl_click_in_a_split_runs_the_open_ladder_instead_of_selecting() {
     // a Ctrl+click on a resolved path in a split focuses the pane, re-resolves the
     // hover span against it, and runs the ladder -- consuming the press so NO
     // selection begins.
-    let Some((mut app, left_id, written, opener)) = split_app_with_path_in_left_pane() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, left_id, written, opener) = split_app_with_path_in_left_pane();
     // Hover col ~5 of the path at row 0 of the LEFT pane (x well inside the left
     // half). The left pane is not focused, so hover resolution is suppressed and
     // the span does not latch yet.
@@ -457,10 +409,7 @@ fn a_plain_click_in_a_split_still_begins_a_selection() {
     // The modifier-gated control: WITHOUT the open modifier, the ladder no-ops and
     // the split branch falls through to begin a selection exactly as before, so
     // plain click-drag selection in a split is unchanged.
-    let Some((mut app, left_id, _written, _opener)) = split_app_with_path_in_left_pane() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, left_id, _written, _opener) = split_app_with_path_in_left_pane();
     app.pointer_move_for_test(8.0 * 5.5, 16.0 * 0.5);
     // No modifier held.
     app.mouse_left_press_for_test();
@@ -478,16 +427,9 @@ fn a_plain_click_in_a_split_still_begins_a_selection() {
 
 #[test]
 fn prefix_close_pane_collapses_the_split() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal, writer, pty, _)) = recorded_session(NativeOptions::default().initial_grid)
-    else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    app.seed_split_pane_for_test(false, terminal, writer, pty);
+    let (mut app, _fixtures) = app_with_two_sessions();
+    let (terminal, writer, headless, _) = recorded_session(NativeOptions::default().initial_grid);
+    app.seed_headless_split_pane_with_for_test(false, terminal, writer, headless);
     assert_eq!(app.active_pane_count_for_test(), 2);
     // Ctrl-b x closes the focused pane, collapsing the split back to one pane.
     app.drive_char_with_mods_for_test('b', true, false);
@@ -497,16 +439,9 @@ fn prefix_close_pane_collapses_the_split() {
 
 #[test]
 fn prefix_equalize_keeps_the_split_intact() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal, writer, pty, _)) = recorded_session(NativeOptions::default().initial_grid)
-    else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    let (mut app, _fixtures) = app_with_two_sessions();
+    let (terminal, writer, headless, _) = recorded_session(NativeOptions::default().initial_grid);
+    app.seed_headless_split_pane_with_for_test(true, terminal, writer, headless);
     // Ctrl-b = equalizes split ratios; the dispatch runs without disturbing the
     // pane structure.
     app.drive_char_with_mods_for_test('b', true, false);
@@ -516,16 +451,9 @@ fn prefix_equalize_keeps_the_split_intact() {
 
 #[test]
 fn prefix_zoom_toggles_full_bleed_pane() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal, writer, pty, _)) = recorded_session(NativeOptions::default().initial_grid)
-    else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    let (mut app, _fixtures) = app_with_two_sessions();
+    let (terminal, writer, headless, _) = recorded_session(NativeOptions::default().initial_grid);
+    app.seed_headless_split_pane_with_for_test(true, terminal, writer, headless);
     assert_eq!(app.active_pane_count_for_test(), 2);
     assert!(!app.active_is_zoomed_for_test());
     // Ctrl-b z zooms the focused pane full-bleed; the layout tree is preserved
@@ -546,10 +474,7 @@ fn prefix_zoom_toggles_full_bleed_pane() {
 
 #[test]
 fn prefix_zoom_is_a_noop_on_a_single_pane() {
-    let Some((mut app, _bytes)) = single_session_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _bytes) = single_session_app();
     assert_eq!(app.active_pane_count_for_test(), 1);
     // Ctrl-b z on a lone pane never zooms: the prefix engine is gated out on a
     // single pane, so both keys are plain input (Ctrl-b → 0x02, z → 'z') and the
@@ -564,19 +489,16 @@ fn prefix_zoom_is_a_noop_on_a_single_pane() {
 fn prefix_is_disabled_when_set_off() {
     let options = NativeOptions::default();
     let dims = options.initial_grid;
-    let Some((terminal, writer, pty, bytes)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (terminal, writer, headless, bytes) = recorded_session(dims);
     let settings = Settings {
         pane_prefix: None, // prefix model off
         ..Settings::default()
     };
-    let mut app = App::new(
+    let mut app = App::new_headless(
         options,
         terminal,
         writer,
-        pty,
+        headless,
         settings,
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -588,19 +510,12 @@ fn prefix_is_disabled_when_set_off() {
 
 #[test]
 fn doubled_prefix_passes_the_literal_byte_to_the_pty() {
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
     // The nested-multiplexer passthrough only applies once the prefix engine is
     // engaged, i.e. on a split tab. Seed two panes first.
-    let Some((terminal, writer, pty, bytes)) =
-        recorded_session(NativeOptions::default().initial_grid)
-    else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    let (terminal, writer, headless, bytes) =
+        recorded_session(NativeOptions::default().initial_grid);
+    app.seed_headless_split_pane_with_for_test(true, terminal, writer, headless);
     assert_eq!(app.active_pane_count_for_test(), 2);
     // Ctrl-b Ctrl-b → the focused pane's PTY receives a literal 0x02, so a
     // tmux running inside OdyTTY still gets its own prefix. The first Ctrl-b
@@ -621,23 +536,17 @@ fn wheel_scrolls_the_pane_under_the_cursor_not_the_focused_pane() {
     const CW: u32 = 8;
     const CH: u32 = 16;
     let dims = Dimensions::new(COLS, ROWS);
-    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (terminal_a, writer_a, headless_a, _) = recorded_session(dims);
+    let (terminal_b, writer_b, headless_b, _) = recorded_session(dims);
     {
         let mut terminal = terminal_b.lock().expect("terminal b");
         terminal.advance(&scrollback_bytes(80));
     }
-    let mut app = App::new(
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal_a,
         writer_a,
-        pty_a,
+        headless_a,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -648,7 +557,7 @@ fn wheel_scrolls_the_pane_under_the_cursor_not_the_focused_pane() {
         crate::native::WindowPadding::ZERO,
     );
     let pane_a = app.focused_pane_id_for_test();
-    let pane_b = app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b);
+    let pane_b = app.seed_headless_split_pane_with_for_test(true, terminal_b, writer_b, headless_b);
     app.set_test_cell_for_test(cell(CW, CH));
     app.set_test_surface_for_test(
         COLS as u32 * CW,
@@ -705,19 +614,13 @@ fn continuous_scroll_eligible_of_is_per_pane_in_a_split() {
     const CW: u32 = 8;
     const CH: u32 = 16;
     let dims = Dimensions::new(COLS, ROWS);
-    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let mut app = App::new(
+    let (terminal_a, writer_a, headless_a, _) = recorded_session(dims);
+    let (terminal_b, writer_b, headless_b, _) = recorded_session(dims);
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal_a,
         writer_a,
-        pty_a,
+        headless_a,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -728,7 +631,7 @@ fn continuous_scroll_eligible_of_is_per_pane_in_a_split() {
         crate::native::WindowPadding::ZERO,
     );
     let pane_a = app.focused_pane_id_for_test();
-    let pane_b = app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b);
+    let pane_b = app.seed_headless_split_pane_with_for_test(true, terminal_b, writer_b, headless_b);
     app.reflow_active_panes_for_test();
     // Re-inject the cell + surface AFTER seeding the split (the seed path drops
     // the test-cell override), so the wheel handler resolves a real cell height.
@@ -768,23 +671,17 @@ fn pixel_wheel_drives_the_continuous_lane_on_the_pane_under_the_pointer() {
     const CW: u32 = 8;
     const CH: u32 = 16;
     let dims = Dimensions::new(COLS, ROWS);
-    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (terminal_a, writer_a, headless_a, _) = recorded_session(dims);
+    let (terminal_b, writer_b, headless_b, _) = recorded_session(dims);
     {
         let mut terminal = terminal_b.lock().expect("terminal b");
         terminal.advance(&scrollback_bytes(80));
     }
-    let mut app = App::new(
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal_a,
         writer_a,
-        pty_a,
+        headless_a,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -795,7 +692,7 @@ fn pixel_wheel_drives_the_continuous_lane_on_the_pane_under_the_pointer() {
         crate::native::WindowPadding::ZERO,
     );
     let pane_a = app.focused_pane_id_for_test();
-    let pane_b = app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b);
+    let pane_b = app.seed_headless_split_pane_with_for_test(true, terminal_b, writer_b, headless_b);
     app.reflow_active_panes_for_test();
     // Re-inject the cell + surface AFTER seeding the split (the seed path drops
     // the test-cell override), so the wheel handler resolves a real cell height.
@@ -857,23 +754,17 @@ fn sub_notch_pixel_scroll_moves_only_the_sub_cell_offset_in_a_split() {
     const CW: u32 = 8;
     const CH: u32 = 16;
     let dims = Dimensions::new(COLS, ROWS);
-    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (terminal_a, writer_a, headless_a, _) = recorded_session(dims);
+    let (terminal_b, writer_b, headless_b, _) = recorded_session(dims);
     {
         let mut terminal = terminal_b.lock().expect("terminal b");
         terminal.advance(&scrollback_bytes(80));
     }
-    let mut app = App::new(
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal_a,
         writer_a,
-        pty_a,
+        headless_a,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -883,7 +774,7 @@ fn sub_notch_pixel_scroll_moves_only_the_sub_cell_offset_in_a_split() {
         ROWS as u32 * CH,
         crate::native::WindowPadding::ZERO,
     );
-    let pane_b = app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b);
+    let pane_b = app.seed_headless_split_pane_with_for_test(true, terminal_b, writer_b, headless_b);
     app.reflow_active_panes_for_test();
     // Re-inject the cell + surface AFTER seeding the split (the seed path drops
     // the test-cell override), so the wheel handler resolves a real cell height.
@@ -914,10 +805,7 @@ fn sub_notch_pixel_scroll_moves_only_the_sub_cell_offset_in_a_split() {
 
 #[test]
 fn wheel_scroll_still_scrolls_the_lone_single_pane() {
-    let Some((mut app, _bytes)) = single_session_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, _bytes) = single_session_app();
     if let Ok(mut terminal) = app.terminal.lock() {
         terminal.advance(&scrollback_bytes(80));
     }
@@ -947,19 +835,13 @@ fn focus_follows_click_anchors_under_the_live_click_not_stale_coords() {
     const CW: u32 = 8;
     const CH: u32 = 16;
     let dims = Dimensions::new(COLS, ROWS);
-    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let mut app = App::new(
+    let (terminal_a, writer_a, headless_a, _) = recorded_session(dims);
+    let (terminal_b, writer_b, headless_b, _) = recorded_session(dims);
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal_a,
         writer_a,
-        pty_a,
+        headless_a,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -970,7 +852,7 @@ fn focus_follows_click_anchors_under_the_live_click_not_stale_coords() {
         crate::native::WindowPadding::ZERO,
     );
     let pane_a = app.focused_pane_id_for_test();
-    let pane_b = app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b);
+    let pane_b = app.seed_headless_split_pane_with_for_test(true, terminal_b, writer_b, headless_b);
     app.set_test_cell_for_test(cell(CW, CH));
     app.set_test_surface_for_test(
         COLS as u32 * CW,

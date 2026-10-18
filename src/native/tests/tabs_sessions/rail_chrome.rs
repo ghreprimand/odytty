@@ -11,10 +11,7 @@ fn tab_reserve_combines_top_bar_and_workspace_rail() {
     // reserves columns off a side. They are independent bands that can coexist.
     // With one workspace and the default auto rail, only the top bar reserves
     // (byte-identical to a top-only bar).
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     // Pin a manual rail width so the reservation is name-length independent.
     app.set_tab_rail_width_manual_for_test(16);
@@ -50,10 +47,7 @@ fn workspace_rail_grows_decorated_snapshot_by_columns_beside_the_top_bar() {
     // decoration grows the snapshot by the rail's COLUMNS (content shifts right)
     // WITHOUT adding rows - the top bar's row is already present (the rail is a
     // full-height sidebar beside it). The grown axis must match `tab_reserve`.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     // Pin a manual rail width so the grown-columns delta is a fixed 16.
     app.set_tab_rail_width_manual_for_test(16);
@@ -95,10 +89,7 @@ fn pinned_tab_chrome_preserves_single_pane_cursor_motion_and_large_jump_streaks(
     };
 
     for (label, rail, shifts_content_right) in cases {
-        let Some(mut app) = tab_bar_app() else {
-            eprintln!("skipping: no PTY available");
-            return;
-        };
+        let mut app = tab_bar_app();
         app.set_test_cell_for_test(cell);
         app.set_tab_rail_width_manual_for_test(16);
         if let Some(side) = rail {
@@ -204,10 +195,7 @@ fn pinned_tab_chrome_preserves_single_pane_cursor_motion_and_large_jump_streaks(
 fn left_rail_hit_test_resolves_switch_close_and_new() {
     // Row-major rail hit-test round-trip: the same TabHit dispatch the bar uses,
     // resolved through the rail's X-band + row-stacked slots.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     // Pin a manual rail width (16) so the close-× column (rail_cols − 2)
@@ -261,10 +249,7 @@ fn left_rail_hit_test_resolves_switch_close_and_new() {
 fn click_right_of_the_rail_is_not_a_tab_hit() {
     // A click in the content area (past the rail's right edge, x ≥ rail_w=128)
     // is never a tab hit - the X-band gate excludes it.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     // A second workspace makes the auto rail appear on the left; the active
@@ -281,10 +266,7 @@ fn click_right_of_the_rail_is_not_a_tab_hit() {
 
 #[test]
 fn rail_seam_drag_sets_and_persists_a_manual_width() {
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     // Force the workspace rail on so its reserve/seam/reveal machinery
@@ -333,10 +315,7 @@ fn rail_seam_drag_sets_and_persists_a_manual_width() {
 
 #[test]
 fn double_click_rail_seam_resets_to_auto_and_persists() {
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     // Force the workspace rail on so its reserve/seam/reveal machinery
@@ -372,10 +351,7 @@ fn double_click_rail_seam_resets_to_auto_and_persists() {
 
 #[test]
 fn rail_seam_hover_shows_a_resize_cursor_off_the_tab_slots() {
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     // Force the workspace rail on so its reserve/seam/reveal machinery
@@ -406,10 +382,7 @@ fn top_seam_owns_pinned_rail_junction_on_both_sides_at_common_scales() {
         let padding = WindowPadding::from_logical(4.0, scale);
         for side in ["left", "right"] {
             let config_dir = crate::test_dirs::ScratchDir::new("ottbc");
-            let Some(mut app) = tab_bar_app() else {
-                eprintln!("skipping: no PTY available");
-                return;
-            };
+            let mut app = tab_bar_app();
             app.set_config_path_for_test(config_dir.path().join("odytty.conf"));
             app.set_test_cell_for_test(cell);
             app.set_test_scale_for_test(scale);
@@ -450,10 +423,7 @@ fn gap_strip_right_press_routes_to_content_not_chrome_menus() {
     // right-press route (consistent with left-click), while the drawn bands -
     // including the joined-band junction strip the bar background paints up to
     // the rail edge - keep their chrome menus.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     let cell = cell(8, 16);
     app.set_test_cell_for_test(cell);
     app.set_test_surface_for_test(1000, 600, WindowPadding::from_logical(4.0, 1.0));
@@ -497,10 +467,7 @@ fn right_rail_gap_strip_routes_to_content_and_zero_padding_is_flush() {
     // Right-rail mirror of the gap-strip routing, plus the zero-padding
     // identity: with no padding there is no strip and the band boundary sits
     // exactly at the content edge, as before.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     let cell = cell(8, 16);
     let padding = WindowPadding::from_logical(4.0, 1.0);
     app.set_test_cell_for_test(cell);
@@ -540,10 +507,7 @@ fn right_rail_gap_strip_routes_to_content_and_zero_padding_is_flush() {
     );
 
     // Zero padding: no strip; the band starts at the shared flush edge.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell);
     app.set_test_surface_for_test(1000, 600, WindowPadding::ZERO);
     app.set_workspace_rail_for_test("left");
@@ -567,10 +531,7 @@ fn right_rail_hit_boundary_is_grid_exact_at_cell_multiple_width() {
     // remainder, so the grid-basis boundary and the content-rect edge agree -
     // the historical routing is byte-identical. (The remainder case is pinned
     // in `right_rail_gap_strip_routes_to_content_and_zero_padding_is_flush`.)
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     let cell = cell(8, 16);
     app.set_test_cell_for_test(cell);
     // Zero padding, right rail 16 cols: content.w = 1000 - 128 = 872 = 109*8
@@ -596,10 +557,7 @@ fn right_rail_hit_boundary_is_grid_exact_at_cell_multiple_width() {
 #[test]
 fn revealed_autohide_rail_clips_and_owns_the_top_seam_junction() {
     for side in ["left", "right"] {
-        let Some(mut app) = tab_bar_app() else {
-            eprintln!("skipping: no PTY available");
-            return;
-        };
+        let mut app = tab_bar_app();
         let cell = cell(8, 16);
         app.set_test_cell_for_test(cell);
         app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
@@ -639,10 +597,7 @@ fn revealed_autohide_rail_clips_and_owns_the_top_seam_junction() {
 #[test]
 fn top_seam_wins_its_right_junction_with_a_live_scrollbar() {
     let config_dir = crate::test_dirs::ScratchDir::new("ottbc");
-    let Some((mut app, fixtures)) = app_with_two_sessions() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, fixtures) = app_with_two_sessions();
     {
         let mut terminal = fixtures[0].0.lock().expect("terminal");
         terminal.advance(&scrollback_bytes(200));
@@ -680,10 +635,7 @@ fn top_seam_wins_its_right_junction_with_a_live_scrollbar() {
 
 #[test]
 fn tab_bar_seam_drag_sets_and_persists_a_manual_height() {
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     // Default top-bar placement; two sessions => the bar shows. Start on the
     // classic one-row bar, so its bottom seam sits at y = 1*16 = 16 (headless
@@ -729,10 +681,7 @@ fn tab_bar_seam_drag_sets_and_persists_a_manual_height() {
 fn tab_bar_seam_drag_rebases_the_settings_panel_snapshot() {
     use winit::keyboard::Key as WinitKey;
 
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     let (_conf_dir, conf) = temp_rail_conf("tabbar-panel-rebase");
     app.set_config_path_for_test(conf.clone());
@@ -788,7 +737,6 @@ fn tab_bar_input_writers_leave_inherited_config_untouched() {
             "input writer did not execute successfully: {stdout} {}",
             String::from_utf8_lossy(&output.stderr)
         );
-        assert!(!stdout.contains("skipping:"), "PTY fixture must execute");
         assert_inherited_dirs_untouched(&inherited, test);
     }
 }
@@ -886,10 +834,7 @@ fn tab_bar_height_typing_commits_through_the_production_overlay_key_route() {
     use winit::keyboard::{Key as WinitKey, NamedKey};
 
     let config_dir = crate::test_dirs::ScratchDir::new("ottbc");
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     let config = config_dir.path().join("odytty.conf");
     std::fs::write(&config, "# kept\n").expect("seed private config");
     app.set_config_path_for_test(config.clone());
@@ -924,10 +869,7 @@ fn tab_bar_height_typing_commits_through_the_production_overlay_key_route() {
 #[test]
 fn tab_bar_height_drag_centers_labels_in_the_decorated_band() {
     let config_dir = crate::test_dirs::ScratchDir::new("ottbc");
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     let config = config_dir.path().join("odytty.conf");
     std::fs::write(&config, "# kept\n").expect("seed private config");
     app.set_config_path_for_test(config.clone());
@@ -968,10 +910,7 @@ fn tab_bar_height_drag_centers_labels_in_the_decorated_band() {
 
 #[test]
 fn double_click_tab_bar_seam_resets_to_auto_and_persists() {
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     // Start from a manual height (seam at y = 3*16 = 48).
     app.set_tab_bar_height_manual_for_test(3);
@@ -1004,10 +943,7 @@ fn double_click_tab_bar_seam_resets_to_auto_and_persists() {
 #[test]
 fn tab_bar_seam_drag_clamps_to_min_and_max_rows() {
     let config_dir = crate::test_dirs::ScratchDir::new("ottbc");
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_config_path_for_test(config_dir.path().join("odytty.conf"));
     app.set_test_cell_for_test(cell(8, 16));
     // Grab the classic one-row bar's seam (y = 16) and arm the drag.
@@ -1034,25 +970,19 @@ fn tab_bar_seam_drag_clamps_to_min_and_max_rows() {
 fn tab_bar_height_reservation_reduces_shell_rows_by_the_chosen_count() {
     let options = NativeOptions::default();
     let dims = options.initial_grid;
-    let Some((terminal, writer, pty, _bytes)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let mut app = App::new(
+    let (terminal, writer, headless, _bytes) = recorded_session(dims);
+    let mut app = App::new_headless(
         options,
         terminal.clone(),
         writer,
-        pty,
+        headless,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
     let cell = cell(8, 16);
     // A second session makes the top bar visible.
-    let Some((terminal_b, writer_b, pty_b, _bytes_b)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    app.push_session_for_test(terminal_b, writer_b, pty_b);
+    let (terminal_b, writer_b, headless_b, _bytes_b) = recorded_session(dims);
+    app.push_headless_session_with_for_test(terminal_b, writer_b, headless_b);
     // A 3-row bar reserves 3 rows off the top: 384/16 = 24 total rows, minus 3
     // leaves 21 for the shell (the one-row bar leaves 23; see the sibling test).
     app.set_tab_bar_height_manual_for_test(3);
@@ -1076,10 +1006,7 @@ fn tab_bar_height_reservation_reduces_shell_rows_by_the_chosen_count() {
 /// top". Round-half-to-lower centering puts the label on `rows / 2`.
 #[test]
 fn tab_bar_label_is_vertically_centered_in_a_multi_row_band() {
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     // (height, expected label row): the nearest row to the geometric centre,
     // rounding a half-row tie to the lower middle row. Height 1 keeps the

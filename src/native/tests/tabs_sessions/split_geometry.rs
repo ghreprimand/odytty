@@ -3,25 +3,25 @@
 
 use super::*;
 
-fn recorded_divider_app() -> Option<(App, [Arc<Mutex<PtySession>>; 2])> {
+fn recorded_divider_app() -> (App, [Arc<HeadlessSession>; 2]) {
     let dims = Dimensions::new(80, 24);
-    let (terminal_a, writer_a, pty_a, _) = recorded_session(dims)?;
-    let (terminal_b, writer_b, pty_b, _) = recorded_session(dims)?;
-    let mut app = App::new(
+    let (terminal_a, writer_a, headless_a, _) = recorded_session(dims);
+    let (terminal_b, writer_b, headless_b, _) = recorded_session(dims);
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal_a,
         writer_a,
-        pty_a.clone(),
+        headless_a.clone(),
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(640, 384, WindowPadding::ZERO);
-    app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b.clone());
+    app.seed_headless_split_pane_with_for_test(true, terminal_b, writer_b, headless_b.clone());
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(640, 384, WindowPadding::ZERO);
     app.reflow_active_panes_for_test();
-    Some((app, [pty_a, pty_b]))
+    (app, [headless_a, headless_b])
 }
 
 fn begin_recorded_divider_drag(app: &mut App) {
@@ -67,19 +67,13 @@ fn split_pane_grid_is_inset_from_the_divider_by_window_padding() {
     const CH: u32 = 16;
     const PAD: f32 = 8.0;
     let dims = Dimensions::new(COLS, ROWS);
-    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let mut app = App::new(
+    let (terminal_a, writer_a, headless_a, _) = recorded_session(dims);
+    let (terminal_b, writer_b, headless_b, _) = recorded_session(dims);
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal_a,
         writer_a,
-        pty_a,
+        headless_a,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -88,7 +82,8 @@ fn split_pane_grid_is_inset_from_the_divider_by_window_padding() {
     app.set_test_surface_for_test(1000, 600, padding);
     // Column split: the new pane B is the RIGHT half and takes focus. Its LEFT
     // edge faces the divider; its RIGHT edge is the outer window margin.
-    let _pane_b = app.seed_split_pane_for_test(true, terminal_b.clone(), writer_b, pty_b);
+    let _pane_b =
+        app.seed_headless_split_pane_with_for_test(true, terminal_b.clone(), writer_b, headless_b);
     app.set_test_cell_for_test(cell(CW, CH));
     app.set_test_surface_for_test(1000, 600, padding);
     app.reflow_active_panes_for_test();
@@ -137,25 +132,20 @@ fn split_pane_zero_padding_grid_is_flush_with_the_divider() {
     const CW: u32 = 8;
     const CH: u32 = 16;
     let dims = Dimensions::new(COLS, ROWS);
-    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let mut app = App::new(
+    let (terminal_a, writer_a, headless_a, _) = recorded_session(dims);
+    let (terminal_b, writer_b, headless_b, _) = recorded_session(dims);
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal_a,
         writer_a,
-        pty_a,
+        headless_a,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
     app.set_test_cell_for_test(cell(CW, CH));
     app.set_test_surface_for_test(1000, 600, WindowPadding::ZERO);
-    let _pane_b = app.seed_split_pane_for_test(true, terminal_b.clone(), writer_b, pty_b);
+    let _pane_b =
+        app.seed_headless_split_pane_with_for_test(true, terminal_b.clone(), writer_b, headless_b);
     app.set_test_cell_for_test(cell(CW, CH));
     app.set_test_surface_for_test(1000, 600, WindowPadding::ZERO);
     app.reflow_active_panes_for_test();
@@ -173,26 +163,20 @@ fn collapsed_high_padding_pane_has_no_pointer_or_selection_target() {
     const CW: u32 = 10;
     const CH: u32 = 20;
     let dims = Dimensions::new(20, 8);
-    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let mut app = App::new(
+    let (terminal_a, writer_a, headless_a, _) = recorded_session(dims);
+    let (terminal_b, writer_b, headless_b, _) = recorded_session(dims);
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal_a,
         writer_a,
-        pty_a,
+        headless_a,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
     let padding = WindowPadding::from_logical(64.0, 1.0);
     app.set_test_cell_for_test(cell(CW, CH));
     app.set_test_surface_for_test(250, 240, padding);
-    app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b);
+    app.seed_headless_split_pane_with_for_test(true, terminal_b, writer_b, headless_b);
     app.set_test_cell_for_test(cell(CW, CH));
     app.set_test_surface_for_test(250, 240, padding);
     app.reflow_active_panes_for_test();
@@ -229,19 +213,13 @@ fn hover_over_a_non_focused_pane_does_not_resolve_a_link_in_the_focused_pane() {
     const CW: u32 = 8;
     const CH: u32 = 16;
     let dims = Dimensions::new(COLS, ROWS);
-    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let mut app = App::new(
+    let (terminal_a, writer_a, headless_a, _) = recorded_session(dims);
+    let (terminal_b, writer_b, headless_b, _) = recorded_session(dims);
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal_a,
         writer_a,
-        pty_a,
+        headless_a,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -251,7 +229,8 @@ fn hover_over_a_non_focused_pane_does_not_resolve_a_link_in_the_focused_pane() {
         ROWS as u32 * CH,
         crate::native::WindowPadding::ZERO,
     );
-    let pane_b = app.seed_split_pane_for_test(true, terminal_b.clone(), writer_b, pty_b);
+    let pane_b =
+        app.seed_headless_split_pane_with_for_test(true, terminal_b.clone(), writer_b, headless_b);
     app.set_test_cell_for_test(cell(CW, CH));
     app.set_test_surface_for_test(
         COLS as u32 * CW,
@@ -295,19 +274,13 @@ fn hover_over_the_focused_pane_in_a_split_still_resolves_a_link() {
     const CW: u32 = 8;
     const CH: u32 = 16;
     let dims = Dimensions::new(COLS, ROWS);
-    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let mut app = App::new(
+    let (terminal_a, writer_a, headless_a, _) = recorded_session(dims);
+    let (terminal_b, writer_b, headless_b, _) = recorded_session(dims);
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal_a,
         writer_a,
-        pty_a,
+        headless_a,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -317,7 +290,8 @@ fn hover_over_the_focused_pane_in_a_split_still_resolves_a_link() {
         ROWS as u32 * CH,
         crate::native::WindowPadding::ZERO,
     );
-    let pane_b = app.seed_split_pane_for_test(true, terminal_b.clone(), writer_b, pty_b);
+    let pane_b =
+        app.seed_headless_split_pane_with_for_test(true, terminal_b.clone(), writer_b, headless_b);
     app.set_test_cell_for_test(cell(CW, CH));
     app.set_test_surface_for_test(
         COLS as u32 * CW,
@@ -349,16 +323,13 @@ fn single_pane_hover_still_resolves_a_link() {
     const CW: u32 = 8;
     const CH: u32 = 16;
     let dims = Dimensions::new(COLS, ROWS);
-    let Some((terminal, writer, pty, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (terminal, writer, headless, _) = recorded_session(dims);
     fill_grid_with_url(&terminal, ROWS);
-    let mut app = App::new(
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal,
         writer,
-        pty,
+        headless,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -382,11 +353,11 @@ fn single_pane_hover_still_resolves_a_link() {
 /// with zero padding and a single tab (no tab bar), then reflow so each pane
 /// holds its narrow split sub-grid. The active (focused) pane is the new one
 /// `split_active_with` focuses, so closing it collapses the tab back onto the
-/// original survivor. Returns `None` when no PTY is available (CI sandboxes).
-fn split_app_at_surface(columns: bool, cols: usize, rows: usize, cw: u32, ch: u32) -> Option<App> {
+/// original survivor.
+fn split_app_at_surface(columns: bool, cols: usize, rows: usize, cw: u32, ch: u32) -> App {
     let dims = Dimensions::new(cols, rows);
-    let (t1, w1, p1, _) = recorded_session(dims)?;
-    let mut app = App::new(
+    let (t1, w1, p1, _) = recorded_session(dims);
+    let mut app = App::new_headless(
         NativeOptions::default(),
         t1,
         w1,
@@ -403,14 +374,14 @@ fn split_app_at_surface(columns: bool, cols: usize, rows: usize, cw: u32, ch: u3
     let surf_h = rows as u32 * ch;
     app.set_test_cell_for_test(cell(cw, ch));
     app.set_test_surface_for_test(surf_w, surf_h, crate::native::WindowPadding::ZERO);
-    let (t2, w2, p2, _) = recorded_session(dims)?;
-    app.seed_split_pane_for_test(columns, t2, w2, p2);
+    let (t2, w2, p2, _) = recorded_session(dims);
+    app.seed_headless_split_pane_with_for_test(columns, t2, w2, p2);
     app.set_test_cell_for_test(cell(cw, ch));
     app.set_test_surface_for_test(surf_w, surf_h, crate::native::WindowPadding::ZERO);
     // Reflow the split so each pane is sized to its (narrow) sub-rect - the
     // pre-close state where the survivor is clipped to half-width.
     app.reflow_active_panes_for_test();
-    Some(app)
+    app
 }
 
 #[test]
@@ -423,10 +394,7 @@ fn closing_a_column_split_reflows_survivor_to_full_width() {
     const ROWS: usize = 24;
     const CW: u32 = 8;
     const CH: u32 = 16;
-    let Some(mut app) = split_app_at_surface(true, COLS, ROWS, CW, CH) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = split_app_at_surface(true, COLS, ROWS, CW, CH);
     // Precondition: the focused split pane is narrower than the full width.
     let (split_cols, _) = app.active_session_grid_dims_for_test();
     assert!(
@@ -458,10 +426,7 @@ fn closing_a_row_split_reflows_survivor_to_full_height() {
     const ROWS: usize = 24;
     const CW: u32 = 8;
     const CH: u32 = 16;
-    let Some(mut app) = split_app_at_surface(false, COLS, ROWS, CW, CH) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = split_app_at_surface(false, COLS, ROWS, CW, CH);
     let (_, split_rows) = app.active_session_grid_dims_for_test();
     assert!(
         split_rows < ROWS,
@@ -503,10 +468,7 @@ fn drag_select_works_inside_a_pane_after_split() {
     const ROWS: usize = 24;
     const CW: u32 = 8;
     const CH: u32 = 16;
-    let Some(mut app) = split_app_at_surface(true, COLS, ROWS, CW, CH) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = split_app_at_surface(true, COLS, ROWS, CW, CH);
     assert_eq!(
         app.active_pane_count_for_test(),
         2,
@@ -551,15 +513,12 @@ fn drag_select_still_works_single_pane() {
     const CW: u32 = 8;
     const CH: u32 = 16;
     let dims = Dimensions::new(COLS, ROWS);
-    let Some((terminal, writer, pty, _fixtures)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let mut app = App::new(
+    let (terminal, writer, headless, _fixtures) = recorded_session(dims);
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal,
         writer,
-        pty,
+        headless,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -602,23 +561,14 @@ fn divider_drag_coalesces_the_pty_resize_to_one_flush_at_release() {
     const CW: u32 = 8;
     const CH: u32 = 16;
     let dims = Dimensions::new(COLS, ROWS);
-    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_c, writer_c, pty_c, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let mut app = App::new(
+    let (terminal_a, writer_a, headless_a, _) = recorded_session(dims);
+    let (terminal_b, writer_b, headless_b, _) = recorded_session(dims);
+    let (terminal_c, writer_c, headless_c, _) = recorded_session(dims);
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal_a.clone(),
         writer_a,
-        pty_a.clone(),
+        headless_a.clone(),
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -628,8 +578,13 @@ fn divider_drag_coalesces_the_pty_resize_to_one_flush_at_release() {
         ROWS as u32 * CH,
         crate::native::WindowPadding::ZERO,
     );
-    app.seed_split_pane_for_test(true, terminal_b.clone(), writer_b, pty_b.clone());
-    app.push_session_for_test(terminal_c, writer_c, pty_c.clone());
+    app.seed_headless_split_pane_with_for_test(
+        true,
+        terminal_b.clone(),
+        writer_b,
+        headless_b.clone(),
+    );
+    app.push_headless_session_with_for_test(terminal_c, writer_c, headless_c.clone());
     app.set_test_cell_for_test(cell(CW, CH));
     app.set_test_surface_for_test(
         COLS as u32 * CW,
@@ -644,14 +599,14 @@ fn divider_drag_coalesces_the_pty_resize_to_one_flush_at_release() {
     );
 
     // Helper: kernel-resize call count for both panes' PTYs.
-    let count = |a: &Arc<Mutex<PtySession>>,
-                 b: &Arc<Mutex<PtySession>>,
-                 c: &Arc<Mutex<PtySession>>|
+    let count = |a: &Arc<HeadlessSession>,
+                 b: &Arc<HeadlessSession>,
+                 c: &Arc<HeadlessSession>|
      -> (usize, usize, usize) {
         (
-            a.lock().expect("pty a").resize_call_count(),
-            b.lock().expect("pty b").resize_call_count(),
-            c.lock().expect("pty c").resize_call_count(),
+            a.resize_call_count(),
+            b.resize_call_count(),
+            c.resize_call_count(),
         )
     };
     // Pane A's column count, to prove the model reflows LIVE during the drag.
@@ -666,7 +621,7 @@ fn divider_drag_coalesces_the_pty_resize_to_one_flush_at_release() {
 
     // Snapshot the baseline AFTER setup (split + reflow already issued kernel
     // resizes); the assertions below measure the delta caused by the drag.
-    let (a0, b0, c0) = count(&pty_a, &pty_b, &pty_c);
+    let (a0, b0, c0) = count(&headless_a, &headless_b, &headless_c);
     let a_cols_before = a_cols();
 
     // Grab the vertical divider at the content midpoint (x = 640/2 = 320).
@@ -684,7 +639,7 @@ fn divider_drag_coalesces_the_pty_resize_to_one_flush_at_release() {
 
     // RED pre-fix: ~2 kernel resizes per move (one per pane) accumulate here.
     // GREEN post-fix: zero kernel resizes during the whole drag.
-    let (a1, b1, c1) = count(&pty_a, &pty_b, &pty_c);
+    let (a1, b1, c1) = count(&headless_a, &headless_b, &headless_c);
     assert_eq!(
         (a1 - a0, b1 - b0, c1 - c0),
         (0, 0, 0),
@@ -703,7 +658,7 @@ fn divider_drag_coalesces_the_pty_resize_to_one_flush_at_release() {
 
     // Release flushes exactly one coalesced kernel resize per pane.
     app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
-    let (a2, b2, c2) = count(&pty_a, &pty_b, &pty_c);
+    let (a2, b2, c2) = count(&headless_a, &headless_b, &headless_c);
     assert_eq!(
         (a2 - a1, b2 - b1, c2 - c1),
         (1, 1, 0),
@@ -716,23 +671,17 @@ fn final_same_grid_resize_reconciles_split_children_after_debounce() {
     const CW: u32 = 10;
     const CH: u32 = 20;
     let dims = Dimensions::new(20, 10);
-    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let mut app = App::new(
+    let (terminal_a, writer_a, headless_a, _) = recorded_session(dims);
+    let (terminal_b, writer_b, headless_b, _) = recorded_session(dims);
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal_a.clone(),
         writer_a,
-        pty_a.clone(),
+        headless_a.clone(),
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
-    app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b.clone());
+    app.seed_headless_split_pane_with_for_test(true, terminal_b, writer_b, headless_b.clone());
 
     let t0 = Instant::now();
     app.record_pending_resize_for_test(cell(CW, CH), 100, 200, t0);
@@ -745,8 +694,8 @@ fn final_same_grid_resize_reconciles_split_children_after_debounce() {
             .columns,
         4
     );
-    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
-    let (a0, b0) = (count(&pty_a), count(&pty_b));
+    let count = |headless: &Arc<HeadlessSession>| headless.resize_call_count();
+    let (a0, b0) = (count(&headless_a), count(&headless_b));
 
     // Both surfaces floor to the same ten-column window grid, but the final
     // one-pixel-per-half configure moves pane A across its fifth cell boundary.
@@ -765,7 +714,7 @@ fn final_same_grid_resize_reconciles_split_children_after_debounce() {
         "the final same-grid configure must not be discarded"
     );
     assert_eq!(
-        (count(&pty_a) - a0, count(&pty_b) - b0),
+        (count(&headless_a) - a0, count(&headless_b) - b0),
         (1, 0),
         "only the child that crossed a cell boundary is signaled"
     );
@@ -776,30 +725,24 @@ fn focus_loss_finishes_a_padded_divider_drag_with_one_pty_flush() {
     const CW: u32 = 10;
     const CH: u32 = 20;
     let dims = Dimensions::new(40, 12);
-    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let mut app = App::new(
+    let (terminal_a, writer_a, headless_a, _) = recorded_session(dims);
+    let (terminal_b, writer_b, headless_b, _) = recorded_session(dims);
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal_a.clone(),
         writer_a,
-        pty_a.clone(),
+        headless_a.clone(),
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
-    app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b.clone());
+    app.seed_headless_split_pane_with_for_test(true, terminal_b, writer_b, headless_b.clone());
     let padding = WindowPadding::from_logical(4.0, 1.25);
     app.set_test_cell_for_test(cell(CW, CH));
     app.set_test_surface_for_test(640, 240, padding);
     app.reflow_active_panes_for_test();
 
-    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
-    let (a0, b0) = (count(&pty_a), count(&pty_b));
+    let count = |headless: &Arc<HeadlessSession>| headless.resize_call_count();
+    let (a0, b0) = (count(&headless_a), count(&headless_b));
 
     // content x=5, width=630: the initial divider is x=319. Drag it to a
     // deliberately sub-cell position, then simulate the compositor ending the
@@ -807,12 +750,12 @@ fn focus_loss_finishes_a_padded_divider_drag_with_one_pty_flush() {
     app.set_pointer_px_for_test(319.0, 100.0);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
     app.pointer_move_for_test(277.0, 100.0);
-    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (0, 0));
+    assert_eq!((count(&headless_a) - a0, count(&headless_b) - b0), (0, 0));
 
     app.on_window_focus_changed_for_test(false);
 
     assert_eq!(
-        (count(&pty_a) - a0, count(&pty_b) - b0),
+        (count(&headless_a) - a0, count(&headless_b) - b0),
         (1, 1),
         "an interrupted drag flushes each PTY exactly once"
     );
@@ -830,77 +773,65 @@ fn focus_loss_finishes_a_padded_divider_drag_with_one_pty_flush() {
 
 #[test]
 fn cursor_leave_finishes_divider_once_before_duplicate_boundaries() {
-    let Some((mut app, [pty_a, pty_b])) = recorded_divider_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
-    let (a0, b0) = (count(&pty_a), count(&pty_b));
+    let (mut app, [headless_a, headless_b]) = recorded_divider_app();
+    let count = |headless: &Arc<HeadlessSession>| headless.resize_call_count();
+    let (a0, b0) = (count(&headless_a), count(&headless_b));
     begin_recorded_divider_drag(&mut app);
 
     app.settle_divider_for_cursor_leave_for_test();
     assert!(!app.divider_drag_active_for_test());
-    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+    assert_eq!((count(&headless_a) - a0, count(&headless_b) - b0), (1, 1));
 
     // A compositor may follow CursorLeft with configure, focus loss, and the
     // delayed release in any order. Ownership was taken by the first boundary.
     app.settle_divider_for_surface_change_for_test();
     app.on_window_focus_changed_for_test(false);
     app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
-    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+    assert_eq!((count(&headless_a) - a0, count(&headless_b) - b0), (1, 1));
 }
 
 #[test]
 fn surface_change_finishes_divider_once_before_leave_and_release() {
-    let Some((mut app, [pty_a, pty_b])) = recorded_divider_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
-    let (a0, b0) = (count(&pty_a), count(&pty_b));
+    let (mut app, [headless_a, headless_b]) = recorded_divider_app();
+    let count = |headless: &Arc<HeadlessSession>| headless.resize_call_count();
+    let (a0, b0) = (count(&headless_a), count(&headless_b));
     begin_recorded_divider_drag(&mut app);
 
     app.settle_divider_for_surface_change_for_test();
     assert!(!app.divider_drag_active_for_test());
-    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+    assert_eq!((count(&headless_a) - a0, count(&headless_b) - b0), (1, 1));
 
     app.settle_divider_for_cursor_leave_for_test();
     app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
     app.on_window_focus_changed_for_test(false);
-    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+    assert_eq!((count(&headless_a) - a0, count(&headless_b) - b0), (1, 1));
 }
 
 #[test]
 fn overlay_entry_settles_divider_once_before_capturing_release() {
-    let Some((mut app, [pty_a, pty_b])) = recorded_divider_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
-    let (a0, b0) = (count(&pty_a), count(&pty_b));
+    let (mut app, [headless_a, headless_b]) = recorded_divider_app();
+    let count = |headless: &Arc<HeadlessSession>| headless.resize_call_count();
+    let (a0, b0) = (count(&headless_a), count(&headless_b));
     begin_recorded_divider_drag(&mut app);
 
     app.open_settings_overlay_for_test();
     assert!(app.overlay_open_for_test());
     assert!(!app.divider_drag_active_for_test());
-    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+    assert_eq!((count(&headless_a) - a0, count(&headless_b) - b0), (1, 1));
 
     // The overlay consumes the eventual release; later focus/leave/resize
     // boundaries all share the same take-once finalizer and must stay inert.
     app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
     app.on_window_focus_changed_for_test(false);
     assert!(!app.finish_divider_drag_for_test());
-    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+    assert_eq!((count(&headless_a) - a0, count(&headless_b) - b0), (1, 1));
 }
 
 #[test]
 fn context_menu_entry_settles_divider_and_later_left_release_is_inert() {
-    let Some((mut app, [pty_a, pty_b])) = recorded_divider_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
-    let (a0, b0) = (count(&pty_a), count(&pty_b));
+    let (mut app, [headless_a, headless_b]) = recorded_divider_app();
+    let count = |headless: &Arc<HeadlessSession>| headless.resize_call_count();
+    let (a0, b0) = (count(&headless_a), count(&headless_b));
     begin_recorded_divider_drag(&mut app);
 
     // Drive the production context-menu entry itself. Chrome and content
@@ -909,35 +840,34 @@ fn context_menu_entry_settles_divider_and_later_left_release_is_inert() {
     app.open_empty_tab_strip_menu_for_test();
     assert!(app.context_menu_open_for_test());
     assert!(!app.divider_drag_active_for_test());
-    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+    assert_eq!((count(&headless_a) - a0, count(&headless_b) - b0), (1, 1));
 
     app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
     assert!(!app.finish_divider_drag_for_test());
-    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+    assert_eq!((count(&headless_a) - a0, count(&headless_b) - b0), (1, 1));
 }
 
 #[test]
 fn tab_switch_settles_outgoing_divider_without_resizing_background_tab() {
-    let Some((mut app, [pty_a, pty_b])) = recorded_divider_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, [headless_a, headless_b]) = recorded_divider_app();
     let dims = Dimensions::new(80, 24);
-    let Some((terminal_c, writer_c, pty_c, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let background = app.push_session_for_test(terminal_c, writer_c, pty_c.clone());
+    let (terminal_c, writer_c, headless_c, _) = recorded_session(dims);
+    let background =
+        app.push_headless_session_with_for_test(terminal_c, writer_c, headless_c.clone());
     app.reflow_active_panes_for_test();
-    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
-    let (a0, b0, c0) = (count(&pty_a), count(&pty_b), count(&pty_c));
+    let count = |headless: &Arc<HeadlessSession>| headless.resize_call_count();
+    let (a0, b0, c0) = (count(&headless_a), count(&headless_b), count(&headless_c));
     begin_recorded_divider_drag(&mut app);
 
     app.switch_to_next_tab_for_test();
     assert_eq!(app.active_session_id_for_test(), background);
     assert!(!app.divider_drag_active_for_test());
     assert_eq!(
-        (count(&pty_a) - a0, count(&pty_b) - b0, count(&pty_c) - c0,),
+        (
+            count(&headless_a) - a0,
+            count(&headless_b) - b0,
+            count(&headless_c) - c0,
+        ),
         (1, 1, 0),
         "only dirty panes in the outgoing split are flushed"
     );
@@ -945,28 +875,27 @@ fn tab_switch_settles_outgoing_divider_without_resizing_background_tab() {
 
 #[test]
 fn workspace_switch_settles_outgoing_divider_before_focus_mutation() {
-    let Some((mut app, [pty_a, pty_b])) = recorded_divider_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let (mut app, [headless_a, headless_b]) = recorded_divider_app();
     let dims = Dimensions::new(80, 24);
-    let Some((terminal_c, writer_c, pty_c, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let background = app.push_workspace_for_test(terminal_c, writer_c, pty_c.clone());
+    let (terminal_c, writer_c, headless_c, _) = recorded_session(dims);
+    let background =
+        app.push_headless_workspace_with_for_test(terminal_c, writer_c, headless_c.clone());
     app.dispatch_workspace_action_for_test(crate::settings::BindableAction::PrevWorkspace);
     assert_eq!(app.active_workspace_index_for_test(), 0);
     app.reflow_active_panes_for_test();
-    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
-    let (a0, b0, c0) = (count(&pty_a), count(&pty_b), count(&pty_c));
+    let count = |headless: &Arc<HeadlessSession>| headless.resize_call_count();
+    let (a0, b0, c0) = (count(&headless_a), count(&headless_b), count(&headless_c));
     begin_recorded_divider_drag(&mut app);
 
     app.dispatch_workspace_action_for_test(crate::settings::BindableAction::NextWorkspace);
     assert_eq!(app.active_workspace_index_for_test(), background);
     assert!(!app.divider_drag_active_for_test());
     assert_eq!(
-        (count(&pty_a) - a0, count(&pty_b) - b0, count(&pty_c) - c0,),
+        (
+            count(&headless_a) - a0,
+            count(&headless_b) - b0,
+            count(&headless_c) - c0,
+        ),
         (1, 1, 0),
         "workspace focus changes after flushing only the outgoing dirty split"
     );
@@ -982,15 +911,12 @@ fn single_pane_has_no_divider_drag_resize_path() {
     const CW: u32 = 8;
     const CH: u32 = 16;
     let dims = Dimensions::new(COLS, ROWS);
-    let Some((terminal, writer, pty, _)) = recorded_session(dims) else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let mut app = App::new(
+    let (terminal, writer, headless, _) = recorded_session(dims);
+    let mut app = App::new_headless(
         NativeOptions::default(),
         terminal,
         writer,
-        pty.clone(),
+        headless.clone(),
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -1006,13 +932,13 @@ fn single_pane_has_no_divider_drag_resize_path() {
         "precondition: single pane"
     );
 
-    let base = pty.lock().expect("pty").resize_call_count();
+    let base = headless.resize_call_count();
     app.set_pointer_px_for_test(320.0, 192.0);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
     app.pointer_move_for_test(240.0, 192.0);
     app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
     assert_eq!(
-        pty.lock().expect("pty").resize_call_count(),
+        headless.resize_call_count(),
         base,
         "a single-pane tab has no divider-drag resize path"
     );
@@ -1025,9 +951,7 @@ fn attach_overlay_closes_when_switching_to_already_attached_session() {
     // branch of route_attach_session switched tabs but returned WITHOUT closing
     // the overlay, so keyboard dispatch kept routing every key into the overlay's
     // type-to-filter box (never the switched-to session) until Esc.
-    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
-        return;
-    };
+    let (mut app, _fixtures) = app_with_two_sessions();
     // Tag the active session as attached to a known id so find_attached_tab
     // resolves it (the dedup path), then open the summon overlay over it.
     app.mark_active_session_attached_for_test("s-already");

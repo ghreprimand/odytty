@@ -48,20 +48,10 @@ fn grid_dimensions_tolerate_degenerate_cell() {
 #[test]
 fn resize_grid_is_idempotent_and_updates_model() {
     let dims = Dimensions::new(80, 24);
-    let session = match spawn_test_pause_shell(dims) {
-        Ok(session) => session,
-        Err(_) => {
-            eprintln!("skipping: no PTY available");
-            return;
-        }
-    };
-    let writer: PtyWriter = match session.take_writer() {
-        Ok(writer) => Arc::new(Mutex::new(writer)),
-        Err(_) => {
-            eprintln!("skipping: could not take PTY writer");
-            return;
-        }
-    };
+    let session = spawn_test_pause_shell(dims).expect("spawn test shell");
+    let writer: PtyWriter = Arc::new(Mutex::new(
+        session.take_writer().expect("take the shell writer"),
+    ));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let pty = Arc::new(Mutex::new(session));
     let mut app = App::new(
@@ -104,20 +94,10 @@ fn resize_grid_is_idempotent_and_updates_model() {
 #[test]
 fn pending_zero_extent_resize_does_not_collapse_model_grid() {
     let dims = Dimensions::new(80, 24);
-    let session = match spawn_test_pause_shell(dims) {
-        Ok(session) => session,
-        Err(_) => {
-            eprintln!("skipping: no PTY available");
-            return;
-        }
-    };
-    let writer: PtyWriter = match session.take_writer() {
-        Ok(writer) => Arc::new(Mutex::new(writer)),
-        Err(_) => {
-            eprintln!("skipping: could not take PTY writer");
-            return;
-        }
-    };
+    let session = spawn_test_pause_shell(dims).expect("spawn test shell");
+    let writer: PtyWriter = Arc::new(Mutex::new(
+        session.take_writer().expect("take the shell writer"),
+    ));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let pty = Arc::new(Mutex::new(session));
     let mut app = App::new(
@@ -146,20 +126,10 @@ fn pending_zero_extent_resize_does_not_collapse_model_grid() {
 #[test]
 fn pending_nonzero_resize_still_updates_model_grid() {
     let dims = Dimensions::new(80, 24);
-    let session = match spawn_test_pause_shell(dims) {
-        Ok(session) => session,
-        Err(_) => {
-            eprintln!("skipping: no PTY available");
-            return;
-        }
-    };
-    let writer: PtyWriter = match session.take_writer() {
-        Ok(writer) => Arc::new(Mutex::new(writer)),
-        Err(_) => {
-            eprintln!("skipping: could not take PTY writer");
-            return;
-        }
-    };
+    let session = spawn_test_pause_shell(dims).expect("spawn test shell");
+    let writer: PtyWriter = Arc::new(Mutex::new(
+        session.take_writer().expect("take the shell writer"),
+    ));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let pty = Arc::new(Mutex::new(session));
     let mut app = App::new(

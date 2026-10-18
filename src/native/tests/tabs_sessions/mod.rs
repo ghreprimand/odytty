@@ -4,6 +4,7 @@
 
 use crate::core::Color;
 use crate::native::app::interactive_paths::MapProbe;
+use crate::native::session::HeadlessSession;
 use crate::paths::FsKind;
 use crate::settings::{TabBarHeight, TabRailWidth};
 
@@ -26,82 +27,70 @@ impl Write for RecordingWriter {
     }
 }
 
-type SessionFixture = (
+/// A tab's terminal and the bytes its writer recorded.
+type SessionFixture = (Arc<Mutex<Terminal>>, Arc<Mutex<Vec<u8>>>);
+
+/// One recorded pane over a headless session: its terminal, a writer that
+/// records every byte the App sends toward the shell, the headless backing
+/// state (whose resize calls a test can read), and the recorded bytes. No
+/// child process is spawned, so the fixture cannot fail to build and the test
+/// cannot skip.
+type RecordedSession = (
     Arc<Mutex<Terminal>>,
-    Arc<Mutex<PtySession>>,
+    PtyWriter,
+    Arc<HeadlessSession>,
     Arc<Mutex<Vec<u8>>>,
 );
 
-#[allow(clippy::type_complexity)]
-fn recorded_session(
-    dims: Dimensions,
-) -> Option<(
-    Arc<Mutex<Terminal>>,
-    PtyWriter,
-    Arc<Mutex<PtySession>>,
-    Arc<Mutex<Vec<u8>>>,
-)> {
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let _ = session.take_writer().ok()?;
+fn recorded_session(dims: Dimensions) -> RecordedSession {
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(session));
-    Some((terminal, writer, pty, bytes))
+    let headless = Arc::new(HeadlessSession::new(dims));
+    (terminal, writer, headless, bytes)
 }
 
-fn single_session_app() -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
-    let options = NativeOptions::default();
-    let dims = options.initial_grid;
-    let (terminal, writer, pty, bytes) = recorded_session(dims)?;
-    let app = App::new(
+/// An App whose first session is a recorded headless pane built from `options`.
+fn recorded_app_with(options: NativeOptions) -> (App, RecordedSession) {
+    let (terminal, writer, headless, bytes) = recorded_session(options.initial_grid);
+    let app = App::new_headless(
         options,
-        terminal,
-        writer,
-        pty,
+        terminal.clone(),
+        writer.clone(),
+        headless.clone(),
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
-    Some((app, bytes))
+    (app, (terminal, writer, headless, bytes))
 }
 
-fn app_with_two_sessions() -> Option<(App, [SessionFixture; 2])> {
-    let options = NativeOptions::default();
-    let dims = options.initial_grid;
-    let (terminal_a, writer_a, pty_a, bytes_a) = recorded_session(dims)?;
-    let (terminal_b, writer_b, pty_b, bytes_b) = recorded_session(dims)?;
-    let mut app = App::new(
-        options,
-        terminal_a.clone(),
-        writer_a,
-        pty_a.clone(),
-        Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
-    app.push_session_for_test(terminal_b.clone(), writer_b, pty_b.clone());
-    Some((
-        app,
-        [(terminal_a, pty_a, bytes_a), (terminal_b, pty_b, bytes_b)],
-    ))
+fn single_session_app() -> (App, Arc<Mutex<Vec<u8>>>) {
+    let (app, (_terminal, _writer, _headless, bytes)) = recorded_app_with(NativeOptions::default());
+    (app, bytes)
 }
 
-fn tab_bar_app() -> Option<App> {
-    let (app, _fixtures) = app_with_two_sessions()?;
-    Some(app)
+fn app_with_two_sessions() -> (App, [SessionFixture; 2]) {
+    let (mut app, (terminal_a, _writer_a, _headless_a, bytes_a)) =
+        recorded_app_with(NativeOptions::default());
+    let (terminal_b, writer_b, headless_b, bytes_b) =
+        recorded_session(NativeOptions::default().initial_grid);
+    app.push_headless_session_with_for_test(terminal_b.clone(), writer_b, headless_b);
+    (app, [(terminal_a, bytes_a), (terminal_b, bytes_b)])
 }
 
-/// Inject a fresh workspace (a single-tab, recorded-PTY workspace) and switch to
-/// it, so the workspace rail has multiple slots and the active workspace is
-/// single-tab (no top bar competes with the rail). Returns `false` when no PTY
-/// fixture is available (the caller should already have one from `tab_bar_app`).
-fn add_workspace(app: &mut App) -> bool {
+fn tab_bar_app() -> App {
+    let (app, _fixtures) = app_with_two_sessions();
+    app
+}
+
+/// Inject a fresh workspace (a single-tab, recorded headless workspace) and
+/// switch to it, so the workspace rail has multiple slots and the active
+/// workspace is single-tab (no top bar competes with the rail).
+fn add_workspace(app: &mut App) {
     let dims = NativeOptions::default().initial_grid;
-    let Some((terminal, writer, pty, _bytes)) = recorded_session(dims) else {
-        return false;
-    };
-    app.push_workspace_for_test(terminal, writer, pty);
-    true
+    let (terminal, writer, headless, _bytes) = recorded_session(dims);
+    app.push_headless_workspace_with_for_test(terminal, writer, headless);
 }
 
 fn scrollback_bytes(lines: usize) -> Vec<u8> {

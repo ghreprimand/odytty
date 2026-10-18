@@ -11,10 +11,7 @@ fn autohide_removes_the_rail_reservation() {
     // reservation to zero (one reflow at toggle time) - reveal is a pure
     // overlay, never a reflow. Pinned left reserves the band + gap; auto-hidden
     // reserves nothing.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
@@ -52,10 +49,7 @@ fn pinned_rail_gap_consumes_grid_columns_and_the_autohide_toggle_is_stable() {
     // one 8px column for an 8px padding). Toggling auto-hide reflows to
     // full-bleed and back to the SAME gap-inset width every time - the fit is a
     // pure function of the inputs, so no column oscillation is possible.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     let cell = cell(8, 16);
     let padding = WindowPadding::from_logical(8.0, 1.0);
     app.set_test_cell_for_test(cell);
@@ -110,10 +104,7 @@ fn chrome_offsets_grow_by_exactly_the_padding_gap_per_shown_band() {
     // hit path (cell mapping, selection, drag autoscroll, SGR-pixel reports,
     // scrollbar) subtracts this transform, so asserting it here pins the whole
     // family to the gap-inset content origin.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     let cell = cell(8, 16);
     app.set_test_cell_for_test(cell);
     app.set_tab_bar_placement_for_test("left");
@@ -151,10 +142,7 @@ fn rail_autohide_control_click_toggles_and_persists() {
     // Clicking the bottom-edge control flips the real
     // `tab_rail_autohide` setting through the live-apply + config-writeback path,
     // both directions, so the panel/env/config stay coherent.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
@@ -222,10 +210,7 @@ fn rail_autohide_chevron_toggle_keeps_settings_panel_row_in_sync() {
     // the panel's own (stale) edit overlay and ignores the external value.
 
     // Direction (a): panel open, then toggle.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
@@ -258,9 +243,7 @@ fn rail_autohide_chevron_toggle_keeps_settings_panel_row_in_sync() {
     );
 
     // Direction (b): toggle first (panel closed), then open the panel.
-    let Some(mut app) = tab_bar_app() else {
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
@@ -286,10 +269,7 @@ fn rail_autohide_chevron_toggle_keeps_settings_panel_row_in_sync() {
 fn autohide_only_applies_to_side_rails_not_the_top_bar() {
     // Auto-hide is a rail feature; the top bar keeps `always_show_tab_bar`
     // semantics, so the knob is inert (and the reservation unchanged) on top.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("top");
     app.set_tab_rail_autohide_for_test(true);
@@ -308,10 +288,7 @@ fn autohide_only_applies_to_side_rails_not_the_top_bar() {
 fn reveal_edge_zone_is_the_window_edge_and_band_extends_to_the_seam() {
     // The trigger zone is within `tab_rail_reveal_px` of the window edge; the
     // keep-alive band runs from the edge to the seam (⊇ the trigger zone).
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     // Force the workspace rail on so its reserve/seam/reveal machinery
@@ -343,10 +320,7 @@ fn reveal_zone_is_logical_px_scaled_for_hidpi() {
     // coordinates in. At scale 2.0 the default 16 logical px must trigger out to
     // physical x=32 - with the old physical-px zone it would have stopped at x=8
     // and the rail would be unreachable on a scaled display.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     // Force the workspace rail on so its reserve/seam/reveal machinery
@@ -379,10 +353,7 @@ fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
     // machine - with an injected clock at scale 1.5 with real padding, so the
     // interior-reach + keep-alive behavior is pinned at true device values, not
     // just the pad-0 / scale-1 headless case the earlier tests covered.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(12, 24)); // ~8x16 logical at 1.5x
     app.set_tab_bar_placement_for_test("left");
     // Force the workspace rail on so its reserve/seam/reveal machinery
@@ -461,10 +432,7 @@ fn reveal_visibility_flip_marks_the_frame_for_rebuild() {
     // unrelated event - the pointer crossing off-window - happened to dirty a
     // frame. Both the maintenance-poll flip and the pointer-driven flip must now
     // set `needs_rebuild`.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     // Force the workspace rail on so its reserve/seam/reveal machinery
@@ -546,10 +514,7 @@ fn reveal_arms_at_the_edge_and_the_band_carries_the_debounce() {
     // completion even as the pointer moves off the thin trigger zone into the
     // band (the pointer does not have to sit pinned in the ≤reveal_px strip for
     // the whole debounce). Drives the real feed path with an injected clock.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     // Force the workspace rail on so its reserve/seam/reveal machinery
@@ -587,10 +552,7 @@ fn reveal_arms_and_holds_across_the_live_trace_sequences() {
     //   (2) a fast in-then-past-the-seam FOLLOW-THROUGH within the confirm window
     //       (the trace's 7.9px→214px in 74ms) must NOT abort the armed reveal -
     //       the motion-aware trigger keeps `in_edge` set so the confirm completes.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     // Force the workspace rail on so its reserve/seam/reveal machinery
@@ -657,10 +619,7 @@ fn reveal_arms_and_holds_across_the_live_trace_sequences() {
 fn reveal_yields_to_an_active_scrollbar_drag() {
     // Coexistence: while a scroll-thumb drag is in progress, a pointer
     // even at the very edge reports no reveal contact - the drag wins the edge.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     // Force the workspace rail on so its reserve/seam/reveal machinery
@@ -682,10 +641,7 @@ fn reveal_yields_to_an_active_scrollbar_drag() {
 
 #[test]
 fn autohide_seam_resizes_only_while_the_floating_rail_is_revealed() {
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
@@ -747,10 +703,7 @@ fn autohide_seam_resizes_only_while_the_floating_rail_is_revealed() {
 
 #[test]
 fn autohide_seam_hover_holds_the_floating_rail_revealed() {
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
@@ -777,10 +730,7 @@ fn autohide_seam_hover_holds_the_floating_rail_revealed() {
 
 #[test]
 fn top_tab_hover_keeps_the_arrow_while_the_workspace_rail_is_autohidden() {
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
@@ -802,10 +752,7 @@ fn top_tab_hover_keeps_the_arrow_while_the_workspace_rail_is_autohidden() {
 
 #[test]
 fn hidden_autohide_rail_columns_do_not_create_a_phantom_chrome_hover() {
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
@@ -825,10 +772,7 @@ fn hidden_autohide_rail_columns_do_not_create_a_phantom_chrome_hover() {
 
 #[test]
 fn pinned_rail_keeps_the_existing_top_tab_hover_route() {
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
@@ -848,10 +792,7 @@ fn pinned_rail_keeps_the_existing_top_tab_hover_route() {
 
 #[test]
 fn revealed_right_autohide_seam_uses_right_edge_width_mapping() {
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("right");
@@ -873,10 +814,7 @@ fn revealed_band_click_hits_the_rail_hidden_does_not() {
     // While revealed, a press on the overlay band resolves to a rail TabHit (the
     // floating rail owns the pointer); while hidden, the same press falls through
     // (no chrome), so content clicks are never eaten by an invisible rail.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
@@ -915,10 +853,7 @@ fn autohide_rail_stays_revealed_under_its_own_workspace_menu() {
     // Right-clicking a workspace to open its context menu must NOT
     // hide the rail out from under the menu. Before the fix the draw was gated
     // on `!overlay.is_open()`, so opening the rail's own menu blanked the rail.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
@@ -946,10 +881,7 @@ fn move_workspace_at_reorders_the_rail_and_keeps_focus() {
     // The App-side reorder (as a context-menu Move Up/Down would
     // fire) swaps adjacent slots and follows the active workspace by identity,
     // so the focused workspace never changes under the user.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     add_workspace(&mut app);
     add_workspace(&mut app);
     app.rename_workspace_for_test(0, "a");
@@ -982,10 +914,7 @@ fn autohide_rail_reveals_for_a_workspace_rename_prompt() {
     // A workspace rename prompt is rail-anchored, so the rail reveals
     // (and holds) for it - even from a hidden state - so the user sees which
     // workspace they are renaming. A tab rename does NOT pin the rail.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
@@ -1016,10 +945,7 @@ fn autohide_rail_menu_box_clears_the_floating_rail_band() {
     // revealed keeps the rail visible - the rail composites topmost,
     // so the menu box must land BESIDE the band, never under it, or its edge is
     // occluded. The box's left column must clear the reserved rail band.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
@@ -1053,10 +979,7 @@ fn autohide_rail_menu_box_clears_the_floating_rail_band() {
 fn repro_right_click_in_content_opens_menu_under_autohide() {
     // REGRESSION: with auto-hide on and the rail hidden, a right-click in the
     // content area must open the context menu exactly as with auto-hide off.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
@@ -1080,10 +1003,7 @@ fn repro_right_click_in_content_opens_menu_under_autohide() {
 fn repro_reveal_holds_across_maintenance_polls_no_flicker() {
     // REGRESSION (flicker): once revealed with the pointer parked over the band,
     // the maintenance poll must keep it revealed - it must not oscillate.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
@@ -1120,10 +1040,7 @@ fn repro_revealed_content_right_click_opens_menu_not_swallowed() {
     // REGRESSION: while the rail is REVEALED (the flicker state), a right-click
     // in CONTENT (past the band seam) must still open the content context menu -
     // the floating overlay must not swallow content-area clicks.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
@@ -1151,10 +1068,7 @@ fn repro_open_menu_suppresses_the_rail_overlay_no_occlusion() {
     // (or Settings / palette) is open, the rail must NOT be drawn, or it paints
     // over the menu and hides the items the pointer is clicking. An open overlay
     // owns the screen; the floating rail steps aside until it closes.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
@@ -1194,10 +1108,7 @@ fn autohide_left_decoration_grows_no_phantom_top_bar() {
     // (decorated rows = raw rows + 1). The rail draws only as a floating overlay,
     // so the decorated snapshot must equal the raw snapshot - no rows off the
     // top, no columns off the side - in BOTH the hidden and revealed phases.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
@@ -1233,10 +1144,7 @@ fn autohide_left_decoration_grows_no_phantom_top_bar() {
 fn autohide_right_decoration_grows_no_phantom_top_bar() {
     // Mirror of the left case for placement=right - the same `rail_side()`
     // predicate leaked a top bar on a right-placed auto-hidden rail too.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("right");
@@ -1260,10 +1168,7 @@ fn autohide_top_placement_still_decorates_its_bar() {
     // Guard the fix's blast radius: the auto-hide early-return must NOT fire on
     // the top bar (auto-hide never applies there), so a top placement still
     // grows its one-row bar exactly as before.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("top");
@@ -1289,10 +1194,7 @@ fn autohide_idle_states_schedule_no_self_wake() {
     // or immediate wake here would spin the event loop (`WaitUntil(now)` → wake →
     // poll → no change → repeat) at frame rate, pegging a core. Both idle phases
     // must add nothing to `next_wake_deadline`.
-    let Some(mut app) = tab_bar_app() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
+    let mut app = tab_bar_app();
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
