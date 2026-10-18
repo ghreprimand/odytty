@@ -655,7 +655,7 @@ impl Settings {
                 env: LIVE_TAB_DRAG_ENV,
                 name: "Live tab drag",
                 value: bool_display(self.live_tab_drag).to_owned(),
-                description: "Follow the pointer with a provisional tab window on Hyprland, macOS, Windows and Wayland compositors with xdg-toplevel-drag. Release commits; cancellation restores the tab. Off creates the new window only on release. X11 always creates the window on release. Applies live.",
+                description: "Follow the pointer with a provisional tab window on X11, Hyprland, macOS, Windows and Wayland compositors with xdg-toplevel-drag. Release commits; cancellation restores the tab. Off creates the new window only on release. The X11 preview stays outside window-manager tiling until release. Applies live.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],

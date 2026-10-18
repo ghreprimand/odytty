@@ -392,13 +392,11 @@ fn wayland_tab_advertised_live_drag_arms_through_the_real_pointer_path() {
     }
 }
 
-/// X11 (including Xwayland) never follows the pointer: the live-drag provisional
-/// window is a managed top-level that tiling window managers map and refocus
-/// mid-drag. With the setting at its default, a drag outside requests nothing
-/// until release, and release requests exactly one new window.
+/// X11 live follow uses an unmanaged preview, so both backends request it while
+/// the pointer is held outside. The release path retains session identity.
 #[cfg(target_os = "linux")]
 #[test]
-fn x11_never_arms_live_follow_and_release_outside_requests_one_window() {
+fn x11_arms_live_follow_before_release_through_the_real_pointer_path() {
     for backend_is_x11 in [true, false] {
         let mut app = app();
         app.set_x11_client_for_test(backend_is_x11);
@@ -407,10 +405,9 @@ fn x11_never_arms_live_follow_and_release_outside_requests_one_window() {
         app.mouse_left_press_for_test();
         app.pointer_move_for_test(-60.0, -80.0);
         app.pointer_move_for_test(-80.0, -90.0);
-        assert_eq!(
+        assert!(
             app.take_move_request().is_some(),
-            !backend_is_x11,
-            "live follow armed on a non-X11 backend only (x11 = {backend_is_x11})"
+            "live follow arms before release on both backends (x11 = {backend_is_x11})"
         );
         app.mouse_left_release_for_test();
         let release = app.take_move_request();
@@ -431,18 +428,20 @@ fn x11_escape_cancels_the_drag_without_a_window_request() {
     app.set_pointer_px_for_test(12.0, 8.0);
     app.mouse_left_press_for_test();
     app.pointer_move_for_test(-60.0, -80.0);
-    assert!(app.take_move_request().is_none(), "nothing before release");
+    assert!(
+        app.take_move_request().is_some(),
+        "live preview requested before release"
+    );
     app.drive_named_key_for_test(NamedKey::Escape);
     app.mouse_left_release_for_test();
     assert!(app.take_move_request().is_none(), "cancelled: no window");
     assert_eq!(app.top_tab_drag_for_test(), None);
 }
 
-/// Turning the setting off on X11 is the same release-time path as leaving it
-/// on (the default, covered above).
+/// Turning live follow off on X11 retains release-time creation.
 #[cfg(target_os = "linux")]
 #[test]
-fn x11_setting_is_kept_as_written_and_changes_nothing() {
+fn x11_setting_off_keeps_the_release_time_path() {
     let mut app = app();
     app.set_x11_client_for_test(true);
     app.set_live_tab_drag_for_test(false);

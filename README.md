@@ -149,9 +149,9 @@ sessions.
   restore, [named launch profiles](docs/profiles.md), Unix detached sessions,
   an SSH connection manager, optional `tmux` persistence, a searchable
   Session Navigator, and tab tear-out into a new window. Live tab drag in
-  Settings follows the pointer on Hyprland, macOS, Windows and Wayland
+  Settings follows the pointer on X11, Hyprland, macOS, Windows and Wayland
   with advertised `xdg-toplevel-drag`, and restores the tab on cancellation; returning to the strip resumes the held reorder gesture.
-  On X11 the new window is created when the button is released.
+  The X11 preview becomes a normal managed window on release.
   The source retains its last frame during live follow; disposing of the preview
   returns its sessions for cancellation.
 - **Configuration without ceremony:** a live settings panel, command palette,
@@ -181,7 +181,6 @@ Known gaps include the following:
 - Font shaping outside the tuned script groups has HarfBuzz reference
   fixtures for 17 scripts (see `docs/shaping-roadmap.md`); other scripts'
   owners are shaped without a recorded reference.
-- Live tab drag follow on X11 (the window appears on release).
 - Chinese, Japanese and Korean text on Windows and macOS needs a terminal font
   that includes it; the stock-font fallback does not cover those scripts.
 

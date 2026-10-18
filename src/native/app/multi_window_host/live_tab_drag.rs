@@ -13,6 +13,8 @@ use crate::native::session::{MoveScope, WorkspaceSet};
 mod hyprland;
 #[cfg(target_os = "linux")]
 pub(super) mod wayland;
+#[cfg(target_os = "linux")]
+mod x11;
 
 const FOCUS_SETTLE_BOUND: Duration = Duration::from_millis(150);
 
@@ -41,6 +43,8 @@ pub(super) struct ProvisionalTab {
     hyprland: Option<super::super::hyprland_tear_out::follow::Follow>,
     #[cfg(target_os = "linux")]
     follow_dirty: bool,
+    #[cfg(target_os = "linux")]
+    x11: Option<x11::Follow>,
     #[cfg(target_os = "linux")]
     wayland: Option<crate::native::wayland_file_drop::WirePress>,
     focus_deadline: Option<Instant>,
@@ -210,6 +214,8 @@ impl MultiWindowHost {
             #[cfg(target_os = "linux")]
             follow_dirty: hyprland,
             #[cfg(target_os = "linux")]
+            x11: None,
+            #[cfg(target_os = "linux")]
             wayland,
             focus_deadline: None,
             release_pending: false,
@@ -229,8 +235,19 @@ impl MultiWindowHost {
         }
         if let Err(error) = open(&mut self.windows[dest]) {
             tracing::warn!(%error, "provisional tab window could not open");
-            self.cancel_live_tab();
+            self.cancel_live_tab_for("creation-failed");
             return false;
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(window) = self.windows[dest].window.as_ref() {
+            match x11::Follow::start(window) {
+                Ok(follow) => self.live_drag.as_mut().expect("custody").x11 = follow,
+                Err(error) => {
+                    tracing::warn!(%error, "X11 tab preview setup failed");
+                    self.cancel_live_tab_for("x11-setup-failed");
+                    return false;
+                }
+            }
         }
         #[cfg(target_os = "linux")]
         if hyprland {
@@ -257,9 +274,26 @@ impl MultiWindowHost {
         true
     }
 
+    fn cancel_live_tab_for(&mut self, reason: &'static str) -> bool {
+        if let Some(drag) = self.live_drag.as_ref() {
+            tracing::debug!(
+                cancel_reason = reason,
+                source = drag.source.0,
+                destination = drag.destination.0,
+                "live tab drag cancelled"
+            );
+        }
+        self.cancel_live_tab()
+    }
+
     /// Taking the transaction is the exactly-once completion boundary. Duplicate
     /// release, cancellation and stale destination callbacks become no-ops.
+    #[track_caller]
     pub(in crate::native::app) fn cancel_live_tab(&mut self) -> bool {
+        if self.live_drag.is_some() {
+            let caller = std::panic::Location::caller();
+            tracing::debug!(cancel_caller = %caller, "live tab custody settlement requested");
+        }
         self.cancel_live_tab_with_focus(|source| {
             if !source.pending_exit
                 && let Some(window) = source.window.as_ref()
@@ -353,6 +387,14 @@ impl MultiWindowHost {
             drag.next_move = Instant::now();
         }
         self.place_live_tab(Instant::now());
+        #[cfg(target_os = "linux")]
+        if let Some(follow) = self.live_drag.as_ref().and_then(|drag| drag.x11.as_ref())
+            && let Err(error) = follow.finish()
+        {
+            tracing::warn!(%error, "X11 tab preview handoff failed");
+            self.cancel_live_tab_for("x11-handoff-failed");
+            return false;
+        }
         let Some(drag) = self.live_drag.take() else {
             return false;
         };
@@ -436,7 +478,7 @@ impl MultiWindowHost {
                 self.commit_live_tab();
             }
         } else if now >= deadline {
-            self.cancel_live_tab();
+            self.cancel_live_tab_for("focus-timeout");
         }
     }
 
@@ -463,7 +505,7 @@ impl MultiWindowHost {
             && state == ElementState::Pressed
             && *key == WinitKey::Named(NamedKey::Escape)
         {
-            self.cancel_live_tab();
+            self.cancel_live_tab_for("escape");
             true
         } else {
             false
@@ -530,7 +572,11 @@ impl MultiWindowHost {
                     self.windows[index].pending_exit = true;
                 }
             }
-            self.cancel_live_tab();
+            self.cancel_live_tab_for(if matches!(event, WindowEvent::Destroyed) {
+                "surface-destroyed"
+            } else {
+                "window-close-requested"
+            });
             if source && matches!(event, WindowEvent::Destroyed) {
                 self.windows[index].pending_exit = true;
                 return true;
@@ -559,7 +605,7 @@ impl MultiWindowHost {
             }
         }
         if ordinary_input(event) {
-            self.cancel_live_tab();
+            self.cancel_live_tab_for("ordinary-input");
             return !source;
         }
         if source
@@ -609,7 +655,7 @@ impl MultiWindowHost {
                     {
                         let mut gesture = self.live_drag.as_ref().expect("custody").gesture;
                         gesture.tear_out = false;
-                        self.cancel_live_tab();
+                        self.cancel_live_tab_for("return-to-strip");
                         let source = &mut self.windows[index];
                         source.top_tab_drag = Some(gesture);
                         source.pointer_left_held = true;
@@ -779,6 +825,23 @@ impl MultiWindowHost {
                     ]
                 })
                 .unwrap_or(offset);
+            #[cfg(target_os = "linux")]
+            if let Some(follow) = self.live_drag.as_ref().and_then(|drag| drag.x11.as_ref()) {
+                if let Some(position) =
+                    super::super::tab_tear_out::follow_position(window, point, offset)
+                {
+                    if let Err(error) = follow.place(position) {
+                        tracing::warn!(%error, "X11 tab preview move failed");
+                        self.cancel_live_tab_for("x11-move-failed");
+                        return;
+                    }
+                    self.live_drag.as_mut().expect("live").last_placed = Some(point);
+                }
+                // A missing anchor must still defer the next attempt. Otherwise
+                // an expired deadline spins while no monitor contains the point.
+                self.live_drag.as_mut().expect("live").next_move = now + FOLLOW_INTERVAL;
+                return;
+            }
             if super::super::tab_tear_out::follow_native(window, point, offset) {
                 self.live_drag.as_mut().expect("live").last_placed = Some(point);
             }
@@ -1025,28 +1088,32 @@ mod tests {
         ));
     }
 
-    /// The host refuses to open a provisional window for an X11 source even
-    /// when a request reaches it, and leaves the source untouched.
+    /// X11 uses the same reversible App custody once pointer ingress arms it.
     #[cfg(target_os = "linux")]
     #[test]
-    fn live_tab_is_refused_for_an_x11_source_and_creates_no_window() {
+    fn live_tab_x11_source_creates_a_preview_and_restores_the_same_terminal() {
         let (mut host, tab, terminal) = armed(true);
         let source = host.windows[0].process_window_id();
         host.windows[0].set_x11_client_for_test(true);
         let mut opened = false;
-        assert!(!host.begin_live_tab(source, tab, |_| {
+        assert!(host.begin_live_tab(source, tab, |_| {
             opened = true;
             Ok(())
         }));
-        assert!(!opened, "the window factory is never called");
+        assert!(opened);
+        assert_eq!(host.windows.len(), 2);
+        assert!(host.windows[0].live_drag_source);
+        assert!(host.cancel_live_tab());
         assert_eq!(host.windows.len(), 1);
-        assert!(!host.windows[0].live_drag_source);
-        assert!(host.windows[0].sessions.owns_session(tab));
         assert!(Arc::ptr_eq(
             &terminal,
-            &host.windows[0].sessions.get(tab).expect("kept").terminal
+            &host.windows[0]
+                .sessions
+                .get(tab)
+                .expect("restored")
+                .terminal
         ));
-        assert!(!host.cancel_live_tab(), "no custody was taken");
+        assert!(!host.cancel_live_tab(), "restored once");
     }
 
     #[test]

@@ -1031,6 +1031,18 @@ impl App {
             attributes.with_name(linux_window_app_id(&self.options), "odytty")
         };
 
+        #[cfg(target_os = "linux")]
+        let attributes = {
+            use winit::platform::x11::{WindowAttributesExtX11, WindowType};
+            if self.live_drag_destination {
+                attributes
+                    .with_override_redirect(true)
+                    .with_x11_window_type(vec![WindowType::Dnd])
+            } else {
+                attributes
+            }
+        };
+
         let window = Arc::new(
             event_loop
                 .create_window(attributes)

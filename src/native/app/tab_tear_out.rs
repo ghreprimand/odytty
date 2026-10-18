@@ -17,10 +17,7 @@ pub(in crate::native) struct TearOutRelease {
 }
 
 impl App {
-    /// Whether this window is an X11 client (including Xwayland). The X11
-    /// provisional window is a managed top-level that tiling and focusing
-    /// window managers map and refocus mid-drag, so X11 keeps release-time
-    /// tear-out and never follows the pointer. Always false off Linux.
+    /// Whether this window uses the X11 backend, including Xwayland.
     #[cfg(target_os = "linux")]
     pub(super) fn is_x11_client(&self) -> bool {
         use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -44,15 +41,15 @@ impl App {
         false
     }
 
-    /// Whether live follow is in force: the setting is on and the backend
-    /// supports it. The setting is kept as written on X11 and has no effect.
+    /// Whether the owner enabled live follow. Transport availability is
+    /// checked separately before a gesture requests provisional custody.
     pub(super) fn live_tab_follow_enabled(&self) -> bool {
-        self.settings.live_tab_drag && !self.is_x11_client()
+        self.settings.live_tab_drag
     }
 
     pub(super) fn live_tab_transport_supported(&self) -> bool {
         if self.is_x11_client() {
-            return false;
+            return true;
         }
         let supported = !self.is_wayland_client() || self.hyprland_live_requested();
         #[cfg(target_os = "linux")]
@@ -189,24 +186,44 @@ pub(super) fn place_native(window: &Window, release: TearOutRelease) {
 /// Place a provisional window with a surface-logical grab offset. Native
 /// decoration insets and destination scale are resolved at each frame.
 pub(super) fn follow_native(window: &Window, point: [i32; 2], offset: [f64; 2]) -> bool {
-    let Ok(inner) = window.inner_position() else {
+    let Some(position) = follow_position(window, point, offset) else {
         return false;
     };
-    let Ok(outer) = window.outer_position() else {
-        return false;
-    };
+    window.set_outer_position(winit::dpi::PhysicalPosition::new(position[0], position[1]));
+    true
+}
+
+pub(super) fn follow_position(
+    window: &Window,
+    point: [i32; 2],
+    offset: [f64; 2],
+) -> Option<[i32; 2]> {
+    let inner = window.inner_position().ok()?;
+    let outer = window.outer_position().ok()?;
     let scale = window.scale_factor();
     let offset = [
         offset[0] * scale + f64::from(inner.x) - f64::from(outer.x),
         offset[1] * scale + f64::from(inner.y) - f64::from(outer.y),
     ];
-    let Some(anchor) = global_release(point, [-offset[0], -offset[1]]) else {
-        return false;
-    };
-    place_at(&mut NativePlacement(window), point, anchor)
+    let anchor = global_release(point, [-offset[0], -offset[1]])?;
+    clamped_position(&NativePlacement(window), point, anchor)
 }
 
+#[cfg(test)]
 fn place_at(surface: &mut impl WindowPlacement, point: [i32; 2], anchor: [i32; 2]) -> bool {
+    if let Some(position) = clamped_position(surface, point, anchor) {
+        surface.position(position);
+        true
+    } else {
+        false
+    }
+}
+
+fn clamped_position(
+    surface: &impl WindowPlacement,
+    point: [i32; 2],
+    anchor: [i32; 2],
+) -> Option<[i32; 2]> {
     for (origin, size) in surface.monitors() {
         if (0..2).all(|axis| {
             i64::from(point[axis]) >= i64::from(origin[axis])
@@ -222,11 +239,10 @@ fn place_at(surface: &mut impl WindowPlacement, point: [i32; 2], anchor: [i32; 2
                     )
                     .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
             };
-            surface.position([clamp(0), clamp(1)]);
-            return true;
+            return Some([clamp(0), clamp(1)]);
         }
     }
-    false
+    None
 }
 
 fn place(surface: &mut impl WindowPlacement, release: TearOutRelease) {

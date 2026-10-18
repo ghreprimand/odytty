@@ -117,8 +117,8 @@ winit = { version = "0.30.13", default-features = false, features = [
 libc = "0.2.178"
 rustix = { version = "1.1.4", features = ["pipe", "pty", "termios", "process"] }
 
-# Linux-only: the X11 global-shortcut backend for the quick terminal
-# (`src/native/quick_terminal/x11.rs`, v0.15.0 A). `x11rb` is a pure-Rust X11
+# Linux-only: X11 live-tab placement and the quick-terminal shortcut backend
+# (`src/native/quick_terminal/x11.rs`). `x11rb` is a pure-Rust X11
 # protocol client used through its `RustConnection`, so the grab code owns its
 # own connection and uses CHECKED requests (`grab_key(...).check()`): a grab
 # error (e.g. another client already holds the combo) is returned on this
