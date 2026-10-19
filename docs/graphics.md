@@ -11,10 +11,11 @@ default `z=0` therefore places an image above text.
 by the rows from its anchor row to the bottom of the screen, whichever protocol
 placed it, and placing an image never scrolls the screen to make room. An image
 taller than the rows left below the cursor is therefore stored with the smaller
-extent and drawn compressed into it. After the image, Sixel and iTerm2 move the
-cursor to column 0 of the row below it (the last row when the image reaches the
-bottom), and Kitty leaves it on the image's last row. Columns follow the same
-bound from the anchor column.
+extent: the part below the screen edge is cropped, not scaled, and it does not
+scroll into view later. After the image, Sixel and iTerm2 move the cursor to
+column 0 of the row below it (the last row when the image reaches the bottom),
+and Kitty leaves it on the image's last row. Columns follow the same bound from
+the anchor column.
 
 ## Contents
 
