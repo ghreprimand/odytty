@@ -16,7 +16,10 @@ use skrifa::MetadataProvider;
 use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::pen::PathStyle;
 use skrifa::outline::{DrawSettings, OutlinePen};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use crate::atomic_update::AtomicUpdate;
 
@@ -37,7 +40,7 @@ const MAX_COVERAGE_AXIS: f32 = 4096.0;
 /// standalone single-face bytes before they reach here.
 #[derive(Clone)]
 pub struct FontHandle {
-    bytes: Vec<u8>,
+    bytes: Arc<FaceBytes>,
     index: u32,
     generation: u64,
     /// The glyph the face's OpenType `zero` feature substitutes for `'0'`,
@@ -45,6 +48,28 @@ pub struct FontHandle {
     /// such a lookup (see [`Self::with_zero_feature`]). `None` maps `'0'`
     /// through the cmap.
     zero_glyph: Option<GlyphId>,
+}
+
+/// Immutable storage shared by handle clones and shaping tables. Its handles
+/// always retain the same face index, so the cached identity includes that
+/// index without allowing a different collection face to reuse it.
+struct FaceBytes {
+    data: Vec<u8>,
+    fingerprint: OnceLock<u64>,
+}
+
+impl AsRef<[u8]> for FaceBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.data
+    }
+}
+
+impl std::ops::Deref for FaceBytes {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
 }
 
 impl std::fmt::Debug for FontHandle {
@@ -76,7 +101,10 @@ impl FontHandle {
             })
             .map_err(|_| FontParseError)?;
         Ok(Self {
-            bytes,
+            bytes: Arc::new(FaceBytes {
+                data: bytes,
+                fingerprint: OnceLock::new(),
+            }),
             index,
             generation,
             zero_glyph: None,
@@ -120,6 +148,24 @@ impl FontHandle {
     #[inline]
     pub fn as_slice(&self) -> &[u8] {
         &self.bytes
+    }
+
+    /// Share validated immutable bytes without copying a shaping face.
+    pub(crate) fn shared_bytes(&self) -> Arc<dyn AsRef<[u8]> + Send + Sync> {
+        self.bytes.clone()
+    }
+
+    /// The original shaping identity, cached for this immutable byte/index
+    /// pair. Feature toggles and handle clones keep the same identity.
+    pub(crate) fn shaping_fingerprint(&self) -> u64 {
+        *self.bytes.fingerprint.get_or_init(|| {
+            let mut hasher = DefaultHasher::new();
+            self.as_slice().hash(&mut hasher);
+            if self.index != 0 {
+                self.index.hash(&mut hasher);
+            }
+            hasher.finish()
+        })
     }
 
     /// Face index of this handle within [`Self::as_slice`].

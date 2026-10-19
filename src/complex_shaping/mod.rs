@@ -50,8 +50,6 @@
 //! switch gates this path: off restores per-cell glyphs for these scripts.
 
 use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use harfrust::{Buffer, Font, ShapeOptions, ShaperFont};
@@ -184,16 +182,11 @@ pub fn shape_owner(data: &Font, text: &str) -> Option<Vec<ClusterGlyph>> {
 
 /// Parsed shaping tables for `face`.
 pub fn shaper_data(face: &FontHandle) -> Option<Font> {
-    Font::new(face.as_slice().to_vec(), face.face_index())
+    Font::new(face.shared_bytes(), face.face_index())
 }
 
 fn fingerprint(face: &FontHandle) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    face.as_slice().hash(&mut hasher);
-    if face.face_index() != 0 {
-        face.face_index().hash(&mut hasher);
-    }
-    hasher.finish()
+    face.shaping_fingerprint()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

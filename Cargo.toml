@@ -48,12 +48,12 @@ flate2 = "1.1.9"
 # already present transitively; declaring it makes the security boundary and
 # its supported-platform backend contract direct and auditable.
 getrandom = "0.3.4"
-# Complex-script shaping for retained width owners (`src/complex_shaping`).
-# MIT, `forbid(unsafe_code)`, the HarfBuzz project's Rust port. 0.14.0 reads
-# fonts through `read-fonts` 0.45, a second copy beside the 0.39 that `skrifa`
-# brings, and owns a copy of each shaped face's bytes. Used only for the script groups the
-# classifier enables; Latin ligatures, Arabic joining, and emoji stay on swash.
-# Default features keep `std`; the optional `libm` path stays off.
+# Complex-script shaping for retained width owners and joining scripts outside
+# Arabic. MIT, forbid(unsafe_code), the HarfBuzz project's Rust port. Cached
+# shaping faces share validated immutable bytes with their FontHandle; face
+# fingerprints are identical and retained for the lifetime of those bytes.
+# Latin ligatures, Arabic joining and emoji stay on swash. Default features
+# keep std; the optional libm path stays off.
 harfrust = "=0.14.0"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 png = "0.18.1"

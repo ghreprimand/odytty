@@ -15,8 +15,7 @@
 //! scripts with harfrust (see the `joining` module). The alternate zero
 //! feature applies to both passes and does not itself create an overlay.
 
-use std::collections::{HashMap, VecDeque, hash_map::DefaultHasher};
-use std::hash::{Hash, Hasher};
+use std::collections::{HashMap, VecDeque};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -1071,13 +1070,7 @@ fn split_at_cluster_boundaries(
 }
 
 fn font_fingerprint(font: &FontHandle) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    font.as_slice().hash(&mut hasher);
-    // Preserve standalone identities and distinguish faces of raw collections.
-    if font.face_index() != 0 {
-        font.face_index().hash(&mut hasher);
-    }
-    hasher.finish()
+    font.shaping_fingerprint()
 }
 
 #[cfg(test)]

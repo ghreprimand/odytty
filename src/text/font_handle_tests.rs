@@ -104,3 +104,61 @@ fn ordinary_finite_glyphs_still_draw_coverage() {
     outline.draw(|_, _, coverage| ink += usize::from(coverage > 0.0));
     assert!(ink > 0);
 }
+
+#[test]
+fn clones_and_shaping_tables_share_bytes_without_changing_shaped_output() {
+    let font = FontHandle::try_from_vec(fixture_bytes()).expect("fixture");
+    let clone = font.clone();
+    assert_eq!(font.as_slice().as_ptr(), clone.as_slice().as_ptr());
+    assert_eq!(font.face_generation(), clone.face_generation());
+    let data = crate::complex_shaping::shaper_data(&font).expect("shaping tables");
+    let harfrust::font::Source::Blob(blob) = data.source() else {
+        panic!("shared byte source");
+    };
+    assert_eq!(blob.as_ref().as_ptr(), font.as_slice().as_ptr());
+    let before = crate::complex_shaping::shape_owner(&data, "abc").expect("shape");
+    drop(font);
+    drop(clone);
+    assert_eq!(
+        crate::complex_shaping::shape_owner(&data, "abc").expect("retained bytes"),
+        before
+    );
+}
+
+#[test]
+fn cached_fingerprints_are_bit_identical_for_standalone_and_collection_faces() {
+    let standalone = fixture_bytes();
+    let mut collection = Vec::from(&b"ttcf\0\x01\0\0\0\0\0\x02"[..]);
+    collection.extend_from_slice(&20u32.to_be_bytes());
+    collection.extend_from_slice(&20u32.to_be_bytes());
+    let mut embedded = standalone.clone();
+    let tables = u16::from_be_bytes(embedded[4..6].try_into().unwrap()) as usize;
+    for index in 0..tables {
+        let at = 12 + index * 16 + 8;
+        let offset = u32::from_be_bytes(embedded[at..at + 4].try_into().unwrap());
+        embedded[at..at + 4].copy_from_slice(&(offset + 20).to_be_bytes());
+    }
+    collection.extend_from_slice(&embedded);
+    let fonts = [
+        FontHandle::try_from_vec(standalone).expect("standalone"),
+        FontHandle::from_vec_and_index(collection.clone(), 0).expect("first face"),
+        FontHandle::from_vec_and_index(collection, 1).expect("second face"),
+    ];
+    let expected = fonts.each_ref().map(|font| {
+        let mut old = DefaultHasher::new();
+        font.as_slice().hash(&mut old);
+        if font.face_index() != 0 {
+            font.face_index().hash(&mut old);
+        }
+        old.finish()
+    });
+    assert_ne!(expected[1], expected[2], "collection indices stay distinct");
+    for (font, old) in fonts.iter().zip(expected) {
+        assert!(font.bytes.fingerprint.get().is_none());
+        assert_eq!(font.shaping_fingerprint(), old);
+        let alternate = font.clone().with_zero_feature(true);
+        assert_eq!(alternate.shaping_fingerprint(), old);
+        assert_eq!(font.shaping_fingerprint(), old);
+        assert!(Arc::ptr_eq(&font.bytes, &alternate.bytes));
+    }
+}
