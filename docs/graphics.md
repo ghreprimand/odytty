@@ -7,6 +7,15 @@ shared GPU image layer, so images compose with terminal text using z-order:
 cell backgrounds → negative-z images → glyphs → non-negative-z images. The
 default `z=0` therefore places an image above text.
 
+**One row rule for all three protocols.** A placement's row extent is bounded
+by the rows from its anchor row to the bottom of the screen, whichever protocol
+placed it, and placing an image never scrolls the screen to make room. An image
+taller than the rows left below the cursor is therefore stored with the smaller
+extent and drawn compressed into it. After the image, Sixel and iTerm2 move the
+cursor to column 0 of the row below it (the last row when the image reaches the
+bottom), and Kitty leaves it on the image's last row. Columns follow the same
+bound from the anchor column.
+
 ## Contents
 
 - [Kitty graphics protocol](#kitty-graphics-protocol)
@@ -567,7 +576,7 @@ The image anchors at the cursor, and the cursor then moves to column 0 of the
 row below the image - the same rule as Sixel under DECSDM reset, and what
 iTerm2 itself does. There is no "stay put" variant in this protocol (Kitty's
 `C=1` has no iTerm2 spelling). The extent is clamped to the screen: columns to
-what remains right of the cursor, rows to the screen height.
+what remains right of the cursor, rows to what remains below it.
 
 ### What is not supported
 

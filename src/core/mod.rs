@@ -63,6 +63,8 @@ mod graphics_routing_tests;
 #[cfg(test)]
 mod graphics_tests;
 #[cfg(test)]
+mod image_row_extent_tests;
+#[cfg(test)]
 mod iterm2_tests;
 #[cfg(test)]
 mod kitty_animation_tests;

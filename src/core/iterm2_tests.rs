@@ -17,7 +17,7 @@ use crate::graphics::GraphicsProtocol;
 
 /// A real PNG of the given size, so the container decode under test is the
 /// production one rather than a stub.
-fn png_rgba(width: u32, height: u32) -> Vec<u8> {
+pub(super) fn png_rgba(width: u32, height: u32) -> Vec<u8> {
     let mut out = Vec::new();
     {
         let mut encoder = png::Encoder::new(&mut out, width, height);
@@ -53,7 +53,7 @@ fn b64(data: &[u8]) -> String {
 }
 
 /// Build the OSC 1337 File= sequence for a payload plus argument text.
-fn file_osc(args: &str, payload: &[u8]) -> Vec<u8> {
+pub(super) fn file_osc(args: &str, payload: &[u8]) -> Vec<u8> {
     format!("\x1b]1337;File={args}:{}\x07", b64(payload)).into_bytes()
 }
 

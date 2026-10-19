@@ -421,8 +421,10 @@ fn decode_container(bytes: &[u8], max_decoded: usize) -> Option<(Vec<u8>, u32, u
 /// # Bounds
 ///
 /// The extent is clamped to the screen at this parse boundary: columns to what
-/// remains to the right of the cursor, rows to the screen height. Every
-/// downstream computation is saturating.
+/// remains to the right of the cursor, rows to what remains below it, the same
+/// bound Sixel and Kitty apply. The image is never given an extent that runs
+/// past the screen, and placing it never scrolls the screen to make room.
+/// Every downstream computation is saturating.
 pub(super) fn handle_file_osc(
     graphics: &mut ImageScene,
     parts: &[&[u8]],
@@ -468,7 +470,7 @@ pub(super) fn handle_file_osc(
         cell_metrics,
     );
     let display_columns = cols.min(screen_cols.saturating_sub(cursor_col)).max(1);
-    let display_rows = rows.min(screen_rows.max(1)).max(1);
+    let display_rows = rows.min(screen_rows.saturating_sub(cursor_row)).max(1);
 
     graphics.place(PlacementRequest::new(
         insert.id,
