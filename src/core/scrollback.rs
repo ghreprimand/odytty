@@ -639,6 +639,16 @@ impl Scrollback {
         rows
     }
 
+    /// The absolute index of the first physical row of the logical line that
+    /// owns row `row` at `width`, or `None` when the index is past the end.
+    pub(in crate::core) fn line_first_row(&self, width: usize, row: usize) -> Option<usize> {
+        self.ensure_cache(width);
+        self.cache
+            .borrow()
+            .locate(row)
+            .map(|(_, first_row)| first_row)
+    }
+
     /// The single physical row at absolute index `row` at `width`, or `None`
     /// when the index is past the end.
     ///

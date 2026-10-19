@@ -1194,15 +1194,24 @@ impl Screen {
         // the live tail. window_start = (scrollback_len + height) - offset - height
         // = scrollback_len - offset, i.e. the last `offset` scrollback rows.
         let offset = offset_rows.min(scrollback_len);
-        let tail = self.scrollback.physical_tail(columns, offset);
-        tail.iter()
-            .chain(self.rows.iter())
-            .take(height)
+        // Only the scrollback rows inside the window are projected: the
+        // window's first `offset.min(height)` rows of the last `offset`.
+        let history =
+            self.scrollback
+                .physical_range(columns, scrollback_len - offset, offset.min(height));
+        history
+            .into_iter()
             .map(|line| VisibleRow {
-                cells: line.cells.clone(),
+                cells: line.cells,
                 wrapped: line.wrapped,
                 paragraph_bidi: line.paragraph_bidi,
             })
+            .chain(self.rows.iter().map(|line| VisibleRow {
+                cells: line.cells.clone(),
+                wrapped: line.wrapped,
+                paragraph_bidi: line.paragraph_bidi,
+            }))
+            .take(height)
             .collect()
     }
 
@@ -1210,8 +1219,9 @@ impl Screen {
     /// scrollback `offset_rows` that open the paragraph its top row belongs
     /// to, top to bottom, plus whether that paragraph reaches further up than
     /// `max_rows`. Empty when the row above the viewport ends with a hard line
-    /// break, there is no row above, or the live alternate screen is shown. Bounded: at most `max_rows + 1` rows
-    /// above the viewport are projected. Pure; never panics.
+    /// break, there is no row above, or the live alternate screen is shown.
+    /// Bounded: at most `max_rows + 1` rows above the viewport are projected,
+    /// and fewer when the paragraph opens close above it. Pure; never panics.
     pub fn paragraph_context_rows(
         &self,
         offset_rows: usize,
@@ -1233,18 +1243,32 @@ impl Screen {
         if wanted == 0 {
             return (Vec::new(), false);
         }
-        let mut tail = self.scrollback.physical_tail(columns, offset + wanted);
-        tail.truncate(tail.len().saturating_sub(offset));
-        let continuing = tail.iter().rev().take_while(|line| line.wrapped).count();
+        // A paragraph usually opens at the first row of the stored line that
+        // owns the row above the viewport, so that line's rows above the
+        // viewport plus the row before them are projected first, and all
+        // `wanted` rows only if every one of them continues onto the next.
+        let window = self
+            .scrollback
+            .line_first_row(columns, above - 1)
+            .map_or(wanted, |first| (above - first + 1).min(wanted));
+        let project = |rows: usize| {
+            let tail = self.scrollback.physical_range(columns, above - rows, rows);
+            let continuing = tail.iter().rev().take_while(|line| line.wrapped).count();
+            (tail, continuing)
+        };
+        let (mut tail, mut continuing) = project(window);
+        if continuing == tail.len() && window < wanted {
+            (tail, continuing) = project(wanted);
+        }
         let overflow = continuing > max_rows;
         let start = tail.len() - continuing.min(max_rows);
         let rows = if overflow {
             Vec::new()
         } else {
-            tail[start..]
-                .iter()
+            tail.into_iter()
+                .skip(start)
                 .map(|line| VisibleRow {
-                    cells: line.cells.clone(),
+                    cells: line.cells,
                     wrapped: line.wrapped,
                     paragraph_bidi: line.paragraph_bidi,
                 })

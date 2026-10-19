@@ -2937,15 +2937,18 @@ and raw feature tags are not exposed.
 
 `bidi_reorder` (default off; `ODYTTY_BIDI_REORDER`; Settings > Rendering >
 Bidirectional text; the right-click Reorder Right-to-Left Text toggle, shown
-with a check mark while on) draws right-to-left runs in display order. Each
-frame of the primary or alternate screen plans a display map from the visible
-rows and the soft-wrapped paragraph above them, each paragraph at its own
-direction (see below) and within the plan's row and owner caps; an over-cap
-paragraph keeps the identity layout. The alternate screen is planned the same
-way: entering it stamps the current paragraph properties on every fresh row, so
-a full-screen program that sends `CSI 8 l` before entering, or clears the screen
-after sending it, keeps its own arrangement, and leaving it restores the primary
-rows with their own properties. Window-level menus, panels, pickers, dialogs,
+with a check mark while on) draws right-to-left runs in display order. It
+stays off by default because of its measured frame cost on plain text (see the
+shaping roadmap; Windows and macOS are unmeasured). The primary or alternate
+screen is drawn through a display map planned from the visible rows and the
+soft-wrapped paragraph above them, each paragraph at its own direction (see
+below) and within the plan's row and owner caps, and reused while nothing it
+reads changes; an over-cap paragraph keeps the identity layout. The alternate
+screen is planned the same way: entering it stamps the current paragraph
+properties on every fresh row, so a full-screen program that sends `CSI 8 l`
+before entering, or clears the screen after sending it, keeps its own
+arrangement, and leaving it restores the primary rows with their own
+properties. Window-level menus, panels, pickers, dialogs,
 and rename fields composite in logical order above the terminal without changing
 its display map. Inline text such as IME pre-edit, the search query band, and
 status labels returns its painted row to logical order. The tab bar, the rail,

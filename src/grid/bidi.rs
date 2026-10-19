@@ -43,9 +43,12 @@ use std::ops::Range;
 use crate::core::{
     BidiBaseDirection, BidiLayout, BidiOwner, Cell, MAX_BIDI_OWNER_WIDTH,
     MAX_BIDI_PARAGRAPH_OWNERS, MAX_BIDI_PARAGRAPH_ROWS, PLACEHOLDER_CHAR, ParagraphBidi,
-    ParagraphDirection, Snapshot, bidi_mirroring_glyph,
+    ParagraphDirection, Snapshot, bidi_mirroring_glyph, scalar_can_raise_level,
 };
 use crate::graphics::VisiblePlacement;
+
+mod cache;
+pub use cache::{BIDI_PLAN_CACHE_TERMINALS, BidiPlanCache, BidiPlanKey};
 
 /// The most rows above a snapshot that can belong to a paragraph the plan
 /// would still reorder at `columns`. A paragraph that needs more context rows
@@ -81,6 +84,30 @@ pub struct BidiParagraphs<'a> {
 }
 
 impl BidiParagraphs<'_> {
+    /// Whether the paragraph of `rows` is the identity layout without
+    /// building its owners: an implicit-mode paragraph that is not right to
+    /// left and holds no scalar that can raise a level. [`Self::layout`]
+    /// returns the identity layout for every such paragraph (its level stays
+    /// 0, and the caps and shape checks only ever add identity results), and
+    /// an implicit paragraph's identity layout marks nothing.
+    fn is_left_to_right_identity(&self, properties: ParagraphBidi, rows: &[&[Cell]]) -> bool {
+        #[cfg(test)]
+        if fast_path::disabled() {
+            return false;
+        }
+        let right_to_left = match properties.direction() {
+            ParagraphDirection::Default => self.default_direction == BidiBaseDirection::RightToLeft,
+            ParagraphDirection::LeftToRight => false,
+            ParagraphDirection::RightToLeft => true,
+        };
+        !properties.explicit()
+            && !right_to_left
+            && rows.iter().flat_map(|row| row.iter()).all(|cell| {
+                !scalar_can_raise_level(cell.ch)
+                    && !cell.combining().iter().copied().any(scalar_can_raise_level)
+            })
+    }
+
     /// The layout of one paragraph of `owners` with `properties`.
     fn layout(
         &self,
@@ -275,6 +302,11 @@ impl BidiDisplayMap {
         paragraphs: &BidiParagraphs<'_>,
         properties: ParagraphBidi,
     ) {
+        if paragraphs.is_left_to_right_identity(properties, rows) {
+            #[cfg(test)]
+            fast_path::taken();
+            return;
+        }
         let columns = self.columns;
         let mut text = String::new();
         // (paragraph row, lead column, byte range, width) of each owner in
@@ -584,4 +616,37 @@ pub fn image_rows(
         let end = placement.row.saturating_add(count).min(rows);
         first..end
     })
+}
+
+/// Test seam: count the paragraphs [`BidiParagraphs::is_left_to_right_identity`]
+/// skips, and turn the skip off so the full plan can be compared with it.
+#[cfg(test)]
+pub(crate) mod fast_path {
+    use std::cell::Cell;
+
+    thread_local! {
+        static TAKEN: Cell<usize> = const { Cell::new(0) };
+        static DISABLED: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub(super) fn taken() {
+        TAKEN.with(|taken| taken.set(taken.get() + 1));
+    }
+
+    pub(super) fn disabled() -> bool {
+        DISABLED.with(Cell::get)
+    }
+
+    /// Paragraphs skipped on this thread so far.
+    pub(crate) fn taken_count() -> usize {
+        TAKEN.with(Cell::get)
+    }
+
+    /// Run `f` with the skip turned off on this thread.
+    pub(crate) fn without<T>(f: impl FnOnce() -> T) -> T {
+        DISABLED.with(|disabled| disabled.set(true));
+        let result = f();
+        DISABLED.with(|disabled| disabled.set(false));
+        result
+    }
 }

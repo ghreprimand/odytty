@@ -6,13 +6,26 @@ use super::*;
 pub struct Terminal {
     parser: OdyParser,
     pub(super) screen: Screen,
+    instance: u64,
 }
+
+/// The next [`Terminal::instance`] value. Starts at 1 and is never reissued.
+static NEXT_TERMINAL_INSTANCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 impl Terminal {
     pub fn new(columns: usize, rows: usize) -> Self {
         Self {
             parser: OdyParser::new(),
             screen: Screen::new(columns, rows),
+            instance: NEXT_TERMINAL_INSTANCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         }
+    }
+
+    /// A process-unique id for this terminal. Two terminals can reach the
+    /// same [`Self::render_revision`] with different contents, so a cache
+    /// keyed on the revision also keys on this id.
+    pub fn instance(&self) -> u64 {
+        self.instance
     }
 
     pub fn advance(&mut self, bytes: &[u8]) {

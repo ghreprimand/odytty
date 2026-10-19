@@ -394,3 +394,16 @@ fn adversarial_control_and_bracket_sequences_always_yield_a_valid_plan() {
     let plan = plan_of(BidiLayout::plan(&deep, &[deep.len()]));
     assert!((0..deep.len()).all(|owner| plan.owner_level(owner) <= Some(126)));
 }
+
+/// [`scalar_can_raise_level`] skips the class lookup below U+0590: no scalar
+/// there has a class that raises a level.
+#[test]
+fn no_scalar_below_hebrew_can_raise_a_level() {
+    for scalar in ('\0'..'\u{0590}').chain(['\u{0590}', '\u{05d0}', '\u{202e}']) {
+        assert_eq!(
+            scalar_can_raise_level(scalar),
+            super::resolve::can_raise_level(super::data::bidi_class(scalar)),
+            "{scalar:?}"
+        );
+    }
+}

@@ -42,11 +42,15 @@ mod export_rows;
 mod ops;
 mod osc;
 mod paragraph;
+#[cfg(test)]
+mod plan_revision_tests;
 mod query;
 mod rect;
 mod state;
 mod terminal;
 mod view;
+#[cfg(test)]
+mod view_window_tests;
 
 pub use export_rows::ExportChunk;
 pub use terminal::Terminal;

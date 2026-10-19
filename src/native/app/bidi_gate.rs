@@ -98,8 +98,37 @@ impl App {
         snapshot: &Snapshot,
         offset: usize,
     ) -> Option<BidiDisplayMap> {
-        (self.bidi_reorder_on() && self.sessions.active_is_single_pane())
-            .then(|| plan_content_map(terminal, snapshot, offset, self.bidi_base_direction()))
+        if !self.bidi_reorder_on() {
+            self.bidi_plan_cache.borrow_mut().clear();
+            return None;
+        }
+        self.sessions
+            .active_is_single_pane()
+            .then(|| self.cached_content_map(terminal, snapshot, offset))
+    }
+
+    /// [`plan_content_map`] for `snapshot`, which must be
+    /// `terminal.snapshot_with_scrollback(offset)`, reused from the previous
+    /// frame while the terminal instance, its render revision, `offset`, the
+    /// dimensions, and `bidi_direction` are unchanged.
+    pub(super) fn cached_content_map(
+        &self,
+        terminal: &crate::core::Terminal,
+        snapshot: &Snapshot,
+        offset: usize,
+    ) -> BidiDisplayMap {
+        let default_direction = self.bidi_base_direction();
+        let key = crate::grid::BidiPlanKey {
+            terminal: terminal.instance(),
+            revision: terminal.render_revision(),
+            offset,
+            columns: snapshot.dimensions.columns,
+            rows: snapshot.dimensions.rows,
+            default_direction,
+        };
+        self.bidi_plan_cache.borrow_mut().get_or_plan(key, || {
+            plan_content_map(terminal, snapshot, offset, default_direction)
+        })
     }
 
     /// Record the map the presented single-pane frame used for its content
@@ -118,9 +147,10 @@ impl App {
         offset: usize,
     ) -> Option<(BidiDisplayMap, Snapshot)> {
         if !self.bidi_reorder_on() {
+            self.bidi_plan_cache.borrow_mut().clear();
             return None;
         }
-        let map = plan_content_map(terminal, snapshot, offset, self.bidi_base_direction());
+        let map = self.cached_content_map(terminal, snapshot, offset);
         Some((map, snapshot.clone()))
     }
 
@@ -140,7 +170,6 @@ impl App {
         if !self.bidi_reorder_on() {
             return;
         }
-        let base = self.bidi_base_direction();
         let map = {
             let terminal = crate::native::lock_recover(&self.terminal);
             let offset = self
@@ -148,7 +177,7 @@ impl App {
                 .offset()
                 .min(terminal.screen().scrollback_len());
             let snapshot = terminal.snapshot_with_scrollback(offset);
-            plan_content_map(&terminal, &snapshot, offset, base)
+            self.cached_content_map(&terminal, &snapshot, offset)
         };
         if self.sessions.active_is_single_pane() {
             self.bidi_frame_map = Some(map);
@@ -483,6 +512,27 @@ impl App {
     /// Test seam: turn the test override on or off without presenting a frame.
     pub(in crate::native) fn set_bidi_display_for_test(&mut self, on: bool) {
         self.bidi_display_for_test = on;
+    }
+
+    /// Test seam: how many content plans frames have made rather than
+    /// reused from the plan cache.
+    pub(in crate::native) fn bidi_plans_made_for_test(&self) -> u64 {
+        self.bidi_plan_cache.borrow().plans()
+    }
+
+    /// Test seam: how many terminals have a kept plan.
+    pub(in crate::native) fn bidi_plans_kept_for_test(&self) -> usize {
+        self.bidi_plan_cache.borrow().len()
+    }
+
+    /// Test seam: drop every kept plan, so the next frame plans afresh.
+    pub(in crate::native) fn clear_bidi_plan_cache_for_test(&mut self) {
+        self.bidi_plan_cache.borrow_mut().clear();
+    }
+
+    /// Test seam: every pane map the last split frame presented.
+    pub(in crate::native) fn bidi_pane_maps_for_test(&self) -> Vec<(SessionToken, BidiDisplayMap)> {
+        self.bidi_pane_maps.clone()
     }
 
     /// Test seam: the map the last split frame presented for pane `token`.

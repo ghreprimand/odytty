@@ -329,13 +329,35 @@ instead of gliding. The open-modifier underline, link hover, and button chips
 address logical cells through the pointer; underlines and chip fills draw on
 the visual cells of their logical cells, while a chip pill cap or the click
 hint writes text, so its row draws in logical order. Copy, search results, and
-cursor addressing stay logical. The map is planned for every frame from the
-rows on screen and the paragraph above them, so after a width change, at any
-history scroll position, in a session restored from a snapshot, and for
-output delivered in any split of reads, cells are placed exactly as in a
-terminal that shows the same rows directly. Scrollback export stays in
-logical order. Image placements are not part of the plan. The plan is not
-cached between frames.
+cursor addressing stay logical. The map is planned from the rows on screen
+and the paragraph above them and reused while nothing it reads changes, so
+after a width change, at any history scroll position, in a session restored
+from a snapshot, and for output delivered in any split of reads, cells are
+placed exactly as in a terminal that shows the same rows directly.
+Scrollback export stays in logical order. Image placements are not part of
+the plan.
+
+Planning projects only the visible rows and the rows of the paragraph that
+opens above them. A paragraph that is not right to left, is in implicit mode,
+and holds no character that can raise a level (a right-to-left letter, an
+Arabic number, or an embedding, override, or isolate control) keeps the
+identity layout without building its owners. Each terminal's last plan is
+kept with the terminal, its render revision, the viewport offset, the
+dimensions, and the `bidi_direction` setting, and a frame where none of them
+changed reuses it, so only frames after output, scrolling, a resize, or a
+setting change plan again. On the Linux baseline class of the internal
+benchmark protocol (AMD Ryzen 9 9950X3D), the median four-pane 80x24 frame
+with reordering on against off measured, in microseconds: plain ASCII text 179
+against 169 at the live screen, 207 against 154 with a new line of output in
+each pane per frame, and 2,196 against 2,193 scrolled 1,000 rows into history;
+mixed Hebrew, Arabic, and Latin text 191 against 163, 630 against 154, and
+2,339 against 2,303. Before rows were planned this way the same frames with
+reordering on took 2,186 (ASCII, live) to 11,296 (mixed, history)
+microseconds. Windows and macOS bidi cost is unmeasured.
+Reordering stays off by default for that cost: plain ASCII text with it on
+takes 1.05 times as long at the live screen, 1.34 times as long on frames with
+new output, and 1.00 times as long in history, and the output row is above
+the benchmark protocol's threshold.
 
 ### Complex Indic and Brahmic shaping
 

@@ -2,7 +2,10 @@
 //! Fixed internal regression rows. This module changes no terminal behavior.
 use super::*;
 use odytty::complex_shaping::ComplexShaper;
-use odytty::grid::{BidiDisplayMap, BidiParagraphContext, BidiParagraphs, max_bidi_context_rows};
+use odytty::grid::{
+    BidiDisplayMap, BidiParagraphContext, BidiParagraphs, BidiPlanCache, BidiPlanKey,
+    max_bidi_context_rows,
+};
 
 const PANES: usize = 4;
 const FRAME_OPS: usize = 200;
@@ -56,8 +59,26 @@ fn geometry(
 
 /// The live frame's plan, as the native frame builds it: soft-wrap flags,
 /// each paragraph's stored properties, the context above the viewport, and
-/// the default left-to-right direction, with image rows reset.
+/// the default left-to-right direction, with image rows reset. Reused while
+/// its key is unchanged, as the native frame's plan cache reuses it.
 fn plan_frame(
+    cache: &mut BidiPlanCache,
+    terminal: &Terminal,
+    snapshot: &odytty::core::Snapshot,
+    offset: usize,
+) -> BidiDisplayMap {
+    let key = BidiPlanKey {
+        terminal: terminal.instance(),
+        revision: terminal.render_revision(),
+        offset,
+        columns: snapshot.dimensions.columns,
+        rows: snapshot.dimensions.rows,
+        default_direction: Default::default(),
+    };
+    cache.get_or_plan(key, || plan_uncached(terminal, snapshot, offset))
+}
+
+fn plan_uncached(
     terminal: &Terminal,
     snapshot: &odytty::core::Snapshot,
     offset: usize,
@@ -119,10 +140,11 @@ fn bidi_rows() {
                 let switch = if on { "on" } else { "off" };
                 let name = format!("bidi {corpus} {position} {switch} four-pane frame");
                 let mut vertices = Vec::new();
+                let mut cache = BidiPlanCache::default();
                 measure(&name, FRAME_OPS, || {
                     for terminal in &terminals {
                         let snapshot = terminal.snapshot_with_scrollback(offset);
-                        let map = on.then(|| plan_frame(terminal, &snapshot, offset));
+                        let map = on.then(|| plan_frame(&mut cache, terminal, &snapshot, offset));
                         geometry(&mut vertices, &snapshot, &atlas, &[], map.as_ref());
                     }
                 });
@@ -134,7 +156,7 @@ fn bidi_rows() {
                         for terminal in &mut terminals {
                             terminal.advance(line.as_bytes());
                             let snapshot = terminal.snapshot();
-                            let map = on.then(|| plan_frame(terminal, &snapshot, 0));
+                            let map = on.then(|| plan_frame(&mut cache, terminal, &snapshot, 0));
                             geometry(&mut vertices, &snapshot, &atlas, &[], map.as_ref());
                         }
                     });

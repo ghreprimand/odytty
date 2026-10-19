@@ -679,6 +679,15 @@ so text beside an image reads left to right. A shaped complex-script owner is
 never split: inside a right-to-left isolate it moves as one unit, keeps its
 cells adjacent and in order, and draws its shaped glyphs across their visual
 columns.
+Reordering stays off by default because of its measured cost on plain text.
+On the Linux benchmark machine, a four-pane frame of plain ASCII text with
+reordering on takes 1.05 times as long as with it off when nothing changed,
+1.34 times as long when new output arrived, and 1.00 times as long when
+scrolled into history. Mixed Hebrew, Arabic, and Latin text takes 1.17, 4.08,
+and 1.02 times as long. A frame where nothing changed reuses the last plan
+(figures in the
+[shaping roadmap](shaping-roadmap.md#bidirectional-layout)). Windows and macOS
+cost is unmeasured.
 
 The support boundary is explicit:
 

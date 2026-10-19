@@ -77,6 +77,9 @@ pub(in crate::native) struct App {
     /// The content map each pane of the last split frame presented while bidi
     /// reordering was on; empty otherwise.
     pub(super) bidi_pane_maps: Vec<(SessionToken, crate::grid::BidiDisplayMap)>,
+    /// The last content plan of each terminal a frame planned, reused while
+    /// its key is unchanged (see `bidi_gate::App::cached_content_map`).
+    pub(super) bidi_plan_cache: std::cell::RefCell<crate::grid::BidiPlanCache>,
     /// SH2 status-gutter invalidation epoch. Bumped when the core reports prompt
     /// marks changed while the status gutter is enabled, so a pure OSC 133
     /// status transition (which need not move the terminal render revision)
@@ -848,6 +851,7 @@ impl App {
             bidi_display_for_test: false,
             bidi_frame_map: None,
             bidi_pane_maps: Vec::new(),
+            bidi_plan_cache: Default::default(),
             prompt_marks_epoch: 0,
             grid,
             modifiers: Modifiers::default(),

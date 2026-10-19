@@ -242,6 +242,7 @@ mod bidi_images;
 mod bidi_input;
 mod bidi_lifecycle;
 mod bidi_paragraph;
+mod bidi_plan_cache;
 mod bidi_pointer;
 mod bidi_setting;
 mod borrow_rows;

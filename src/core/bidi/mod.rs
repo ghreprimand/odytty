@@ -86,6 +86,15 @@ pub const MAX_BIDI_PARAGRAPH_ROWS: usize = MAX_BIDI_PARAGRAPH_OWNERS;
 /// 4 is headroom, and wider input is malformed and gets identity layout.
 pub const MAX_BIDI_OWNER_WIDTH: u8 = 4;
 
+/// Whether `scalar` has a bidi class that can raise a character above the
+/// paragraph's level 0: a strong right-to-left letter, an Arabic number, or an
+/// explicit embedding, override, or isolate control. A left-to-right or auto
+/// paragraph without one is the identity layout. No scalar below U+0590 has
+/// such a class, so those skip the class lookup.
+pub fn scalar_can_raise_level(scalar: char) -> bool {
+    scalar >= '\u{0590}' && resolve::can_raise_level(data::bidi_class(scalar))
+}
+
 /// One logical owner unit: a base scalar plus attached marks, or a blank.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BidiOwner<'a> {
@@ -325,7 +334,7 @@ fn check_input(
         || owners
             .iter()
             .flat_map(|owner| owner.text.chars())
-            .any(|scalar| resolve::can_raise_level(data::bidi_class(scalar)));
+            .any(scalar_can_raise_level);
     if !any_raise {
         return Err(BidiIdentityReason::LeftToRightOnly);
     }

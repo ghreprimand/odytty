@@ -30,7 +30,8 @@ mod model;
 
 pub use background::{BackgroundTreatment, BackgroundTreatmentParams, MAX_BG_TREATMENT_DARKEN};
 pub use bidi::{
-    BidiDisplayMap, BidiParagraphContext, BidiParagraphs, image_rows, max_bidi_context_rows,
+    BIDI_PLAN_CACHE_TERMINALS, BidiDisplayMap, BidiParagraphContext, BidiParagraphs, BidiPlanCache,
+    BidiPlanKey, image_rows, max_bidi_context_rows,
 };
 pub use clipping::VClip;
 pub(crate) use clipping::{
@@ -1987,6 +1988,8 @@ fn rgb_from_tuple(color: (u8, u8, u8)) -> RgbColor {
 
 #[cfg(test)]
 mod bidi_direction_tests;
+#[cfg(test)]
+mod bidi_fast_path_tests;
 #[cfg(test)]
 mod bidi_tests;
 #[cfg(test)]

@@ -55,16 +55,24 @@ impl Screen {
     }
 
     /// Rewrite the value on `row` and every row its soft-wrap chain reaches.
+    /// A changed value marks the screen dirty, which advances the render
+    /// revision the bidi plan cache keys on.
     fn update_paragraph_from(
         &mut self,
         row: usize,
         update: impl Fn(ParagraphBidi) -> ParagraphBidi,
     ) {
+        let mut changed = false;
         for line in self.rows.iter_mut().skip(row) {
-            line.paragraph_bidi = update(line.paragraph_bidi);
+            let value = update(line.paragraph_bidi);
+            changed |= value != line.paragraph_bidi;
+            line.paragraph_bidi = value;
             if !line.wrapped {
                 break;
             }
+        }
+        if changed {
+            self.mark_dirty();
         }
     }
 
