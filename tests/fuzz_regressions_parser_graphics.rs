@@ -211,6 +211,43 @@ fn paragraph_bidi_fixture_is_chunk_invariant_and_resets() {
 }
 
 #[test]
+fn extended_cluster_fixture_is_chunk_invariant_and_resets() {
+    let input = decode_hex(include_str!(
+        "fixtures/fuzz/parser_graphics/extended-clusters.hex"
+    ));
+    let state = |byte_chunks: bool| {
+        let mut terminal = Terminal::new(80, 24);
+        terminal.set_scrollback_limit(256);
+        if byte_chunks {
+            for byte in &input {
+                terminal.advance(std::slice::from_ref(byte));
+            }
+        } else {
+            terminal.advance(&input);
+        }
+        let observed = (
+            format!("{:?}", terminal.snapshot()),
+            terminal.take_host_output(),
+        );
+        terminal.advance(b"\x18\x1bcFUZZOK");
+        let reset_ok = terminal
+            .snapshot()
+            .cells
+            .iter()
+            .take(6)
+            .map(|cell| cell.ch)
+            .eq("FUZZOK".chars());
+        (observed, reset_ok)
+    };
+    let (whole, reset_ok) = state(false);
+    assert_eq!(whole, state(true).0);
+    // Mode 2027 is permanently set: both queries report 3, before and after
+    // the ignored reset, so the program's set and reset change nothing.
+    assert_eq!(whole.1, b"\x1b[?2027;3$y\x1b[?2027;3$y");
+    assert!(reset_ok);
+}
+
+#[test]
 fn kitty_named_transport_stays_disabled_for_windows_style_fixture() {
     let encoded_path =
         include_str!("fixtures/fuzz/parser_graphics/kitty-windows-path.base64").trim();

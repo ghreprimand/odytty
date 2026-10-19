@@ -10,3 +10,4 @@
 !/corpus/kitty_graphics/direct-rgba.seed
 !/corpus/sixel_decode/red-column.seed
 !/corpus/terminal_stream/bidi-paragraph.seed
+!/corpus/terminal_stream/extended-clusters.seed

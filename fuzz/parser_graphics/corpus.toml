@@ -22,6 +22,13 @@ origin = "synthetic paragraph bidi control literal (BDSM, SCP, DECRQM)"
 privacy = "contains no host-derived data"
 
 [[seed]]
+target = "terminal_stream"
+path = "corpus/terminal_stream/extended-clusters.seed"
+sha256 = "e5a2a60fd33cdce53046c0694e323bceffada5c4b21127065cd1bb7cd2045ca0"
+origin = "synthetic extended grapheme cluster and joining-script literal with mode 2027 set, query and reset"
+privacy = "contains no host-derived data"
+
+[[seed]]
 target = "kitty_graphics"
 path = "corpus/kitty_graphics/direct-rgba.seed"
 sha256 = "de1ba9a7ca4a2dac585beed594edeb25a1f2066c93146871d16fc7dc1076dbfe"
@@ -63,4 +70,10 @@ privacy = "contains no image or host-derived data"
 path = "../../tests/fixtures/fuzz/parser_graphics/bidi-paragraph.hex"
 sha256 = "bebfdca4228df6e052d6556ec2d9efcd00b657dd2c1c06a5f31944f4d8fd4157"
 origin = "synthetic paragraph bidi control byte sequence"
+privacy = "contains no host-derived data"
+
+[[regression_fixture]]
+path = "../../tests/fixtures/fuzz/parser_graphics/extended-clusters.hex"
+sha256 = "97703ba306c4315ecdd4dab3eebe7e854d7016e4bc8f4f6968bbdad2b7616d5f"
+origin = "synthetic extended grapheme cluster and joining-script byte sequence"
 privacy = "contains no host-derived data"
