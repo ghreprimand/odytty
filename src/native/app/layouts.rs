@@ -53,19 +53,13 @@ impl App {
         let Some(name) = self.resolve_layout_name(name_override, idx) else {
             return;
         };
-        // A collision prompts (replace vs. a different name)
-        // rather than silently overwriting - on every save path, prompt-free
-        // palette entry included.
-        if persistence::layout_exists(&name) {
-            let Some(identity) = self.sessions.workspace_identity(idx) else {
-                return;
-            };
-            self.overlay
-                .open_confirm_overwrite_layout(name, LayoutSaveKind::Workspace(identity));
-            self.request_selection_redraw();
-            return;
-        }
-        self.write_workspace_layout(idx, &name);
+        let kind = self
+            .sessions
+            .workspace_identity(idx)
+            .map(LayoutSaveKind::Workspace);
+        self.save_layout_or_confirm(name, kind, |app, name| {
+            app.write_workspace_layout(idx, name);
+        });
     }
 
     /// Save the WHOLE application - every workspace, with its tabs, split trees,
@@ -83,13 +77,30 @@ impl App {
         else {
             return;
         };
+        self.save_layout_or_confirm(name, Some(LayoutSaveKind::WholeApp), |app, name| {
+            app.write_all_workspaces_layout(name);
+        });
+    }
+
+    /// The collision skeleton both save paths share. A name that already exists
+    /// prompts (replace vs. a different name) rather than silently
+    /// overwriting, on every save path, prompt-free palette entry included; a
+    /// `kind` of `None` (the workspace slot went stale) then saves nothing.
+    /// Otherwise `write` runs with the name.
+    fn save_layout_or_confirm(
+        &mut self,
+        name: String,
+        kind: Option<LayoutSaveKind>,
+        write: impl FnOnce(&mut Self, &str),
+    ) {
         if persistence::layout_exists(&name) {
-            self.overlay
-                .open_confirm_overwrite_layout(name, LayoutSaveKind::WholeApp);
-            self.request_selection_redraw();
+            if let Some(kind) = kind {
+                self.overlay.open_confirm_overwrite_layout(name, kind);
+                self.request_selection_redraw();
+            }
             return;
         }
-        self.write_all_workspaces_layout(&name);
+        write(self, &name);
     }
 
     /// Resolve the effective layout name for a save: the trimmed typed name when

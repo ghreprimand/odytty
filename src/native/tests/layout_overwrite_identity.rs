@@ -38,6 +38,13 @@ fn save_through_prompt(app: &mut App, idx: usize) {
     app.drive_named_key_for_test(NamedKey::Enter);
 }
 
+fn saved_workspace_count(name: &str) -> Option<usize> {
+    match load_layout(name) {
+        LoadOutcome::Loaded(snapshot) => Some(snapshot.workspaces.len()),
+        _ => None,
+    }
+}
+
 fn saved_workspace_name(name: &str) -> Option<String> {
     match load_layout(name) {
         LoadOutcome::Loaded(snapshot) => snapshot.workspaces.first().map(|ws| ws.name.clone()),
@@ -172,5 +179,32 @@ fn cancelling_a_layout_name_after_its_workspace_closed_keeps_the_existing_notice
         assert!(!app.rename_overlay_open_for_test());
         assert_eq!(app.open_notice_overlay_signature(), before);
         assert_eq!(saved_workspace_name("w1"), None);
+    });
+}
+
+#[test]
+fn a_whole_app_save_over_an_existing_layout_asks_before_replacing() {
+    let scratch = crate::test_dirs::ScratchDir::new("layout-whole-app-collision-");
+    super::config_env::with_config_base(scratch.path(), true, || {
+        let mut app = three_workspaces();
+        // The prompt seeds the active workspace's name; a pushed workspace
+        // becomes the active one.
+        let name = "w2";
+        app.enter_save_all_layout_prompt_for_test();
+        app.drive_named_key_for_test(NamedKey::Enter);
+        assert!(!app.overlay_open_for_test(), "no collision, so no dialog");
+        assert_eq!(saved_workspace_count(name), Some(3));
+
+        app.close_workspace_at_for_test(1);
+        app.enter_save_all_layout_prompt_for_test();
+        app.drive_named_key_for_test(NamedKey::Enter);
+        assert!(app.overlay_open_for_test(), "the collision asks first");
+        assert_eq!(
+            saved_workspace_count(name),
+            Some(3),
+            "nothing is replaced before the confirm"
+        );
+        app.drive_named_key_for_test(NamedKey::Enter);
+        assert_eq!(saved_workspace_count(name), Some(2), "Replace writes now");
     });
 }
