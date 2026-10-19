@@ -2458,8 +2458,7 @@ reconfiguration without reapplying the theme.
 - Kitty `I=` addressing on display (`a=p`) and delete (`d=n`/`d=N`) commands,
   and the `S=`/`O=` partial-read keys
 
-- Complex-script shaping for script groups the owner-run classifier does not
-  enable, and shaping across owner boundaries
+- Shaping across owner boundaries
 
 - Open-ended font-feature selection beyond the bounded supported set
 
