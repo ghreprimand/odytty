@@ -983,6 +983,9 @@ fn isolate_driver_caches() {
     for key in ["MESA_SHADER_CACHE_DIR", "__GL_SHADER_DISK_CACHE_PATH"] {
         // SAFETY: called once from the instance initialiser, before any driver
         // has initialised in this test process; no test here reads these keys.
+        // Every GPU test waits on that initialiser, and the other tests here
+        // read the environment only through `std::env`, which the standard
+        // library serializes with this write.
         unsafe { std::env::set_var(key, &dir) };
     }
 }

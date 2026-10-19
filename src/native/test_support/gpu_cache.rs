@@ -40,6 +40,17 @@ pub(in crate::native) fn isolate_driver_caches() {
         for key in REDIRECTED {
             // SAFETY: the environment lock is held, or the caller already
             // holds it; this runs once, before any driver has initialised.
+            // Accepted residual risk: the test harness has already started its
+            // threads, and the lock is cooperative. Readers through `std::env`
+            // and `std::process::Command` are serialized with this write by the
+            // standard library's own environment lock, but C code on another
+            // test thread that calls `getenv` directly (fontconfig, the Vulkan
+            // loader, the C library's locale and time-zone code) is not. The
+            // window is these two calls, once per process. Setting the
+            // variables before the harness starts would need a pre-main
+            // constructor, a mechanism this crate has nowhere else, which runs
+            // the standard library before `main` and turns any failure into an
+            // abort with no test name; the narrow window is preferred to that.
             unsafe { std::env::set_var(key, &dir) };
         }
     });
