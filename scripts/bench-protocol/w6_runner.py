@@ -2248,6 +2248,19 @@ PROBE_RAW_IDLE_FIELDS = (
 )
 
 
+def _canonical_sha256(value) -> str:
+    """SHA-256 of `value` as compact, key-sorted, non-ASCII-preserving JSON.
+
+    Every public digest in this runner hashes this one encoding, so two
+    digests of equal values always agree.
+    """
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
 def _attempt_digest(record: dict) -> str:
     """Digest the complete public probe attempt, excluding its own digest."""
     payload = {
@@ -2255,11 +2268,7 @@ def _attempt_digest(record: dict) -> str:
         for key, value in record.items()
         if key != "attempt_sha256"
     }
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
-            "utf-8"
-        )
-    ).hexdigest()
+    return _canonical_sha256(payload)
 
 
 def _seal_probe_attempt(record: dict) -> dict:
@@ -2270,11 +2279,7 @@ def _seal_probe_attempt(record: dict) -> dict:
 
 
 def _calibration_attempts_digest(attempts: list[dict]) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            attempts, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        ).encode("utf-8")
-    ).hexdigest()
+    return _canonical_sha256(attempts)
 
 
 def _contains_exact_subsequence(argv: list[str], expected: list[str]) -> bool:
@@ -2945,14 +2950,7 @@ def _reference_readiness_inputs(record: dict) -> dict:
 
 
 def _reference_readiness_inputs_sha256(record: dict) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            _reference_readiness_inputs(record),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode("utf-8")
-    ).hexdigest()
+    return _canonical_sha256(_reference_readiness_inputs(record))
 
 
 def run_reference_readiness(
@@ -3097,14 +3095,7 @@ def _calibration_diagnostic_inputs(record: dict) -> dict:
 
 
 def _calibration_diagnostic_inputs_sha256(record: dict) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            _calibration_diagnostic_inputs(record),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode("utf-8")
-    ).hexdigest()
+    return _canonical_sha256(_calibration_diagnostic_inputs(record))
 
 
 def _diagnostic_state_record() -> dict[str, bool]:
@@ -3445,14 +3436,7 @@ def calibration_diagnostic_matches_preregistration(
 
 
 def _geometry_diagnostic_inputs_sha256(record: dict) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            _geometry_diagnostic_inputs(record),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode("utf-8")
-    ).hexdigest()
+    return _canonical_sha256(_geometry_diagnostic_inputs(record))
 
 
 class _GeometryDiagnosticLauncher:

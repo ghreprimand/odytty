@@ -241,6 +241,20 @@ applications, scheduled updates, indexing, and background work be disabled for
 the duration of a run set. A protocol-valid run set is exclusive, attended
 machine time; it cannot be interleaved with other work on the same host.
 
+The W6 runner (`scripts/bench-protocol/w6_runner.py`, `scope_command`) wraps
+each launch in a user systemd scope with fixed limits: `MemoryHigh=16G`,
+`MemoryMax=24G`, `MemorySwapMax=4G` and `CPUQuota=800%`, plus a runtime cap and
+stop timeout per launch. The limits are constants, not derived from the host.
+On the eight-thread, 8 to 16 GiB machine class the W6 preregistration names,
+they are at or above the machine's capacity, so they do not bind and protect
+nothing; they matter only on a larger host. The result document does not yet
+record them, so a W6 run set states them in its environment class by hand.
+
+The W6 paired rehearsal always runs the uninstrumented launch before the
+instrumented one for the same implementation. Thermal and cache drift between
+the two launches is therefore confounded with collector overhead in the
+rehearsal's overhead figure; the order is not alternated by block.
+
 ## Harness status
 
 `scripts/bench-protocol/` contains the preparation tooling: deterministic

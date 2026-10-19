@@ -1762,19 +1762,27 @@ SOURCE_MARKER = ".odytty-vttest-source"
 SOURCE_MARKER_BYTES = b"OdyTTY conformance source cache v1\n"
 
 
-def checked_work_dir(args: argparse.Namespace, phase: str) -> Path:
-    """Keep upstream material outside repositories, including nested caches."""
-    destination = Path(args.work_dir or cache_dir()).resolve()
-    for parent in (destination, *destination.parents):
+def repository_ancestor(path: Path) -> Path | None:
+    """The nearest of `path` and its ancestors that holds a repository."""
+    for parent in (path, *path.parents):
         if (
             (parent / ".git").exists()
             or (parent / ".git").is_symlink()
             or (parent / "Cargo.toml").exists()
         ):
-            raise RunnerError(
-                phase,
-                f"work directory must be outside a repository (found one at {parent})",
-            )
+            return parent
+    return None
+
+
+def checked_work_dir(args: argparse.Namespace, phase: str) -> Path:
+    """Keep upstream material outside repositories, including nested caches."""
+    destination = Path(args.work_dir or cache_dir()).resolve()
+    parent = repository_ancestor(destination)
+    if parent is not None:
+        raise RunnerError(
+            phase,
+            f"work directory must be outside a repository (found one at {parent})",
+        )
     return destination
 
 
@@ -2183,6 +2191,17 @@ def cmd_selftest(_args: argparse.Namespace) -> int:
 
 
 class SelfTest(unittest.TestCase):
+    def test_the_temporary_root_is_outside_any_repository(self) -> None:
+        # The cache tests build their work directories under this root and
+        # expect the repository refusal only where they plant a marker.
+        root = Path(tempfile.gettempdir()).resolve()
+        found = repository_ancestor(root)
+        self.assertIsNone(
+            found,
+            f"temporary root {root} is inside a repository at {found}; "
+            "set TMPDIR outside any checkout to run these self-tests",
+        )
+
     def test_shipped_manifests_validate(self) -> None:
         validate_upstream(load_toml(UPSTREAM_MANIFEST))
         validate_cases(load_toml(CASES_MANIFEST))

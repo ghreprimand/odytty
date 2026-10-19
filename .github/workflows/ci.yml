@@ -93,6 +93,15 @@ jobs:
           key: ${{ matrix.os }}-cargo-v2-${{ hashFiles('Cargo.lock') }}
           restore-keys: ${{ matrix.os }}-cargo-v2-
 
+      # The corpus tool needs Python 3.11 or later (tomllib). One pinned
+      # interpreter serves it and every later Python step on all three OSes,
+      # instead of whatever each runner image ships.
+      - name: Set up Python
+        # v6.3.0
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+
       # Offline intake checks exercise pathlib replacement on every supported OS.
       - name: Corpus intake self-tests
         run: python scripts/compatibility-corpus.py selftest

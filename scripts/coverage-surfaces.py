@@ -673,14 +673,11 @@ def find_test_only_spans(source):
     index = 0
     length = len(masked)
     while True:
+        # An inner attribute is spelled `#![`, which never contains `#[`, so
+        # only outer attributes are found here.
         index = masked.find("#[", index)
         if index == -1:
             break
-        if index > 0 and masked[index - 1] == "#":
-            # Part of `#![...]`, an inner attribute; it decorates the enclosing
-            # scope rather than a following item.
-            index += 2
-            continue
         depth = 0
         close = index + 1
         while close < length:
@@ -850,6 +847,9 @@ class SourceIndex:
         r"^(\s*)(?:pub(?:\([^)]*\))?\s+)?(?:default\s+)?(?:const\s+)?(?:async\s+)?"
         r"(?:unsafe\s+)?(?:extern\s+\"[^\"]*\"\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)"
     )
+    # The opening brace must be on the `impl` or `trait` line, as rustfmt
+    # writes it unless a `where` clause spans lines; a function inside such a
+    # block is reported by its bare name.
     IMPL_RE = re.compile(
         r"^(\s*)(?:unsafe\s+)?(?:impl|trait)\b[^\n{]*?([A-Za-z_][A-Za-z0-9_]*)"
         r"\s*(?:<[^>]*>)?\s*\{"
@@ -1043,7 +1043,8 @@ def read_export(document, repo_root, test_spans=None):
 
 
 def compute_source_fingerprint(repo_root):
-    """Digest every Rust source the classifier may read.
+    """Digest every Rust source under `src/` and `tests/`, the trees a
+    coverage export of the library and its tests reports.
 
     Must stay byte-for-byte identical to the runner's fingerprint routine; the
     self-test pins the two together by running both over the same tree.
