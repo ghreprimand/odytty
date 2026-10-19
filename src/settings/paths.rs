@@ -22,7 +22,26 @@ pub fn config_file_path() -> Option<PathBuf> {
 /// [`config_file_path`].
 #[cfg(all(unix, not(test)))]
 pub(crate) fn spawn_writer_config_dir() -> Option<PathBuf> {
-    config_file_path()?.parent().map(Path::to_path_buf)
+    config_file_path().as_deref().and_then(spawn_config_parent)
+}
+
+#[cfg(unix)]
+fn spawn_config_parent(config_file: &Path) -> Option<PathBuf> {
+    config_file.parent().map(Path::to_path_buf)
+}
+
+#[cfg(all(test, unix))]
+#[test]
+fn spawn_config_parent_keeps_release_path_derivation_under_test() {
+    assert_eq!(
+        spawn_config_parent(Path::new("config space/odytty.conf")),
+        Some(PathBuf::from("config space"))
+    );
+    assert_eq!(
+        spawn_config_parent(Path::new("odytty.conf")),
+        Some(PathBuf::new())
+    );
+    assert_eq!(spawn_config_parent(Path::new("/")), None);
 }
 
 /// Test builds never resolve a spawn writer's directory from the live

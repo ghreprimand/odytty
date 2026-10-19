@@ -160,6 +160,13 @@ impl Drop for Harness {
 }
 
 fn start_harness(structural_control: bool) -> Harness {
+    start_harness_observing_accept(structural_control, None)
+}
+
+fn start_harness_observing_accept(
+    structural_control: bool,
+    observer: Option<AcceptObserver>,
+) -> Harness {
     let fixture = fixture();
     let (submission, queue) = dispatch::channel(structural_control);
     let (wake_tx, wake_rx) = mpsc::sync_channel::<()>(64);
@@ -208,10 +215,15 @@ fn start_harness(structural_control: bool) -> Harness {
             }
         }
     });
-    let server = Server::bind(&fixture.socket, submission, move || {
-        wake_count.fetch_add(1, Ordering::Relaxed);
-        wake_tx.send(()).is_ok()
-    })
+    let server = Server::bind_inner(
+        &fixture.socket,
+        submission,
+        Arc::new(move || {
+            wake_count.fetch_add(1, Ordering::Relaxed);
+            wake_tx.send(()).is_ok()
+        }),
+        observer,
+    )
     .expect("bind owner-private endpoint");
     Harness {
         fixture,
@@ -229,6 +241,60 @@ fn capabilities_request(id: u64) -> Request {
         version: VERSION,
         request_id: id,
         action: Action::Capabilities,
+    }
+}
+
+#[test]
+fn listener_rejects_prequeued_trailing_data_and_serves_a_clean_successor() {
+    for second_frame in [false, true] {
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let ready_rx = std::sync::Mutex::new(ready_rx);
+        let accepts = AtomicUsize::new(0);
+        let observer = Arc::new(move |_: &UnixStream| {
+            if accepts.fetch_add(1, Ordering::Relaxed) == 0 {
+                ready_rx
+                    .lock()
+                    .expect("ready lock")
+                    .recv_timeout(IO_TIMEOUT)
+                    .expect("hostile bytes queued");
+            }
+        });
+        let harness = start_harness_observing_accept(false, Some(observer));
+        let mut client = connect(&harness.fixture.socket, IO_TIMEOUT).expect("connect");
+        let mut bytes = Vec::new();
+        protocol::write_request(&mut bytes, &capabilities_request(71)).expect("request");
+        if second_frame {
+            protocol::write_request(&mut bytes, &capabilities_request(72)).expect("second");
+        } else {
+            bytes.push(0x55);
+        }
+        client.write_all(&bytes).expect("queue hostile bytes");
+        client
+            .set_read_timeout(Some(IO_TIMEOUT))
+            .expect("read deadline");
+        ready_tx.send(()).expect("release accepted stream");
+        let mut response = [0; 64];
+        let result = loop {
+            match client.read(&mut response) {
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                result => break result,
+            }
+        };
+        assert!(
+            matches!(result, Ok(0))
+                || result
+                    .as_ref()
+                    .is_err_and(|error| { error.kind() == io::ErrorKind::ConnectionReset }),
+            "hostile client must close without a reply: {result:?}"
+        );
+        assert_eq!(harness.wakes.load(Ordering::Acquire), 0);
+        assert_eq!(harness.dispatched.load(Ordering::Acquire), 0);
+        let reply = request(&harness.fixture.socket, &capabilities_request(73))
+            .expect("listener serves a clean successor");
+        assert_eq!(reply.request_id, 73);
+        assert!(matches!(reply.reply, Reply::Capabilities { .. }));
+        assert_eq!(harness.wakes.load(Ordering::Acquire), 1);
+        assert_eq!(harness.dispatched.load(Ordering::Acquire), 1);
     }
 }
 
