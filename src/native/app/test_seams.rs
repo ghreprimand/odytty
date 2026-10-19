@@ -703,6 +703,12 @@ impl App {
         self.handle_new_workspace();
     }
 
+    /// Test seam: Duplicate Workspace through its production handler.
+    #[cfg(test)]
+    pub(in crate::native) fn duplicate_workspace_for_test(&mut self) {
+        self.handle_duplicate_workspace();
+    }
+
     /// Test seam: each session's East Asian Ambiguous width policy, in arena
     /// order, as the terminal model currently holds it.
     #[cfg(test)]
@@ -710,6 +716,18 @@ impl App {
         self.sessions
             .iter()
             .map(|session| crate::native::lock_recover(&session.terminal).ambiguous_wide())
+            .collect()
+    }
+
+    /// Test seam: each session's cursor style, in arena order, as the terminal
+    /// model currently holds it.
+    #[cfg(test)]
+    pub(in crate::native) fn session_cursor_styles_for_test(
+        &self,
+    ) -> Vec<crate::core::CursorStyle> {
+        self.sessions
+            .iter()
+            .map(|session| crate::native::lock_recover(&session.terminal).cursor_style())
             .collect()
     }
 

@@ -118,6 +118,35 @@ fn a_new_workspace_is_wide_when_configured() {
     assert_eq!(app.session_ambiguous_wide_for_test(), [true, true]);
 }
 
+#[test]
+fn a_duplicated_workspace_is_wide_when_configured() {
+    let mut app = app_with(wide_settings());
+    app.duplicate_workspace_for_test();
+    assert_eq!(app.session_ambiguous_wide_for_test(), [true, true]);
+}
+
+#[test]
+fn new_and_duplicated_workspaces_take_their_cursor_default_from_settings() {
+    use crate::core::CursorStyle;
+    for duplicate in [false, true] {
+        let mut app = app_with(Settings {
+            cursor_style: CursorStyle::Bar,
+            ..Settings::default()
+        });
+        if duplicate {
+            app.duplicate_workspace_for_test();
+        } else {
+            app.new_workspace_for_test();
+        }
+        assert_eq!(app.workspace_count_for_test(), 2, "duplicate={duplicate}");
+        assert_eq!(
+            app.session_cursor_styles_for_test().last(),
+            Some(&CursorStyle::Bar),
+            "the new workspace's session is initialized (duplicate={duplicate})"
+        );
+    }
+}
+
 fn write_wide_profile(base: &std::path::Path, name: &str, width: &str) {
     let dir = crate::profiles::profiles_dir_from_env(
         Some(base.as_os_str().to_owned()),

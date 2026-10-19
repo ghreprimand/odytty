@@ -745,15 +745,34 @@ impl App {
         &mut self,
         result: std::io::Result<SessionToken>,
     ) -> Option<SessionToken> {
-        let token = match result {
-            Ok(token) => token,
+        let token = self.spawned_workspace_or_notice(result, "Could not create a workspace")?;
+        self.present_spawned_workspace(token);
+        Some(token)
+    }
+
+    /// The token of a freshly spawned workspace, or `None` after raising
+    /// `failure` plus the error as the open notice (an earlier notice is kept).
+    fn spawned_workspace_or_notice(
+        &mut self,
+        result: std::io::Result<SessionToken>,
+        failure: &str,
+    ) -> Option<SessionToken> {
+        match result {
+            Ok(token) => Some(token),
             Err(error) => {
                 if self.open_notice.is_none() {
-                    self.raise_open_notice(format!("Could not create a workspace: {error}"));
+                    self.raise_open_notice(format!("{failure}: {error}"));
                 }
-                return None;
+                None
             }
-        };
+        }
+    }
+
+    /// Present a successfully spawned workspace: initialize its session from
+    /// this window's settings, flash the rail, reflow for the rail the new
+    /// workspace may bring in, and reconcile focus. Shared by New Workspace and
+    /// Duplicate Workspace, which differ only in the failure notice.
+    fn present_spawned_workspace(&mut self, token: SessionToken) {
         let effective_theme = self.effective_theme;
         let themed_ui_roles = self.themed_ui_roles;
         let osc52_read = self.settings.osc52_read;
@@ -783,7 +802,6 @@ impl App {
         // changes the content reservation - reflow so the grid matches.
         self.recompute_grid_for_tab_bar();
         self.on_active_session_changed();
-        Some(token)
     }
 
     /// Duplicate the active workspace: create a fresh workspace whose single
@@ -821,44 +839,11 @@ impl App {
         &mut self,
         result: std::io::Result<SessionToken>,
     ) {
-        let token = match result {
-            Ok(token) => token,
-            Err(error) => {
-                if self.open_notice.is_none() {
-                    self.raise_open_notice(format!("Could not duplicate the workspace: {error}"));
-                }
-                return;
-            }
-        };
-        let effective_theme = self.effective_theme;
-        let themed_ui_roles = self.themed_ui_roles;
-        let osc52_read = self.settings.osc52_read;
-        let kitty_named_transports = self.settings.kitty_named_transports;
-        let cursor_style = self.settings.cursor_style;
-        let cursor_blink = self.settings.cursor_blink;
-        let cell = self.gpu.as_ref().map(GpuState::cell);
-        let scrollback_limit = self.settings.scrollback_limit();
-        let button_gates = self.button_gates();
-        if let Some(session) = self.sessions.get_mut(token) {
-            Self::initialize_session_with(
-                session,
-                effective_theme,
-                themed_ui_roles,
-                osc52_read,
-                kitty_named_transports,
-                cursor_style,
-                cursor_blink,
-                cell,
-                scrollback_limit,
-                button_gates,
-                self.settings.ambiguous_width.is_wide(),
-            );
+        if let Some(token) =
+            self.spawned_workspace_or_notice(result, "Could not duplicate the workspace")
+        {
+            self.present_spawned_workspace(token);
         }
-        self.flash_rail_autohide();
-        // A new workspace can make the auto rail appear (>=2 workspaces), which
-        // changes the content reservation - reflow so the grid matches.
-        self.recompute_grid_for_tab_bar();
-        self.on_active_session_changed();
     }
 
     /// Close the entire active workspace - every tab, every pane. Closing
