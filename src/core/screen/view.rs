@@ -1173,6 +1173,73 @@ impl Screen {
         search_rows_scoped(&rows, query, options, scope)
     }
 
+    /// First and last absolute rows of the logical line holding absolute row
+    /// `row` (history rows first, then the live screen): every row joined to
+    /// it by soft wraps, stopping at hard line breaks, at row 0, and at the
+    /// last live row. The same rows a walk over
+    /// [`visible_search_rows`](Self::visible_search_rows) wrap flags finds,
+    /// read from the history's cached row starts and the live rows' flags, so
+    /// no cell is projected or copied and the cost does not grow with the
+    /// length of the line.
+    pub fn logical_line_rows(&self, row: usize) -> (usize, usize) {
+        let height = self.dimensions.rows;
+        let columns = self.dimensions.columns;
+        if height == 0 {
+            return (row, row);
+        }
+        let history = self.scrollback.physical_len(columns);
+        let last_live = history + height - 1;
+        let row = row.min(last_live);
+        let live_wrapped = |at: usize| self.rows.get(at - history).is_some_and(|line| line.wrapped);
+        // Up: live rows one at a time, then whole history lines.
+        let mut first = row;
+        while first > history && live_wrapped(first - 1) {
+            first -= 1;
+        }
+        if first <= history && first > 0 {
+            let mut probe = if first == history {
+                // The live screen's first row continues the history's last
+                // line only when that line is open.
+                match self.scrollback.line_extent(columns, history - 1) {
+                    Some((start, _, true)) => Some(start),
+                    _ => None,
+                }
+            } else {
+                self.scrollback
+                    .line_extent(columns, first)
+                    .map(|(start, _, _)| start)
+            };
+            while let Some(start) = probe {
+                first = start;
+                probe = match start.checked_sub(1) {
+                    Some(above) => match self.scrollback.line_extent(columns, above) {
+                        Some((above_start, _, true)) => Some(above_start),
+                        _ => None,
+                    },
+                    None => None,
+                };
+            }
+        }
+        // Down: whole history lines while they stay open, then live rows.
+        let mut last = row;
+        while last < history {
+            match self.scrollback.line_extent(columns, last) {
+                Some((_, end, open)) => {
+                    last = end;
+                    if !open {
+                        return (first, last);
+                    }
+                    last += 1;
+                }
+                None => break,
+            }
+        }
+        while last < last_live && live_wrapped(last) {
+            last += 1;
+        }
+        (first, last)
+    }
+
     /// The visible viewport's physical rows at scrollback `offset_rows`, as owned
     /// [`VisibleRow`]s carrying each row's `wrapped` flag - the windowed input the
     /// hint / quick-select scanner consumes (it needs the soft-wrap flags the

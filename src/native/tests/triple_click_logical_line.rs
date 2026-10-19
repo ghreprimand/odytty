@@ -154,3 +154,35 @@ fn a_triple_click_with_bidi_reordering_on_selects_the_same_logical_line() {
     assert_eq!(reordered, plain);
     assert_eq!(reordered.as_deref(), Some(line.trim_end()));
 }
+
+#[test]
+fn a_line_unit_on_a_long_wrapped_line_copies_no_history_cells() {
+    // 4,000 characters wrap over 200 rows of 20 columns; with a 5-row window
+    // almost all of them are in history. Finding the line's ends reads the
+    // wrap structure only, so neither the triple-click nor any line-drag
+    // motion projects the line's history cells.
+    let line: String = (0..4000)
+        .map(|i| char::from(b'a' + (i % 26) as u8))
+        .collect();
+    let mut app = app_with_content(20, 5, format!("{line}\r\nend").as_bytes());
+    assert!(
+        app.scrollback_len_for_test() >= 190,
+        "the line reaches history"
+    );
+    let before = crate::core::hydrated_history_cells_for_test();
+    app.set_pointer_cell_for_test(0, 2);
+    for i in 0..3 {
+        if i > 0 {
+            app.finish_selection_for_test();
+            app.set_pointer_cell_for_test(0, 2);
+        }
+        app.begin_selection_for_test();
+    }
+    for motion in 0..10 {
+        app.extend_drag_to_cell_for_test(motion % 3, 1);
+    }
+    let hydrated = crate::core::hydrated_history_cells_for_test() - before;
+    assert_eq!(hydrated, 0, "history cells projected for the line unit");
+    let text = app.selection_text_for_test().expect("a selection");
+    assert!(text.starts_with(&line), "the whole long line is selected");
+}

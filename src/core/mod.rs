@@ -117,6 +117,12 @@ pub use button::{
     ButtonEntry, ButtonHit, ButtonIcon, ButtonId, ButtonScope, ButtonSpan, ButtonState,
     MAX_BUTTON_ENTRIES, MAX_BUTTON_SPANS_PER_LINE, cell_is_chip_blank, click_report_bytes,
 };
+/// History cells projected (hydrated into full cells) on this thread so far,
+/// for tests that pin a path to touching no history cell.
+#[cfg(test)]
+pub(crate) fn hydrated_history_cells_for_test() -> usize {
+    scrollback::HYDRATED_CELLS.with(std::cell::Cell::get)
+}
 // Only the width tests outside this module read it directly now.
 #[cfg(test)]
 pub(crate) use char_width::char_display_width;

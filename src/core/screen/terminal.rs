@@ -448,6 +448,12 @@ impl Terminal {
         self.screen.search_scoped(query, options, scope)
     }
 
+    /// First and last absolute rows of the logical line holding absolute row
+    /// `row`; see [`Screen::logical_line_rows`].
+    pub fn logical_line_rows(&self, row: usize) -> (usize, usize) {
+        self.screen.logical_line_rows(row)
+    }
+
     /// The visible viewport's physical rows (with `wrapped` flags) at scrollback
     /// `offset_rows`, for the hint / quick-select scanner. See
     /// [`Screen::visible_search_rows`] for the window and coordinate convention.

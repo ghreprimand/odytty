@@ -181,60 +181,11 @@ impl App {
     }
 
     /// First and last absolute rows of the logical line holding absolute row
-    /// `row`. Reads the wrap flags a viewport-sized window at a time, so a
-    /// line of any length costs work proportional to its rows, like copying it.
+    /// `row`, from the terminal's wrap flags. The history's cached row starts
+    /// answer it without copying cells, so a triple-click or a line-drag
+    /// motion costs the same on a line of any length.
     fn logical_line_rows(&self, row: usize) -> (usize, usize) {
-        let terminal = crate::native::lock_recover(&self.terminal);
-        let rows = terminal.screen().dimensions().rows;
-        let scrollback_len = terminal.screen().scrollback_len();
-        if rows == 0 {
-            return (row, row);
-        }
-        let last_live = scrollback_len + rows - 1;
-        let row = row.min(last_live);
-        // Wrap flags of the window whose top is `top` (clamped the way the
-        // viewport clamps), with the absolute row of its first entry.
-        let window = |top: usize| -> (usize, Vec<bool>) {
-            let offset = scrollback_len.saturating_sub(top);
-            let first = scrollback_len - offset;
-            let flags = terminal
-                .screen()
-                .visible_search_rows(offset)
-                .iter()
-                .map(|line| line.wrapped)
-                .collect();
-            (first, flags)
-        };
-        let mut first = row;
-        'up: while first > 0 {
-            let (top, flags) = window((first - 1).saturating_sub(rows - 1));
-            let below_window = first;
-            for above in (top..below_window).rev() {
-                if !flags.get(above - top).copied().unwrap_or(false) {
-                    break 'up;
-                }
-                first = above;
-            }
-            // The whole window joined: continue above it, if anything is.
-            if top == 0 {
-                break;
-            }
-        }
-        let mut last = row;
-        'down: while last < last_live {
-            let (top, flags) = window(last);
-            let from = last;
-            for below in from..top + flags.len() {
-                if !flags.get(below - top).copied().unwrap_or(false) || below >= last_live {
-                    break 'down;
-                }
-                last = below + 1;
-            }
-            if flags.is_empty() {
-                break;
-            }
-        }
-        (first, last)
+        crate::native::lock_recover(&self.terminal).logical_line_rows(row)
     }
 
     /// MOUSE-EXTEND: after a double/triple-click sets a word/line range, either

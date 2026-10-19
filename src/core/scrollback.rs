@@ -491,6 +491,27 @@ impl Scrollback {
         self.cache.borrow().total_rows
     }
 
+    /// The physical rows at `width` of the stored logical line that holds
+    /// absolute history row `row`: its first and last row, and whether it
+    /// continues past its last row (an open line soft-wraps into the next
+    /// row). `None` when `row` is past the end. Reads only the cached row
+    /// starts, so no cell is projected.
+    pub(in crate::core) fn line_extent(
+        &self,
+        width: usize,
+        row: usize,
+    ) -> Option<(usize, usize, bool)> {
+        self.ensure_cache(width);
+        let cache = self.cache.borrow();
+        let (line_index, first) = cache.locate(row)?;
+        let next = cache
+            .row_starts
+            .get(line_index + 1)
+            .map_or(cache.total_rows, |start| start - cache.base_row);
+        let open = self.lines.get(line_index).is_some_and(|line| line.open);
+        Some((first, next - 1, open))
+    }
+
     pub(in crate::core) fn trim_epoch(&self) -> u64 {
         self.trim_epoch
     }

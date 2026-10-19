@@ -39,6 +39,8 @@ use super::types::*;
 mod charset;
 mod cluster;
 mod export_rows;
+#[cfg(test)]
+mod logical_line_rows_tests;
 mod ops;
 mod osc;
 mod paragraph;
