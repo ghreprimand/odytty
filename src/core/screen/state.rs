@@ -222,6 +222,12 @@ impl Screen {
         if had_prompt_marks && trimmed {
             self.prompt_marks_changed = true;
         }
+        // Trimmed history changes what a scrolled-back viewport and the
+        // paragraph above it read, so revision-keyed caches must not reuse a
+        // view taken before the trim.
+        if trimmed {
+            self.mark_dirty();
+        }
     }
 
     pub fn take_clipboard_requests(&mut self) -> Vec<ClipboardRequest> {

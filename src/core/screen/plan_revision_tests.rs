@@ -183,3 +183,35 @@ fn the_image_tokens_place_and_delete_images() {
         "the delete removed it"
     );
 }
+
+#[test]
+fn lowering_the_history_limit_keeps_unchanged_revisions_honest() {
+    // Long soft-wrapped paragraphs, the oldest opening with a right-to-left
+    // letter, so trimming their heads changes what a scrolled-back viewport
+    // and its paragraph context read.
+    let mut terminal = Terminal::new(12, 4);
+    terminal.set_scrollback_limit(200);
+    let mut text = String::from("\u{05D0}");
+    text.push_str(&"a".repeat(90));
+    text.push_str("\r\n");
+    for line in 0..30 {
+        text.push_str(&format!("line {line} "));
+        text.push_str(&"b".repeat(line % 4 * 13));
+        text.push_str("\r\n");
+    }
+    terminal.advance(text.as_bytes());
+    for limit in [20, 8, 3, 1] {
+        let offsets = [0, 1, 4, 9, 20, 40, 200];
+        let before: Vec<_> = offsets.iter().map(|&o| inputs(&terminal, o)).collect();
+        let revision = terminal.render_revision();
+        terminal.set_scrollback_limit(limit);
+        if terminal.render_revision() == revision {
+            for (&offset, old) in offsets.iter().zip(&before) {
+                assert!(
+                    inputs(&terminal, offset) == *old,
+                    "limit {limit}: offset {offset} changed without a revision change"
+                );
+            }
+        }
+    }
+}
