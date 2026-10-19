@@ -201,24 +201,26 @@ impl ClickHintState {
     }
 
     pub(in crate::native) fn show_shell_integration_hint(&mut self, now: Instant) -> bool {
-        if self.shown_at.is_some() {
-            return false;
-        }
-        self.shown_at = Some(now);
-        self.message = Some(ClickHintMessage::ShellIntegration);
-        self.last_misclick = None;
-        true
+        self.raise_informational_hint(now, ClickHintMessage::ShellIntegration)
     }
 
     /// Raise the geometry-unavailable hint (integration is on, but the
     /// selection's geometry can't back an edit). Sibling of
     /// [`Self::show_shell_integration_hint`]; same not-restack guard.
     pub(in crate::native) fn show_selection_geometry_hint(&mut self, now: Instant) -> bool {
+        self.raise_informational_hint(now, ClickHintMessage::SelectionGeometry)
+    }
+
+    /// Show an informational hint unless one is already visible (a visible
+    /// hint is never restacked or replaced), clearing any half-recorded
+    /// mis-click. Unlike the mis-click pairing, these hints set no cooldown and
+    /// no shown count.
+    fn raise_informational_hint(&mut self, now: Instant, message: ClickHintMessage) -> bool {
         if self.shown_at.is_some() {
             return false;
         }
         self.shown_at = Some(now);
-        self.message = Some(ClickHintMessage::SelectionGeometry);
+        self.message = Some(message);
         self.last_misclick = None;
         true
     }
@@ -547,5 +549,44 @@ mod tests {
         // Distinct from the open-notice banner (bg Indexed(9) red).
         assert_eq!(a.background, Color::Indexed(4));
         assert_eq!(a.foreground, Color::Indexed(15));
+    }
+
+    #[test]
+    fn informational_hints_show_once_without_restacking_or_cooldown() {
+        use super::super::platform_opener::OpenerOs;
+        type Raise = fn(&mut ClickHintState, Instant) -> bool;
+        let cases: [(Raise, &str); 2] = [
+            (
+                ClickHintState::show_shell_integration_hint,
+                SHELL_INTEGRATION_DISABLED_HINT,
+            ),
+            (
+                ClickHintState::show_selection_geometry_hint,
+                SELECTION_GEOMETRY_HINT,
+            ),
+        ];
+        for (raise, text) in cases {
+            let mut state = ClickHintState::default();
+            let start = t0();
+            // A half-recorded mis-click is dropped by the raise.
+            assert!(!state.note_misclick(start));
+            assert!(raise(&mut state, start));
+            assert_eq!(state.shown_text(OpenerOs::Linux), Some(text));
+            assert_eq!(state.last_misclick, None);
+            // Raised again while visible: refused, clock unmoved, text kept.
+            assert!(!raise(&mut state, start + Duration::from_millis(100)));
+            assert!(!ClickHintState::show_shell_integration_hint(
+                &mut state,
+                start + Duration::from_millis(100)
+            ));
+            assert_eq!(state.shown_at, Some(start));
+            assert_eq!(state.shown_text(OpenerOs::Linux), Some(text));
+            // No cooldown and no shown count: it can show again as soon as it clears.
+            let cleared = start + CLICK_HINT_DURATION + Duration::from_millis(1);
+            state.tick(cleared);
+            assert!(!state.is_shown());
+            assert_eq!(state.times_shown, 0);
+            assert!(raise(&mut state, cleared));
+        }
     }
 }
