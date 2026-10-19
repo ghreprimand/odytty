@@ -39,35 +39,9 @@ fn recording() -> (PtyWriter, Recorded) {
 /// cell size and surface, and the first pane focused.
 fn app_with_panes(panes: usize) -> (App, Recorded) {
     let (writer, recorded) = recording();
-    let (mut app, _terminal) = headless_app_with_writer(
-        NativeOptions::default(),
-        Dimensions::new(80, 24),
-        Settings::default(),
-        writer,
-    );
-    app.set_test_cell_for_test(cell(8, 16));
-    app.set_test_surface_for_test(800, 416, WindowPadding::ZERO);
-    let first = app.active_session_token_for_test();
-    for _ in 1..panes {
-        let (writer, _) = recording();
-        app.seed_headless_split_pane_for_test(
-            true,
-            Arc::new(Mutex::new(Terminal::new(40, 24))),
-            writer,
-            Dimensions::new(40, 24),
-        );
-    }
-    // The test geometry seams are per session, so seed every pane's.
-    for token in app.active_tab_pane_tokens_for_test() {
-        app.focus_session_token_for_test(token);
-        app.set_test_cell_for_test(cell(8, 16));
-        app.set_test_surface_for_test(800, 416, WindowPadding::ZERO);
-    }
-    app.focus_session_token_for_test(first);
-    app.reflow_active_panes_for_test();
+    let (app, _) = super::fixtures::split_app_with_writers(panes, writer, || recording().0);
     (app, recorded)
 }
-
 fn press(app: &mut App, key: NamedKey, code: KeyCode, shift: bool) {
     app.drive_raw_key_event_for_test(
         WinitKey::Named(key),

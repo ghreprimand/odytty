@@ -262,6 +262,7 @@ mod copy_mode_wide_offscreen;
 mod ctrl_click_open;
 mod cursor_icon;
 mod cvd_wiring;
+mod fixtures;
 mod grapheme_cluster_mode;
 mod split_pointer_bounds;
 // App-route file-drop tests use Unix paths and Unix shell quoting. Windows

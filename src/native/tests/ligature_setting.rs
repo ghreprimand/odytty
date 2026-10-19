@@ -30,32 +30,8 @@ fn temp_conf(tag: &str) -> std::path::PathBuf {
 /// Open Settings and drill into the section holding `ligatures`, with the
 /// selection on that row.
 fn select_ligatures_row(app: &mut App) {
-    app.open_settings_overlay_for_test();
-    for section in 0..24 {
-        for _ in 0..section {
-            key(app, WinitKey::Named(NamedKey::ArrowDown), false);
-        }
-        key(app, WinitKey::Named(NamedKey::Enter), false);
-        let signature = app.overlay_signature_for_test();
-        if let Some(target) = signature
-            .panel
-            .entries
-            .iter()
-            .position(|entry| entry.key == "ligatures")
-        {
-            for _ in signature.panel.selected..target {
-                key(app, WinitKey::Named(NamedKey::ArrowDown), false);
-            }
-            return;
-        }
-        key(app, WinitKey::Named(NamedKey::Escape), false);
-        for _ in 0..section {
-            key(app, WinitKey::Named(NamedKey::ArrowUp), false);
-        }
-    }
-    panic!("no Settings section lists ligatures");
+    super::fixtures::select_setting(app, "Rendering", "ligatures");
 }
-
 #[test]
 fn ligatures_row_rekeys_the_frame_both_ways_over_shaped_content() {
     let _render_globals = crate::test_lock::render_globals_lock();

@@ -15,37 +15,18 @@ fn app_for_test() -> (App, Arc<Mutex<Terminal>>) {
     headless_app_for_test()
 }
 
-/// Open Settings and drill into the section holding the row `key`, with the
-/// selection on that row. Selecting by key keeps the test independent of
-/// section order and layout; it panics when no section lists the row.
-fn select_settings_row(app: &mut App, key: &str) {
-    use winit::keyboard::{Key, NamedKey};
-    let press =
-        |app: &mut App, named| app.drive_overlay_key_for_test(Key::Named(named), false, false);
-    app.open_settings_overlay_for_test();
-    for section in 0..24 {
-        for _ in 0..section {
-            press(app, NamedKey::ArrowDown);
+fn settings_stepper_buttons(
+    app: &mut App,
+) -> (crate::selection::CellPoint, crate::selection::CellPoint) {
+    app.open_settings_section_for_test("Fonts");
+    for _ in 0..12 {
+        if let Some(buttons) = app.overlay_first_stepper_button_cells_for_test() {
+            return buttons;
         }
-        press(app, NamedKey::Enter);
-        let signature = app.overlay_signature_for_test();
-        if let Some(target) = signature
-            .panel
-            .entries
-            .iter()
-            .position(|entry| entry.key == key)
-        {
-            for _ in signature.panel.selected..target {
-                press(app, NamedKey::ArrowDown);
-            }
-            return;
-        }
-        press(app, NamedKey::Escape);
-        for _ in 0..section {
-            press(app, NamedKey::ArrowUp);
-        }
+        app.handle_overlay_pointer_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
     }
-    panic!("no Settings section lists {key}");
+    app.overlay_first_stepper_button_cells_for_test()
+        .expect("no stepper row became visible after scrolling the Fonts section")
 }
 
 #[test]
@@ -167,29 +148,7 @@ fn overlay_stepper_click_sets_once_and_cursor_move_is_inert() {
     // during live overlay/app rebuilds.
     let (mut app, _terminal) = app_for_test();
 
-    app.open_settings_overlay_for_test();
-    // Drill into Fonts section (contains font_size, a stepper row).
-    app.drive_overlay_key_for_test(
-        winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
-        false,
-        false,
-    );
-    app.drive_overlay_key_for_test(
-        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter),
-        false,
-        false,
-    );
-    let mut buttons = app.overlay_first_stepper_button_cells_for_test();
-    for _ in 0..12 {
-        if buttons.is_some() {
-            break;
-        }
-        app.handle_overlay_pointer_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
-        buttons = app.overlay_first_stepper_button_cells_for_test();
-    }
-    let Some((down_button, up_button)) = buttons else {
-        panic!("no stepper row became visible after scrolling the Fonts section");
-    };
+    let (down_button, up_button) = settings_stepper_buttons(&mut app);
 
     let numeric_values = |app: &App| -> Vec<(&'static str, f32)> {
         app.overlay_signature_for_test()
@@ -254,7 +213,7 @@ fn overlay_stepper_click_sets_once_and_cursor_move_is_inert() {
 fn settings_slider_key_repeat_is_coalesced_until_flush() {
     let (mut app, _terminal) = app_for_test();
 
-    select_settings_row(&mut app, "font_size");
+    super::fixtures::select_setting(&mut app, "Fonts", "font_size");
 
     let start = app.font_size_px_for_test();
     app.drive_overlay_key_for_test(
@@ -310,30 +269,7 @@ fn focus_loss_after_settings_stepper_click_leaves_moves_inert() {
     // harmless, and the next bare CursorMoved must not commit a phantom value.
     let (mut app, _terminal) = app_for_test();
 
-    app.open_settings_overlay_for_test();
-    // Drill into Fonts section to get a numeric stepper row.
-    app.drive_overlay_key_for_test(
-        winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
-        false,
-        false,
-    );
-    app.drive_overlay_key_for_test(
-        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter),
-        false,
-        false,
-    );
-    // Scroll one notch at a time until a stepper row enters the visible window.
-    let mut buttons = app.overlay_first_stepper_button_cells_for_test();
-    for _ in 0..12 {
-        if buttons.is_some() {
-            break;
-        }
-        app.handle_overlay_pointer_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
-        buttons = app.overlay_first_stepper_button_cells_for_test();
-    }
-    let Some((down_button, up_button)) = buttons else {
-        panic!("no stepper row became visible after scrolling the Fonts section");
-    };
+    let (down_button, up_button) = settings_stepper_buttons(&mut app);
 
     // Press the up button; this applies once without drag state.
     app.set_pointer_cell_for_test(up_button.row, up_button.column);
@@ -418,29 +354,7 @@ fn opening_overlay_clears_a_held_tui_report_button() {
 fn move_is_inert_after_settings_stepper_click_and_release() {
     let (mut app, _terminal) = app_for_test();
 
-    app.open_settings_overlay_for_test();
-    // Navigate to Fonts section for the font_size stepper.
-    app.drive_overlay_key_for_test(
-        winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
-        false,
-        false,
-    );
-    app.drive_overlay_key_for_test(
-        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter),
-        false,
-        false,
-    );
-    let mut buttons = app.overlay_first_stepper_button_cells_for_test();
-    for _ in 0..12 {
-        if buttons.is_some() {
-            break;
-        }
-        app.handle_overlay_pointer_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
-        buttons = app.overlay_first_stepper_button_cells_for_test();
-    }
-    let Some((down_button, up_button)) = buttons else {
-        panic!("no stepper row became visible after scrolling the Fonts section");
-    };
+    let (down_button, up_button) = settings_stepper_buttons(&mut app);
 
     // Press the up button to set once.
     app.set_pointer_cell_for_test(up_button.row, up_button.column);
@@ -518,28 +432,7 @@ fn move_is_inert_after_settings_stepper_click_and_release() {
 fn stepper_release_without_pointer_cell_stays_inert_after_click() {
     let (mut app, _terminal) = app_for_test();
 
-    app.open_settings_overlay_for_test();
-    app.drive_overlay_key_for_test(
-        winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
-        false,
-        false,
-    );
-    app.drive_overlay_key_for_test(
-        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter),
-        false,
-        false,
-    );
-    let mut buttons = app.overlay_first_stepper_button_cells_for_test();
-    for _ in 0..12 {
-        if buttons.is_some() {
-            break;
-        }
-        app.handle_overlay_pointer_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
-        buttons = app.overlay_first_stepper_button_cells_for_test();
-    }
-    let Some((down_button, up_button)) = buttons else {
-        panic!("no stepper row became visible after scrolling the Fonts section");
-    };
+    let (down_button, up_button) = settings_stepper_buttons(&mut app);
 
     // Press to set once without arming drag.
     app.set_pointer_cell_for_test(up_button.row, up_button.column);

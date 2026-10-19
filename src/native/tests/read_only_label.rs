@@ -111,11 +111,7 @@ fn context_menu_offers_exactly_one_read_only_row_and_toggles() {
     assert!(rows.contains("Make Pane Read-Only"));
     assert!(!rows.contains("Make Pane Writable"));
 
-    // No selection and no shell integration: Paste, Select All, the four tab
-    // rows, the two splits, then Make Pane Read-Only at visible index 8.
-    for _ in 0..8 {
-        app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::ArrowDown), false, false);
-    }
+    super::fixtures::focus_context_menu_label(&mut app, "Make Pane Read-Only");
     app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
     assert!(!app.context_menu_open_for_test());
     assert!(app.active_pane_read_only(), "the menu row turned input off");

@@ -52,33 +52,8 @@ fn secure_input_available() {
 /// surface, the first pane focused. Returns the first pane's terminal so a
 /// test can print into it.
 pub(super) fn split_app(panes: usize) -> (App, Arc<Mutex<Terminal>>) {
-    let (mut app, terminal) = headless_app_with_writer(
-        NativeOptions::default(),
-        Dimensions::new(80, 24),
-        Settings::default(),
-        sink(),
-    );
-    app.set_test_cell_for_test(cell(8, 16));
-    app.set_test_surface_for_test(800, 416, WindowPadding::ZERO);
-    let first = app.active_session_token_for_test();
-    for _ in 1..panes {
-        app.seed_headless_split_pane_for_test(
-            true,
-            Arc::new(Mutex::new(Terminal::new(40, 24))),
-            sink(),
-            Dimensions::new(40, 24),
-        );
-    }
-    for token in app.active_tab_pane_tokens_for_test() {
-        app.focus_session_token_for_test(token);
-        app.set_test_cell_for_test(cell(8, 16));
-        app.set_test_surface_for_test(800, 416, WindowPadding::ZERO);
-    }
-    app.focus_session_token_for_test(first);
-    app.reflow_active_panes_for_test();
-    (app, terminal)
+    super::fixtures::split_app_with_writers(panes, sink(), sink)
 }
-
 fn top_row(probe: &PanePaintProbe) -> &str {
     probe.rows.first().map_or("", String::as_str)
 }

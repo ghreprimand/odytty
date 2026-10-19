@@ -15,7 +15,6 @@
 //! on every host.
 
 use super::*;
-use crate::native::settings_panel::SettingsLevel;
 
 const COLS: usize = 80;
 const ROWS: usize = 24;
@@ -60,112 +59,6 @@ fn inert_composite() -> OverlayCompositeSignature {
     }
 }
 
-/// A closed-overlay render signature (no `Default` on the type).
-fn closed_overlay_sig() -> OverlayRenderSignature {
-    OverlayRenderSignature {
-        open: false,
-        mode: OverlayMode::Settings,
-        panel: SettingsPanelSignature {
-            environment_overrides: Vec::new(),
-            selected: 0,
-            scroll: 0,
-            editing_key: None,
-            editing_buffer: None,
-            changed_count: 0,
-            message: None,
-            entries: Vec::new(),
-            query: String::new(),
-            search_active: false,
-            level: SettingsLevel::SectionList,
-            section_selected: 0,
-            section_scroll: 0,
-            pending_close_prompt: false,
-            path_picker: None,
-        },
-        theme_picker: ThemePickerSignature {
-            selected: 0,
-            scroll: 0,
-            original: "plain",
-            current: "plain",
-            message: None,
-            entries: Vec::new(),
-        },
-        theme_builder: ThemeBuilderSignature {
-            original: "plain",
-            selected: 0,
-            scroll: 0,
-            editing: None,
-            message: None,
-            channel: "L (lightness)",
-            selected_color: (0, 0, 0),
-        },
-        profile_manager: crate::native::profile_manager::ProfileManagerSignature::default(),
-        font_picker: FontPickerSignature {
-            selected: 0,
-            scroll: 0,
-            original: String::new(),
-            current: String::new(),
-            query: String::new(),
-            message: None,
-            entries: Vec::new(),
-        },
-        key_remap: KeyRemapSignature {
-            selected: 0,
-            scroll: 0,
-            pending_close_prompt: false,
-            capture: None,
-            conflict: None,
-            message: None,
-            bindings: String::new(),
-        },
-        onboarding: OnboardingSignature::default(),
-        context_menu: ContextMenuSignature::default(),
-        command_palette: PaletteOverlaySignature {
-            query: String::new(),
-            selected: None,
-            results_len: 0,
-            results_fingerprint: 0,
-        },
-        replay: ReplayOverlaySignature {
-            cursor: 0,
-            frames_len: 0,
-            frame_fingerprint: 0,
-        },
-        connections: ConnectionOverlaySignature {
-            query: String::new(),
-            selected: None,
-            results_len: 0,
-            results_fingerprint: 0,
-        },
-        connection_form: crate::native::connection_form::ConnectionFormSignature::default(),
-        session_attach: SessionAttachOverlaySignature {
-            query: String::new(),
-            selected: None,
-            results_len: 0,
-            results_fingerprint: 0,
-        },
-        open_with: OpenWithOverlaySignature {
-            query: String::new(),
-            selected: None,
-            results_len: 0,
-            results_fingerprint: 0,
-        },
-        workspace_picker: WorkspacePickerSignature {
-            query: String::new(),
-            selected: None,
-            results_len: 0,
-            results_fingerprint: 0,
-        },
-        profile_picker: ProfilePickerSignature {
-            query: String::new(),
-            selected: None,
-            results_len: 0,
-            results_fingerprint: 0,
-        },
-        dialog_payload: 0,
-    }
-}
-
 /// A minimal `RenderSignature` carrying the given overlay composite, with every
 /// other field fixed. Used to prove the geometry-update decision reacts to (and
 /// only to) the overlays field as designed.
@@ -186,7 +79,7 @@ fn render_sig(overlays: OverlayCompositeSignature) -> RenderSignature {
                 current: None,
                 scoped: false,
             },
-            overlay: closed_overlay_sig(),
+            overlay: super::fixtures::closed_overlay_signature(),
             hovered_hyperlink: None,
             graphics: Vec::new(),
             presentation_epoch: 0,

@@ -1645,16 +1645,7 @@ fn workspace_menu_settings_opens_tabs_and_panes() {
     let (mut app, _terminal) = app_for_test();
     app.set_pointer_cell_for_test(5, 10);
     app.open_workspace_rail_menu_for_test(0);
-    // Settings is the ninth selectable row: New, New with Profile, Duplicate,
-    // Rename, Close, Bind, the two layout rows, then Settings in its trailing
-    // group.
-    for _ in 0..8 {
-        app.drive_overlay_key_for_test(
-            winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
-            false,
-            false,
-        );
-    }
+    super::fixtures::focus_context_menu_label(&mut app, "Settings");
     app.drive_overlay_key_for_test(
         winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter),
         false,

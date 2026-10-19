@@ -61,10 +61,26 @@ fn focus_form_row(manager: &mut ProfileManager, prefix: &str) -> usize {
     row
 }
 
-#[test]
-fn keyboard_text_entry_appends_each_character_exactly_once() {
+fn empty_manager() -> ProfileManager {
     let mut manager = ProfileManager::new();
     manager.open(ProfileCatalog::default(), None);
+    manager
+}
+
+fn choose_shell_suggestion(manager: &mut ProfileManager) {
+    let _ = focus_form_row(manager, "Shell:");
+    let _ = manager.handle_input(OverlayInput::Right);
+    assert!(
+        line_texts(manager)
+            .iter()
+            .any(|line| line.contains("Shell suggestions")),
+        "precondition: selecting a shell renders its suggestion row"
+    );
+}
+
+#[test]
+fn keyboard_text_entry_appends_each_character_exactly_once() {
+    let mut manager = empty_manager();
     let _ = manager.handle_input(OverlayInput::Tab);
 
     // Name is initially focused. The text buffer must receive each physical
@@ -80,8 +96,7 @@ fn keyboard_text_entry_appends_each_character_exactly_once() {
 
 #[test]
 fn form_renders_one_save_and_one_cancel_action() {
-    let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default(), None);
+    let mut manager = empty_manager();
     let _ = manager.handle_input(OverlayInput::Tab);
 
     let lines = line_texts(&manager);
@@ -103,8 +118,7 @@ fn form_renders_one_save_and_one_cancel_action() {
 
 #[test]
 fn empty_environment_key_is_rejected_inline_instead_of_being_dropped_on_save() {
-    let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default(), None);
+    let mut manager = empty_manager();
     let _ = manager.handle_input(OverlayInput::Tab);
     feed_chars(&mut manager, "env-empty");
 
@@ -134,8 +148,7 @@ fn free_text_and_list_fields_round_trip_a_literal_inherit_word() {
     // The `inherit` word is a sentinel only for closed-vocabulary fields; a
     // free-text scalar or list entry must persist it verbatim rather than
     // collapsing it to "unset".
-    let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default(), None);
+    let mut manager = empty_manager();
     let _ = manager.handle_input(OverlayInput::Tab);
     feed_chars(&mut manager, "literal");
 
@@ -162,8 +175,7 @@ fn space_types_a_literal_space_into_free_text_fields() {
     // Regression: space used to be routed to field activation for every
     // field, so free-text fields silently swallowed the space bar. It must
     // now type into free-text buffers while still cycling tri-states.
-    let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default(), None);
+    let mut manager = empty_manager();
     let _ = manager.handle_input(OverlayInput::Tab);
     feed_chars(&mut manager, "spaced");
 
@@ -195,8 +207,7 @@ fn space_types_a_literal_space_into_free_text_fields() {
 
 #[test]
 fn pointer_uses_the_rendered_add_row_in_an_empty_catalog() {
-    let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default(), None);
+    let mut manager = empty_manager();
 
     let add_row = rendered_row(&manager, "+ Add profile");
     assert!(matches!(
@@ -206,8 +217,7 @@ fn pointer_uses_the_rendered_add_row_in_an_empty_catalog() {
     assert_eq!(manager.title(), "Add profile");
 
     // The empty-state line is visible but has no action.
-    let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default(), None);
+    let mut manager = empty_manager();
     let empty_row = rendered_row(&manager, "No profiles yet.");
     assert!(matches!(
         manager.handle_pointer_press(80, 400, empty_row, 0),
@@ -218,21 +228,14 @@ fn pointer_uses_the_rendered_add_row_in_an_empty_catalog() {
 
 #[test]
 fn pointer_cancel_uses_the_rendered_form_row_after_shell_suggestion() {
-    let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default(), None);
+    let mut manager = empty_manager();
     let add_row = rendered_row(&manager, "+ Add profile");
     let _ = manager.handle_pointer_press(80, 400, add_row, 0);
 
     // Focus Shell and choose a discovered suggestion; this inserts the
     // suggestion line immediately after Shell and used to shift Cancel's
     // arithmetic hit-test target.
-    let _ = focus_form_row(&mut manager, "Shell:");
-    let _ = manager.handle_input(OverlayInput::Right);
-    assert!(
-        line_texts(&manager)
-            .iter()
-            .any(|line| line.contains("Shell suggestions"))
-    );
+    choose_shell_suggestion(&mut manager);
     let cancel_row = rendered_row(&manager, "[Cancel]");
     assert!(matches!(
         manager.handle_pointer_press(80, 400, cancel_row, 0),
@@ -375,8 +378,7 @@ fn delete_confirm_emits_delete_for_exactly_the_selected_profile() {
 
 #[test]
 fn delete_key_on_an_empty_catalog_is_a_safe_no_op() {
-    let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default(), None);
+    let mut manager = empty_manager();
     // Empty catalog focuses the add-row; there is no selected profile.
 
     let outcome = manager.handle_input(OverlayInput::Char('x'));
@@ -446,8 +448,7 @@ fn unknown_future_keys_survive_a_ui_driven_edit_and_save() {
 
 #[test]
 fn the_add_form_exposes_an_env_editor_that_rejects_secrets_at_the_write_boundary() {
-    let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default(), None);
+    let mut manager = empty_manager();
     let _ = manager.handle_input(OverlayInput::Tab);
     assert_eq!(manager.title(), "Add profile");
     feed_chars(&mut manager, "envdev");
@@ -487,8 +488,7 @@ fn the_add_form_exposes_an_env_editor_that_rejects_secrets_at_the_write_boundary
 
 #[test]
 fn pointer_press_on_the_rendered_add_row_opens_the_empty_catalog_form() {
-    let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default(), None);
+    let mut manager = empty_manager();
 
     let add_row = rendered_row(&manager, "+ Add profile");
     let outcome = manager.handle_pointer_press(80, 400, add_row, 0);
@@ -503,22 +503,13 @@ fn pointer_press_on_the_rendered_add_row_opens_the_empty_catalog_form() {
 
 #[test]
 fn pointer_press_on_rendered_cancel_after_shell_suggestion_returns_to_catalog() {
-    let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default(), None);
+    let mut manager = empty_manager();
     let _ = manager.handle_input(OverlayInput::Tab);
 
     // Select a discovered shell. The focused Shell row inserts a visible
     // suggestion line, which must not displace the rows the pointer handler
     // accepts below it.
-    let _ = focus_form_row(&mut manager, "Shell:");
-    let _ = manager.handle_input(OverlayInput::Right);
-    assert!(
-        line_texts(&manager)
-            .iter()
-            .any(|line| line.contains("Shell suggestions")),
-        "precondition: selecting a shell renders its suggestion row"
-    );
-
+    choose_shell_suggestion(&mut manager);
     let cancel_row = rendered_row(&manager, "[Cancel]");
     let outcome = manager.handle_pointer_press(80, 400, cancel_row, 0);
 
@@ -531,8 +522,7 @@ fn pointer_press_on_rendered_cancel_after_shell_suggestion_returns_to_catalog() 
 
 #[test]
 fn pointer_press_on_rendered_cancel_without_shell_suggestion_returns_to_catalog() {
-    let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default(), None);
+    let mut manager = empty_manager();
     let _ = manager.handle_input(OverlayInput::Tab);
     assert!(
         !line_texts(&manager)
@@ -552,8 +542,7 @@ fn pointer_press_on_rendered_cancel_without_shell_suggestion_returns_to_catalog(
 
 #[test]
 fn external_palette_fields_are_editable_through_the_form() {
-    let mut manager = ProfileManager::new();
-    manager.open(ProfileCatalog::default(), None);
+    let mut manager = empty_manager();
     let _ = manager.handle_input(OverlayInput::Tab);
 
     feed_chars(&mut manager, "palette-dev");

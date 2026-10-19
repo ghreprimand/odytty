@@ -23,31 +23,12 @@ impl LigatureFonts for Fonts {
 }
 
 fn select(app: &mut App, row: &str) {
-    app.drive_overlay_key_for_test(Key::Named(NamedKey::Home), false, false);
-    for section in 0..24 {
-        for _ in 0..section {
-            app.drive_overlay_key_for_test(Key::Named(NamedKey::ArrowDown), false, false);
-        }
-        app.drive_overlay_key_for_test(Key::Named(NamedKey::Enter), false, false);
-        let panel = app.overlay_signature_for_test().panel;
-        if let Some(target) = panel.entries.iter().position(|entry| entry.key == row) {
-            for key in ["ligatures", "script_shaping"] {
-                assert!(panel.entries.iter().any(|entry| entry.key == key));
-            }
-            app.drive_overlay_key_for_test(Key::Named(NamedKey::Home), false, false);
-            for _ in 0..target {
-                app.drive_overlay_key_for_test(Key::Named(NamedKey::ArrowDown), false, false);
-            }
-            return;
-        }
-        app.drive_overlay_key_for_test(Key::Named(NamedKey::Escape), false, false);
-        for _ in 0..section {
-            app.drive_overlay_key_for_test(Key::Named(NamedKey::ArrowUp), false, false);
-        }
+    super::fixtures::select_setting(app, "Rendering", row);
+    let panel = app.overlay_signature_for_test().panel;
+    for key in ["ligatures", "script_shaping"] {
+        assert!(panel.entries.iter().any(|entry| entry.key == key));
     }
-    panic!("missing rendering row {row}");
 }
-
 fn toggle(app: &mut App, row: &str) {
     select(app, row);
     let epoch = app.presentation_epoch_for_test();
