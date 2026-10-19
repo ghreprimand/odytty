@@ -198,7 +198,7 @@ impl MultiWindowHost {
         self.move_to_new_window_with_tear_out(origin, scope, false, None, open)
     }
 
-    fn move_to_new_window_with_tear_out(
+    pub(super) fn move_to_new_window_with_tear_out(
         &mut self,
         origin: ProcessWindowId,
         scope: MoveScope,

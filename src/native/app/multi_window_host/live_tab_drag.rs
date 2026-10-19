@@ -366,6 +366,21 @@ impl MultiWindowHost {
     }
 
     fn commit_live_tab_with_focus(&mut self, request_focus: impl FnOnce(&App)) -> bool {
+        self.commit_live_tab_with_handoff(request_focus, |drag| {
+            #[cfg(target_os = "linux")]
+            if let Some(follow) = drag.x11.as_ref() {
+                return follow.finish().map_err(|e| e.to_string());
+            }
+            let _ = drag;
+            Ok(true)
+        })
+    }
+
+    fn commit_live_tab_with_handoff(
+        &mut self,
+        request_focus: impl FnOnce(&App),
+        finish: impl FnOnce(&ProvisionalTab) -> Result<bool, String>,
+    ) -> bool {
         if self.live_drag.as_ref().is_some_and(|drag| {
             self.index_of(drag.destination).is_none() || drag.returned.borrow().is_some()
         }) {
@@ -387,13 +402,14 @@ impl MultiWindowHost {
             drag.next_move = Instant::now();
         }
         self.place_live_tab(Instant::now());
-        #[cfg(target_os = "linux")]
-        if let Some(follow) = self.live_drag.as_ref().and_then(|drag| drag.x11.as_ref())
-            && let Err(error) = follow.finish()
-        {
-            tracing::warn!(%error, "X11 tab preview handoff failed");
-            self.cancel_live_tab_for("x11-handoff-failed");
-            return false;
+        if let Some(drag) = self.live_drag.as_ref() {
+            match finish(drag) {
+                Ok(true) => {}
+                outcome => {
+                    tracing::warn!(?outcome, "X11 tab preview was not adopted");
+                    return self.fallback_live_tab_release();
+                }
+            }
         }
         let Some(drag) = self.live_drag.take() else {
             return false;
@@ -433,6 +449,35 @@ impl MultiWindowHost {
         }
         self.sync_sibling_counts();
         true
+    }
+
+    fn fallback_live_tab_release(&mut self) -> bool {
+        let Some(drag) = self.live_drag.as_ref() else {
+            return false;
+        };
+        let source = drag.source;
+        let Some(tab) = drag.gesture.origin_token else {
+            self.cancel_live_tab_for("x11-missing-release-tab");
+            return false;
+        };
+        let release = super::super::tab_tear_out::TearOutRelease {
+            position: drag.point,
+            tab,
+            #[cfg(target_os = "linux")]
+            hyprland: None,
+            #[cfg(target_os = "linux")]
+            hyprland_requested: false,
+        };
+        // Retire the preview before the ordinary tear-out gets an event loop.
+        // Rollback returns the unique sessions, including their PTY transports.
+        if self.cancel_live_tab_with_focus(|_| {})
+            && let Some(index) = self.index_of(source)
+        {
+            self.windows[index].pending_move =
+                Some(super::super::reparent::MoveRequest::TearOut(release));
+            self.windows[index].request_redraw_now();
+        }
+        false
     }
 
     pub(super) fn live_input_redirect(
@@ -1725,5 +1770,85 @@ mod tests {
         assert!(host.windows[0].modifiers.ctrl);
         assert!(host.windows[1].modifiers.ctrl);
         host.cancel_live_tab();
+    }
+}
+
+#[cfg(test)]
+mod adoption_tests {
+    use super::tests::armed;
+    use super::*;
+
+    #[test]
+    fn x11_unadopted_or_failed_preview_falls_back_without_replacing_the_session() {
+        for two_tabs in [false, true] {
+            for outcome in [Ok(false), Err("finish failed".to_owned())] {
+                let (mut host, tab, _) = armed(two_tabs);
+                let session = host.windows[0].sessions.get(tab).unwrap();
+                let terminal = Arc::clone(&session.terminal);
+                let transport = Arc::clone(session.headless_session().unwrap());
+                terminal.lock().unwrap().advance(b"history retained\r\n");
+                let before = terminal.lock().unwrap().snapshot().cells[..16].to_vec();
+                let source = host.windows[0].process_window_id();
+                assert!(host.begin_live_tab(source, tab, |_| Ok(())));
+                let preview = host.windows[1].process_window_id();
+                assert!(!host.commit_live_tab_with_handoff(|_| {}, |_| outcome));
+                assert!(host.live_drag.is_none());
+                assert!(host.index_of(preview).is_none(), "preview must be retired");
+                let source_index = host.index_of(source).unwrap();
+                let request = host.windows[source_index].take_move_request();
+                let Some(crate::native::app::reparent::MoveRequest::TearOut(release)) = request
+                else {
+                    panic!("ordinary release-time tear-out must be queued");
+                };
+                assert_eq!(release.tab, tab);
+                assert!(host.move_to_new_window_with_tear_out(
+                    source,
+                    MoveScope::ActiveTab,
+                    true,
+                    Some(release.tab),
+                    |app| {
+                        assert!(!app.live_drag_destination);
+                        Ok(())
+                    },
+                ));
+                assert_eq!(host.windows.len(), if two_tabs { 2 } else { 1 });
+                let destination = host
+                    .windows
+                    .iter()
+                    .find(|app| app.sessions.owns_session(tab))
+                    .unwrap();
+                assert!(!destination.live_drag_destination);
+                let session = destination.sessions.get(tab).unwrap();
+                assert!(Arc::ptr_eq(&terminal, &session.terminal));
+                assert!(Arc::ptr_eq(&transport, session.headless_session().unwrap()));
+                assert_eq!(&terminal.lock().unwrap().snapshot().cells[..16], &before);
+            }
+        }
+    }
+
+    #[test]
+    fn x11_fallback_creation_failure_restores_the_source_without_a_preview() {
+        let (mut host, tab, terminal) = armed(false);
+        let source = host.windows[0].process_window_id();
+        assert!(host.begin_live_tab(source, tab, |_| Ok(())));
+        let preview = host.windows[1].process_window_id();
+        assert!(!host.commit_live_tab_with_handoff(|_| {}, |_| Err("finish failed".into())));
+        let source_index = host.index_of(source).unwrap();
+        assert!(host.windows[source_index].take_move_request().is_some());
+        assert!(!host.move_to_new_window_with_tear_out(
+            source,
+            MoveScope::ActiveTab,
+            true,
+            Some(tab),
+            |_| Err("ordinary window failed".into()),
+        ));
+        assert!(host.live_drag.is_none());
+        assert!(host.index_of(preview).is_none());
+        assert_eq!(host.windows.len(), 1);
+        assert_eq!(host.windows[0].process_window_id(), source);
+        assert!(Arc::ptr_eq(
+            &terminal,
+            &host.windows[0].sessions.get(tab).unwrap().terminal
+        ));
     }
 }

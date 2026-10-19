@@ -3,6 +3,7 @@
 //! A private protocol connection keeps checked failures away from winit's Xlib
 //! error handler. Only the preview's own XID can be configured through it.
 use std::error::Error;
+use std::time::{Duration, Instant};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 use x11rb::connection::Connection;
@@ -81,9 +82,18 @@ impl Follow {
         Ok(())
     }
 
-    /// The WM sees a fresh MapRequest after the unmanaged preview is withdrawn.
-    /// No terminal, PTY, surface incarnation or window identity is recreated.
-    pub(super) fn finish(&self) -> Result<()> {
+    /// Allow 150 ms for fresh ICCCM NormalState evidence after the MapRequest.
+    /// Some Xwayland WMs never adopt a former override-redirect window. A
+    /// successful X request alone is not evidence that the client is managed.
+    pub(super) fn finish(&self) -> Result<bool> {
+        let state = self
+            .connection
+            .intern_atom(false, b"WM_STATE")?
+            .reply()?
+            .atom;
+        self.connection
+            .delete_property(self.window, state)?
+            .check()?;
         self.connection.unmap_window(self.window)?.check()?;
         self.connection
             .change_property32(
@@ -103,6 +113,24 @@ impl Follow {
             .check()?;
         self.connection.map_window(self.window)?.check()?;
         self.connection.flush()?;
-        Ok(())
+        let deadline = Instant::now() + Duration::from_millis(150);
+        loop {
+            let reply = self
+                .connection
+                .get_property(false, self.window, state, state, 0, 2)?
+                .reply()?;
+            if reply.type_ == state
+                && reply.bytes_after == 0
+                && reply.value32().is_some_and(|mut words| {
+                    words.next() == Some(1) && words.next().is_some() && words.next().is_none()
+                })
+            {
+                return Ok(true);
+            }
+            if Instant::now() >= deadline {
+                return Ok(false);
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 }

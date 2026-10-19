@@ -1523,9 +1523,13 @@ that closed while the picker was open, including when names are duplicated.
   button is held, the window manager does not tile, place, or focus it.
   Release withdraws it, restores normal window type and
   focus hints, clears override-redirect, and maps it as an ordinary client.
-  Window-manager placement or tiling applies after release.
-  A failed setup, move or managed handoff cancels safely. Debug logging
-  records why a drag was cancelled. Xwayland uses this same X11 path.
+  Window-manager placement or tiling applies after release. Adoption requires
+  fresh ICCCM NormalState evidence within 150 ms. An unconfirmed or failed
+  handoff drops the preview and uses ordinary release-time tear-out, keeping
+  the same session, PTY and history. Xwayland uses this fallback when its WM
+  does not adopt the remapped preview. If the ordinary window cannot open,
+  the tab returns to its source. A failed setup or move cancels safely.
+  Debug logging records cancellation and unconfirmed adoption.
   Its grabbed tab follows the pointer with scale-aware offsets and monitor
   clamping. The source, including a sole-tab source, survives until release
   commits once. Escape, returning to the strip, source or destination close,
