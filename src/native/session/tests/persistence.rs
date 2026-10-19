@@ -90,7 +90,7 @@ fn workspace_host_binding_survives_restore() {
     );
 }
 
-/// WP3 / 8e: instantiating a layout APPENDS its workspace(s) after the
+/// Instantiating a layout APPENDS its workspace(s) after the
 /// current list and focuses the first appended one - the live workspaces are
 /// untouched (never clobbered).
 #[test]
@@ -641,7 +641,7 @@ fn replace_via_restore_leaves_no_survivors() {
     assert_eq!(set.active_workspace_index(), 1);
 }
 
-/// WP3 / 8h: a pane carrying a session-host id whose host is not alive (no
+/// A pane carrying a session-host id whose host is not alive (no
 /// runtime dir in the test) is counted as a reattach attempt but falls back
 /// to a fresh shell - never a dead pane. Verifies the "N of M" accounting.
 #[test]
@@ -804,8 +804,8 @@ fn restore_lands_stale_and_unknown_cwds_at_home() {
 }
 
 /// A spawn failure mid-rebuild aborts the whole restore, reaping anything
-/// already spawned and leaving the launch layout untouched (sub-ODP 8f:
-/// never a broken/empty window).
+/// already spawned and leaving the launch layout untouched (never a
+/// broken/empty window).
 #[test]
 fn restore_aborts_cleanly_when_a_leaf_fails_to_spawn() {
     use crate::native::persistence::{PaneShape, ShapeSnapshot, TabShape, WorkspaceShape};
@@ -1267,7 +1267,7 @@ fn capture_records_remote_destination_as_remote_host() {
 }
 
 /// The structural fingerprint changes when the shape changes and is stable
-/// otherwise (the debounce trigger, sub-ODP 8c).
+/// otherwise (the debounce trigger).
 #[test]
 fn structural_fingerprint_tracks_shape_changes() {
     let mut set = WorkspaceSet::new(build_session(), None);

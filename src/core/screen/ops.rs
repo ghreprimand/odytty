@@ -55,14 +55,14 @@ impl Screen {
         }
     }
 
-    /// NF10 (C16/NF6 family): sever whatever precedes `row` in the logical-
+    /// Sever whatever precedes `row` in the logical-
     /// line chain when `row` is removed, replaced, or displaced. For `row > 0`
     /// the predecessor is the visible row above (`sever_soft_wrap`). For
     /// `row == 0` on the PRIMARY screen it is the trailing open scrollback
     /// line, which claims visible row 0 as its continuation - the same seam
-    /// NF6 fixed for ED2. On the ALT screen row 0's predecessor is the SAVED
+    /// a full-screen erase already severs. On the ALT screen row 0's predecessor is the SAVED
     /// primary row 0, which is untouched by alt-grid shuffles, so nothing is
-    /// severed there (mirrors the NF6 alt-screen pin).
+    /// severed there (the same rule as for a full-screen erase).
     fn sever_above(&mut self, row: usize) {
         if row > 0 {
             self.sever_soft_wrap(row - 1);
@@ -607,7 +607,7 @@ impl Screen {
                     let removed = std::mem::replace(&mut self.rows[row], fresh);
                     self.release_line_buttons(&removed);
                 }
-                // NF10 (NF6 sibling): when the cursor is below row 0, row 0
+                // When the cursor is below row 0, row 0
                 // was replaced wholesale - a trailing open scrollback line
                 // must not keep claiming it as a continuation. Cursor AT
                 // row 0 only erases in place (row survives), so no sever.

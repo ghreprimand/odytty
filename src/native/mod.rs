@@ -356,7 +356,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         app.attach_launch_session(&session_id);
     }
     // Shape autosave and restore belong to the primary instance of a bare
-    // `odytty` launch (sub-ODPs 8a/8b). Any CLI argument leaves `bare_launch`
+    // `odytty` launch. Any CLI argument leaves `bare_launch`
     // false: the launch starts fresh and never writes the saved shape, so the
     // saved layout survives it. A secondary instance never restores or writes.
     let owns_shape = app.claim_launch_shape_ownership(is_primary, bare_launch);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! MOUSE-SCROLLBAR App-level press-routing precedence tests. They prove that a
+//! App-level scroll-thumb press-routing precedence tests. They prove that a
 //! left press on the *visible* scroll thumb grabs it to scrub scrollback and
 //! wins over TUI mouse reporting, while every other press - including in a
 //! mouse-reporting app, and at the live tail - routes exactly as before (the

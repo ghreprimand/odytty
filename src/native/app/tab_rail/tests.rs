@@ -43,7 +43,7 @@ const GRID_ROWS: usize = 40;
 const ORIGIN: [f32; 2] = [0.0, 0.0];
 
 // The default geometry the positional assertions are expressed against
-// (F4-P1 lifted the raw geometry consts into `RailGeom`). Mirrors
+// (the raw geometry consts are lifted into `RailGeom`). Mirrors
 // `RailGeom::default()` = the `DEFAULT_SLOT_*` values.
 const GEOM: RailGeom = RailGeom {
     slot_rows: DEFAULT_SLOT_ROWS,
@@ -296,7 +296,7 @@ fn three_tabs_stack_with_stride_and_a_new_tab_slot() {
 
 #[test]
 fn floating_plus_is_left_aligned_at_the_label_column() {
-    // F4-P1 floating-`+` fix: the `+` glyph left-aligns at the label column
+    // Floating `+`: the `+` glyph left-aligns at the label column
     // (an Arc-style "+ new tab" row), not centered at rail_cols/2.
     let src = MockSource::new(&["a", "b"], 0);
     let out = render_default(&src);
@@ -317,7 +317,7 @@ fn floating_plus_is_left_aligned_at_the_label_column() {
 
 #[test]
 fn compact_single_row_slots_hold_more_tabs_and_the_plus_follows() {
-    // F4-P1 TAB_RAIL_SLOT_ROWS = 1: compact list, no wrap, more tabs fit.
+    // TAB_RAIL_SLOT_ROWS = 1: compact list, no wrap, more tabs fit.
     let geom = RailGeom {
         slot_rows: 1,
         slot_gap: 1,
@@ -336,7 +336,7 @@ fn compact_single_row_slots_hold_more_tabs_and_the_plus_follows() {
 
 #[test]
 fn zero_gap_removes_the_top_margin_and_inter_slot_space() {
-    // F4-P1 TAB_RAIL_GAP = 0: first slot kisses the top, slots are flush.
+    // TAB_RAIL_GAP = 0: first slot kisses the top, slots are flush.
     let geom = RailGeom {
         slot_rows: 2,
         slot_gap: 0,
@@ -1232,7 +1232,7 @@ fn autohide_control_hover_lifts_the_row() {
 }
 
 // -----------------------------------------------------------------------
-// F4-P4 seam-drag width geometry (pure)
+// Seam-drag width geometry (pure)
 // -----------------------------------------------------------------------
 
 #[test]

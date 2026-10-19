@@ -207,12 +207,12 @@ mod state;
 #[cfg(test)]
 pub(in crate::native) use state::PanePaintProbe;
 mod tab_bar;
-// F4-RESKIN: shared "Phosphor Flat" treatment (color) for both tab-chrome axes.
+// Shared "Phosphor Flat" treatment (color) for both tab-chrome axes.
 mod tab_chrome;
 // Unified tab-panel + seam background-quad geometry (color from
 // `tab_chrome`), spliced into the GPU background segment behind the chrome.
 pub(super) mod tab_panel;
-// F4-V2 R1: vertical tab rail widget - the sibling of `tab_bar`, active when
+// Vertical tab rail widget - the sibling of `tab_bar`, active when
 // `tab_bar_placement` is a rail.
 #[cfg(test)]
 mod device_loss_tests;
@@ -318,7 +318,7 @@ pub(super) struct RenameState {
     /// Caret position as a *character* index into `text` (not a byte offset),
     /// always on a terminal-owner boundary (see `rename_field`).
     cursor: usize,
-    /// F4-RENAME-MOUSE: the selection anchor as a character index. `Some` while
+    /// Rename-field mouse: the selection anchor as a character index. `Some` while
     /// a range is being (or has been) selected; the live selection spans
     /// `[min(anchor, cursor), max(anchor, cursor))`. Any caret motion or edit
     /// that is not a selection-extend clears it back to `None`. When

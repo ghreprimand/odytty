@@ -448,7 +448,7 @@ fn nesting_just_within_the_cap_still_parses() {
     }
 }
 
-// ---- cwd resolution for restore (design §10.5, sub-ODP 8f) ----
+// ---- cwd resolution for restore ----
 
 #[test]
 fn resolve_cwd_keeps_an_existing_directory() {
@@ -568,9 +568,9 @@ fn workspace_default_profile_round_trips() {
     );
 }
 
-/// Forward-compat: a snapshot written before F6-W5 (no `default_profile` field)
-/// parses to an unbound workspace, not an error - WP1's unknown-field tolerance
-/// covers the new optional key.
+/// Forward-compat: a snapshot written before host binding (no `default_profile` field)
+/// parses to an unbound workspace, not an error - the snapshot format's
+/// unknown-field tolerance covers the new optional key.
 #[test]
 fn snapshot_without_default_profile_parses_to_unbound() {
     let legacy = r#"{
@@ -589,8 +589,8 @@ fn snapshot_without_default_profile_parses_to_unbound() {
     );
 }
 
-/// WP3 / 8h: a pane's detached session-host id round-trips through the snapshot
-/// under the stable `session_host_id` key, and a pre-WP3 snapshot (no such key)
+/// A pane's detached session-host id round-trips through the snapshot
+/// under the stable `session_host_id` key, and an older snapshot (no such key)
 /// parses to a plain local pane.
 #[test]
 fn pane_session_host_id_round_trips_and_is_forward_compatible() {

@@ -80,7 +80,7 @@ pub enum InputCertainty {
 /// The latest OdyTTY-private edit-region report from a cooperating shell
 /// (`OSC 133;P;odytty-edit;len=N;cur=M[;nl=…]`, B-DESIGN §3.1). Counts are in
 /// **runes** (shell character counts, e.g. zsh `$#BUFFER`); core reconciles
-/// runes to display cells against its own grid (NF-D1). Stored on `Screen`
+/// runes to display cells against its own grid. Stored on `Screen`
 /// with the same lifecycle as `active_prompt_input_start` and consumed by
 /// [`derive_input_region`] to make the right edge `Exact`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -261,7 +261,7 @@ struct ReconciledGeometry {
 const MAX_AMBIGUOUS_WRAP_FILLERS: usize = 3;
 
 /// Reconcile an edit-region signal against the grid across the region's rows
-/// (NF-D1, generalized to soft-wrapped multi-row input for B1).
+/// (generalized to soft-wrapped multi-row input).
 ///
 /// The shell counts **runes** (characters); the grid stores **cells** (wide
 /// glyphs occupy two, combining marks fold into their base cell, and a wide
@@ -696,7 +696,11 @@ mod tests {
         };
         let region = derive_input_region(&rows, 0, COLS, Some((0, 2)), at(0, 14), Some(&sig))
             .expect("region derived");
-        assert_eq!(region.certainty, InputCertainty::Unknown, "ODP-2: no-op");
+        assert_eq!(
+            region.certainty,
+            InputCertainty::Unknown,
+            "hard newlines leave the region unknown (no-op)"
+        );
     }
 
     #[test]

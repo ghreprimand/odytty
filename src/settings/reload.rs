@@ -176,7 +176,7 @@ impl SettingsReloader {
     }
 
     /// Test seam: point the reloader at a hermetic temp config file so a live
-    /// persistence path (e.g. the F4-P4 rail seam drag) writes there instead of
+    /// persistence path (e.g. the rail seam drag) writes there instead of
     /// the user's real `odytty.conf`.
     #[cfg(test)]
     pub fn set_config_path_for_test(&mut self, path: Option<PathBuf>) {

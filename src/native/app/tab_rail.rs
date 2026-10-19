@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Vertical tab rail widget (F4-V2 R1) - presentation-only, decoupled from the
+//! Vertical tab rail widget - presentation-only, decoupled from the
 //! session model, the vertical sibling of [`super::tab_bar::TabBar`].
 //!
 //! Where [`TabBar`](super::tab_bar::TabBar) packs variable-width slots along a
@@ -25,8 +25,8 @@
 //! - **HOVER** - the label warms one tier toward the active label and gains a
 //!   whisper of the selection fill.
 //!
-//! The whole `rail_cols × grid_rows` region paints the F4-P1 **panel tint**
-//! (Layer 1 of ODP-1) on every non-active cell - inactive slots and the
+//! The whole `rail_cols × grid_rows` region paints the **panel tint**
+//! (the first panel layer) on every non-active cell - inactive slots and the
 //! inter-slot gaps recede into the panel surface. There are **no chrome quads in
 //! this widget** ([`TabRailOutput::quads`] is emitted empty); the unified panel
 //! wash + seam are separate background-segment quads built by
@@ -46,15 +46,15 @@ use crate::core::Attrs;
 use crate::theme::Srgb;
 
 // ---------------------------------------------------------------------------
-// Geometry constants (Option B - padded slots)
+// Geometry constants (padded slots)
 // ---------------------------------------------------------------------------
 
-/// Default rows each tab slot occupies (Option B: 2-cell-tall padded slots -
-/// label row plus a breathing row). F4-P1 lifts this to the
+/// Default rows each tab slot occupies (2-cell-tall padded slots -
+/// label row plus a breathing row). The settings lift this to the
 /// `ODYTTY_TAB_RAIL_SLOT_ROWS` knob via [`RailGeom::slot_rows`]; this const is
 /// the default and the fixed value the unit tests express positions against.
 const DEFAULT_SLOT_ROWS: usize = 2;
-/// Default band-fill gap (in rows) between adjacent slots. F4-P1 lifts this to
+/// Default band-fill gap (in rows) between adjacent slots. The settings lift this to
 /// the `ODYTTY_TAB_RAIL_GAP` knob via [`RailGeom::slot_gap`]; the top margin
 /// before the first slot follows it.
 const DEFAULT_SLOT_GAP: usize = 1;
@@ -91,14 +91,14 @@ const AUTOHIDE_CHEVRON_RIGHT: char = '\u{25b6}'; // ▶
 /// non-content margin) so it never crowds the label and stays width-robust.
 const BOUND_BADGE: char = '\u{21c4}';
 
-/// Runtime rail slot geometry (F4-P1 knobs): how many rows each slot occupies
+/// Runtime rail slot geometry (settings knobs): how many rows each slot occupies
 /// and the inter-slot gap. Threaded through [`TabRail::render`] /
 /// the shared chrome geometry so the settings can tune them live; the widget owns no
 /// settings, the integration layer resolves these from `Settings`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RailGeom {
     /// Rows per slot (`1` = compact list, `2` = padded with a breathing row;
-    /// the label is always a single centered line, F4-P4).
+    /// the label is always a single centered line).
     pub(super) slot_rows: usize,
     /// Rows of empty band between adjacent slots (and the top margin).
     pub(super) slot_gap: usize,
@@ -265,7 +265,7 @@ pub(super) struct RailSlot {
     /// space; taller slots centre exactly.
     pub(super) label_row: usize,
     /// The single-line label, already truncated with `…` to the inner column
-    /// budget (F4-P4 - the rail never wraps to a second line).
+    /// budget (the rail never wraps to a second line).
     pub(super) label: String,
     /// `(row, col)` of the `×` close glyph (on the label row, at the slot's
     /// inset top-right), or `None` when the rail is too narrow.
@@ -383,7 +383,7 @@ impl TabRail {
         let active_idx = source.active_tab();
 
         // Phosphor Flat palette (shared treatment; theme roles only). the
-        // resting-region surface is the panel tint (Layer 1 of ODP-1); the wash
+        // resting-region surface is the panel tint (the first panel layer); the wash
         // + seam quads are added separately in the background segment by the
         // integration layer. `panel_strength = 0` collapses the tint to the raw
         // background (the pre-panel bare-labels look).
@@ -434,7 +434,7 @@ impl TabRail {
                 }
             }
             // Label glyphs - a single line on the slot's vertically-centered row
-            // (F4-P4; no wrapping).
+            // (no wrapping).
             let mut la = Attrs::default();
             la.foreground = label_fg;
             la.background = slot_bg;
@@ -839,7 +839,7 @@ pub(super) fn rail_label_cols(s: &str) -> usize {
 }
 
 /// Truncate `s` to a single line of at most `inner` columns, ending an
-/// overflowing title with `…` (F4-P4 - the rail never wraps to a second line;
+/// overflowing title with `…` (the rail never wraps to a second line;
 /// the auto-width mode grows the rail to fit, and past the cap the title
 /// ellipsizes). Leading/trailing whitespace and control characters are
 /// stripped ([`rail_label_text`]). Columns are counted by terminal owners, so

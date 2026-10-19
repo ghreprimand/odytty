@@ -66,7 +66,7 @@ fn pane_focus_is_owned_and_restored_by_its_workspace() {
     assert_eq!(fixture.app.active_pane_count_for_test(), 1);
 }
 
-/// WP1 capture: a headless multi-workspace, multi-pane `App` captures into a
+/// Capture: a headless multi-workspace, multi-pane `App` captures into a
 /// `ShapeSnapshot` that mirrors names, tab count/order, the split tree, and
 /// per-pane cwd - and the captured shape round-trips through the JSON layer.
 #[test]
@@ -180,7 +180,7 @@ fn background_tab_bell_latches_activity_without_switching() {
     );
 }
 
-/// NF21-6 / §5 rule 3: a bell rung in a BACKGROUND WORKSPACE latches its tab's
+/// A bell rung in a BACKGROUND WORKSPACE latches its tab's
 /// activity (and the derived workspace rollup) without waiting for a switch -
 /// the surface a bell is most for after workspaces landed.
 #[test]
@@ -285,7 +285,7 @@ fn single_pane_overlay_geometry_equals_the_window_grid_and_pointer_cell() {
 
 #[test]
 fn backgrounded_session_blink_does_not_spin_the_event_loop() {
-    // NF20-B regression: `next_wake_deadline` sourced the cursor-blink toggle of
+    // Regression: `next_wake_deadline` sourced the cursor-blink toggle of
     // EVERY session, but the blink is only consumed for the ACTIVE session (the
     // `Deref` target). So a blinking cursor in tab A, once tab B is activated,
     // left A's toggle deadline in the wake set with nothing to advance it -
@@ -353,7 +353,7 @@ fn backgrounded_session_blink_does_not_spin_the_event_loop() {
 #[test]
 fn split_focused_cursor_effects_advance_without_background_wakes() {
     // The split render path consumes cursor motion/easing only for the focused
-    // pane. Non-focused panes remain parked, preserving the NF20-B invariant
+    // pane. Non-focused panes remain parked, preserving the invariant
     // that every sourced wake has a render consumer.
     let (mut app, _bytes) = single_session_app();
     let (terminal, writer, headless, _b) = recorded_session(NativeOptions::default().initial_grid);
@@ -512,7 +512,7 @@ fn split_large_jump_streak_uses_only_the_focused_pane_clip_and_wake() {
 
 #[test]
 fn output_into_a_background_split_pane_drives_a_rebuild() {
-    // NF21-7 regression (paired with NF21-1; its spin masked this until fixed).
+    // Regression: a spin once masked this until the spin was fixed.
     // `App` has no own `needs_rebuild` - `self.needs_rebuild` Derefs to the
     // FOCUSED pane. PTY output for a non-focused but visible split pane sets THAT
     // pane's flag and requests a redraw, but the frame gate read only the focused

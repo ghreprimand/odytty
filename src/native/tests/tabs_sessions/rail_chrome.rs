@@ -3,7 +3,7 @@
 
 use super::*;
 
-// --- F4-V2 vertical tab rail integration ---
+// --- Vertical tab rail integration ---
 
 #[test]
 fn tab_reserve_combines_top_bar_and_workspace_rail() {
@@ -201,7 +201,7 @@ fn left_rail_hit_test_resolves_switch_close_and_new() {
     // Pin a manual rail width (16) so the close-× column (rail_cols − 2)
     // is a fixed 14 regardless of the auto-sized width.
     app.set_tab_rail_width_manual_for_test(16);
-    // Pin short single-line labels so the F4-P1 floating-`+` anchor (one gap
+    // Pin short single-line labels so the floating-`+` anchor (one gap
     // below the last slot's LABEL row) is deterministic regardless of the live
     // shell title's length.
     // Two workspaces give the rail two slots; the active workspace holds a

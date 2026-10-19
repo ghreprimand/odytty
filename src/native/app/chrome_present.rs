@@ -73,15 +73,14 @@ impl App {
     pub(super) fn should_show_tab_bar(&self) -> bool {
         // ≥2 tabs always shows the bar; otherwise honor the opt-in
         // `always_show_tab_bar` setting, and show a lone tab when it carries a
-        // custom name so a named single "workflow" tab is visible (F4 ODP-7 /
-        // F4-NF1).
+        // custom name so a named single "workflow" tab is visible.
         self.live_drag_destination
             || self.sessions.tab_count() >= 2
             || self.settings.always_show_tab_bar
             || self.sessions.lone_tab_has_title_override()
     }
 
-    /// Whether the workspace rail is shown this frame (design doc ODP-2). The
+    /// Whether the workspace rail is shown this frame. The
     /// rail lists workspaces, independent of the top tab bar: `Auto` (default)
     /// shows it only once a second workspace exists, so a single-workspace
     /// session keeps the top-only tab bar with zero chrome change; `Always` and
@@ -297,7 +296,7 @@ impl App {
         output
     }
 
-    /// The live unified-panel strength (F4-P1 `tab_panel_strength`), passed to
+    /// The live unified-panel strength (`tab_panel_strength`), passed to
     /// both tab-chrome widgets for the resting-cell tint and used to build the
     /// panel wash/seam background quads.
     pub(super) fn tab_panel_strength(&self) -> f32 {
@@ -379,10 +378,10 @@ impl App {
         (panel_color, wash_alpha, seam)
     }
 
-    /// Build the F4-P1 unified-panel background quads (ODP-1 wash + ODP-2 seam)
+    /// Build the unified-panel background quads (wash and seam)
     /// for the current frame, in surface pixels. Empty when the bar is hidden,
     /// the GPU is not up yet, or the band is degenerate; the caller splices these
-    /// into the GPU background segment (after the NF11 edge wash). The panel wash
+    /// into the GPU background segment (after the edge wash). The panel wash
     /// is emitted only when the shared [`Self::chrome_panel_paint`] alpha is
     /// positive; the seam only when the seam knob is on AND the panel is live
     /// (`strength > 0`).

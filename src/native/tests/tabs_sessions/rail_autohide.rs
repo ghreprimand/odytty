@@ -346,7 +346,7 @@ fn reveal_zone_is_logical_px_scaled_for_hidpi() {
 
 #[test]
 fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
-    // NF20-B live-wiring regression: reported (scale ~1.5, real
+    // Live-wiring regression: reported (scale ~1.5, real
     // window padding) that the reveal only triggered at the very window edge and
     // would not stay up with the pointer over the band. This exercises the FULL
     // live path - `update_rail_autohide_pointer` (real contact geometry) + the
@@ -973,7 +973,7 @@ fn autohide_rail_menu_box_clears_the_floating_rail_band() {
     );
 }
 
-// --- F4-P3 REGRESSION repros (auto-hide breaks mouse routing) ---
+// --- Rail auto-hide REGRESSION repros (auto-hide breaks mouse routing) ---
 
 #[test]
 fn repro_right_click_in_content_opens_menu_under_autohide() {
@@ -1096,7 +1096,7 @@ fn repro_open_menu_suppresses_the_rail_overlay_no_occlusion() {
     );
 }
 
-// --- F4-P3 REGRESSION: phantom top-bar leak + idle self-wake ---
+// --- Rail auto-hide REGRESSION: phantom top-bar leak + idle self-wake ---
 
 #[test]
 fn autohide_left_decoration_grows_no_phantom_top_bar() {
@@ -1189,7 +1189,7 @@ fn autohide_top_placement_still_decorates_its_bar() {
 
 #[test]
 fn autohide_idle_states_schedule_no_self_wake() {
-    // REGRESSION (NF20 CPU spin): an idle auto-hidden rail must not schedule a
+    // REGRESSION (CPU spin): an idle auto-hidden rail must not schedule a
     // wake - neither steady Hidden nor Revealed-with-the-pointer-parked. A past
     // or immediate wake here would spin the event loop (`WaitUntil(now)` → wake →
     // poll → no change → repeat) at frame rate, pegging a core. Both idle phases

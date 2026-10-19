@@ -383,7 +383,7 @@ impl TabBar {
         let active_idx = source.active_tab();
 
         // Phosphor Flat palette (shared treatment; theme roles only). the
-        // resting-cell surface is the panel tint (Layer 1 of ODP-1) rather than
+        // resting-cell surface is the panel tint (the first panel layer) rather than
         // the raw background, so the bar reads as one quiet surface even at
         // `cell_bg_opacity = 1`; `panel_strength = 0` collapses it to the theme
         // background (the pre-panel bare-labels look).

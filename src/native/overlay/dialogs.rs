@@ -308,8 +308,8 @@ impl OverlayUi {
         }
     }
 
-    /// Hit-test a left-click in the close-confirmation dialog body (UX4-P1
-    /// click→Activate parity). The action line ([`CONFIRM_CLOSE_ACTION_LINE`])
+    /// Hit-test a left-click in the close-confirmation dialog body
+    /// (click→Activate parity). The action line ([`CONFIRM_CLOSE_ACTION_LINE`])
     /// is the 3rd body row (index 2); a click on the "Yes" region confirms
     /// (`ForceClose`), the "No" region cancels (`Close`), and anywhere else -
     /// including the leading prompt text and the other two rows - is inert so a
@@ -1350,7 +1350,7 @@ impl OverlayUi {
                 }
             }
             // Bind the current workspace to the clicked host (reuses the frozen
-            // W5 setter + bind toast via the shared BindWorkspaceToHost outcome).
+            // host-binding setter + bind toast via the shared BindWorkspaceToHost outcome).
             ContextMenuItem::ConnRowBindWorkspace => {
                 self.close();
                 match host {

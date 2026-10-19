@@ -3,7 +3,7 @@
 
 use super::*;
 
-// --- workspace rail chrome (design doc §7, ODP-2/-6) ---
+// --- workspace rail chrome ---
 
 /// A New Tab in a workspace bound to a host that is no longer configured
 /// falls back to a local tab and raises a one-line notice - a stale binding
@@ -97,7 +97,7 @@ fn workspace_rail_always_shows_with_a_single_workspace() {
 
 #[test]
 fn clicking_a_workspace_rail_slot_switches_the_active_workspace() {
-    // ODP-10 / §7.1: a click on a rail slot dispatches to `switch_workspace`,
+    // A click on a rail slot dispatches to `switch_workspace`,
     // not `switch_tab`; the band reports the WORKSPACE surface. a
     // press now ARMS a drag-to-reorder gesture and the switch fires on release
     // (a click that never crossed the movement threshold), so the click is a
@@ -633,7 +633,7 @@ fn the_shared_rename_field_retargets_the_workspace_name() {
     );
 }
 
-// ---- debounced workspace-shape autosave (sub-ODP 8c/8d) ----
+// ---- debounced workspace-shape autosave ----
 
 /// A burst of shape mutations coalesces into exactly one autosave write once the
 /// debounce quiet window elapses - a drag/rapid-edit stream is one write, not N.

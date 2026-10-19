@@ -105,7 +105,7 @@ pub struct NativeOptions {
     /// it - the `odytty attach <id>` entry the CLI sets.
     pub attach_session: Option<String>,
     /// Whether this process was launched as a bare `odytty` with no CLI
-    /// arguments (WP2 restore-on-launch, sub-ODP 8b). Only a bare launch is
+    /// arguments (restore on launch). Only a bare launch is
     /// eligible to restore the previous workspace shape; any argument (a flag,
     /// `-e`, a working-directory, an attach id) sets this `false` and suppresses
     /// restore for that launch. `false` by default so every non-bare

@@ -133,8 +133,8 @@ pub(in crate::native) enum OverlayOutcome {
     /// as a click on it would, then routes the id through the palette handler.
     ContextMenuTabWindowAction(SessionToken, &'static str),
     ContextMenuNewTab,
-    /// Open a local shell in a new tab from a bound-workspace tab menu (F6-W5
-    /// escape hatch). The overlay has closed itself; the App dispatches this to
+    /// Open a local shell in a new tab from a bound-workspace tab menu (the
+    /// escape hatch from host binding). The overlay has closed itself; the App dispatches this to
     /// `handle_new_local_tab`, bypassing the workspace host binding.
     ContextMenuNewLocalTab,
     /// Duplicate the right-clicked tab from the tab context menu: a fresh local

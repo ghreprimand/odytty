@@ -576,7 +576,7 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.unbind_active_workspace();
             }
-            // ODP-1B/6B: the shared host picker closed itself before emitting
+            // The shared host picker closed itself before emitting
             // this; bind the active workspace to the chosen saved-host alias.
             OverlayOutcome::BindWorkspaceToHost(alias) => {
                 self.flush_pending_overlay_settings();
@@ -892,7 +892,7 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.handle_new_tab_with_profile(&name);
             }
-            // REMOTE-UX the Add / Edit connection form closed itself before
+            // The Add / Edit connection form closed itself before
             // emitting this; persist the built host - append a new block for Add,
             // byte-splice over the named block for Edit. A write failure surfaces
             // a one-line notice and never panics.
@@ -900,7 +900,7 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.persist_connection_form(&host, edit_target);
             }
-            // REMOTE-UX run the Test Connection probe on a
+            // Run the Test Connection probe on a
             // background thread; the overlay stays open and shows the tri-state
             // result when it lands.
             OverlayOutcome::TestConnection(host) => {
@@ -1224,7 +1224,7 @@ impl App {
             };
             step
         } else {
-            // WHEEL-SENS (T-overlay): coalesce the high-resolution burst so the
+            // Wheel sensitivity: coalesce the high-resolution burst so the
             // settings list advances one entry per physical notch instead of
             // flying. The overlay deliberately uses the fixed default step (the
             // user's `scroll_wheel_lines` multiplier is a terminal-scroll knob),

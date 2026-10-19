@@ -111,7 +111,7 @@ fn left_rail_shrinks_the_content_rect_by_the_rail_width_plus_the_gap() {
 
 #[test]
 fn right_rail_shrinks_content_from_the_right_with_the_band_a_gap_away() {
-    // F4-P2 layout mirror + a right rail reserves `right_cols`
+    // Layout mirror: a right rail reserves `right_cols`
     // off the RIGHT plus the chrome-facing gap: the content width shrinks
     // by band + gap but its x-origin stays put (content on the LEFT), the
     // mirror of the left rail (which shifts the origin right). y/height are

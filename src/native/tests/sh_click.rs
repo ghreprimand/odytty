@@ -297,7 +297,7 @@ fn click_on_prompt_text_is_a_noop() {
 
 #[test]
 fn wide_glyph_line_counts_glyphs_not_cells() {
-    // F2-NF1 (fails-before): U+6F22 U+5B57 occupy four cells (two wide glyphs with
+    // U+6F22 U+5B57 occupy four cells (two wide glyphs with
     // continuation spacers) but is two caret steps. The shipped raw-cell delta
     // sent 4 Lefts (caret overshoots); the glyph count sends 2.
     let (mut app, bytes) =

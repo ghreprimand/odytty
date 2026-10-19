@@ -125,7 +125,7 @@ fn per_host_tmux_overrides_global_default() {
 
 #[test]
 fn identity_file_adds_dash_i_to_the_connect_argv() {
-    // ODP-9 Tier 1: a set IdentityFile puts `-i <path>` in the plain connect
+    // A set IdentityFile puts `-i <path>` in the plain connect
     // argv, as a separate argv element before the destination operand.
     let mut h = host("k");
     h.identity_file = Some("/fixture/keys/id_ed25519.example".to_owned());
@@ -500,7 +500,7 @@ fn reuse_off_emits_no_control_options() {
     assert!(!argv(&command).join(" ").contains("ControlMaster"));
 }
 
-// ODP-9 Tier 2: the `remote_persist` knob replaces the historically-fixed
+// The `remote_persist` knob replaces the historically-fixed
 // ControlPersist window. The default resolves to `None` here, which MUST keep
 // emitting the historical `ControlPersist=600` so the argv is byte-identical
 // to before the knob (the non-regression gate the ruling called out).

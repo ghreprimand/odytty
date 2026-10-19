@@ -259,7 +259,7 @@ pub(in crate::native) struct App {
     /// ever `Some` inside a multi-pane tab; `None` otherwise, so the single-pane
     /// pointer path is unaffected.
     pub(super) divider_drag: Option<usize>,
-    /// F4-P4 auto-width cache: the rail band width (cells) currently baked into
+    /// Auto-width cache: the rail band width (cells) currently baked into
     /// the content-grid reservation. `reconcile_rail_auto_width` reflows the
     /// grid only when the live resolved width diverges from this, so a title
     /// change / tab add-remove / max-width edit re-sizes the content exactly
@@ -270,7 +270,7 @@ pub(in crate::native) struct App {
     /// a manual width; release persists it. Only ever `true` while a rail is
     /// shown, so the top-bar / single-pane paths are unaffected.
     pub(super) rail_seam_drag: bool,
-    /// F4-P4 double-click detection for the rail seam (reset-to-auto). Keyed on
+    /// Double-click detection for the rail seam (reset-to-auto). Keyed on
     /// a fixed synthetic point so two quick seam presses register as a double-
     /// click; reset on an actual drag move so a drag-then-grab is not misread as
     /// one. Separate from the grid/rename trackers.
@@ -290,7 +290,7 @@ pub(in crate::native) struct App {
     /// value once through `seam_click_instant`.
     #[cfg(test)]
     pub(super) seam_click_at_for_test: Option<Instant>,
-    /// F4-P3 rail auto-hide timing state machine. Inert unless
+    /// Rail auto-hide timing state machine. Inert unless
     /// `tab_rail_autohide` is on and the chrome is a side rail; when active it
     /// drives the reveal/hide of the floating rail overlay from the pointer edge
     /// zone, keyboard flashes, and the debounce/grace timers. The reservation is
@@ -596,15 +596,15 @@ pub(in crate::native) struct App {
     /// Visible multi-session tab strip state. Presentation-only; the session
     /// model stays in `WorkspaceSet`.
     pub(super) tab_bar: TabBar,
-    /// Vertical tab rail state (F4-V2 R1) - the sibling of `tab_bar`, active
+    /// Vertical tab rail state - the sibling of `tab_bar`, active
     /// only when `tab_bar_placement` is a rail. Presentation-only.
     pub(super) tab_rail: TabRail,
     pub(super) rename_state: Option<RenameState>,
-    /// F4-RENAME-MOUSE: double-click detection for the tab-rename field, kept
+    /// Rename-field mouse: double-click detection for the tab-rename field, kept
     /// separate from the terminal-grid `clicks` tracker so a rename word-select
     /// never interacts with a grid selection streak. Reset when a rename opens.
     pub(super) rename_clicks: ClickTracker,
-    /// F4-RENAME-MOUSE: a left-button drag is in progress inside the rename
+    /// Rename-field mouse: a left-button drag is in progress inside the rename
     /// field. Set on a press that lands on the input line, cleared on release
     /// (or when the rename closes). While set, pointer motion extends the
     /// field selection instead of doing any grid hover/selection work.
@@ -621,7 +621,7 @@ pub(in crate::native) struct App {
     /// gate overlay slider drag moves so that cursor movements after the button
     /// is released can NEVER advance an armed drag - even if the drag state is
     /// somehow stale. `CursorMoved` carries no button state, so this flag is the
-    /// reliable held-button seam for the settings-slider path (D-SLIDER-GUARD).
+    /// reliable held-button seam for the settings-slider path.
     pub(super) overlay_left_held: bool,
     /// Window-wide left-button state for chrome, divider, and scrollbar drag
     /// motion. Every left-button edge updates it before pointer routing, and
@@ -629,7 +629,7 @@ pub(in crate::native) struct App {
     /// `CursorMoved` carries no button state, so each non-grid drag checks this
     /// flag before advancing an in-flight latch.
     pub(super) pointer_left_held: bool,
-    /// NF21-8 grid analogue of `overlay_left_held`: whether the left button is
+    /// Grid analogue of `overlay_left_held`: whether the left button is
     /// currently held during a terminal-grid text selection. Set when
     /// [`Self::begin_selection`] arms a drag, cleared on
     /// [`Self::finish_selection`], on focus loss, and at every active-session
@@ -660,7 +660,7 @@ pub(in crate::native) struct App {
     /// closed; the per-frame [`Self::sync_image_overlay`] clears it (and the GPU
     /// overlay texture) once the overlay is no longer open.
     pub(super) image_overlay: Option<interactive_paths::ImageOverlayState>,
-    /// WP2 autosave (sub-ODP 8c/8d): whether THIS instance may persist the
+    /// Autosave: whether THIS instance may persist the
     /// workspace shape. Only the primary instance (the one holding the state-dir
     /// lock) autosaves or restores; a second concurrent window sets this `false`
     /// and never writes `workspaces.json`, and so does a primary launched with

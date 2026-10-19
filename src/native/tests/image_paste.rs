@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! F6-i7 App-level image paste-through tests. These drive a real `App` (with a
+//! App-level image paste-through tests. These drive a real `App` (with a
 //! wake handle where a case spawns a session, and none otherwise)
 //! through the production paste path, `handle_paste_shortcut` and
 //! the confirm-prompt commit/cancel - with a synthetic clipboard image and a

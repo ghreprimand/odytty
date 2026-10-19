@@ -210,7 +210,7 @@ impl OverlayUi {
                                 .handle_press(row_in_body, rect.body_height, button);
                         self.apply_context_menu_outcome(outcome)
                     }
-                    // UX4-P1 click→Activate parity: a left-click on a list row
+                    // Click→Activate parity: a left-click on a list row
                     // selects the row under the pointer (the inverse of each
                     // overlay's `visible_lines` windowing) and routes the SAME
                     // Activate the keyboard uses, so click-on-row-N == Down×N +

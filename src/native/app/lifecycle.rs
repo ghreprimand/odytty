@@ -318,9 +318,9 @@ impl App {
             // was steady/unfocused/blink-off. Restored here, gated to the
             // single-pane active render path: that path (the `update_*` calls in
             // the single-pane rebuild) is the ONLY consumer that advances these
-            // timers, so - per the NF20-B "a source must not fan wider than its
-            // consumer" rule - sourcing a wake while multipane would be a wake
-            // with no consumer (a spin). NF21-1/7 restores the multipane
+            // timers, so - per the rule that a source must not fan wider than its
+            // consumer - sourcing a wake while multipane would be a wake
+            // with no consumer (a spin). Restoring the multipane
             // advancement and widens this gate. `None` at rest (every
             // contributor `None`), so the idle wake set is unchanged.
             (presentation_active && self.sessions.active_is_single_pane())
@@ -612,7 +612,7 @@ impl App {
                 session,
                 remote_path,
             } => {
-                // F6-i7 post-upload UX: the background upload finished. The
+                // Post-upload notice: the background upload finished. The
                 // remote path is NOT typed into the shell -- a bare path sitting
                 // on an empty prompt runs on the next Enter and errors (the PNG
                 // is not executable). Instead post a self-explaining notice into
@@ -714,7 +714,7 @@ impl App {
         if std::mem::take(&mut self.paste_focus_loss_pending) && !self.focused {
             self.cancel_pending_text_paste();
         }
-        // REMOTE-UX drain a finished Test Connection probe into the
+        // Drain a finished Test Connection probe into the
         // open form. Idle when no probe is in flight.
         self.poll_connection_probe();
         // Memory-attribution sample, when the diagnostic is gated on and one is
@@ -880,7 +880,7 @@ impl App {
         // `None` and restore zero-wake idle.
         // Gated to the single-pane render path for the same reason the collector
         // source is (that path is the only consumer that advances these timers;
-        // multipane advancement is NF21-1/7). The real-instant contributors
+        // multipane advancement is a separate path). The real-instant contributors
         // (open-notice / click-hint) still fire exactly once - the collector
         // wakes only at their expiry, so the due check accepts that one pass and
         // the rebuild clears them.

@@ -462,13 +462,13 @@ impl WorkspaceSet {
         }
     }
 
-    /// Clear the pointer-input latches on EVERY session in the arena (NF21-8 /
-    /// NF21-9). Called from the active-session-change seam, which fires on both
-    /// tab and workspace switches post-W1: sweeping the flat arena covers the
-    /// outgoing session (whose in-flight drag must not survive), the incoming
-    /// session (whose stale hover cell must not paint), and every background
-    /// session across all workspaces in one pass. Selection and viewport state
-    /// are intentionally preserved - see [`Session::clear_input_latches`].
+    /// Clear the pointer-input latches on EVERY session in the arena. Called
+    /// from the active-session-change seam, which fires on both tab and
+    /// workspace switches: sweeping the flat arena covers the outgoing session
+    /// (whose in-flight drag must not survive), the incoming session (whose
+    /// stale hover cell must not paint), and every background session across
+    /// all workspaces in one pass. Selection and viewport state are
+    /// intentionally preserved - see [`Session::clear_input_latches`].
     pub(in crate::native) fn clear_all_input_latches(&mut self) {
         for session in self.sessions.values_mut() {
             session.clear_input_latches();
@@ -773,8 +773,8 @@ impl WorkspaceSet {
     }
 
     /// Drain the bell and prompt-marks-changed latches of EVERY session over the
-    /// flat arena (design §5 rule 1 - never a hierarchy walk), routing each per
-    /// NF21-6:
+    /// flat arena (design §5 rule 1 - never a hierarchy walk), routing each as
+    /// follows:
     ///
     /// - The active-visible focused pane keeps today's behavior: its bell drives
     ///   the viewport flash and its prompt-marks change (when the gutter is on)

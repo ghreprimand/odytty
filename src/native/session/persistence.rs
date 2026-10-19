@@ -63,7 +63,7 @@ pub(in crate::native) enum RestoreReport {
         panes: usize,
         stale_cwd: usize,
         /// How many panes reattached to a still-alive detached session-host
-        /// (WP3 / 8h). Drives the "N of M sessions reattached" notice.
+        /// Drives the "N of M sessions reattached" notice.
         reattached: usize,
         /// How many panes CARRIED a session-host id to try (the "M"); a dead id
         /// spawned a fresh shell and is counted here but not in `reattached`.
@@ -261,7 +261,7 @@ impl WorkspaceSet {
     }
 
     /// The detached session-host id the pane backed by `token` is attached to
-    /// (WP3 / 8h), or `None` for a locally-spawned pane. On Windows this is
+    /// or `None` for a locally-spawned pane. On Windows this is
     /// always `None` - the detached-session transport is Unix-only - so no ids
     /// are ever captured there (the design's Windows all-fresh guarantee holds
     /// by construction).

@@ -880,7 +880,7 @@ fn workspace_slot_duplicate_workspace_emits_duplicate_outcome() {
 
 #[test]
 fn tab_slot_close_tab_emits_token_targeted_outcome() {
-    // NF-F7-1: closing a tab from a specific tab slot targets THAT tab's
+    // Closing a tab from a specific tab slot targets THAT tab's
     // token, not the active tab. Body rows: New Tab(0) New Tab with Profile(1)
     // Duplicate Tab(2) Rename Tab(3) sep(4) Close Tab(5) Close Other Tabs(6)
     // sep(7) New Window(8).

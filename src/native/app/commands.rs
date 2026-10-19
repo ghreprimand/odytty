@@ -55,9 +55,9 @@ impl App {
         }
     }
 
-    /// New Tab dispatcher (F6-W5 / ODP-9): when the active workspace is bound to
+    /// New Tab dispatcher: when the active workspace is bound to
     /// a host alias this routes New Tab through the remote SSH connect path;
-    /// otherwise it spawns a local shell - byte-identical to the pre-W5 path, so
+    /// otherwise it spawns a local shell - byte-identical to the path before host binding, so
     /// an unbound workspace is unaffected. The "New Local Tab" escape hatch
     /// bypasses the binding by calling [`Self::handle_new_local_tab`] directly.
     pub(super) fn handle_new_tab(&mut self) {
@@ -215,7 +215,7 @@ impl App {
     }
 
     /// Spawn a local shell in a new tab regardless of any workspace host binding
-    /// (F6-W5 escape hatch). This is the exact pre-W5 New Tab behavior; the
+    /// (the escape hatch). This is the exact New Tab behavior before host binding; the
     /// binding-aware [`Self::handle_new_tab`] delegates here when the active
     /// workspace is unbound.
     pub(super) fn handle_new_local_tab(&mut self) {
@@ -506,7 +506,7 @@ impl App {
     }
 
     /// Close the tab that holds `token` - the whole tab, every pane - from a
-    /// tab-slot right-click (NF-F7-1). Distinct from [`Self::close_active_tab`]:
+    /// tab-slot right-click. Distinct from [`Self::close_active_tab`]:
     /// the right-clicked tab may be a background one, so this resolves its strip
     /// index (within the active workspace) and reaps THAT tab. Exits the app on
     /// the last tab of the last workspace, mirroring the active-close guard;

@@ -150,7 +150,7 @@ pub(in crate::native) struct Session {
     #[cfg(test)]
     pub(in crate::native) test_surface: Option<((u32, u32), WindowPadding)>,
     /// Headless scale-factor seam: a display scale override so DPI-aware pointer
-    /// geometry (the F4-P3 rail reveal zone) can be exercised without a
+    /// geometry (the rail reveal zone) can be exercised without a
     /// GPU/window. `None` in production (the field only exists under
     /// `cfg(test)`); the live path reads `GpuState::scale`.
     #[cfg(test)]
@@ -403,7 +403,7 @@ pub(in crate::native) struct Workspace {
     /// New Tab opened while this workspace is active routes through the remote
     /// connect path for that host instead of spawning a local shell; the
     /// "New Local Tab" escape hatch always spawns a local shell regardless.
-    /// `None` (the default) is byte-identical to the pre-W5 local-only behavior.
+    /// `None` (the default) is byte-identical to the local-only behavior before host binding.
     pub(in crate::native) default_profile: Option<String>,
     /// Optional named launch profile bound to this workspace (v0.14). When set,
     /// New Tab uses the profile resolver unless a host binding wins. Distinct
@@ -949,7 +949,7 @@ impl WorkspaceSet {
     }
 
     /// True when there is exactly one tab and it carries a custom
-    /// `title_override` (F4 ODP-7 / F4-NF1). The tab bar's show rule uses this
+    /// `title_override`. The tab bar's show rule uses this
     /// so a single renamed "workflow" tab is visible even below the usual
     /// two-tab threshold.
     pub(in crate::native) fn lone_tab_has_title_override(&self) -> bool {

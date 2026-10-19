@@ -133,7 +133,7 @@ fn theme_value_cell(rect: OverlayRect) -> CellPoint {
     }
 }
 
-// --- UX4-P1 click→Activate parity: list overlays + ConfirmClose ---
+// --- click→Activate parity: list overlays + ConfirmClose ---
 
 fn body_press(rect: OverlayRect, row_in_body: usize, col_in_body: usize) -> OverlayPointer {
     OverlayPointer::Press {

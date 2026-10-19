@@ -639,7 +639,7 @@ fn a_background_workspaces_shell_exit_reaps_it_without_disturbing_the_active_one
 
     // The background workspace's shell exits: its tab (and thus the now-empty
     // workspace) is reaped without app exit, and the active workspace is
-    // untouched. This is the NF21 §5 background-workspace polarity: a
+    // untouched. This is the background-workspace case: a
     // producer in a non-active workspace still serviced correctly.
     let exit = set.close_shell_exited(SessionToken(1));
     assert!(!exit);
@@ -658,8 +658,8 @@ fn switch_deep_focuses_across_workspaces_for_attach_dedup() {
     assert!(set.switch_workspace(1));
     assert_eq!(set.active_workspace_index(), 1);
 
-    // Selecting a token that lives in ws0 (the attach-dedup deep-switch,
-    // ODP-10) moves the active workspace + tab + focused pane in one step.
+    // Selecting a token that lives in ws0 (the attach-dedup deep-switch)
+    // moves the active workspace + tab + focused pane in one step.
     assert!(set.switch(SessionToken(1)));
     assert_eq!(set.active_workspace_index(), 0);
     assert_eq!(set.active_id(), SessionToken(1));
@@ -849,7 +849,10 @@ fn moving_the_last_tab_out_closes_the_source_workspace() {
 
     let (moved, source_closed) = set.move_tab_to_workspace(SessionToken(0), 1);
     assert!(moved);
-    assert!(source_closed, "the emptied source workspace closes (ODP-3)");
+    assert!(
+        source_closed,
+        "the emptied source workspace closes (no empty workspaces)"
+    );
     assert_eq!(set.workspace_count(), 1);
     // The surviving workspace (old ws1, now index 0) holds both tabs: its
     // own token 1 then the moved token 0.
@@ -983,7 +986,7 @@ fn reposition_active_tab_after_is_a_noop_when_already_adjacent_or_anchor_missing
 
 #[test]
 fn tab_foreground_job_running_resolves_tokens_and_defaults_false_when_idle() {
-    // ODP-5D replace gating: a resolvable idle/headless tab reports
+    // Replace gating: a resolvable idle/headless tab reports
     // not-running (→ replace-direct path), and an unknown token is false.
     let mut set = WorkspaceSet::new(build_session(), None);
     set.push(build_session_with_id(SessionToken(1)));

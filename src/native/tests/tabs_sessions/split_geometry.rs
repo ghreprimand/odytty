@@ -54,7 +54,7 @@ fn fill_grid_with_url(terminal: &Arc<Mutex<Terminal>>, rows: usize) {
 
 #[test]
 fn split_pane_grid_is_inset_from_the_divider_by_window_padding() {
-    // PANE-PADDING (board 4c8856ae): with window_padding > 0, a split pane's
+    // With window_padding > 0, a split pane's
     // drawable grid must gain the configured breathing room from the divider it
     // faces - matching the outer-window inset - instead of the first glyph
     // sitting flush against the divider (the reported regression). Every
@@ -124,7 +124,7 @@ fn split_pane_grid_is_inset_from_the_divider_by_window_padding() {
 
 #[test]
 fn split_pane_zero_padding_grid_is_flush_with_the_divider() {
-    // PANE-PADDING identity: at window_padding == 0 the drawable grid equals the
+    // Identity: at window_padding == 0 the drawable grid equals the
     // tiled sub-rect exactly (the pre-existing flush-to-divider behaviour), so
     // the padding-0 frame is byte-identical.
     const COLS: usize = 80;

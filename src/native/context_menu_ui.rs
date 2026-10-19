@@ -186,7 +186,7 @@ pub(super) enum ContextMenuSurface {
     /// The inter-pane divider. Reserved; not constructed yet.
     #[allow(dead_code)]
     PaneDivider,
-    /// A workspace slot in the rail-as-workspaces sidebar (§7.4 / NF-F7-4).
+    /// A workspace slot in the rail-as-workspaces sidebar.
     /// Carries the rail index so Rename/Close act on the RIGHT-CLICKED workspace.
     WorkspaceSlot(usize),
     /// Empty area of the workspace rail (the `+` slot, gaps). New Workspace.

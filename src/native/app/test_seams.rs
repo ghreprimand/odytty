@@ -172,7 +172,7 @@ impl App {
         self.overlay.close();
     }
 
-    /// Test seam (MENU-THEME PARITY, board 46195bed): feed bytes to the primary
+    /// Test seam (menu theme parity): feed bytes to the primary
     /// terminal handle the window overlay resolves its palette against, so a test
     /// can install a distinctive theme (e.g. via OSC 10/11) before asserting the
     /// overlay picked it up.
@@ -219,7 +219,7 @@ impl App {
         }
     }
 
-    /// Test seam (MENU-THEME PARITY, board 46195bed): the `DynamicColors` the
+    /// Test seam (menu theme parity): the `DynamicColors` the
     /// multi-pane window overlay snapshot is seeded with, alongside the live
     /// terminal palette the single-pane path resolves the same panel against.
     /// The two must match so the overlay panel is the same themed color in both
@@ -259,7 +259,7 @@ impl App {
         )
     }
 
-    /// Test seam (PANE-PADDING, board 4c8856ae): the focused pane's TILED rect
+    /// Test seam: the focused pane's TILED rect
     /// and its PADDED inner (drawable grid) rect in the active multi-pane tab,
     /// each as `[x, y, w, h]`. Lets a regression assert that every divider-facing
     /// edge is inset by exactly the window padding while outer-margin edges keep
@@ -918,7 +918,7 @@ impl App {
             .collect()
     }
 
-    /// Test seam (UX4-P2): absolute down/up button cells for the first visible
+    /// Test seam: absolute down/up button cells for the first visible
     /// numeric stepper, so a test can drive real clicks through the App.
     #[cfg(test)]
     pub(in crate::native) fn overlay_first_stepper_button_cells_for_test(
@@ -928,13 +928,13 @@ impl App {
             .first_stepper_button_cells(self.grid.columns, self.grid.rows)
     }
 
-    /// Test seam (UX4-P2): whether an overlay drag is in progress.
+    /// Test seam: whether an overlay drag is in progress.
     #[cfg(test)]
     pub(in crate::native) fn overlay_is_dragging_for_test(&self) -> bool {
         self.overlay.is_settings_dragging()
     }
 
-    /// Test seam (UX4-P2 review): drive the exact focus-loss drag-cancel the
+    /// Test seam: drive the exact focus-loss drag-cancel the
     /// `WindowEvent::Focused(false)` arm runs, so a regression can prove a lost
     /// release on focus loss cannot leave a drag armed while the overlay
     /// stays open. Wraps the production helper (not a parallel reimplementation).
@@ -1223,7 +1223,7 @@ impl App {
         self.settings.scrollbar_drag = on;
     }
 
-    /// Test seam (F4-P3 coexistence): force an in-progress scroll-thumb drag so
+    /// Test seam (rail reveal and scrollbar coexistence): force an in-progress scroll-thumb drag so
     /// the reveal-yields-to-scrollbar-drag rule can be asserted.
     #[cfg(test)]
     pub(in crate::native) fn begin_scrollbar_drag_for_test(&mut self) {
@@ -1739,7 +1739,7 @@ impl App {
         self.tab_bar_seam_y_px(self.resolved_cell()?)
     }
 
-    // --- F4-P3 rail auto-hide seams ---
+    // --- Rail auto-hide seams ---
 
     /// Test seam: toggle rail auto-hide and reflow the grid (the single
     /// reflow at toggle time), mirroring the live setting-change path.
@@ -1789,7 +1789,7 @@ impl App {
         Some((rect.x + rect.width / 2.0, rect.y + rect.height / 2.0))
     }
 
-    /// Test seam (F4-P3 reveal-paint gate): read/reset the frame-rebuild flag the
+    /// Test seam (reveal-paint gate): read/reset the frame-rebuild flag the
     /// `should_rebuild_frame` gate consults. `self.needs_rebuild` Derefs to the
     /// ACTIVE pane's flag - the same one the production rail-reveal paths must set
     /// so a visibility flip actually rebuilds and paints the overlay (a redraw
@@ -1799,7 +1799,7 @@ impl App {
         self.needs_rebuild
     }
 
-    /// Test seam (F4-P3 reveal-paint gate): clear the frame-rebuild flag so a test
+    /// Test seam (reveal-paint gate): clear the frame-rebuild flag so a test
     /// can prove a rail visibility flip re-sets it.
     #[cfg(test)]
     pub(in crate::native) fn clear_needs_rebuild_for_test(&mut self) {
@@ -1860,7 +1860,7 @@ impl App {
         Some(self.reveal_pointer_contact(x, None, cell, side))
     }
 
-    /// Test seam (F4-P3 / NF20-B): drive the reveal machine through the REAL
+    /// Test seam (rail reveal timing): drive the reveal machine through the REAL
     /// live feed (`update_rail_autohide_pointer`) with an injected clock, so the
     /// full reveal → hold → hide sequence is exercised through the production
     /// contact geometry deterministically. Mirrors a `CursorMoved` at `x_px`.
@@ -1876,7 +1876,7 @@ impl App {
         self.update_rail_autohide_pointer(x_px, cell, now);
     }
 
-    /// Test seam (F4-P3 / NF20-B): advance the reveal machine's timers with an
+    /// Test seam (rail reveal timing): advance the reveal machine's timers with an
     /// injected clock (the about-to-wait `poll`), returning whether visibility
     /// changed. Lets a test cross the show-debounce / hide-grace boundaries.
     #[cfg(test)]
@@ -1887,7 +1887,7 @@ impl App {
         self.rail_autohide.poll(now)
     }
 
-    /// Test seam (F4-P3 / NF20-B): whether the reveal machine currently reports
+    /// Test seam (rail reveal timing): whether the reveal machine currently reports
     /// visible at `now` (drives the overlay draw + hit-test gate).
     #[cfg(test)]
     pub(in crate::native) fn rail_autohide_is_visible_for_test(
@@ -1928,7 +1928,7 @@ impl App {
         self.handle_mouse_input(ElementState::Released, WinitMouseButton::Left);
     }
 
-    /// Test seam (F4-P3 regression): a right press routed through the real
+    /// Test seam (rail auto-hide with the context menu): a right press routed through the real
     /// `handle_mouse_input` dispatch, so the context-menu open path (and any
     /// autohide interference with it) can be asserted end-to-end. Set
     /// `pointer_px` first.
@@ -2047,7 +2047,7 @@ impl App {
         self.cursor_blink.deadline()
     }
 
-    /// Test seam (NF20-B): arm the ACTIVE pane's cursor blink (blinking +
+    /// Test seam (wake-set fan-out): arm the ACTIVE pane's cursor blink (blinking +
     /// focused) at `now`, so its activity-hold deadline enters the wake set - the setup
     /// for the per-session deadline fan-out regression (a pane whose blink is
     /// armed and then backgrounded must not strand a stale wake).
@@ -2068,7 +2068,7 @@ impl App {
         self.next_wake_deadline_for_surface(presentation_active)
     }
 
-    /// Test seam (NF20-B): arm the ACTIVE pane's cursor-animation (ease + slide)
+    /// Test seam (wake-set fan-out): arm the ACTIVE pane's cursor-animation (ease + slide)
     /// deadlines at `now`, so both enter the wake set - the setup for asserting
     /// they do not strand a stale wake once the pane is backgrounded.
     #[cfg(test)]
@@ -2192,7 +2192,7 @@ impl App {
         self.gutter_frame_input(&terminal, offset)
     }
 
-    /// Test seam (NF20-B): arm the ACTIVE pane's synchronized-output hold at
+    /// Test seam (wake-set fan-out): arm the ACTIVE pane's synchronized-output hold at
     /// `now`, so its timeout deadline enters the wake set.
     #[cfg(test)]
     pub(in crate::native) fn arm_active_sync_hold_for_test(&mut self, now: std::time::Instant) {
@@ -3198,7 +3198,7 @@ impl App {
         self.sessions.workspace_names()
     }
 
-    /// F6-W5: read the active workspace's host binding (the alias New Tab routes
+    /// Read the active workspace's host binding (the alias New Tab routes
     /// through), or `None` when the workspace is local.
     #[cfg(test)]
     pub(in crate::native) fn active_workspace_binding_for_test(&self) -> Option<String> {
@@ -3215,7 +3215,7 @@ impl App {
             .map(str::to_owned)
     }
 
-    /// F6-W5: directly set the active workspace's host binding, bypassing the
+    /// Directly set the active workspace's host binding, bypassing the
     /// host-list resolution - so a headless test can exercise the New Tab
     /// routing without a configured `hosts.conf`.
     #[cfg(test)]
@@ -4013,13 +4013,13 @@ impl App {
         }
     }
 
-    /// F4-RENAME-MOUSE: the rename caret position (character index).
+    /// Rename-field mouse: the rename caret position (character index).
     #[cfg(test)]
     pub(in crate::native) fn rename_cursor_for_test(&self) -> Option<usize> {
         self.rename_state.as_ref().map(|state| state.cursor)
     }
 
-    /// F4-RENAME-MOUSE: the active rename selection span `[lo, hi)`, or `None`.
+    /// Rename-field mouse: the active rename selection span `[lo, hi)`, or `None`.
     #[cfg(test)]
     pub(in crate::native) fn rename_selection_for_test(&self) -> Option<(usize, usize)> {
         let state = self.rename_state.as_ref()?;
@@ -4027,7 +4027,7 @@ impl App {
         (anchor != state.cursor).then(|| (anchor.min(state.cursor), anchor.max(state.cursor)))
     }
 
-    /// F4-RENAME-MOUSE: simulate a left press on the rename field at a grid
+    /// Rename-field mouse: simulate a left press on the rename field at a grid
     /// cell, routed through the real `handle_mouse_input` dispatch so the
     /// modal-capture wiring is covered (not just the handler in isolation).
     #[cfg(test)]
@@ -4036,7 +4036,7 @@ impl App {
         self.handle_mouse_input(ElementState::Pressed, WinitMouseButton::Left);
     }
 
-    /// F4-RENAME-MOUSE: simulate pointer motion during a live rename drag,
+    /// Rename-field mouse: simulate pointer motion during a live rename drag,
     /// routed through the real `update_pointer_cell` dispatch with the centre
     /// pixel of the target cell (cell size from the resolved test cell, window
     /// padding from the GPU state or zero, tab-chrome offset included). Motion routing, the window-modal
@@ -4059,7 +4059,7 @@ impl App {
         self.update_pointer_cell(x, y);
     }
 
-    /// F4-RENAME-MOUSE: simulate the left-button release that ends a drag,
+    /// Rename-field mouse: simulate the left-button release that ends a drag,
     /// routed through the real `handle_mouse_input` dispatch.
     #[cfg(test)]
     pub(in crate::native) fn rename_pointer_release_for_test(&mut self) {
@@ -4306,7 +4306,7 @@ impl App {
         self.clipboard.force_write_fail = true;
     }
 
-    /// Test seam (D-SLIDER-GUARD): the current `overlay_left_held` flag value.
+    /// Test seam: the current `overlay_left_held` flag value.
     /// Lets regression tests prove that release clears the flag and subsequent
     /// moves cannot advance stale overlay adjustment state.
     #[cfg(test)]
@@ -4322,7 +4322,7 @@ impl App {
         self.grid_left_held
     }
 
-    /// Test seam (NF21-8/9): switch to the next tab through the production path,
+    /// Test seam: switch to the next tab through the production path,
     /// firing the active-session-change seam under test.
     #[cfg(test)]
     pub(in crate::native) fn switch_to_next_tab_for_test(&mut self) {
@@ -4370,7 +4370,7 @@ impl App {
         self.take_new_window_request()
     }
 
-    // --- F6-i7 image paste-through seams ---
+    // --- Image paste-through seams ---
 
     /// Seed the synthetic clipboard image the image paste-through flow reads,
     /// bypassing the real system clipboard.

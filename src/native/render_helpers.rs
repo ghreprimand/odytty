@@ -345,7 +345,7 @@ pub(super) struct RenderContentSignature {
     pub(super) live_tab_drag: bool,
 }
 
-/// Cache key for the F4-P3 revealed rail overlay. `default()` - not revealed -
+/// Cache key for the revealed rail overlay. `default()` - not revealed -
 /// is a constant, so the geometry-update gate is unchanged when autohide is off
 /// or the rail is hidden.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -513,7 +513,7 @@ pub(super) fn visible_graphics_signature(
 mod tests {
     use super::GeometryUpdate;
 
-    /// F4-P3 rail-overlay retention. The rail lives in the trailing vertex
+    /// Rail-overlay retention. The rail lives in the trailing vertex
     /// segment with the cursor; the `CursorOnly` GPU path truncates that segment
     /// and re-appends only the cursor, so a cursor blink while the rail is
     /// revealed drops it. The dispatch must promote `CursorOnly` to `Full` when

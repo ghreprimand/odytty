@@ -263,7 +263,7 @@ impl Session {
     }
 }
 
-/// Workspace-level operations (design doc §3.1, ODP-3/-10). These are the model
+/// Workspace-level operations. These are the model
 /// half of the workspace layer: create / switch / rename / close a workspace and
 /// query the workspace list. The keyboard/palette layer wires these in; the
 /// rail chrome reuses them. None of them run until a second workspace
@@ -278,7 +278,7 @@ pub(in crate::native) fn reorder_destination(from: usize, to: usize) -> usize {
 
 impl WorkspaceSet {
     /// Remove the workspace at `ws_idx` (its last tab just closed - no empty
-    /// workspaces, ODP-3) and clamp `active_ws` onto a surviving workspace,
+    /// workspaces) and clamp `active_ws` onto a surviving workspace,
     /// mirroring the tab-removal clamp. Returns `true` iff no workspaces remain,
     /// i.e. the last workspace closed and the caller should signal app exit.
     fn remove_workspace(&mut self, ws_idx: usize) -> bool {
@@ -337,7 +337,7 @@ impl WorkspaceSet {
 
     /// Focus the tab (and pane) that owns `token`, scanning ALL workspaces so a
     /// selection can deep-switch the active workspace + tab + focused pane in
-    /// one step (attach dedup / summon deep-focus, ODP-10). With a single
+    /// one step (attach dedup / summon deep-focus). With a single
     /// workspace this is byte-identical to the previous same-workspace switch.
     /// Returns true when the focus target actually moved.
     pub(in crate::native) fn switch(&mut self, token: SessionToken) -> bool {
@@ -681,7 +681,7 @@ impl WorkspaceSet {
 
     /// Spawn a fresh shell in a brand-new workspace appended after the current
     /// list and switch focus to it. The new workspace owns exactly one
-    /// single-pane tab (no empty workspaces, ODP-3). Mirrors [`Self::spawn`] one
+    /// single-pane tab (no empty workspaces). Mirrors [`Self::spawn`] one
     /// level up. Returns the new session's token.
     pub(in crate::native) fn new_workspace(
         &mut self,
@@ -879,12 +879,12 @@ impl WorkspaceSet {
     }
 
     /// Move the tab that owns `token` out of its workspace and append it to the
-    /// workspace at `dest_idx` (ODP-7, "Move to workspace"). This is a `Tab`
+    /// workspace at `dest_idx` ("Move to workspace"). This is a `Tab`
     /// VALUE splice between two `Workspace.tabs` vecs - the sessions never leave
     /// the global arena, so pump-thread lookup by token is untouched. The
     /// destination's active tab is left as-is (v1: move without following), and
     /// the active workspace is unchanged unless the SOURCE workspace empties, in
-    /// which case it is removed (no empty workspaces, ODP-3) and `active_ws` is
+    /// which case it is removed (no empty workspaces) and `active_ws` is
     /// clamped onto a survivor. Returns `true` when a tab actually moved, and
     /// separately whether the source workspace was closed by the move. No-op
     /// (`(false, false)`) when the token is unknown, `dest_idx` is out of range,
@@ -941,7 +941,7 @@ impl WorkspaceSet {
     }
 
     /// Move the just-appended, currently-active tab so it sits immediately after
-    /// the tab that owns `anchor` in the active workspace (ODP-5D "Connect to
+    /// the tab that owns `anchor` in the active workspace ("Connect to
     /// host ▸": the new remote tab reads as opening from the clicked tab). The
     /// moved tab is assumed to be the last strip entry - the state left by
     /// `connect_ssh_in_new_tab` + `switch`. A no-op when the anchor is missing,
@@ -966,7 +966,7 @@ impl WorkspaceSet {
     }
 
     /// Whether any pane of the tab that owns `token` has a running foreground
-    /// job (ODP-5D replace gating). Scans that tab's leaf sessions across ALL
+    /// job (replace gating). Scans that tab's leaf sessions across ALL
     /// workspaces so a background tab can be probed; an attached pane always
     /// reports not-running (its job lives on the remote host). `false` when the
     /// token resolves to no tab.

@@ -946,7 +946,7 @@ impl App {
         self.present_active_session_chrome();
     }
 
-    /// WP2 restore-on-launch (sub-ODPs 8a/8b/8f). Called once at startup, and
+    /// Restore on launch. Called once at startup, and
     /// only when this is the primary instance, the launch was a bare `odytty`,
     /// and `restore_workspaces` is on. Rebuilds the saved shape; on a stale
     /// directory it lands that pane at home with ONE compact notice, and on an

@@ -228,7 +228,7 @@ pub(super) fn carry_add(accum: f64, delta: f64) -> f64 {
 /// High-resolution mice / touchpads on Wayland/libinput fire a **burst** of
 /// small sub-notch events per physical detent. The historical per-event mapping
 /// turned one physical notch into many row/zoom steps - runaway scrollback and
-/// uncontrollable Ctrl+wheel zoom (the WHEEL-SENS friction blocker). This
+/// uncontrollable Ctrl+wheel zoom (the friction this accumulator removes). This
 /// accumulator integrates the fractional notches of a burst and emits a single
 /// synthesized discrete notch only once a whole notch-equivalent has built up,
 /// carrying the remainder. The synthesized `LineDelta` then flows through the

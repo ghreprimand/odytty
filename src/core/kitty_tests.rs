@@ -624,7 +624,7 @@ fn kitty_quiet_one_suppresses_success_response() {
 
 #[test]
 fn kitty_quiet_zero_reports_success_and_errors() {
-    // NF9 boundary pin: q=0 (or absent) keeps full response behavior.
+    // Boundary pin: q=0 (or absent) keeps full response behavior.
     let mut t = Terminal::new(20, 4);
     t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,q=0", &rgba_2x1()));
     let out = String::from_utf8(t.take_host_output()).unwrap();

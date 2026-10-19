@@ -1519,8 +1519,8 @@ impl App {
         {
             self.multipane_frame_quads_for_test = frame_quads.clone();
         }
-        // F4-P1 unified tab panel + seam: background-segment quads behind the tab
-        // chrome (same layer as the NF11 edge wash). Empty when the bar is hidden
+        // Unified tab panel + seam: background-segment quads behind the tab
+        // chrome (same layer as the edge wash). Empty when the bar is hidden
         // / panel off / seam off, so the multi-pane frame stays byte-identical.
         let tab_bg_quads = self.tab_panel_bg_quads(cell);
         // The revealed rail auto-hide overlay strip (floating over the

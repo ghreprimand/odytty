@@ -478,7 +478,7 @@ impl App {
         // never auto-hidden, so its rows stay reserved independently.
         let (left_cols, right_cols, gap_cols) =
             if self.should_show_workspace_rail() && !self.rail_autohide_active() {
-                // F4-P1/P4: the band width resolves the `tab_rail_width` mode -
+                // The band width resolves the `tab_rail_width` mode -
                 // `Manual(cols)` clamps the fixed width, `Auto` sizes to the
                 // longest workspace name (`rail_auto_want_cols`).
                 let rail_cols = self.settings.rail_width_cols(self.rail_auto_want_cols());
@@ -555,7 +555,7 @@ impl App {
     /// Whether the current pointer sits over the tab-chrome band (the horizontal
     /// top bar or a side rail) rather than the terminal content. Used to route an
     /// empty-area right-click to the `TabStripEmpty` surface instead of leaking
-    /// the content menu over the bar (NF-F7-2). Returns `false` off a shown bar,
+    /// the content menu over the bar. Returns `false` off a shown bar,
     /// and - under rail auto-hide - only while the floating rail is actually
     /// revealed under the pointer.
     ///
@@ -794,7 +794,7 @@ impl App {
 
     /// Whether the pointer at raw `px_x` is within the seam grab band this frame
     /// and should start / show a rail resize rather than a tab hit.
-    /// Yields to a live scroll thumb (ODP-5 right-rail rule) so a scrollbar drag
+    /// Yields to a live scroll thumb (the right-rail rule) so a scrollbar drag
     /// wins the shared edge. `false` off a rail, so the plain path never grabs.
     /// Gated on the workspace rail alone: the top tab bar is independent, so a
     /// pinned rail beside a hidden top bar still resizes.

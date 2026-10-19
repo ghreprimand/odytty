@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! UX4-P1 App-level pointer-precedence tests: an open overlay captures the
+//! App-level pointer-precedence tests: an open overlay captures the
 //! mouse before selection / PTY mouse-reporting, the exact mouse analogue of
 //! the keyboard overlay guard. These drive a real `App` (over a headless,
 //! no-PTY session) through the same handlers the `window_event` arms call.
@@ -368,7 +368,7 @@ fn focus_loss_after_settings_stepper_click_leaves_moves_inert() {
 
 #[test]
 fn opening_overlay_clears_a_held_tui_report_button() {
-    // Regression (UX4-P1 review): a TUI mouse press arms `report_button`; the
+    // Regression: a TUI mouse press arms `report_button`; the
     // user can then open an overlay from the keyboard while the physical button
     // is still held. Overlay presses short-circuit before the reported-input
     // path and overlay releases are inert, so without clearing on entry the
@@ -568,6 +568,6 @@ fn stepper_release_without_pointer_cell_stays_inert_after_click() {
     assert_eq!(
         app.overlay_signature_for_test(),
         before,
-        "move after release does not change any numeric value (D-SLIDER-GUARD)"
+        "move after release does not change any numeric value"
     );
 }

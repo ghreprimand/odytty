@@ -78,7 +78,7 @@ pub(super) struct NativeClipboard {
     pub(super) force_write_fail: bool,
     /// Test-only: the last text handed to `write_clipboard_text`. The real
     /// clipboard I/O is compiled out under `cfg(test)`, so this records what a
-    /// write path *would* have set - letting NF21-5 prove a focused OSC 52 write
+    /// write path *would* have set - letting a test prove a focused OSC 52 write
     /// reaches the clipboard while a non-focused one is discarded before it does.
     #[cfg(test)]
     pub(super) last_clipboard_write: Option<String>,

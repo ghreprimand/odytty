@@ -185,7 +185,7 @@ impl OpenWithOverlay {
     }
 
     /// Map a clicked body row to the selection cursor it represents - the
-    /// inverse of the [`Self::visible_lines`] windowing (UX4-P1 click→Activate).
+    /// inverse of the [`Self::visible_lines`] windowing (click→Activate).
     /// Row 0 is the `> query` prompt; app rows follow from the live
     /// `scroll_offset`. Returns `None` for the prompt row, the empty/"No
     /// applications"/"No matches" hint, or a click past the last row.
@@ -565,7 +565,7 @@ mod tests {
         ));
     }
 
-    // ── UX4-P1 click→Activate parity ───────────────────────────────────────
+    // ── click→Activate parity ───────────────────────────────────────
 
     #[test]
     fn click_row_selects_same_app_as_down_then_activate() {

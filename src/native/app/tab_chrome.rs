@@ -69,13 +69,13 @@ pub(super) const HOVER_LABEL_LIFT: f32 = 0.40;
 /// active label, which the `+` reaches only on hover.
 pub(super) const NEW_SLOT_PLUS_REST_LIFT: f32 = 0.55;
 
-/// F4-P1 panel: base foreground-ward blend fraction of the theme `background`
+/// Panel: base foreground-ward blend fraction of the theme `background`
 /// that forms the panel-tint cell surface at the configured strength. A
 /// foreground-ward blend is direction-correct on every theme (lighter on dark
 /// themes, darker on light) and can never crush to zero on a near-black theme.
 pub(super) const PANEL_TINT_LIFT: f32 = 0.05;
 
-/// F4-P1 panel: hard cap on the effective tint lift (`PANEL_TINT_LIFT × strength
+/// Panel: hard cap on the effective tint lift (`PANEL_TINT_LIFT × strength
 /// / 0.5`) so a maxed strength knob still reads as a *quiet* surface.
 pub(super) const MAX_PANEL_TINT_LIFT: f32 = 0.10;
 
@@ -223,7 +223,7 @@ pub(super) fn hover_fill(colors: TabBarColors, panel_surface: Srgb) -> Srgb {
 }
 
 // ---------------------------------------------------------------------------
-// F4-P1 panel + seam treatment
+// Panel + seam treatment
 // ---------------------------------------------------------------------------
 
 /// The effective panel-tint lift for `strength`: `PANEL_TINT_LIFT × strength /
@@ -232,8 +232,8 @@ pub(super) fn panel_tint_lift(strength: f32) -> f32 {
     (PANEL_TINT_LIFT * strength.clamp(0.0, 1.0) / 0.5).min(MAX_PANEL_TINT_LIFT)
 }
 
-/// The F4-P1 unified-panel **tint surface**: the theme `background` blended a
-/// small amount toward `foreground` (Layer 1 of ODP-1). This is the cell
+/// The unified-panel **tint surface**: the theme `background` blended a
+/// small amount toward `foreground` (the first panel layer). This is the cell
 /// background the rail/bar resting cells paint instead of the raw `background`,
 /// so the panel is a perceivable surface even at `cell_bg_opacity = 1` (no
 /// wallpaper). At `strength = 0.0` it collapses to the theme `background`, i.e.
@@ -251,7 +251,7 @@ pub(super) fn panel_tint(colors: TabBarColors, strength: f32) -> Srgb {
 /// chrome band to this coverage at ANY window opacity.
 pub(super) const PANEL_MAX_ALPHA: f32 = 0.92;
 
-/// The alpha of the F4-P1 panel **wash** quad (Layer 2 of ODP-1), given the
+/// The alpha of the panel **wash** quad (the second panel layer), given the
 /// alpha the band's CELL BACKGROUNDS already compose (`band_cell_alpha` - the
 /// window translucency × wallpaper softening product, the same value content
 /// cells draw at).
@@ -275,7 +275,7 @@ pub(super) fn panel_wash_alpha(strength: f32, band_cell_alpha: f32) -> f32 {
     (strength * (PANEL_MAX_ALPHA - alpha) / (1.0 - alpha)).clamp(0.0, 1.0)
 }
 
-/// The F4-P1 seam color: derived from the **inactive TEXT role only**
+/// The seam color: derived from the **inactive TEXT role only**
 /// (never the `border` role - the v1.3 dark-on-dark lesson), dimmed if needed so
 /// its own luminance never exceeds [`SEAM_MAX_LUMA`] (bloom guard), then lifted
 /// toward `foreground` - still capped at [`SEAM_MAX_LUMA`] - until the composited
@@ -542,7 +542,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // F4-P1 panel + seam treatment
+    // Panel + seam treatment
     // -----------------------------------------------------------------------
 
     #[test]
@@ -705,7 +705,7 @@ mod tests {
 
     #[test]
     fn every_builtin_theme_keeps_phosphor_flat_identifiable() {
-        // ODP-6 retarget: for every built-in theme, over BOTH the opaque regime
+        // For every built-in theme, over BOTH the opaque regime
         // (cell_bg_opacity = 1 → wash alpha 0, pure tint) and a representative
         // translucent regime (opacity 0.5, strength 0.5 → wash alpha 0.42), the
         // seven panel-era invariants hold. The active/hover/label treatment is
@@ -831,7 +831,7 @@ mod tests {
 
     #[test]
     fn revealed_autohide_panel_keeps_fills_and_labels_identifiable() {
-        // ODP-6 extra case: the auto-hide reveal draws the SHARED
+        // Extra case: the auto-hide reveal draws the SHARED
         // panel wash (one wash for every chrome surface - the
         // old dedicated 0.85 reveal floor is gone) over live content. The
         // worst-case backing for readability is mid-gray content (neither dark

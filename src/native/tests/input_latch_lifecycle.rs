@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! NF21-P2 App-level tests: input-latch lifecycle across an active-session
+//! App-level tests: input-latch lifecycle across an active-session
 //! change. A tab or workspace switch must shed the transient pointer/IME latches
 //! so the outgoing session cannot strand a mid-drag `Selecting` state, the
 //! incoming session cannot paint a phantom hover, and an in-flight IME

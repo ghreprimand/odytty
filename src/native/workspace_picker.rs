@@ -14,7 +14,7 @@
 //!   explanatory line so the feature is discoverable.
 //!
 //! This is the shared "menu item -> seeded picker -> tagged accept" pattern
-//! (ODP-1 Option B) applied to the workspace list: the connection overlay serves
+//! applied to the workspace list: the connection overlay serves
 //! the host pickers, this thin sibling serves the workspace case. It owns a
 //! frozen destination list captured at open time, never writes to the PTY, and
 //! never mutates the live terminal model. Workspace names are user-set text, so
@@ -86,7 +86,7 @@ pub(super) enum WorkspacePickerOutcome {
     /// splice. This overlay never mutates the model itself.
     Move(SessionToken, SessionToken),
     /// The user accepted a saved layout. Carries the chosen
-    /// layout name; the App instantiates it (APPEND a new workspace, WP3 8e).
+    /// layout name; the App instantiates it (APPEND a new workspace).
     OpenLayout(String),
 }
 

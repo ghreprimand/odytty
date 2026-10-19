@@ -856,7 +856,7 @@ fn config_reload_wake_is_suppressed_while_unfocused() {
     let _ = std::fs::remove_dir(&owned);
 }
 
-/// NF20 regression: a multiplexer prefix (default Ctrl+B) that is pressed and
+/// Regression: a multiplexer prefix (default Ctrl+B) that is pressed and
 /// then times out with no follow-up key must not busy-spin the event loop.
 ///
 /// `pending_deadline()` is a `next_wake_deadline` source, so a prefix left
@@ -957,7 +957,7 @@ fn bell_flash_while_unfocused_schedules_a_wake_and_advances() {
     let wake = app.next_wake_deadline_for_surface_for_test(true);
     assert!(
         wake.is_some(),
-        "an in-flight bell flash must schedule a repaint wake (NF21-2)"
+        "an in-flight bell flash must schedule a repaint wake"
     );
     app.needs_rebuild = false;
     app.run_about_to_wait_maintenance_for_test(wake.unwrap());

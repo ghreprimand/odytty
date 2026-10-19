@@ -174,7 +174,7 @@ pub(in crate::native) enum ContextMenuItem {
     /// scoped: on a `WorkspaceSlot` it saves the CLICKED workspace; in the
     /// content-grid workspace section it saves the ACTIVE one. Labelled "Save
     /// Workspace as Layout…" to distinguish it from the whole-app save. Opens the
-    /// "Layout name:" prompt (the rename-modal idiom); the WP3 save path writes
+    /// "Layout name:" prompt (the rename-modal idiom); the layout save path writes
     /// the file. No chord.
     SaveAsLayout,
     /// Open a saved layout by name. Shown on the empty rail, the
@@ -184,7 +184,7 @@ pub(in crate::native) enum ContextMenuItem {
     /// feature is discoverable (the picker then explains it). No chord.
     OpenLayout,
     /// Open a local shell in a new tab regardless of the active workspace's host
-    /// binding (F6-W5 escape hatch). Shown on the `TabSlot` surface ONLY when the
+    /// binding (the escape hatch). Shown on the `TabSlot` surface ONLY when the
     /// active workspace is bound to a host (an unbound workspace's New Tab is
     /// already local, so the row would be a duplicate). Placed last in
     /// [`Self::ALL`] so the existing accelerator-array indices stay stable.
@@ -205,12 +205,12 @@ pub(in crate::native) enum ContextMenuItem {
     /// the existing accelerator-array indices stay stable.
     DuplicateWorkspace,
     /// Open a saved host in a NEW tab positioned right after the right-clicked
-    /// tab (ODP-5D "Connect to host ▸"). Tab-scoped: shown only on the `TabSlot`
+    /// tab ("Connect to host ▸"). Tab-scoped: shown only on the `TabSlot`
     /// surface. Activating it opens the shared host picker seeded with
     /// the clicked tab's token; the picked host spawns adjacent to that tab, so
     /// it reads as "connect from here" and never disturbs the clicked shell.
     ConnectToHost,
-    /// Replace the right-clicked tab with a saved host (ODP-5D "Replace this tab
+    /// Replace the right-clicked tab with a saved host ("Replace this tab
     /// with ▸"). Tab-scoped (`TabSlot`). Opens the same shared host picker for
     /// the clicked tab's token; on pick, the App closes that tab and opens the
     /// remote in its slot - gated behind a confirm when the tab holds a running
@@ -231,12 +231,12 @@ pub(in crate::native) enum ContextMenuItem {
     /// row), so no picker is needed.
     ConnRowBindWorkspace,
     /// Open the Add/Edit connection form pre-filled from the right-clicked
-    /// connection-manager row (ODP-2C, defers to the P4 form). Shown ONLY for
+    /// connection-manager row (defers to the connection form). Shown ONLY for
     /// OdyTTY-owned rows - an ssh-config-imported row is read-only and never
     /// offers Edit (OdyTTY never writes `~/.ssh/config`).
     ConnRowEdit,
     /// Remove the right-clicked connection-manager row's `hosts.conf` block
-    /// (ODP-2C, P1 byte-splice). Shown ONLY for OdyTTY-owned rows; gated behind
+    /// (a byte-splice edit). Shown ONLY for OdyTTY-owned rows; gated behind
     /// a confirm dialog because it deletes a saved host.
     ConnRowRemove,
     /// Focus the right-clicked navigator row's live target (workspace / tab /
@@ -387,11 +387,11 @@ impl ContextMenuItem {
         Self::CloseOtherTabs,
         Self::MoveToWorkspace,
         Self::NewLocalTab,
-        // ODP-5D tab-scoped host actions; appended last so the existing
+        // Tab-scoped host actions; appended last so the existing
         // accelerator-array indices stay stable (they carry no chord anyway).
         Self::ConnectToHost,
         Self::ReplaceTabWithHost,
-        // ODP-2C connection-row actions; appended after the tab host actions so
+        // Connection-row actions; appended after the tab host actions so
         // every existing index stays stable (all carry no chord).
         Self::ConnRowOpenInTab,
         Self::ConnRowOpenInWorkspace,
@@ -497,7 +497,7 @@ impl ContextMenuItem {
             | Self::SaveAllLayout
             | Self::SaveAsLayout
             | Self::OpenLayout
-            // ODP-2C connection-row actions; grouped with the workspace section
+            // Connection-row actions; grouped with the workspace section
             // for the global fallback (they are ConnectionRow-only, so this only
             // matters for section() completeness - section_of gives them their
             // own tight groups).
@@ -757,16 +757,16 @@ impl ContextMenuItem {
             // Workspace host bind/unbind; reached from the menu, no chord.
             | Self::BindWorkspaceToHost
             | Self::UnbindWorkspace
-            // New Local Tab is the F6-W5 escape hatch; no default chord.
+            // New Local Tab is the escape hatch from host binding; no default chord.
             | Self::NewLocalTab
-            // ODP-5D tab host actions are pointer/menu-only; no default chord.
+            // Tab host actions are pointer/menu-only; no default chord.
             | Self::ConnectToHost
             | Self::ReplaceTabWithHost
             // LAYOUT-SURFACE save/open are pointer/menu-only; no chord.
             | Self::SaveAllLayout
             | Self::SaveAsLayout
             | Self::OpenLayout
-            // ODP-2C connection-row actions are pointer/menu-only; no chord.
+            // Connection-row actions are pointer/menu-only; no chord.
             | Self::ConnRowOpenInTab
             | Self::ConnRowOpenInWorkspace
             | Self::ConnRowBindWorkspace

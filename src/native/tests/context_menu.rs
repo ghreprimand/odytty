@@ -1149,8 +1149,7 @@ fn mid_input_cursor_reconciles_and_deletes_exactly() {
     );
 }
 
-/// NF14-R (Option R, replacing the B2/T14 ODP-3 pin): input
-/// with a `133;B` mark but NO edit-region report - bash always, PowerShell,
+/// Input with a `133;B` mark but NO edit-region report - bash always, PowerShell,
 /// zsh/fish before their snippets update - is a single-row `RightEdgeUnknown`
 /// region, and Delete falls back to the pre-B2 heuristic delete (last
 /// non-blank right edge) instead of the strict no-op that had turned
@@ -1167,7 +1166,7 @@ fn input_without_edit_region_report_deletes_single_row_heuristically() {
     assert_eq!(
         written,
         [b"\x1b[D".repeat(3), b"\x1b[3~".repeat(3)].concat(),
-        "single-row RightEdgeUnknown falls back to the heuristic delete (Option R)"
+        "single-row RightEdgeUnknown falls back to the heuristic delete"
     );
     assert!(
         app.selection_range_for_test().is_none(),
@@ -1182,7 +1181,7 @@ fn input_without_edit_region_report_deletes_single_row_heuristically() {
 /// A PowerShell-shaped prompt (the Windows default shell; its snippet
 /// emits OSC 133 marks but no `odytty-edit` report) gets the same single-row
 /// heuristic delete - this is the case that made select+Delete a complete
-/// no-op on Windows under the strict ODP-3 gate.
+/// no-op on Windows under the strict edit-region gate.
 #[test]
 fn powershell_prompt_without_report_deletes_single_row_heuristically() {
     let (mut app, bytes) = app_with_recording_writer(b"\x1b]133;A\x07PS C:\\> \x1b]133;B\x07dir");
@@ -1201,9 +1200,9 @@ fn powershell_prompt_without_report_deletes_single_row_heuristically() {
     assert!(app.selection_range_for_test().is_none());
 }
 
-/// NF14-R boundary pin (the ODP-3 remainder): a MULTI-ROW region without an
+/// Boundary pin (the multi-row remainder): a MULTI-ROW region without an
 /// edit-region report stays a hinted no-op - without a trustworthy right
-/// edge, row joins cannot anchor a synthesized multi-row edit. Option R
+/// edge, row joins cannot anchor a synthesized multi-row edit. The heuristic
 /// restores only the single-row heuristic.
 #[test]
 fn multi_row_input_without_report_stays_a_hinted_no_op() {
@@ -1236,12 +1235,12 @@ fn multi_row_input_without_report_stays_a_hinted_no_op() {
     );
 }
 
-/// NF14-R accepted-risk documentation: WITHOUT an edit-region
+/// Accepted-risk documentation: WITHOUT an edit-region
 /// report, a right-aligned decoration on the input row is indistinguishable
 /// from input, so the restored heuristic treats it as deletable - selecting
 /// the decoration and pressing Delete sends motion+delete bytes for it. This
 /// was shipped behavior for the feature's whole pre-B2 life and is the
-/// bounded risk Option R deliberately re-accepts in exchange for the feature
+/// bounded risk the heuristic deliberately re-accepts in exchange for the feature
 /// working at all on no-signal shells. Shells WITH the report keep the exact
 /// boundary (see `right_aligned_decoration_is_not_deletable_as_input`).
 #[test]
@@ -1391,7 +1390,7 @@ fn wide_glyph_straddling_wrap_counts_exactly() {
     );
 }
 
-/// B1/T10 (ODP-2 default): a multi-line buffer (hard newlines, e.g. fish
+/// A multi-line buffer (hard newlines, e.g. fish
 /// `begin…end` or a zsh continuation) reports `nl=` offsets; the region is
 /// Unknown and Delete over a selection touching it is a hinted no-op - no
 /// vertical motion is ever synthesized.

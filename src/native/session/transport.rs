@@ -1428,7 +1428,7 @@ impl WorkspaceSet {
     /// Arena-only half of [`Self::insert_attached_session`]: connect to the
     /// hosted session, restore the mirror terminal, spawn the read pump, and
     /// insert the attached [`Session`] into the arena - WITHOUT grafting a tab.
-    /// The new-tab attach pushes a tab on top of this; the WP3 restore/append
+    /// The new-tab attach pushes a tab on top of this; the restore/append
     /// reattach path grafts the returned token into the pane tree it is building
     /// instead.
     #[cfg(unix)]
@@ -1469,11 +1469,11 @@ impl WorkspaceSet {
         Ok(token)
     }
 
-    /// WP3 / 8h reattach: if the detached session-host `session_id` is still
+    /// Reattach: if the detached session-host `session_id` is still
     /// alive, connect to it and insert the attached session into the arena,
     /// returning its token (no tab - the restore/append path grafts it into the
     /// tree). Returns `None` when the host is gone, unreachable, already
-    /// reattached in this build (attach dedup, ODP-10), or the event loop proxy
+    /// reattached in this build (attach dedup), or the event loop proxy
     /// is unavailable - the caller then spawns a fresh shell instead. Unix-only;
     /// on any other platform this always returns `None`, so a snapshot copied
     /// from a Unix box degrades cleanly to all-fresh.

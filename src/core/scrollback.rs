@@ -975,7 +975,7 @@ impl Scrollback {
         self.invalidate();
     }
 
-    /// NF6 (C16 seam, scrollback side): hard-terminate the trailing open
+    /// Scrollback side of the soft-wrap seam: hard-terminate the trailing open
     /// logical line. An open tail promises that visible row 0 is its physical
     /// continuation - the projection marks the tail's last physical row
     /// `wrapped`, and reflow (`Screen::resize`) fuses it with row 0. An

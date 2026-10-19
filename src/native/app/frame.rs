@@ -820,7 +820,7 @@ impl App {
                         tab_bar_col_offset,
                     )
                 });
-                // F4-P1 unified tab panel + seam: background-segment quads
+                // Unified tab panel + seam: background-segment quads
                 // behind the tab chrome. Empty when the bar is hidden /
                 // panel off / seam off, so the plain path is unchanged.
                 let tab_bg_quads = self.tab_panel_bg_quads(cell);
@@ -829,7 +829,7 @@ impl App {
                 // the floating rail is currently revealed, so the pinned /
                 // no-autohide path is byte-identical.
                 let rail_overlay_data = self.build_rail_overlay(cell);
-                // F4-P3 rail-overlay RETENTION: the rail overlay lives in
+                // Rail-overlay RETENTION: the rail overlay lives in
                 // the trailing (post-`cell_vertex_count`) vertex segment,
                 // alongside the cursor. The `CursorOnly` fast path
                 // (`update_cursor_and_overlays`) rebuilds ONLY that segment

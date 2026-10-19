@@ -7,7 +7,7 @@
 
 use super::*;
 
-/// Owned inputs for the F4-P3 revealed rail overlay, built once per frame by
+/// Owned inputs for the revealed rail overlay, built once per frame by
 /// [`App::build_rail_overlay`]. Holds the strip snapshot by value (the GPU call
 /// borrows it) plus the pre-resolved origin, label offset, and wash/seam quads;
 /// the render path
@@ -69,7 +69,7 @@ impl App {
     }
 
     // -----------------------------------------------------------------------
-    // F4-P3 rail auto-hide
+    // Rail auto-hide
     // -----------------------------------------------------------------------
 
     /// Whether rail auto-hide is active this frame: the knob is on, the tab
@@ -344,7 +344,7 @@ impl App {
         }
     }
 
-    /// Build the F4-P3 revealed rail overlay for this frame: the `rail_cols ×
+    /// Build the revealed rail overlay for this frame: the `rail_cols ×
     /// rows` strip snapshot (rail glyphs + baked panel tint), its window-edge
     /// origin, and the occluding wash + content-facing seam quads. `None` unless
     /// the overlay is currently revealed. The owned snapshot must outlive the GPU
@@ -511,7 +511,7 @@ impl App {
     }
 }
 
-/// F4-P3 reveal-zone regression: whether a raw physical pointer x is inside the
+/// Reveal-zone check: whether a raw physical pointer x is inside the
 /// auto-hide reveal **trigger** zone - an interior band from the rail's window
 /// edge inward by `reach` (= window padding + the scaled `tab_rail_reveal_px`).
 /// Left: `x ≤ reach`; right: `x ≥ surface_w − reach`.
@@ -530,7 +530,7 @@ pub(super) fn reveal_edge_contains(side: RailSide, px_x: f64, reach: f64, surfac
     }
 }
 
-/// F4-P3 motion-aware trigger: whether the pointer *segment* from `prev_px_x` to
+/// Motion-aware trigger: whether the pointer *segment* from `prev_px_x` to
 /// `curr_px_x` intersects the reveal trigger band on the rail side. The left band
 /// is `[0, reach]`; the right band is `[surface_w − reach, surface_w]`.
 ///

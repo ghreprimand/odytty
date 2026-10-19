@@ -44,7 +44,7 @@ pub(crate) const SNAPSHOT_VERSION: u32 = 1;
 const SNAPSHOT_FILE: &str = "workspaces.json";
 
 /// Subdirectory of the state dir that will hold named layouts. Declared
-/// here so the on-disk layout is fixed from WP1; WP3 writes `<name>.json`
+/// here so the on-disk layout is fixed up front; saved layouts write `<name>.json`
 /// files under it. Kept separate from the autosave so a corrupt or
 /// hand-broken layout can never poison launch restore (design §10.4).
 const LAYOUTS_DIR: &str = "layouts";
@@ -99,7 +99,7 @@ impl SplitAxisShape {
         }
     }
 
-    /// Convert back to the internal layout axis (consumed by WP2 rebuild).
+    /// Convert back to the internal layout axis (consumed by the restore rebuild).
     pub(crate) fn to_split_axis(self) -> SplitAxis {
         match self {
             SplitAxisShape::Columns => SplitAxis::Columns,
@@ -125,11 +125,11 @@ impl From<SplitAxis> for SplitAxisShape {
 pub(crate) enum PaneShape {
     Leaf {
         cwd: Option<String>,
-        /// The detached session-host id this pane was attached to (WP3 / 8h), or
+        /// The detached session-host id this pane was attached to, or
         /// `None` for a locally-spawned pane. On restore (Unix only), an id whose
         /// session-host is still alive is reattached; a dead id spawns a fresh
         /// shell silently. Never captured on Windows (no detached-session
-        /// transport there), and tolerated-absent on pre-WP3 snapshots.
+        /// transport there), and tolerated-absent on older snapshots.
         session_host_id: Option<String>,
         /// The remote host this pane was connected to, or
         /// `None` for a locally-spawned pane. Holds the saved-profile alias when
@@ -405,7 +405,7 @@ pub(crate) struct WorkspaceShape {
     /// The host alias this workspace is bound to, or `None` for a plain
     /// local workspace. When set, restore re-applies the binding so a New Tab in
     /// the restored workspace routes through the remote connect path again.
-    /// Tolerated-absent on old snapshots (WP1 forward-compat): a missing field
+    /// Tolerated-absent on old snapshots (forward-compat): a missing field
     /// parses to `None`, i.e. an unbound workspace.
     pub(crate) default_profile: Option<String>,
     /// Named launch profile bound to this workspace (v0.14). Distinct from
@@ -567,7 +567,7 @@ impl ShapeSnapshot {
     }
 }
 
-/// Why a snapshot failed to load. Neither variant is fatal to launch: WP2 falls
+/// Why a snapshot failed to load. Neither variant is fatal to launch: restore falls
 /// back to a fresh session (with a one-line notice) in both cases.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LoadError {
@@ -617,7 +617,7 @@ pub(crate) fn layouts_dir() -> PathBuf {
 /// Atomically write `contents` to `path`: write a uniquely-named sibling temp
 /// file, flush it to disk, then rename it over the target. A crash mid-write can
 /// only ever leave the temp file behind (cleaned up on the error path), never a
-/// half-written snapshot (design §10.4 / sub-ODP 8c). The temp file's data is
+/// half-written snapshot. The temp file's data is
 /// `sync_all`'d and the parent directory is fsync'd before returning, so the
 /// rename is durable across a power loss - parity with the settings writeback
 /// path. The rename is atomic and replaces an existing target on both Unix and
@@ -648,7 +648,7 @@ fn prepared_layouts_dir() -> io::Result<PathBuf> {
     Ok(dir)
 }
 
-/// Sanitize a layout name into a safe single-segment filename stem (WP3 / 8e).
+/// Sanitize a layout name into a safe single-segment filename stem.
 /// Keeps ASCII letters, digits, spaces, `-`, `_`, and non-ASCII text.
 /// Other ASCII punctuation, controls, Unicode line/paragraph separators and
 /// default-ignorable scalars become `_`, blocking traversal and hidden names.
@@ -794,7 +794,7 @@ fn layout_collisions_in(dir: &Path, name: &str) -> io::Result<Vec<(String, Layou
     Ok(collisions)
 }
 
-/// Serialize and atomically write a named layout into `dir` (WP3 / 8g core).
+/// Serialize and atomically write a named layout into `dir`.
 fn save_layout_in(dir: &Path, name: &str, snapshot: &ShapeSnapshot) -> io::Result<String> {
     let stem = sanitize_layout_name(name)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty layout name"))?;
@@ -814,10 +814,10 @@ fn save_layout_in(dir: &Path, name: &str, snapshot: &ShapeSnapshot) -> io::Resul
     Ok(stem)
 }
 
-/// Serialize and atomically write a named layout (WP3 / 8g). The layout is a
+/// Serialize and atomically write a named layout. The layout is a
 /// [`ShapeSnapshot`] holding the workspace(s) to instantiate later; reusing the
 /// snapshot schema keeps the layout and autosave formats identical (including
-/// the W5 `default_profile` binding and per-pane cwd). Returns the sanitized
+/// the `default_profile` binding and per-pane cwd). Returns the sanitized
 /// name actually written, or an error when the name is unusable or the write
 /// fails.
 pub(crate) fn save_layout(name: &str, snapshot: &ShapeSnapshot) -> io::Result<String> {
@@ -856,7 +856,7 @@ pub(crate) struct LayoutListing {
     pub(crate) truncated: bool,
 }
 
-/// The sorted `*.json` file stems under `dir` (WP3 core). A missing directory is
+/// The sorted `*.json` file stems under `dir`. A missing directory is
 /// an empty list, never an error; non-`*.json` files are ignored. At most
 /// [`MAX_LAYOUT_DIR_SCAN_ENTRIES`] entries are examined.
 fn list_layout_names_in(dir: &Path) -> LayoutListing {
@@ -910,7 +910,7 @@ pub(crate) fn list_layouts() -> LayoutListing {
     list_layout_names_in(&layouts_dir())
 }
 
-/// Read and classify a named layout from `dir` (WP3 core).
+/// Read and classify a named layout from `dir`.
 fn load_layout_in(dir: &Path, name: &str) -> LoadOutcome {
     let Some(path) = existing_layout_path_in(dir, name) else {
         return LoadOutcome::Absent;
@@ -928,7 +928,7 @@ pub(crate) fn load_layout(name: &str) -> LoadOutcome {
     }
 }
 
-/// Delete a named layout from `dir` (WP3 core). A missing file is success.
+/// Delete a named layout from `dir`. A missing file is success.
 fn delete_layout_in(dir: &Path, name: &str) -> io::Result<()> {
     let Some(path) = existing_layout_path_in(dir, name) else {
         return Ok(());
@@ -1138,10 +1138,10 @@ pub(crate) struct ResolvedCwd {
     pub(crate) stale: bool,
 }
 
-/// Resolve a captured pane cwd against the live filesystem (design §10.5,
-/// sub-ODP 8f). A captured directory that still exists is used as-is; a captured
-/// directory that has since disappeared falls back to `home` and is flagged
-/// stale (for the notice); an unknown (`None`) cwd falls back to `home` quietly.
+/// Resolve a captured pane cwd against the live filesystem. A captured
+/// directory that still exists is used as-is; a captured directory that has
+/// since disappeared falls back to `home` and is flagged stale (for the
+/// notice); an unknown (`None`) cwd falls back to `home` quietly.
 /// Windows network/device prefixes are refused before metadata probes.
 /// Never aborts and performs at most one `metadata` probe.
 pub(crate) fn resolve_cwd(captured: Option<&str>, home: Option<&Path>) -> ResolvedCwd {

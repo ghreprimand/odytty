@@ -549,7 +549,7 @@ impl ContextMenuUi {
                 | ContextMenuItem::DuplicateTab
                 | ContextMenuItem::RenameTab => 0,
                 ContextMenuItem::CloseTab | ContextMenuItem::CloseOtherTabs => 1,
-                // ODP-5D host actions form their own group between the close
+                // Host actions form their own group between the close
                 // section and the workspace/window tail.
                 ContextMenuItem::ConnectToHost | ContextMenuItem::ReplaceTabWithHost => 2,
                 ContextMenuItem::MoveToWorkspace

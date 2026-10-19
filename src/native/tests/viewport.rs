@@ -578,7 +578,7 @@ fn wheel_pixel_delta_converts_by_cell_height() {
 
 #[test]
 fn wheel_accumulator_clean_notch_is_identity() {
-    // WHEEL-SENS identity guarantee: a single discrete LineDelta notch passes
+    // Identity guarantee: a single discrete LineDelta notch passes
     // straight through the accumulator unchanged, so the downstream row/step
     // math is byte-identical to the pre-accumulator path.
     let mut accum = WheelAccumulator::default();
@@ -597,7 +597,7 @@ fn wheel_accumulator_clean_notch_is_identity() {
 
 #[test]
 fn wheel_accumulator_coalesces_subnotch_burst_into_one_notch() {
-    // WHEEL-SENS root-cause test: a high-resolution mouse fires a burst of small
+    // Root-cause test: a high-resolution mouse fires a burst of small
     // PixelDelta events per physical detent. With a 16px cell, four 4px events
     // sum to exactly one 16px notch - and must yield exactly ONE notch of
     // scroll, not four.
@@ -617,7 +617,7 @@ fn wheel_accumulator_coalesces_subnotch_burst_into_one_notch() {
 
 #[test]
 fn wheel_accumulator_zoom_burst_is_one_step_per_notch() {
-    // WHEEL-SENS zoom fix: the same 4x4px burst must produce exactly ONE font
+    // Zoom fix: the same 4x4px burst must produce exactly ONE font
     // step, not four - the runaway-zoom bug. Cap is one step per notch.
     let mut accum = WheelAccumulator::default();
     let mut steps = 0;

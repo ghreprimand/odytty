@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! F4-P1 unified tab **panel** + **seam** geometry - the background-segment
+//! Unified tab **panel** + **seam** geometry - the background-segment
 //! quads that back the "Phosphor Flat v2" tab chrome.
 //!
 //! [`super::tab_chrome`] owns the *colors* (panel tint, wash alpha, seam color);
 //! this module owns the *geometry*: it turns a resolved [`PanelQuadSpec`] into
 //! the pixel-space [`SolidQuad`]s the integration layer splices into the
-//! background segment of the two GPU update paths (immediately after the NF11
+//! background segment of the two GPU update paths (immediately after the
 //! wallpaper edge-wash block, so the panel re-tints the padding strips and veils
 //! the fills, and the seam sits over the panel - both still under every glyph).
 //!
@@ -697,7 +697,7 @@ mod tests {
         assert!(panel_quads(&spec).is_empty());
     }
 
-    // ---- F4-P3 auto-hide overlay band quads -------------------------------
+    // ---- Auto-hide overlay band quads -------------------------------
 
     #[test]
     fn overlay_left_band_washes_to_the_seam_and_seams_inside() {

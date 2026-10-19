@@ -1074,7 +1074,7 @@ mod tests {
         assert_eq!(
             app.session_layout_state_is_clear_for_test(0),
             Some(true),
-            "a reflow must clear the BACKGROUND tab's stale absolute-row state (NF21-3)"
+            "a reflow must clear the BACKGROUND tab's stale absolute-row state"
         );
     }
 

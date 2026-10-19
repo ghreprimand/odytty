@@ -226,7 +226,7 @@ fn erase_display_full_severs_trailing_scrollback_wrap() {
 
 /// A 50-char logical line on a 10x4 grid: one physical row scrolls off as an
 /// OPEN scrollback line whose `wrapped` flag claims visible row 0 as its
-/// continuation. The NF10 seam fixture.
+/// continuation. The row-0 seam fixture.
 fn scrollback_tail_into_row0() -> Terminal {
     let mut terminal = Terminal::new(10, 4);
     terminal.advance("a".repeat(50).as_bytes());
@@ -317,7 +317,7 @@ fn scroll_region_up_at_row_zero_severs_trailing_scrollback_wrap() {
     );
 }
 
-/// NF10 alt-screen control (mirrors the NF6 pin): the same row-0 ops issued
+/// Alt-screen control (mirrors the primary-screen cases above): the same row-0 ops issued
 /// on the ALT screen must NOT sever the primary scrollback tail - it still
 /// validly continues into the SAVED primary row 0.
 #[test]

@@ -923,7 +923,7 @@ pub const DEFAULT_WARN_ON_RISKY_PASTE: bool = true;
 /// selection only; never affects TUI mouse reporting.
 pub const DEFAULT_SELECTION_DRAG_EXTEND: bool = true;
 
-/// Draggable scroll thumb (`ODYTTY_SCROLLBAR_DRAG`, MOUSE-SCROLLBAR): when on, a
+/// Draggable scroll thumb (`ODYTTY_SCROLLBAR_DRAG`): when on, a
 /// left press on the right-edge scroll indicator grabs it as a thumb and the
 /// drag scrubs through scrollback. On by default - the thumb only renders while
 /// scrolled back into history, so the grab is inert at the live tail and the

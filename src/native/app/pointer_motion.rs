@@ -176,7 +176,7 @@ impl App {
             // locally consumed, and a later repeat of that key would be
             // dropped though no local UI took it.
             self.locally_consumed_keys.clear();
-            // Same NF21-8 class for the rename/save-layout text field: a
+            // Same class of lost release for the rename/save-layout text field: a
             // press-drag interrupted by an alt-tab never sees its release, so
             // `rename_dragging` would otherwise stay armed and a later bare
             // `CursorMoved` on focus regain would relocate the rename caret.
@@ -189,7 +189,7 @@ impl App {
             self.super_key = false;
             // The consumed-chord latch stays. This wipe is what makes a
             // leftover release or IME commit look like an unmodified `n`.
-            // WHEEL-SENS (T-reset): drop any partially-accumulated wheel
+            // Drop any partially-accumulated wheel
             // notch so a gesture interrupted by an alt-tab does not
             // resume against the next surface on focus regain.
             self.wheel_accum.reset();
@@ -425,7 +425,7 @@ impl App {
             self.apply_cursor_icon(CursorIcon::ColResize);
             return;
         }
-        // F4-P3 rail auto-hide: feed the live pointer to the reveal machine
+        // Rail auto-hide: feed the live pointer to the reveal machine
         // (arms/holds/hides the floating overlay). While the rail is revealed and
         // the pointer is over its band, the overlay owns the pointer - do rail
         // hover and nothing else, so a click there hits the rail, not the
@@ -723,7 +723,7 @@ impl App {
         let grid_icon = self.grid_cursor_icon();
         self.apply_cursor_icon(grid_icon);
         if self.pointer_drag.is_selecting() {
-            // NF21-8 button-held guard (grid analogue of SLIDER-GUARD): only
+            // Button-held guard (grid analogue of the slider guard): only
             // extend the selection while the left button is physically down. A
             // `Selecting` latch whose release was lost - a mid-drag tab/workspace
             // switch, or an alt-tab that delivered the release elsewhere - would

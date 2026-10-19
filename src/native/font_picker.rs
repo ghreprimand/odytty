@@ -347,7 +347,7 @@ impl FontPicker {
     }
 
     /// Map a clicked body row to the `filtered` position it represents - the
-    /// inverse of [`Self::visible_lines`] (UX4-P1 click→Activate). Returns `None`
+    /// inverse of [`Self::visible_lines`] (click→Activate). Returns `None`
     /// for the header/message rows, a click on a non-selectable group header, or
     /// a click past the last row.
     pub(super) fn row_at(
@@ -1101,7 +1101,7 @@ mod tests {
         assert_eq!(changes[0].value, "Cascadia Code");
     }
 
-    // ── UX4-P1 click→Activate parity ───────────────────────────────────────
+    // ── click→Activate parity ───────────────────────────────────────
 
     #[test]
     fn click_family_row_persists_that_family() {

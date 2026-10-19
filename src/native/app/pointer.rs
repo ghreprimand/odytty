@@ -246,7 +246,7 @@ impl App {
         // Modal pointer capture (foundation): a mouse-owning modal
         // swallows the press beneath the overlay guard, suppressing both local
         // selection and PTY reporting. The tab-rename modal additionally routes
-        // the button to its caret/selection handler (F4-RENAME-MOUSE); copy-mode
+        // the button to its caret/selection handler (the rename-field mouse path); copy-mode
         // still swallows silently.
         if self.modal_captures_pointer() {
             self.cancel_chrome_drags();
@@ -516,7 +516,7 @@ impl App {
                     Some((ChromeBand::TopBar, hit)),
                 ) => {
                     // A right-click on a specific tab opens the tight, tab-scoped
-                    // `TabSlot` menu targeting THAT tab's token (NF-F7-1). A hit on
+                    // `TabSlot` menu targeting THAT tab's token. A hit on
                     // the `+`/`×` chrome resolves no token → empty-strip menu.
                     let surface = match hit {
                         TabHit::Switch(idx) => self
@@ -538,7 +538,7 @@ impl App {
                     ElementState::Pressed,
                     Some((ChromeBand::WorkspaceRail, hit)),
                 ) => {
-                    // NF-F7-4: a right-click on a workspace slot opens the
+                    // A right-click on a workspace slot opens the
                     // `WorkspaceSlot` menu targeting THAT slot; the `+`/gaps open
                     // the rail-empty menu.
                     let surface = match hit {
@@ -557,7 +557,7 @@ impl App {
                 (WinitMouseButton::Right, ElementState::Pressed, None)
                     if self.pointer_in_tab_chrome_band() =>
                 {
-                    // NF-F7-2 / NF-F7-4: an empty-chrome right-click opens the
+                    // An empty-chrome right-click opens the
                     // surface for whichever band the pointer sits over instead of
                     // leaking the grid menu over the bar. The classification is
                     // shared with the drawn-edge band bounds, so the neutral
@@ -1022,7 +1022,7 @@ impl App {
             }
         }
 
-        // WHEEL-SENS + MOUSE-WHEEL-SPEED: coalesce the burst into discrete
+        // Coalesce the burst into discrete
         // notches, then honor the configured per-notch multiplier
         // (`scroll_wheel_lines`, default 6) for BOTH local scrollback and
         // alternate-scroll (DECSET 1007) arrow emulation, so a pager scrolls
@@ -1184,16 +1184,16 @@ impl App {
         if region.certainty == InputCertainty::Unknown {
             return SelectionDeleteOutcome::NoOpWithHint;
         }
-        // R3, NF14-R, Option R: a SINGLE-ROW RightEdgeUnknown
+        // R3: a SINGLE-ROW RightEdgeUnknown
         // region falls through to the R4 clamp below using the core-computed
         // heuristic right edge (last non-blank cell) - the shipped pre-B2
         // behavior. This deliberately re-accepts the bounded risk that a
         // right-aligned decoration on the input row is treated as input,
-        // because the strict ODP-3 gate made select+Delete a complete no-op
+        // because the strict edit-region gate made select+Delete a complete no-op
         // for every shell without the private edit-region OSC (PowerShell on
         // Windows, bash, fish mid-edit). MULTI-ROW RightEdgeUnknown stays a
         // no-op: without a trustworthy edge, row joins cannot anchor a
-        // synthesized multi-row edit (the ODP-3 remainder).
+        // synthesized multi-row edit (the multi-row remainder).
         if region.certainty == InputCertainty::RightEdgeUnknown
             && region.start_row != region.end_row
         {
@@ -1202,7 +1202,7 @@ impl App {
         // R5 (B1 soft-wrap slice): an Exact multi-row region whose joins are
         // all soft wraps is ONE logical line; flatten the core-provided spans
         // and synthesize horizontal-only motion. Hard newlines never reach
-        // here (they force Unknown at R2 under the ODP-2 default) and R6
+        // here (they force Unknown at R2 under the hard-newline default) and R6
         // remains the gated extension point.
         if region.start_row != region.end_row {
             let snapshot = terminal.snapshot_with_scrollback(0);
@@ -1397,7 +1397,7 @@ impl App {
         // B3: never carry a latched button press past an overlay either - its
         // release belongs to the overlay now.
         self.pressed_button = None;
-        // WHEEL-SENS (T-reset): clear the wheel carry on overlay entry so a
+        // Clear the wheel carry on overlay entry so a
         // partial grid-scroll notch does not bleed into the overlay list scroll
         // (and vice-versa) once the overlay captures the wheel.
         self.wheel_accum.reset();
@@ -1410,7 +1410,7 @@ impl App {
         self.overlay_wheel.reset();
     }
 
-    /// On focus loss, abandon any in-progress overlay slider drag (UX4-P2).
+    /// On focus loss, abandon any in-progress overlay slider drag.
     ///
     /// A press may arm a drag whose release is then delivered to another window
     /// after an alt-tab; the overlay stays open, so without this the drag

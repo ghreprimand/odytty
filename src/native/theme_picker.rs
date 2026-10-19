@@ -283,7 +283,7 @@ impl ThemePicker {
     }
 
     /// Map a clicked body row to the theme-entry index it represents - the
-    /// inverse of [`Self::visible_lines`] (UX4-P1 click→Activate). Returns `None`
+    /// inverse of [`Self::visible_lines`] (click→Activate). Returns `None`
     /// for the header/message rows or a click past the last entry.
     pub(super) fn row_at(
         &self,
@@ -611,7 +611,7 @@ mod tests {
         assert!(entry.is_system, "system alias must be selected");
     }
 
-    // ── UX4-P1 click→Activate parity ───────────────────────────────────────
+    // ── click→Activate parity ───────────────────────────────────────
 
     #[test]
     fn click_row_persists_same_theme_as_set_selection() {

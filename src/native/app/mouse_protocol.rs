@@ -276,7 +276,7 @@ impl App {
     }
 
     pub(super) fn handle_reported_wheel(&mut self, delta: MouseScrollDelta) -> bool {
-        // WHEEL-SENS (T-overlay decision, TUI arm): coalesce the burst so a
+        // Wheel sensitivity (TUI arm): coalesce the burst so a
         // high-resolution scroll emits one wheel report per physical notch
         // rather than one per sub-notch event (which would fly a TUI pager). The
         // report protocol carries only a discrete up/down button - sign, not

@@ -633,7 +633,7 @@ fn rail_side_has_an_enum_row_in_the_workspace_rail_group() {
     );
 }
 
-// --- F4-P1/P4 rail/panel knobs (TAB_RAIL_WIDTH/MAX_WIDTH/GAP/SLOT_ROWS/
+// --- rail/panel knobs (TAB_RAIL_WIDTH/MAX_WIDTH/GAP/SLOT_ROWS/
 //     PANEL_STRENGTH/SEAM/AUTOHIDE/REVEAL_PX) ---
 
 #[test]
