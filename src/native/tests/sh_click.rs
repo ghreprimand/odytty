@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! SH-CLICK native wiring tests: OSC 133 click-to-position-cursor.
 //!
-//! Headless (no GPU/window): the App is driven over a one-shot PTY whose writer
-//! is a recording buffer, so the cursor-positioning arrow burst it emits can be
+//! Headless (no GPU/window): the App is driven over a headless session whose
+//! writer is a recording buffer, so the cursor-positioning arrow burst it emits can be
 //! asserted byte-for-byte. The click is driven through the production
 //! `handle_mouse_input` press/release routing (via `left_button_outcome_for_test`)
 //! so the full precedence - overlay → selection → TUI report → local - is
-//! exercised, not reimplemented. Skipped when no PTY is available (CI sandboxes),
-//! mirroring the other App-level suites.
+//! exercised, not reimplemented. The session owns no PTY child, so no test skips.
 
 use super::*;
 
@@ -30,7 +29,7 @@ impl Write for RecordingWriter {
     }
 }
 
-/// Build an `App` over a one-shot PTY whose writer is a recording buffer, feed
+/// Build an `App` over a headless session whose writer is a recording buffer, feed
 /// `content` into its terminal, and turn `sh_click` on. Returns the app plus the
 /// captured-bytes handle.
 fn build_app(content: &[u8]) -> (App, Arc<Mutex<Vec<u8>>>) {

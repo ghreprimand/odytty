@@ -16,7 +16,7 @@
 //! and raises the transient open-notice, so the notice is the positive "the open
 //! ran" signal and no process is started.
 //! Synthetic only: `/proj/...` is fabricated and the stat-gate is a `MapProbe`
-//! over a fixed map. Skipped when no PTY is available (CI sandboxes).
+//! over a fixed map.
 
 use super::*;
 use crate::native::app::interactive_paths::MapProbe;
@@ -52,7 +52,7 @@ impl Write for RecordingWriter {
 /// Build an App over a headless session whose writer records everything the app
 /// would send to the child (so an SGR mouse report is observable), feed
 /// `content` into the terminal, and return the app plus the captured-bytes
-/// handle. `None` when no PTY is available.
+/// handle.
 fn build_app(content: &[u8]) -> (App, Arc<Mutex<Vec<u8>>>) {
     let dims = Dimensions::new(COLS, ROWS);
     let recorder = RecordingWriter::default();

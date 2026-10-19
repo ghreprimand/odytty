@@ -11,8 +11,8 @@
 //! - the modal gate routes nothing today (`active_modal() == None`) and the
 //!   pointer guard is dead (`modal_captures_pointer() == false`).
 //!
-//! The App-level tests spawn a one-shot PTY and skip when none is available
-//! (CI sandboxes), mirroring the other native App suites.
+//! The App-level tests drive a real `App` over a headless session, so they run
+//! on every host.
 
 use super::*;
 use crate::native::settings_panel::SettingsLevel;
@@ -22,14 +22,13 @@ const ROWS: usize = 24;
 const CELL_W: u32 = 8;
 const CELL_H: u32 = 10;
 
-/// Build an `App` over a one-shot PTY with the given settings, inject the cell
-/// size so quad geometry can run without a GPU, and return `None` when no PTY
-/// is available.
-fn build_app(settings: Settings) -> Option<App> {
+/// Build an `App` over a headless session with the given settings and inject
+/// the cell size so quad geometry can run without a GPU.
+fn build_app(settings: Settings) -> App {
     let dims = Dimensions::new(COLS, ROWS);
     let (mut app, _terminal) = headless_app_with(NativeOptions::default(), dims, settings);
     app.set_test_cell_for_test(cell(CELL_W, CELL_H));
-    Some(app)
+    app
 }
 
 /// Two lines of representative content the manifest can paint over.
@@ -213,12 +212,10 @@ fn render_sig(overlays: OverlayCompositeSignature) -> RenderSignature {
 /// to before the registry existed.
 #[test]
 fn frame_overlay_refactor_is_pixel_identical() {
-    let Some(mut app) = build_app(Settings {
+    let mut app = build_app(Settings {
         cursor_glow: false,
         ..Settings::default()
-    }) else {
-        return; // no PTY in this environment
-    };
+    });
     let original = content_snapshot();
     let mut painted = original.clone();
     let ctx = app.overlay_ctx(
@@ -265,9 +262,7 @@ fn frame_overlay_refactor_is_pixel_identical() {
 /// perturb the existing paints.
 #[test]
 fn inactive_contributors_are_noops() {
-    let Some(mut app) = build_app(Settings::default()) else {
-        return;
-    };
+    let mut app = build_app(Settings::default());
     app.open_settings_overlay_for_test();
     let ctx = app.overlay_ctx(
         0,
@@ -301,9 +296,7 @@ fn inactive_contributors_are_noops() {
 /// relocation behind the manifest preserved the live behaviour).
 #[test]
 fn relocated_overlay_paint_mutates_when_open() {
-    let Some(mut app) = build_app(Settings::default()) else {
-        return;
-    };
+    let mut app = build_app(Settings::default());
     app.open_settings_overlay_for_test();
     let ctx = app.overlay_ctx(
         0,
@@ -372,9 +365,7 @@ fn contributor_change_forces_full_rebuild() {
 /// `push_cursor` without changing a single vertex.
 #[test]
 fn cursor_render_params_is_identity_by_default() {
-    let Some(app) = build_app(Settings::default()) else {
-        return;
-    };
+    let app = build_app(Settings::default());
     let params = app.cursor_render_params();
     assert_eq!(
         params,
@@ -393,9 +384,7 @@ fn cursor_render_params_is_identity_by_default() {
 /// `update_control_flow_deadline` collector's min is unperturbed.
 #[test]
 fn animation_deadline_is_none_at_rest() {
-    let Some(app) = build_app(Settings::default()) else {
-        return;
-    };
+    let app = build_app(Settings::default());
     assert_eq!(
         app.animation_deadline(),
         None,
@@ -416,9 +405,7 @@ fn cursor_anim_key_is_identity_at_rest() {
         CursorAnimKey::IDENTITY,
         "default params (offset [0,0], alpha 1.0) MUST quantize to the identity bucket"
     );
-    let Some(mut app) = build_app(Settings::default()) else {
-        return;
-    };
+    let mut app = build_app(Settings::default());
     // Run both updaters on a settled default frame; they must retain identity.
     let now = Instant::now();
     let snap = content_snapshot();
@@ -505,9 +492,7 @@ fn easing_fades_in_then_settles_to_opaque_and_stops_waking() {
         cursor_easing: true,
         ..Default::default()
     };
-    let Some(mut app) = build_app(settings) else {
-        return;
-    };
+    let mut app = build_app(settings);
     let t0 = Instant::now();
     app.update_cursor_easing(t0, true, true);
     let a0 = app.cursor_render_params().alpha;
@@ -541,9 +526,7 @@ fn motion_slides_between_adjacent_cells_then_settles() {
         cursor_motion: true,
         ..Default::default()
     };
-    let Some(mut app) = build_app(settings) else {
-        return;
-    };
+    let mut app = build_app(settings);
     let cell = cell(CELL_W, CELL_H);
     let mut prev = content_snapshot();
     prev.cursor = Position { row: 0, column: 0 };
@@ -586,9 +569,7 @@ fn a_cell_size_change_mid_glide_snaps_the_cursor() {
         cursor_motion: true,
         ..Default::default()
     };
-    let Some(mut app) = build_app(settings) else {
-        return;
-    };
+    let mut app = build_app(settings);
     let mut prev = content_snapshot();
     prev.cursor = Position { row: 0, column: 0 };
     app.set_last_presented_snapshot_for_test(prev);
@@ -622,9 +603,7 @@ fn a_move_during_a_glide_starts_from_the_drawn_position() {
         cursor_motion: true,
         ..Default::default()
     };
-    let Some(mut app) = build_app(settings) else {
-        return;
-    };
+    let mut app = build_app(settings);
     let cell = cell(CELL_W, CELL_H);
     let mut first = content_snapshot();
     first.cursor = Position { row: 0, column: 0 };
@@ -659,9 +638,7 @@ fn default_motion_keeps_typing_crisp_and_reduced_motion_forces_static() {
     let settings = Settings::default();
     assert!(settings.cursor_motion, "cursor motion defaults on");
     assert!(settings.cursor_trail, "cursor trail defaults on");
-    let Some(mut app) = build_app(settings) else {
-        return;
-    };
+    let mut app = build_app(settings);
     let cell = cell(CELL_W, CELL_H);
     let mut prior = content_snapshot();
     prior.cursor = Position { row: 0, column: 0 };
@@ -684,12 +661,10 @@ fn default_motion_keeps_typing_crisp_and_reduced_motion_forces_static() {
     assert_ne!(app.cursor_render_params().offset, [0.0, 0.0]);
     assert!(app.animation_deadline().is_some(), "slide wake is bounded");
 
-    let Some(mut reduced) = build_app(Settings {
+    let mut reduced = build_app(Settings {
         reduced_motion: true,
         ..Default::default()
-    }) else {
-        return;
-    };
+    });
     let mut reduced_prior = content_snapshot();
     reduced_prior.cursor = Position { row: 0, column: 0 };
     reduced.set_last_presented_snapshot_for_test(reduced_prior);
@@ -716,9 +691,7 @@ fn motion_snaps_on_first_frame() {
         cursor_motion: true,
         ..Default::default()
     };
-    let Some(mut app) = build_app(settings) else {
-        return;
-    };
+    let mut app = build_app(settings);
     let mut cur = content_snapshot();
     cur.cursor = Position { row: 0, column: 5 };
     app.update_cursor_motion(Instant::now(), &cur, cell(CELL_W, CELL_H));
@@ -742,9 +715,7 @@ fn motion_snaps_on_large_jump() {
         cursor_motion: true,
         ..Default::default()
     };
-    let Some(mut app) = build_app(settings) else {
-        return;
-    };
+    let mut app = build_app(settings);
     let mut prev = content_snapshot();
     prev.cursor = Position { row: 0, column: 0 };
     app.set_last_presented_snapshot_for_test(prev);
@@ -768,9 +739,7 @@ fn motion_snaps_on_large_jump() {
 /// pointer guard returns `false` (mouse input/wheel are unguarded).
 #[test]
 fn modal_gate_is_dead_by_default() {
-    let Some(app) = build_app(Settings::default()) else {
-        return;
-    };
+    let app = build_app(Settings::default());
     assert_eq!(
         app.active_modal(),
         ActiveModal::None,
@@ -788,12 +757,10 @@ fn modal_gate_is_dead_by_default() {
 /// keeps the cache fragment inert.
 #[test]
 fn disabled_cursor_glow_emits_no_request() {
-    let Some(app) = build_app(Settings {
+    let app = build_app(Settings {
         cursor_glow: false,
         ..Settings::default()
-    }) else {
-        return;
-    };
+    });
     let ctx = app.overlay_ctx(
         0,
         cell(CELL_W, CELL_H),
@@ -817,9 +784,7 @@ fn disabled_cursor_glow_emits_no_request() {
 /// rings.
 #[test]
 fn default_cursor_glow_emits_one_analytic_request() {
-    let Some(app) = build_app(Settings::default()) else {
-        return;
-    };
+    let app = build_app(Settings::default());
     let clip = [4.0, 6.0, 80.0, 100.0];
     assert_eq!(
         app.cursor_glow_request(clip),
@@ -842,13 +807,11 @@ fn default_cursor_glow_emits_one_analytic_request() {
 /// request and an inert cache fragment, so no aura geometry is ever emitted.
 #[test]
 fn zero_intensity_cursor_glow_emits_no_request() {
-    let Some(app) = build_app(Settings {
+    let app = build_app(Settings {
         cursor_glow: true,
         cursor_glow_intensity: 0.0,
         ..Settings::default()
-    }) else {
-        return;
-    };
+    });
     assert!(
         app.cursor_glow_request([0.0, 0.0, 100.0, 100.0]).is_none(),
         "zero intensity must request no aura even while glow is on"
@@ -865,20 +828,16 @@ fn zero_intensity_cursor_glow_emits_no_request() {
 /// live strength change cannot retain stale aura geometry or alpha.
 #[test]
 fn cursor_glow_intensity_change_invalidates_cache_and_request() {
-    let Some(low) = build_app(Settings {
+    let low = build_app(Settings {
         cursor_glow: true,
         cursor_glow_intensity: 0.25,
         ..Settings::default()
-    }) else {
-        return;
-    };
-    let Some(high) = build_app(Settings {
+    });
+    let high = build_app(Settings {
         cursor_glow: true,
         cursor_glow_intensity: 0.9,
         ..Settings::default()
-    }) else {
-        return;
-    };
+    });
     let clip = [4.0, 6.0, 80.0, 100.0];
     assert_eq!(
         low.cursor_glow_request(clip).map(|r| r.intensity),

@@ -20,7 +20,6 @@ use crate::native::layout::PaneRect;
 use crate::native::options::NativeOptions;
 use crate::native::session::{Session, WorkspaceSet};
 use crate::native::viewport::WindowPadding;
-use crate::pty::PtySession;
 use crate::session_host::protocol::{
     ClientFrame, HostFrame, HostHello, read_client_frame, read_client_hello, write_host_frame,
     write_host_hello,
@@ -693,35 +692,30 @@ fn attached_session_token(socket: &std::path::Path, id: &str, token: u64) -> Ses
     Session::new_attached(SessionToken(token), terminal, writer, client, id, None)
 }
 
-/// A real local-PTY [`Session`] to seed a [`WorkspaceSet`] for the present-live-tab
-/// test (the attached tab is grafted on top of it). Mirrors the session-arena
-/// test builder.
+/// A local [`Session`] over a headless backing, to seed a [`WorkspaceSet`] for
+/// the present-live-tab test (the attached tab is grafted on top of it).
+/// Mirrors the session-arena test builder. It owns no shell, so the tests that
+/// use it assert tab bookkeeping only.
 fn build_local_session() -> Session {
     let dims = Dimensions::new(20, 8);
-    let pty = PtySession::spawn_shell_command(dims, "sleep 1").expect("spawn test shell");
-    let writer: PtyWriter = Arc::new(Mutex::new(pty.take_writer().expect("writer")));
+    let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(pty));
-    Session::new(SessionToken(0), terminal, writer, pty, None)
+    let headless = Arc::new(crate::native::session::HeadlessSession::new(dims));
+    Session::new_headless(SessionToken(0), terminal, writer, headless)
 }
 
+/// An [`App`] over a headless session with the given grid.
 fn build_attach_app(dims: Dimensions) -> App {
-    let pty = PtySession::spawn_shell_command(dims, "sleep 1").expect("spawn test shell");
-    let writer: PtyWriter = Arc::new(Mutex::new(pty.take_writer().expect("writer")));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(pty));
     let options = NativeOptions {
         initial_grid: dims,
         ..NativeOptions::default()
     };
-    App::new(
+    let (app, _terminal) = crate::native::test_support::headless_app_with(
         options,
-        terminal,
-        writer,
-        pty,
+        dims,
         crate::settings::Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    )
+    );
+    app
 }
 
 #[test]

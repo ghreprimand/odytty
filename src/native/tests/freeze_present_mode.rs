@@ -2,8 +2,11 @@
 //! Present-mode policy regressions for Wayland surfaces.
 
 use crate::native::gpu::present_mode::{revalidate_present_mode, select_present_mode};
+use crate::test_source_lex::{
+    Token, matching_close, rust_sources_recursively, starts_with_call, tokenize,
+};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use wgpu::PresentMode;
 
 fn select(offered: &[PresentMode], wayland: bool) -> PresentMode {
@@ -82,176 +85,6 @@ fn gpu_surface_present_modes_are_selected_by_the_policy_helper() {
         configurations > 0,
         "GPU source scan found no SurfaceConfiguration literals"
     );
-}
-
-/// One lexical token of a Rust source file. Comments and the contents of
-/// string and character literals never become tokens, so text inside them
-/// cannot satisfy or trip the policy scan.
-#[derive(Debug, PartialEq, Eq)]
-enum Token {
-    Ident(String),
-    Punct(&'static str),
-    Literal,
-}
-
-const OPERATORS: [&str; 24] = [
-    "<<=", ">>=", "..=", "==", "=>", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "%=", "^=", "&=",
-    "|=", "::", "->", "..", "&&", "||", "<<", ">>", "=",
-];
-const SINGLE_PUNCT: [&str; 18] = [
-    "{", "}", "(", ")", "[", "]", ";", ",", ".", ":", "<", ">", "&", "|", "!", "#", "?", "@",
-];
-
-fn tokenize(source: &str) -> Vec<Token> {
-    let chars: Vec<char> = source.chars().collect();
-    let mut tokens = Vec::new();
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        let next = chars.get(i + 1).copied();
-        if c.is_whitespace() {
-            i += 1;
-        } else if c == '/' && next == Some('/') {
-            while i < chars.len() && chars[i] != '\n' {
-                i += 1;
-            }
-        } else if c == '/' && next == Some('*') {
-            let mut depth = 1;
-            i += 2;
-            while i < chars.len() && depth > 0 {
-                if chars[i] == '/' && chars.get(i + 1) == Some(&'*') {
-                    depth += 1;
-                    i += 2;
-                } else if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
-                    depth -= 1;
-                    i += 2;
-                } else {
-                    i += 1;
-                }
-            }
-        } else if let Some(end) = string_literal_end(&chars, i) {
-            tokens.push(Token::Literal);
-            i = end;
-        } else if c == '\'' {
-            // A character literal closes within a few characters; otherwise
-            // this is a lifetime or loop label.
-            let closes = if next == Some('\\') {
-                chars[i + 2..].iter().take(10).position(|&x| x == '\'')
-            } else if chars.get(i + 2) == Some(&'\'') {
-                Some(0)
-            } else {
-                None
-            };
-            if let Some(offset) = closes {
-                tokens.push(Token::Literal);
-                i += if next == Some('\\') { 3 + offset } else { 3 };
-            } else {
-                i += 1;
-            }
-        } else if c.is_alphabetic() || c == '_' {
-            let start = if c == 'r'
-                && next == Some('#')
-                && chars
-                    .get(i + 2)
-                    .is_some_and(|x| x.is_alphabetic() || *x == '_')
-            {
-                i + 2
-            } else {
-                i
-            };
-            let mut end = start;
-            while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_') {
-                end += 1;
-            }
-            tokens.push(Token::Ident(chars[start..end].iter().collect()));
-            i = end;
-        } else if c.is_ascii_digit() {
-            while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
-                i += 1;
-            }
-            tokens.push(Token::Literal);
-        } else if let Some(operator) = OPERATORS.iter().find(|operator| {
-            chars[i..]
-                .iter()
-                .take(3)
-                .collect::<String>()
-                .starts_with(**operator)
-        }) {
-            tokens.push(Token::Punct(operator));
-            i += operator.len();
-        } else {
-            if let Some(single) = SINGLE_PUNCT.iter().find(|p| p.starts_with(c)) {
-                tokens.push(Token::Punct(single));
-            }
-            i += 1;
-        }
-    }
-    tokens
-}
-
-/// End index (exclusive) of a string literal starting at `start`: plain,
-/// byte, C, or raw with any number of `#`. `None` when none starts here.
-fn string_literal_end(chars: &[char], start: usize) -> Option<usize> {
-    let mut i = start;
-    while matches!(chars.get(i), Some('b' | 'c')) && i < start + 1 {
-        i += 1;
-    }
-    let raw = chars.get(i) == Some(&'r');
-    if raw {
-        i += 1;
-    }
-    let mut hashes = 0;
-    while raw && chars.get(i) == Some(&'#') {
-        hashes += 1;
-        i += 1;
-    }
-    if chars.get(i) != Some(&'"') {
-        return None;
-    }
-    i += 1;
-    while i < chars.len() {
-        if !raw && chars[i] == '\\' {
-            i += 2;
-        } else if chars[i] == '"'
-            && chars[i + 1..]
-                .iter()
-                .take(hashes)
-                .filter(|c| **c == '#')
-                .count()
-                == hashes
-        {
-            return Some(i + 1 + hashes);
-        } else {
-            i += 1;
-        }
-    }
-    Some(chars.len())
-}
-
-/// Index of the token that closes the bracket opened at `open`.
-fn matching_close(tokens: &[Token], open: usize) -> Option<usize> {
-    let mut depth = 0usize;
-    for (index, token) in tokens.iter().enumerate().skip(open) {
-        match token {
-            Token::Punct("{" | "(" | "[") => depth += 1,
-            Token::Punct("}" | ")" | "]") => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(index);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// Whether `tokens` starts with a call to `name`.
-fn starts_with_call(tokens: &[Token], name: &str) -> bool {
-    matches!(
-        tokens,
-        [Token::Ident(first), Token::Punct("("), ..] if first == name
-    )
 }
 
 /// Check one source file against the present-mode policy and return how many
@@ -352,22 +185,6 @@ fn check_configuration(tokens: &[Token], start: usize, fields: &[Token]) -> Resu
             "configures present_mode through {binding:?}, not select_present_mode"
         ))
     }
-}
-
-fn rust_sources_recursively(directory: &Path) -> Vec<PathBuf> {
-    let entries = fs::read_dir(directory)
-        .unwrap_or_else(|error| panic!("failed reading {}: {error}", directory.display()));
-    let mut sources = Vec::new();
-    for entry in entries {
-        let entry = entry.expect("GPU directory entry");
-        let path = entry.path();
-        if path.is_dir() {
-            sources.extend(rust_sources_recursively(&path));
-        } else if path.extension().is_some_and(|extension| extension == "rs") {
-            sources.push(path);
-        }
-    }
-    sources
 }
 
 #[cfg(test)]

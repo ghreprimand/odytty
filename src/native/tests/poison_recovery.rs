@@ -7,8 +7,7 @@
 //! unwinds across the AppKit→Rust FFI boundary (the original crash class). The
 //! `lock_recover` helper takes the inner guard instead, keeping the event loop
 //! alive. These pin both the helper itself (PTY-free, always runs) and the
-//! higher-level `current_selection_text` choke point (PTY-gated, skipped in CI
-//! sandboxes without a PTY).
+//! higher-level `current_selection_text` choke point over a headless session.
 
 use super::*;
 use std::panic::{AssertUnwindSafe, catch_unwind};

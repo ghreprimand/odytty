@@ -198,62 +198,96 @@ mod unix_tests {
 /// Every helper that starts a program by name goes through [`helper_command`],
 /// so a Windows build resolves it to an absolute file. A new direct
 /// `Command::new` in one of these functions would bring back the relative
-/// `PATH` lookup, so each body is scanned for it.
+/// `PATH` lookup, so each body is lexed and checked for it. Comments and
+/// string literals are not code, so they neither satisfy nor trip the check.
 #[cfg(test)]
 mod helper_site_tests {
+    use crate::test_source_lex::{calls, fn_body, has_sequence, tokenize};
+
+    /// Whether the body of `fn <function>` in `source` calls `helper_command`
+    /// and never builds a `Command` from a bare name.
+    fn helper_site_violation(source: &str, function: &str) -> Result<(), String> {
+        let tokens = tokenize(source);
+        let body = fn_body(&tokens, function).ok_or_else(|| format!("{function} moved"))?;
+        if !calls(body, "helper_command") {
+            return Err(format!("{function} no longer uses helper_command"));
+        }
+        if has_sequence(body, &["Command", "::", "new", "("]) {
+            return Err(format!("{function} builds a Command directly"));
+        }
+        Ok(())
+    }
+
     #[test]
     fn helper_spawn_sites_do_not_build_a_command_from_a_bare_name() {
         let sites = [
-            ("fn run_probe(", include_str!("connection_probe.rs")),
-            ("fn stream_upload(", include_str!("image_paste.rs")),
+            ("run_probe", include_str!("connection_probe.rs")),
+            ("stream_upload", include_str!("image_paste.rs")),
+            ("spawn_detached", include_str!("interactive_paths.rs")),
             (
-                "pub(crate) fn spawn_detached(",
-                include_str!("interactive_paths.rs"),
-            ),
-            (
-                "pub(in crate::native) fn spawn_remote_cleanup(",
+                "spawn_remote_cleanup",
                 include_str!("../session/upload_lifecycle.rs"),
             ),
+            ("deliver_desktop", include_str!("../notifications.rs")),
             (
-                "pub(in crate::native) fn deliver_desktop(",
-                include_str!("../notifications.rs"),
-            ),
-            (
-                "fn query_wsl_distro_names()",
+                "query_wsl_distro_names",
                 include_str!("../shell_discovery.rs"),
             ),
             // Test stand-ins: the same relative `PATH` lookup would pick the
             // wrong helper for a bounded-upload or quoting test.
             (
-                "fn stalled_child()",
+                "stalled_child",
                 include_str!("../session/upload_lifecycle.rs"),
             ),
             (
-                "fn a_helper_that_exits_reports_its_status()",
+                "a_helper_that_exits_reports_its_status",
                 include_str!("../session/upload_lifecycle.rs"),
             ),
             (
-                "fn windows_powershell_command()",
+                "windows_powershell_command",
                 include_str!("../tests/file_drop.rs"),
             ),
         ];
-        for (anchor, source) in sites {
-            let start = source
-                .find(anchor)
-                .unwrap_or_else(|| panic!("{anchor} moved"));
-            // The body ends at the closing brace at the anchor's own indentation.
-            let indent = &source[source[..start].rfind('\n').map_or(0, |at| at + 1)..start];
-            let body = &source[start..];
-            let body = &body[..body.find(&format!("\n{indent}}}\n")).unwrap_or(body.len())];
-            assert!(
-                body.contains("helper_command("),
-                "{anchor} no longer uses helper_command"
-            );
-            assert!(
-                !body.contains("Command::new("),
-                "{anchor} builds a Command directly"
-            );
+        for (function, source) in sites {
+            if let Err(violation) = helper_site_violation(source, function) {
+                panic!("{violation}");
+            }
         }
+    }
+
+    #[test]
+    fn a_comment_does_not_stand_in_for_the_helper_call() {
+        let source =
+            "fn spawn() {\n    // helper_command(\"ssh\")\n    let c = Command::new(\"ssh\");\n}\n";
+        assert!(helper_site_violation(source, "spawn").is_err());
+        let quoted = "fn spawn() {\n    let note = \"helper_command(\";\n    run();\n}\n";
+        assert_eq!(
+            helper_site_violation(quoted, "spawn"),
+            Err("spawn no longer uses helper_command".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_comment_or_string_naming_command_new_is_not_a_violation() {
+        let source = "fn spawn() {\n    // Command::new(\"ssh\") would use the relative PATH\n    let note = \"Command::new(\";\n    let c = helper_command(\"ssh\");\n}\n";
+        assert_eq!(helper_site_violation(source, "spawn"), Ok(()));
+    }
+
+    #[test]
+    fn a_direct_command_is_found_whatever_the_spacing_or_nesting() {
+        for source in [
+            "fn spawn() { let c = helper_command(\"a\"); let d = Command::new(\"b\"); }",
+            "fn spawn() { let c = helper_command(\"a\"); let d = std::process::Command :: new(\"b\"); }",
+            "fn spawn() { let c = helper_command(\"a\"); if x { let d = Command::\n new(\"b\"); } }",
+        ] {
+            assert!(helper_site_violation(source, "spawn").is_err(), "{source}");
+        }
+    }
+
+    #[test]
+    fn only_the_named_function_is_checked() {
+        let source = "fn other() { Command::new(\"x\"); }\nfn spawn() { helper_command(\"a\"); }\nfn later() { Command::new(\"y\"); }\n";
+        assert_eq!(helper_site_violation(source, "spawn"), Ok(()));
     }
 }
 

@@ -9,6 +9,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::atlas::SubpixelMode;
 use crate::core::CursorStyle;
+use crate::test_source_lex::{calls, declared_modules, string_consts, test_functions, tokenize};
 use crate::theme::Theme;
 
 use super::config::ConfigValues;
@@ -41,6 +42,113 @@ mod profiles;
 mod quick_terminal;
 mod sh2;
 mod system_theme;
+
+/// Count the `#[test]` functions in `source` that call
+/// `apply_reloadable_values` and name those that never take
+/// `render_globals_lock`. Only code is read: a comment or string naming either
+/// call neither makes a test a reload test nor stands in for the lock, and a
+/// helper written after a test does not lend it a lock.
+fn reload_tests_without_lock(source: &str) -> (usize, Vec<String>) {
+    let tokens = tokenize(source);
+    let mut checked = 0;
+    let mut missing = Vec::new();
+    for (name, body) in test_functions(&tokens) {
+        if !calls(body, "apply_reloadable_values") {
+            continue;
+        }
+        checked += 1;
+        if !calls(body, "render_globals_lock") {
+            missing.push(name.to_owned());
+        }
+    }
+    (checked, missing)
+}
+
+/// The `ODYTTY_*` values of the `*_ENV` string constants declared in `source`,
+/// however rustfmt wrapped the declaration.
+fn declared_env_keys(source: &str) -> Vec<String> {
+    string_consts(&tokenize(source))
+        .into_iter()
+        .filter(|(name, _)| name.ends_with("_ENV"))
+        .map(|(_, value)| value.to_owned())
+        .collect()
+}
+
+#[cfg(test)]
+mod source_scan_tests {
+    use super::{declared_env_keys, reload_tests_without_lock};
+
+    #[test]
+    fn a_comment_or_string_naming_the_reload_call_is_not_a_reload_test() {
+        let source = r#"
+            #[test]
+            fn plain() {
+                // apply_reloadable_values(&values) is described here only
+                let note = "apply_reloadable_values(";
+                assert!(note.len() > 1);
+            }
+        "#;
+        assert_eq!(reload_tests_without_lock(source), (0, Vec::new()));
+    }
+
+    #[test]
+    fn a_comment_naming_the_lock_does_not_stand_in_for_taking_it() {
+        let source = r#"
+            #[test]
+            fn reloads() {
+                // let _guard = render_globals_lock();
+                apply_reloadable_values(&values);
+            }
+            #[test]
+            fn locked() {
+                let _guard = render_globals_lock();
+                apply_reloadable_values(&values);
+            }
+        "#;
+        assert_eq!(
+            reload_tests_without_lock(source),
+            (2, vec!["reloads".to_owned()])
+        );
+    }
+
+    #[test]
+    fn a_helper_after_a_test_does_not_lend_it_the_lock() {
+        let source = r#"
+            #[test]
+            fn reloads() {
+                apply_reloadable_values(&values);
+            }
+            fn helper() {
+                let _guard = render_globals_lock();
+            }
+        "#;
+        assert_eq!(
+            reload_tests_without_lock(source),
+            (1, vec!["reloads".to_owned()])
+        );
+    }
+
+    #[test]
+    fn a_test_marker_inside_a_string_is_not_a_test() {
+        let source = r##"
+            const NOTE: &str = "#[test] fn fake() { apply_reloadable_values(1); }";
+        "##;
+        assert_eq!(reload_tests_without_lock(source), (0, Vec::new()));
+    }
+
+    #[test]
+    fn env_consts_split_over_lines_are_declared_and_commented_ones_are_not() {
+        let source = r#"
+            pub const ONE_ENV: &str = "ODYTTY_ONE";
+            pub const TWO_ENV: &str =
+                "ODYTTY_TWO";
+            // pub const GONE_ENV: &str = "ODYTTY_GONE";
+            pub const LIMIT: usize = 3;
+            pub const NOTE: &str = "ODYTTY_NOTE_ENV";
+        "#;
+        assert_eq!(declared_env_keys(source), ["ODYTTY_ONE", "ODYTTY_TWO"]);
+    }
+}
 
 /// Every test in this directory that calls `apply_reloadable_values` holds
 /// `render_globals_lock` for its whole body, because the call republishes the
@@ -79,9 +187,8 @@ fn every_reload_test_holds_the_render_globals_lock() {
     ];
     let mut scanned: Vec<String> = sources.iter().map(|(file, _)| (*file).to_owned()).collect();
     scanned.sort();
-    let mut declared: Vec<String> = include_str!("mod.rs")
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("mod ")?.strip_suffix(';'))
+    let mut declared: Vec<String> = declared_modules(&tokenize(include_str!("mod.rs")))
+        .into_iter()
         .map(|name| format!("{name}.rs"))
         .collect();
     declared.sort();
@@ -105,20 +212,9 @@ fn every_reload_test_holds_the_render_globals_lock() {
     let mut missing = Vec::new();
     let mut checked = 0;
     for (file, source) in sources {
-        for test in source.split("#[test]").skip(1) {
-            if !test.contains("apply_reloadable_values(") {
-                continue;
-            }
-            checked += 1;
-            if !test.contains("render_globals_lock()") {
-                let name = test
-                    .split("fn ")
-                    .nth(1)
-                    .and_then(|rest| rest.split('(').next())
-                    .unwrap_or("?");
-                missing.push(format!("{file}: {name}"));
-            }
-        }
+        let (count, lacking) = reload_tests_without_lock(source);
+        checked += count;
+        missing.extend(lacking.into_iter().map(|name| format!("{file}: {name}")));
     }
     assert!(checked > 0, "the scan found no reload test at all");
     assert!(
@@ -136,26 +232,7 @@ fn every_reload_test_holds_the_render_globals_lock() {
 /// without listing it fails here instead of shipping the same bug again.
 #[test]
 fn setting_env_keys_lists_every_declared_env_const() {
-    let source = include_str!("../consts.rs");
-    let mut declared = Vec::new();
-    for line in source.lines() {
-        let Some(rest) = line.trim_start().strip_prefix("pub const ") else {
-            continue;
-        };
-        let Some((name, value_part)) = rest.split_once(':') else {
-            continue;
-        };
-        if !name.trim().ends_with("_ENV") {
-            continue;
-        }
-        let Some(start) = value_part.find('"') else {
-            continue;
-        };
-        let Some(end) = value_part[start + 1..].find('"') else {
-            continue;
-        };
-        declared.push(value_part[start + 1..start + 1 + end].to_owned());
-    }
+    let declared = declared_env_keys(include_str!("../consts.rs"));
 
     assert!(
         declared.len() >= 70,
