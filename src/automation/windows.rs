@@ -132,7 +132,7 @@ fn wide_endpoint(path: &Path) -> io::Result<Vec<u16>> {
         (digit <= 9).then_some(())?;
         pid.checked_mul(10)?.checked_add(digit)
     });
-    if pid.is_none_or(|pid| pid == 0) || wide.contains(&0) {
+    if pid.is_none_or(|pid| pid == 0) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "invalid automation named-pipe endpoint",

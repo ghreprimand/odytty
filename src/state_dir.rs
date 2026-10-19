@@ -281,6 +281,15 @@ fn follow_config_link(path: &Path) -> io::Result<PathBuf> {
 /// parent-directory fsync is logged at debug level and does not fail the
 /// write, because the rename has already replaced the target.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8], mode: WriteMode) -> io::Result<()> {
+    write_atomic_before_export_check(path, bytes, mode, |_| {})
+}
+
+fn write_atomic_before_export_check(
+    path: &Path,
+    bytes: &[u8],
+    mode: WriteMode,
+    before_export_check: impl FnOnce(&Path),
+) -> io::Result<()> {
     use std::io::Write as _;
 
     // A config that is a symlink (a dotfile manager's layout) is updated where
@@ -365,6 +374,7 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8], mode: WriteMode) -> io::Re
             repair_existing_sensitive(path)?;
         }
         if matches!(mode, WriteMode::Export) {
+            before_export_check(path);
             let current = export_target_identity(path)?;
             if current != export_identity {
                 return Err(io::Error::new(
@@ -751,6 +761,10 @@ mod windows_export {
             .map_err(windows_error)
     }
 }
+
+#[cfg(all(test, windows))]
+#[path = "state_dir/windows_export_tests.rs"]
+mod windows_export_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1201,7 +1215,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn windows_uses_ordinary_inherited_acl_operations() {
+    fn windows_sensitive_operations_create_the_requested_state_file() {
         let root = temp_dir("windows");
         let leaf = root.join("state");
         prepare_private_dir(&leaf).expect("create state leaf");

@@ -196,6 +196,27 @@ jobs:
         timeout-minutes: 15
         run: python tests/check_temp_dir_leaks.py -- cargo test --locked
 
+      - name: Windows runtime regression repeats
+        if: runner.os == 'Windows'
+        timeout-minutes: 12
+        shell: pwsh
+        run: |
+          $groups = @('automation::windows::tests', 'pty::windows::tests', 'state_dir::windows_export_tests')
+          foreach ($group in $groups) {
+            $listed = @(cargo test --locked --lib $group -- --list)
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if (@($listed | Where-Object { $_ -match ': test$' }).Count -eq 0) {
+              throw "Windows runtime group matched no tests: $group"
+            }
+          }
+          foreach ($iteration in 1..5) {
+            foreach ($group in $groups) {
+              Write-Host "Windows runtime repeat=$iteration group=$group threads=4"
+              cargo test --locked --lib $group -- --test-threads=4 --show-output
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
+          }
+
       # macOS: the runner intermittently deadlocked (~1 in 6-7 runs) during
       # PTY teardown in the single-threaded test sweep - the tests run clean,
       # then a silent multi-minute dead gap in a PTY-spawning region, then

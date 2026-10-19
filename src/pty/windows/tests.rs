@@ -247,11 +247,29 @@ fn one_shot_args_select_per_shell_flag_form() {
 }
 
 #[test]
-fn find_on_path_locates_a_known_system_binary() {
-    // cmd.exe is on %PATH% (System32) on every Windows host, so the PATH
-    // search must find it; a nonexistent name must return None.
-    assert!(find_on_path("cmd.exe").is_some());
-    assert!(find_on_path("definitely-not-a-real-binary-xyz.exe").is_none());
+fn find_on_path_uses_only_the_configured_absolute_directories() {
+    let _env = crate::test_lock::test_env_lock();
+    struct RestorePath(Option<OsString>);
+    impl Drop for RestorePath {
+        fn drop(&mut self) {
+            // SAFETY: the shared environment lock outlives this guard.
+            unsafe {
+                match self.0.take() {
+                    Some(value) => std::env::set_var("PATH", value),
+                    None => std::env::remove_var("PATH"),
+                }
+            }
+        }
+    }
+    let _restore = RestorePath(std::env::var_os("PATH"));
+    let root = crate::test_dirs::ScratchDir::new("windows-path-");
+    let probe = root.path().join("path-probe.exe");
+    std::fs::write(&probe, b"fixture").expect("probe file");
+    // SAFETY: the shared environment lock covers the redirect and restore.
+    unsafe { std::env::set_var("PATH", root.path()) };
+    assert_eq!(find_on_path("path-probe.exe"), Some(probe.into_os_string()));
+    assert!(find_on_path("cmd.exe").is_none());
+    assert!(resolve_windows_powershell().is_some());
 }
 
 #[test]
@@ -587,8 +605,8 @@ fn find_exe_in_dirs_requires_absolute_existing_file() {
     // an empty PATH segment and any relative
     // entry must be skipped so a `pwsh.exe` planted in the process working
     // directory cannot be resolved. Only an absolute existing file matches.
-    let tmp = std::env::temp_dir().join(format!("odytty-d6-{}", std::process::id()));
-    let _ = std::fs::create_dir_all(&tmp);
+    let scratch = crate::test_dirs::ScratchDir::new("windows-exe-dirs-");
+    let tmp = scratch.path().to_owned();
     let exe = "odytty_d6_probe.exe";
     std::fs::write(tmp.join(exe), b"x").expect("write probe");
 
@@ -605,8 +623,6 @@ fn find_exe_in_dirs_requires_absolute_existing_file() {
 
     // A lone empty segment resolves nothing.
     assert!(find_exe_in_dirs(vec![PathBuf::new()], exe).is_none());
-
-    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 #[test]
@@ -676,10 +692,34 @@ fn killing_a_held_child_ends_it_without_starting_it() {
     })
     .expect("held spawn");
     assert!(session.start_is_held());
+    let held = session.held.as_ref().expect("held start").clone();
+    assert_eq!(held.outcome(), StartOutcome::NotStarted);
     let start = Instant::now();
     session.kill().expect("kill held child");
     let _ = session.wait().expect("reap held child");
+    assert_eq!(held.outcome(), StartOutcome::NotStarted);
     assert!(start.elapsed() < Duration::from_secs(5), "kill never waits");
+}
+
+#[test]
+fn duplicated_pipe_handles_outlive_each_original_handle() {
+    use std::io::{Read, Write};
+    // SAFETY: create_pipe returns two independently owned live pipe handles.
+    let (read, write) = unsafe { create_pipe() }.expect("pipe");
+    let mut reader = duplicate(&read).expect("duplicate reader");
+    let writer = duplicate_owned_handle(&write).expect("duplicate writer");
+    drop(read);
+    drop(write);
+    let mut writer = File::from(writer);
+    writer
+        .write_all(b"independent")
+        .expect("write after originals close");
+    drop(writer);
+    let mut bytes = Vec::new();
+    reader
+        .read_to_end(&mut bytes)
+        .expect("read until duplicate writer closes");
+    assert_eq!(bytes, b"independent");
 }
 
 /// A held child that no resize releases starts after the armed limit, and

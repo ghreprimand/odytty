@@ -216,7 +216,8 @@ fn oversized_frame_is_rejected_without_waking_owner() {
 }
 
 #[test]
-fn remote_clients_are_rejected_by_the_configured_creation_mode() {
+fn pipe_creation_policy_requests_remote_client_rejection() {
+    // This checks the requested policy; remote transport needs another host.
     assert_ne!(pipe_mode().0 & PIPE_REJECT_REMOTE_CLIENTS.0, 0);
     // GetNamedPipeInfo reports endpoint direction/type flags, not the
     // PIPE_REJECT_REMOTE_CLIENTS creation bit. Remote rejection is therefore
@@ -474,7 +475,7 @@ fn thirty_three_requests_are_bounded_by_accept_rate_or_busy() {
 }
 
 #[test]
-fn client_close_before_reply_does_not_wake_owner() {
+fn client_close_after_a_complete_request_keeps_the_listener_usable() {
     let harness = start_harness();
     let wakes_before = harness.wakes.load(Ordering::Relaxed);
     let mut client = connect(&harness.endpoint, IO_TIMEOUT).expect("connect");
@@ -589,13 +590,36 @@ fn endpoint_with_embedded_nul_is_rejected() {
     units.push(0);
     units.extend(r"x".encode_utf16());
     let path = PathBuf::from(OsString::from_wide(&units));
-    // wide_endpoint maps as_encoded_bytes to u16 units and refuses any zero
-    // unit before CreateFileW, so a path that carries an embedded NUL cannot
-    // open a pipe under a truncated name.
+    // The complete ASCII endpoint grammar rejects this malformed suffix before
+    // CreateFileW, so it cannot open a pipe under a truncated name.
     assert_eq!(
         wide_endpoint(&path).expect_err("embedded NUL").kind(),
         io::ErrorKind::InvalidInput
     );
+}
+
+#[test]
+fn endpoint_conversion_keeps_one_terminal_nul_after_the_full_pid() {
+    let expected: Vec<u16> = r"\\.\pipe\odytty-control-12345"
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    assert_eq!(
+        wide_endpoint(&endpoint(12345)).expect("valid endpoint"),
+        expected
+    );
+    for malformed in [
+        r"\\.\pipe\odytty-control-0",
+        r"\\.\pipe\odytty-control-4294967296",
+        r"\\.\pipe\odytty-control-7x",
+    ] {
+        assert_eq!(
+            wide_endpoint(Path::new(malformed))
+                .expect_err("invalid PID")
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+    }
 }
 
 #[test]
