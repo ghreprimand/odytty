@@ -169,7 +169,7 @@ shells and full-screen terminal applications:
 | Screen state | Scroll regions, origin mode, tab stops, bracketed paste, focus reporting, and alternate-screen modes 47/1047/1048/1049 |
 | Character sets | G0/G1 designation, SO/SI selection, and DEC Special Graphics mapping for ncurses ACS line drawing |
 | OSC sequences | OSC 0/2 titles, OSC 7 working directories, OSC 8 hyperlinks, bounded OSC 9/777 notifications, OSC 9;4 progress, OSC 52 clipboard write plus opt-in read, OSC 133 prompt marks, and OSC 4/10/11/12 dynamic colors |
-| Queries and controls | DECRQM/DECRPM, XTWINOPS, XTGETTCAP, DECRQSS, rectangle operations, selective erase, synchronized output mode 2026, and grapheme cluster mode 2027 (reported permanently set) |
+| Queries and controls | DECRQM/DECRPM, XTWINOPS, XTGETTCAP, DECRQSS, rectangle operations, selective erase, synchronized output mode 2026, and grapheme cluster mode 2027 (reported permanently set, under the cluster profile and its listed differences from UAX #29 in [SPEC](../SPEC.md#grapheme-cluster-mode-dec-private-mode-2027)) |
 | Pointer input | Broad mouse reporting, including X10, normal, button-event, any-event, focus events, UTF-8, SGR, urxvt, legacy encodings, and SGR-pixel mode 1016 |
 | Keyboard input | Mode-aware legacy encoding, negotiated Kitty keyboard protocol, and IME composition |
 
