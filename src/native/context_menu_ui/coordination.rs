@@ -100,50 +100,22 @@ impl ContextMenuUi {
         surface: ContextMenuSurface,
         path_target: Option<Resolved>,
     ) {
-        self.spawn = spawn;
-        self.copy_enabled = copy_enabled;
-        self.cut_enabled = cut_enabled;
-        self.paste_enabled = paste_enabled;
-        self.delete_enabled = delete_enabled;
-        self.command_actions_enabled = false;
-        self.prompt_editing_hint = prompt_editing_hint;
-        self.rename_target = rename_target;
-        self.multi_pane = multi_pane;
-        self.multi_tab = multi_tab;
-        self.multi_workspace = multi_workspace;
-        self.bound_workspace = bound_workspace;
-        self.pane_read_only = false;
-        self.bidi_reorder = false;
-        self.bidi_direction = crate::settings::BidiDirection::LeftToRight;
-        self.pane_broadcast = false;
-        self.broadcast_active = false;
-        self.window_actions = WindowMenuActions::default();
-        // Reset to 0 on every open; the App sets the real count
-        // via `set_workspace_count` only for a rail-slot menu.
-        self.workspace_count = 0;
-        self.surface = surface;
-        self.path_target = path_target;
-        // Cleared on every non-ConnectionRow open; the connection-row opener
-        // sets it explicitly. Keeps the target from leaking across surfaces.
-        self.connection_target = None;
-        // Cleared on every non-NavigatorRow open; the navigator-row opener sets
-        // it explicitly. Keeps the target from leaking across surfaces.
-        self.navigator_target = None;
-        self.navigator_detached_available = false;
-        // Reset on every open; the App sets it only for a WorkspaceSlot menu,
-        // so a stale identity never leaks across surfaces.
-        self.workspace_slot_identity = None;
-        self.focused = 0;
-        self.reset_scroll_input();
-        // Rail clearance is opt-in per open: the App re-applies it via
-        // `set_rail_clearance` only for a rail-anchored menu under auto-hide.
-        // Reset here so a stale reserve never leaks into an unrelated menu.
-        self.reserved_cols_left = 0;
-        self.reserved_cols_right = 0;
-        // Clear any stale accelerators; the App repopulates immediately via
-        // `set_accelerators`. A bare `open` (the unit-test path) shows no
-        // accelerators, which is the label-only legacy layout.
-        self.accelerators = std::array::from_fn(|_| None);
+        *self = Self {
+            spawn,
+            copy_enabled,
+            cut_enabled,
+            paste_enabled,
+            delete_enabled,
+            prompt_editing_hint,
+            rename_target,
+            multi_pane,
+            multi_tab,
+            multi_workspace,
+            bound_workspace,
+            surface,
+            path_target,
+            ..Self::default()
+        };
     }
 
     /// Arm the menu for a right-clicked connection-manager row. Unlike
@@ -159,38 +131,12 @@ impl ContextMenuUi {
         row_index: usize,
         host: ConnectionHost,
     ) {
-        self.spawn = spawn;
-        self.copy_enabled = false;
-        self.cut_enabled = false;
-        self.paste_enabled = false;
-        self.delete_enabled = false;
-        self.command_actions_enabled = false;
-        self.prompt_editing_hint = false;
-        self.rename_target = None;
-        self.multi_pane = false;
-        self.multi_tab = false;
-        self.multi_workspace = false;
-        self.bound_workspace = false;
-        self.pane_read_only = false;
-        self.bidi_reorder = false;
-        self.bidi_direction = crate::settings::BidiDirection::LeftToRight;
-        self.pane_broadcast = false;
-        self.broadcast_active = false;
-        self.window_actions = WindowMenuActions::default();
-        self.workspace_count = 0;
-        self.surface = ContextMenuSurface::ConnectionRow(row_index);
-        self.path_target = None;
-        self.connection_target = Some(Box::new(host));
-        self.navigator_target = None;
-        self.navigator_detached_available = false;
-        self.workspace_slot_identity = None;
-        self.focused = 0;
-        self.reset_scroll_input();
-        // The connection-row menu spawns over the full-screen manager (the rail
-        // is hidden while that overlay is open), so it needs no rail clearance.
-        self.reserved_cols_left = 0;
-        self.reserved_cols_right = 0;
-        self.accelerators = std::array::from_fn(|_| None);
+        *self = Self {
+            spawn,
+            surface: ContextMenuSurface::ConnectionRow(row_index),
+            connection_target: Some(Box::new(host)),
+            ..Self::default()
+        };
     }
 
     /// Arm the menu for a right-clicked session-navigator row. Like
@@ -206,39 +152,13 @@ impl ContextMenuUi {
         target: NavigatorTarget,
         detached_available: bool,
     ) {
-        self.spawn = spawn;
-        self.copy_enabled = false;
-        self.cut_enabled = false;
-        self.paste_enabled = false;
-        self.delete_enabled = false;
-        self.command_actions_enabled = false;
-        self.prompt_editing_hint = false;
-        self.rename_target = None;
-        self.multi_pane = false;
-        self.multi_tab = false;
-        self.multi_workspace = false;
-        self.bound_workspace = false;
-        self.pane_read_only = false;
-        self.bidi_reorder = false;
-        self.bidi_direction = crate::settings::BidiDirection::LeftToRight;
-        self.pane_broadcast = false;
-        self.broadcast_active = false;
-        self.window_actions = WindowMenuActions::default();
-        self.workspace_count = 0;
-        self.surface = ContextMenuSurface::NavigatorRow;
-        self.path_target = None;
-        self.connection_target = None;
-        self.navigator_target = Some(target);
-        self.navigator_detached_available = detached_available;
-        self.workspace_slot_identity = None;
-        self.focused = 0;
-        self.reset_scroll_input();
-        // The navigator menu spawns over the full-screen navigator overlay (the
-        // rail is hidden while that overlay is open), so it needs no rail
-        // clearance.
-        self.reserved_cols_left = 0;
-        self.reserved_cols_right = 0;
-        self.accelerators = std::array::from_fn(|_| None);
+        *self = Self {
+            spawn,
+            surface: ContextMenuSurface::NavigatorRow,
+            navigator_target: Some(target),
+            navigator_detached_available: detached_available,
+            ..Self::default()
+        };
     }
 
     /// Reserve `left`/`right` columns the menu box must stay clear of.

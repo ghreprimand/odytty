@@ -7,25 +7,23 @@ impl ContextMenuUi {
     /// [`ContextMenuRow::Separator`] (the visual divider). The renderer decides
     /// how to paint each row type.
     pub(in crate::native) fn rows(&self) -> Vec<ContextMenuRow> {
-        let items = self.visible_items();
-        let mut out = Vec::with_capacity(self.body_row_count());
-        let mut prev_section: Option<u8> = None;
-        for (item_index, item) in items.iter().enumerate() {
-            // Insert a separator wherever consecutive visible items cross a
-            // section boundary, so the layout reflows when Close Pane appears.
-            let section = self.section_of(*item);
-            if prev_section.is_some_and(|p| p != section) {
-                out.push(ContextMenuRow::Separator);
-            }
-            prev_section = Some(section);
-            out.push(ContextMenuRow::Item {
-                label: self.item_label(*item),
-                accelerator: self.accelerator_for_item(*item).map(str::to_owned),
-                focused: item_index == self.focused,
-                enabled: self.item_enabled(*item),
-            });
-        }
-        out
+        let mut item_index = 0;
+        self.body_layout()
+            .into_iter()
+            .map(|item| {
+                let Some(item) = item else {
+                    return ContextMenuRow::Separator;
+                };
+                let focused = item_index == self.focused;
+                item_index += 1;
+                ContextMenuRow::Item {
+                    label: self.item_label(item),
+                    accelerator: self.accelerator_for_item(item).map(str::to_owned),
+                    focused,
+                    enabled: self.item_enabled(item),
+                }
+            })
+            .collect()
     }
 
     pub(in crate::native) fn render_signature(&self) -> ContextMenuSignature {

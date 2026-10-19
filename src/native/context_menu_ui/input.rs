@@ -111,13 +111,6 @@ impl ContextMenuUi {
         }
     }
 
-    /// Clear the wheel remainder and the scroll anchor. Every open path calls
-    /// this so a partial flick or a stale window never carries into a new menu.
-    pub(super) fn reset_scroll_input(&mut self) {
-        self.wheel_remainder = 0.0;
-        self.scroll_anchor = 0;
-    }
-
     /// Commit the currently displayed window as the scroll anchor. Called by
     /// every handler that knows `body_height` before it acts, so keyboard focus
     /// moves (which run without the height) start from the window on screen.
