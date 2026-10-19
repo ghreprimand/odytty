@@ -1044,6 +1044,21 @@ fn gpu_fixture_keeps_driver_lifetime_serialized() {
     drop(gpu);
 }
 
+#[test]
+fn gpu_fixtures_share_one_device() {
+    let Some(first) = gpu_device() else {
+        return report_unavailable("gpu_fixtures_share_one_device", "gpu-adapter");
+    };
+    eprintln!("VALIDATION_EXECUTED test=gpu_fixtures_share_one_device");
+    let device = first.device.clone();
+    drop(first);
+    let second = gpu_device().expect("a created device stays available");
+    assert_eq!(
+        device, second.device,
+        "every fixture reuses the device created for the first"
+    );
+}
+
 static GPU_UNAVAILABLE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Report a test that did not run for want of the hardware it needs. The test
@@ -1081,10 +1096,23 @@ fn hdr_gpu(test: &str) -> Option<GpuFixture> {
 fn gpu_device() -> Option<GpuFixture> {
     // This fixture serializes setup, drawing and teardown. Retaining the
     // root instance prevents EGL teardown races, but concurrent composite
-    // device lifetimes can still stall inside the graphics driver.
+    // device lifetimes can still stall inside the graphics driver. One
+    // device and queue serve every test in this process, created once under
+    // the same lock, so no two device creations can overlap.
     let _init = GPU_FIXTURE_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    static SHARED: OnceLock<Option<(wgpu::Device, wgpu::Queue, bool)>> = OnceLock::new();
+    let (device, queue, hdr_supported) = SHARED.get_or_init(create_gpu_device).clone()?;
+    Some(GpuFixture {
+        device,
+        queue,
+        hdr_supported,
+        _lifetime: _init,
+    })
+}
+
+fn create_gpu_device() -> Option<(wgpu::Device, wgpu::Queue, bool)> {
     let instance = gpu_instance();
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::default(),
@@ -1108,12 +1136,7 @@ fn gpu_device() -> Option<GpuFixture> {
         trace: wgpu::Trace::Off,
     }))
     .ok()?;
-    Some(GpuFixture {
-        device,
-        queue,
-        hdr_supported,
-        _lifetime: _init,
-    })
+    Some((device, queue, hdr_supported))
 }
 
 fn create_scene_pipeline(
