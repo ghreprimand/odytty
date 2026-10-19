@@ -8,6 +8,7 @@
 //! priority over geometric box-drawing and the symbol fallback, with
 //! first-match-wins precedence matching `text::SymbolMap`.
 
+use super::fallback::{SYMBOL_ICON, marker_blank_font, symbol_bar_font, symbol_block_font};
 use super::*;
 use std::sync::Arc;
 
@@ -85,6 +86,52 @@ fn symbol_map_font_for_wins_over_installed_fallback() {
     assert!(
         Arc::ptr_eq(&got, &override_font),
         "SYMMAP must remain the first glyph-source decision when fallback is installed"
+    );
+}
+
+/// The face that draws a codepoint when both an installed fallback and a
+/// SYMMAP range cover it is the override, whichever face is which. The two
+/// fixture faces map the same private-use codepoint with different ink, so a
+/// precedence change in `ensure_styled` changes the ink and fails here; the
+/// lookup-only test above cannot see it.
+#[test]
+fn symbol_map_override_draws_ahead_of_the_installed_fallback_glyph() {
+    // Coverage magnitude is compared across atlases rasterized at different
+    // moments, so hold the guard for the process-global stem-darkening gain.
+    let _guard = crate::test_lock::render_globals_lock();
+    let primary = marker_blank_font();
+    let ink = |fallback: Option<FontHandle>, override_face: Option<FontHandle>| {
+        let mut atlas = GlyphAtlas::build(&primary, 24.0);
+        if let Some(face) = fallback {
+            atlas.set_fallback_fonts(vec![Arc::new(face)]);
+        }
+        if let Some(face) = override_face {
+            let code = SYMBOL_ICON as u32;
+            atlas.set_symbol_map_fonts(vec![(code, code, Arc::new(face))]);
+        }
+        let uv = atlas.ensure(&primary, SYMBOL_ICON).expect("icon uv");
+        assert_ne!(
+            uv,
+            atlas.slot_uv(FALLBACK_SLOT),
+            "the icon must draw a glyph"
+        );
+        cell_ink(&atlas, uv)
+    };
+    let block_alone = ink(Some(symbol_block_font()), None);
+    let bar_alone = ink(Some(symbol_bar_font()), None);
+    assert!(
+        block_alone > bar_alone * 2,
+        "the fixture faces must leave clearly different ink ({block_alone} vs {bar_alone})"
+    );
+    assert_eq!(
+        ink(Some(symbol_block_font()), Some(symbol_bar_font())),
+        bar_alone,
+        "the SYMMAP face must draw, not the installed fallback"
+    );
+    assert_eq!(
+        ink(Some(symbol_bar_font()), Some(symbol_block_font())),
+        block_alone,
+        "the SYMMAP face must draw whichever face the fallback holds"
     );
 }
 

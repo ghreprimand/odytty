@@ -28,7 +28,7 @@ fn pua_present(font: &FontHandle) -> Option<char> {
         .find(|&ch| font_has_glyph(font, ch))
 }
 
-fn marker_blank_font() -> FontHandle {
+pub(super) fn marker_blank_font() -> FontHandle {
     FontHandle::try_from_vec(
         include_bytes!("../../../tests/fixtures/fonts/symbol-markers-blank.ttf").to_vec(),
     )
@@ -41,6 +41,27 @@ fn marker_inked_font() -> FontHandle {
     )
     .expect("parse inked marker fixture")
 }
+
+/// A symbol face carrying U+E0A0 as a wide block, standing in for an installed
+/// symbol or Nerd font. No primary fixture in this module maps it.
+pub(super) fn symbol_block_font() -> FontHandle {
+    FontHandle::try_from_vec(
+        include_bytes!("../../../tests/fixtures/fonts/symbol-pua-block.ttf").to_vec(),
+    )
+    .expect("parse block symbol fixture")
+}
+
+/// A symbol face carrying U+E0A0 as a thin bar, so it leaves less ink than
+/// [`symbol_block_font`] for the same codepoint.
+pub(super) fn symbol_bar_font() -> FontHandle {
+    FontHandle::try_from_vec(
+        include_bytes!("../../../tests/fixtures/fonts/symbol-pua-bar.ttf").to_vec(),
+    )
+    .expect("parse bar symbol fixture")
+}
+
+/// The private-use codepoint both symbol fixtures map.
+pub(super) const SYMBOL_ICON: char = '\u{E0A0}';
 
 #[test]
 fn confirmed_symbol_markers_reject_blank_glyph_coverage() {
@@ -252,19 +273,14 @@ fn primary_covered_pua_glyph_renders_from_primary() {
 
 #[test]
 fn fallback_renders_pua_glyph_when_a_symbol_font_is_available() {
-    let primary = test_font();
-    let Some(symbol) = crate::text::resolve_symbol_font() else {
-        eprintln!("skipping: no symbol / Nerd font on this host");
-        return;
-    };
-    // A PUA codepoint the symbol font has but the primary lacks: the canonical
-    // Symbol-fallback case (a prompt icon the body font cannot draw).
-    let Some(icon) = (0xE000u32..=0xF8FF).filter_map(char::from_u32).find(|&ch| {
-        is_symbol_codepoint(ch) && font_has_glyph(&symbol, ch) && !font_has_glyph(&primary, ch)
-    }) else {
-        eprintln!("skipping: no PUA codepoint unique to the symbol font");
-        return;
-    };
+    // A fixture face stands in for the installed symbol font, so the test
+    // asserts on every host. The primary maps no private-use codepoint.
+    let primary = marker_blank_font();
+    let symbol = symbol_block_font();
+    let icon = SYMBOL_ICON;
+    assert!(is_symbol_codepoint(icon));
+    assert!(font_has_glyph(&symbol, icon) && !font_has_glyph(&primary, icon));
+    // The canonical Symbol-fallback case: a prompt icon the body font cannot draw.
     let mut atlas = GlyphAtlas::build(&primary, 24.0);
     let box_uv = atlas.slot_uv(FALLBACK_SLOT);
     let count = atlas.slot_count();
@@ -283,24 +299,19 @@ fn fallback_renders_pua_glyph_when_a_symbol_font_is_available() {
 
 #[test]
 fn chain_walk_resolves_from_a_later_face_when_the_first_lacks_the_glyph() {
-    let primary = test_font();
+    let primary = marker_blank_font();
     // Two-face chain: the first face lacks `icon`, the second has it. The atlas
     // must skip the first and rasterize from the second (first-hit-wins), which
     // is exactly how the bundled v3→v2 chain covers v2-only codepoints.
-    let first = test_font();
-    let Some(second) = crate::text::resolve_symbol_font() else {
-        eprintln!("skipping: no symbol / Nerd font on this host");
-        return;
-    };
-    let Some(icon) = (0xE000u32..=0xF8FF).filter_map(char::from_u32).find(|&ch| {
-        is_symbol_codepoint(ch)
-            && font_has_glyph(&second, ch)
-            && !font_has_glyph(&first, ch)
-            && !font_has_glyph(&primary, ch)
-    }) else {
-        eprintln!("skipping: no PUA codepoint unique to the second face");
-        return;
-    };
+    let first = marker_inked_font();
+    let second = symbol_block_font();
+    let icon = SYMBOL_ICON;
+    assert!(is_symbol_codepoint(icon));
+    assert!(
+        font_has_glyph(&second, icon)
+            && !font_has_glyph(&first, icon)
+            && !font_has_glyph(&primary, icon)
+    );
     let mut atlas = GlyphAtlas::build(&primary, 24.0);
     let box_uv = atlas.slot_uv(FALLBACK_SLOT);
     // Order matters: `first` (no glyph) leads, `second` (has glyph) follows.
@@ -342,7 +353,7 @@ mod runtime_resolver {
     static POS_CALLS: AtomicUsize = AtomicUsize::new(0);
     fn pos_resolver(_ch: char) -> RuntimeSymbol {
         POS_CALLS.fetch_add(1, Ordering::SeqCst);
-        RuntimeSymbol::Ready(crate::text::resolve_symbol_font().map(Arc::new))
+        RuntimeSymbol::Ready(Some(Arc::new(symbol_block_font())))
     }
 
     // `NEG_CALLS` / `neg_resolver` are owned exclusively by
@@ -396,17 +407,13 @@ mod runtime_resolver {
     /// same codepoint is served from the cache (resolver called exactly once).
     #[test]
     fn static_miss_resolves_at_runtime_and_caches() {
-        let primary = test_font();
-        let Some(symbol) = crate::text::resolve_symbol_font() else {
-            eprintln!("skipping: no symbol / Nerd font on this host");
-            return;
-        };
-        let Some(icon) = (0xE000u32..=0xF8FF).filter_map(char::from_u32).find(|&ch| {
-            is_symbol_codepoint(ch) && font_has_glyph(&symbol, ch) && !font_has_glyph(&primary, ch)
-        }) else {
-            eprintln!("skipping: no PUA codepoint unique to the symbol font");
-            return;
-        };
+        // A fixture face stands in for the installed symbol font, so the test
+        // asserts on every host. The primary maps no private-use codepoint.
+        let primary = marker_blank_font();
+        let symbol = symbol_block_font();
+        let icon = SYMBOL_ICON;
+        assert!(is_symbol_codepoint(icon));
+        assert!(font_has_glyph(&symbol, icon) && !font_has_glyph(&primary, icon));
         let mut atlas = GlyphAtlas::build(&primary, 24.0);
         let box_uv = atlas.slot_uv(FALLBACK_SLOT);
         // Empty static chain forces the runtime resolver to be consulted.
@@ -524,17 +531,13 @@ mod runtime_resolver {
     /// as before the runtime query existed.
     #[test]
     fn static_hit_never_consults_runtime_resolver() {
-        let primary = test_font();
-        let Some(symbol) = crate::text::resolve_symbol_font() else {
-            eprintln!("skipping: no symbol / Nerd font on this host");
-            return;
-        };
-        let Some(icon) = (0xE000u32..=0xF8FF).filter_map(char::from_u32).find(|&ch| {
-            is_symbol_codepoint(ch) && font_has_glyph(&symbol, ch) && !font_has_glyph(&primary, ch)
-        }) else {
-            eprintln!("skipping: no PUA codepoint unique to the symbol font");
-            return;
-        };
+        // A fixture face stands in for the installed symbol font, so the test
+        // asserts on every host. The primary maps no private-use codepoint.
+        let primary = marker_blank_font();
+        let symbol = symbol_block_font();
+        let icon = SYMBOL_ICON;
+        assert!(is_symbol_codepoint(icon));
+        assert!(font_has_glyph(&symbol, icon) && !font_has_glyph(&primary, icon));
         let mut atlas = GlyphAtlas::build(&primary, 24.0);
         let box_uv = atlas.slot_uv(FALLBACK_SLOT);
         // Static chain covers `icon`; resolver installed but must stay unused.
