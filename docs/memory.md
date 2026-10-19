@@ -665,6 +665,45 @@ These figures do not establish the cause of every residual timing difference.
 The cell layout and required command-end boundary projection are unchanged.
 The shared core paths apply to Linux, macOS and Windows.
 
+### Counting history rows without projecting them
+
+A resize that changes the width rebuilds the history row index: the number of
+physical rows every stored logical line projects to at the new width. A line
+with no combining marks whose kept cells are all printable ASCII, with no
+layout padding and no wide continuation, is all one-column owners, so its
+row count is its kept length divided by the width, rounded up (one row when
+nothing is kept). The index now takes that count directly and projects only
+the other lines. A differential test compares the count with the projection
+for generated lines of every shape at widths 1 to 120 in both width policies.
+
+Measured on the internal benchmark protocol (Linux, AMD Ryzen 9 9950X3D,
+pinned Rust 1.96.0, 30 alternating process pairs, frozen noise thresholds),
+against the same source without the change:
+
+| row | before | after | change |
+| --- | ---: | ---: | ---: |
+| resize reflow (deep scrollback) | 1,097 us | 193 us | -82.4% |
+| resize reflow (height-only, deep) | 1,050 us | 163 us | -84.5% |
+| resize reflow (shallow scrollback) | 29.7 us | 24.8 us | -16.5% |
+
+Per resize. Two complete comparisons agree to within 0.4 points. The one other
+row outside its threshold, the parser-only scroll churn row (+5.4%, threshold
+5.2%), runs no scrollback code; the parser functions compile to identical
+instructions at different alignments, and a control build that adds the same
+counting code without ever taking it moves that row by +6.1% and leaves the
+reflow rows unchanged, so that row's movement is code layout.
+
+The same protocol also re-measured the historical rows against ea6f4eb2, the
+reference of the cell-size investigation above. Before this change, the deep
+and height-only reflow rows were 34% to 36% slower than ea6f4eb2; the change
+puts them well below it. Geometry and ligature rows are 36% to 66% faster than
+ea6f4eb2. Remaining differences: full repaint +3.1%, scroll-region churn +7.1%
+and heavy SGR +3.2% (each within its threshold at v0.17.0; the growth since
+then follows the text-model work of this cycle), and
+`snapshot_with_scrollback(1000)` +9%, which an adjacent-commit probe places
+at the Indic cluster ownership change (914dfbbd) and which remained after the
+ASCII guards above. These are recorded, not recovered.
+
 ### Scrollback: an aggregate cell budget and windowed rows
 
 The line cap counts logical lines, not cells, so every retained line could be

@@ -1138,17 +1138,8 @@ impl Scrollback {
         let mut row_starts = VecDeque::with_capacity(self.lines.len());
         let mut total_rows = 0usize;
         for line in &self.lines {
-            scratch.clear();
-            project_line_into(
-                line.counting_view(),
-                width,
-                line.open,
-                NO_ROWS,
-                &mut scratch,
-                self.ambiguous_wide,
-            );
             row_starts.push_back(total_rows);
-            total_rows += scratch.len();
+            total_rows += count_line_rows(line, width, self.ambiguous_wide, &mut scratch);
         }
         let mut cache = self.cache.borrow_mut();
         cache.width = Some(width);
@@ -1510,17 +1501,54 @@ fn line_all_blank(line: &LogicalLine) -> bool {
     line.marks.is_empty() && line.cells.iter().all(|c| *c == plain)
 }
 
+#[cfg(test)]
+#[path = "scrollback_count_tests.rs"]
+mod count_tests;
+
 fn count_projected_rows(line: &LogicalLine, width: usize, ambiguous_wide: bool) -> usize {
     let mut tmp = Vec::new();
+    count_line_rows(line, width, ambiguous_wide, &mut tmp)
+}
+
+/// The number of physical rows `line` projects to at `width`: exactly
+/// `project_line_into(..., NO_ROWS, ...)` followed by the length of its
+/// output, which `scratch` holds when the projection runs.
+///
+/// A line with no combining marks whose kept cells are all printable ASCII,
+/// with no layout padding and no wide continuation, is all one-column owners:
+/// it fills `width` columns per row and ends with one partly filled row, or a
+/// single row when nothing is kept. That count needs no projection. Every
+/// other line is projected. A prompt mark and button spans never change the
+/// row count, and the counting view carries no spans.
+fn count_line_rows(
+    line: &LogicalLine,
+    width: usize,
+    ambiguous_wide: bool,
+    scratch: &mut Vec<Line>,
+) -> usize {
+    if width > 0 && line.marks.is_empty() {
+        let plain = StoredCell::from_cell(&Cell::blank());
+        let mut keep = line.cells.len();
+        while keep > 0 && line.cells[keep - 1] == plain {
+            keep -= 1;
+        }
+        let narrow = line.cells[..keep].iter().all(|cell| {
+            matches!(cell.ch(), ' '..='~') && !cell.layout_padding() && !cell.wide_continuation()
+        });
+        if narrow {
+            return if keep == 0 { 1 } else { keep.div_ceil(width) };
+        }
+    }
+    scratch.clear();
     project_line_into(
         line.counting_view(),
         width,
         line.open,
         NO_ROWS,
-        &mut tmp,
+        scratch,
         ambiguous_wide,
     );
-    tmp.len()
+    scratch.len()
 }
 
 /// Project one logical line's cells to physical rows at `width`, appending to
