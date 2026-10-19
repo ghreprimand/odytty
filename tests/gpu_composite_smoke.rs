@@ -1102,6 +1102,11 @@ fn gpu_device() -> Option<GpuFixture> {
     // device lifetimes can still stall inside the graphics driver. One
     // device and queue serve every test in this process, created once under
     // the same lock, so no two device creations can overlap.
+    //
+    // The shared device has a cost: a device loss or an uncaptured validation
+    // error in one test also fails every test that uses the device after it,
+    // usually with a symptom that points elsewhere. Read a red run from its
+    // first failure.
     let _init = GPU_FIXTURE_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
