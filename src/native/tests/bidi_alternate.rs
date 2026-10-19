@@ -90,8 +90,8 @@ fn alt_screen_explicit_rtl_reverses_columns_exactly() {
 #[test]
 fn leaving_alt_screen_restores_primary_layout() {
     // A right-to-left primary paragraph, then a program that enters the
-    // alternate screen in explicit mode and restores implicit mode as it
-    // leaves.
+    // alternate screen in explicit mode and leaves without restoring implicit
+    // mode, as a killed program does.
     let (mut app, terminal) = app("\x1b[2 k\u{05D0}\u{05D1} ab");
     let primary = present(&mut app);
     assert_eq!(primary.visual_column(0, 0), 19);
@@ -104,12 +104,22 @@ fn leaving_alt_screen_restores_primary_layout() {
     let alternate = present(&mut app);
     assert!(alternate.row_is_explicit(0), "the program's own order");
     assert_eq!(alternate.visual_column(0, 0), 19);
-    terminal
-        .lock()
-        .expect("terminal")
-        .advance(b"\x1b[?1049l\x1b[8h");
+    terminal.lock().expect("terminal").advance(b"\x1b[?1049l");
+    // The primary rows keep their own properties, so the primary layout
+    // returns unchanged.
     let restored = present(&mut app);
     assert_eq!(restored.placement_hash(), primary.placement_hash());
+    // The mode and direction a program selects are terminal-wide, as in VTE:
+    // leaving the alternate screen does not restore them, so the explicit mode
+    // remains current and is stamped on the primary screen's next paragraph
+    // until the program, RIS, or DECSTR resets it.
+    let mut terminal = terminal.lock().expect("terminal");
+    assert!(terminal.screen().paragraph_bidi_current().explicit());
+    terminal.advance(b"\x1b[8$p");
+    assert_eq!(terminal.take_host_output(), b"\x1b[8;2$y");
+    terminal.advance(b"\x1b[8h\x1b[8$p");
+    assert!(!terminal.screen().paragraph_bidi_current().explicit());
+    assert_eq!(terminal.take_host_output(), b"\x1b[8;1$y");
 }
 
 #[test]
