@@ -151,7 +151,8 @@ sessions.
   Session Navigator, and tab tear-out into a new window. Live tab drag in
   Settings follows the pointer on X11, Hyprland, macOS, Windows and Wayland
   with advertised `xdg-toplevel-drag`, and restores the tab on cancellation; returning to the strip resumes the held reorder gesture.
-  The X11 preview becomes a normal managed window on release.
+  X11 release retires the preview and creates an ordinary window around the
+  same session.
   The source retains its last frame during live follow; disposing of the preview
   returns its sessions for cancellation.
 - **Configuration without ceremony:** a live settings panel, command palette,

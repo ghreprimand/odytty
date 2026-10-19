@@ -1717,8 +1717,9 @@ only reorders workspaces.
 `live_tab_drag` (Settings > Layout > Tabs, default on) follows the pointer
 with a provisional window on X11, Hyprland, macOS, Windows and Wayland with
 advertised `xdg-toplevel-drag`. The X11 preview is unmanaged and never requests
-focus while held; it becomes a normal managed window on release. Completion
-commits once.
+focus while held. Release retires it and creates an ordinary input-capable
+window around the same session and PTY. A converted preview is never reused.
+Completion commits once; failed ordinary window creation restores the source.
 Escape, returning to the source strip, a window close or a failed creation
 restores the exact tab order, active identity and pane tree. Focus changes
 within OdyTTY keep custody alive. On the X11, Hyprland, macOS and Windows
@@ -1746,7 +1747,7 @@ Placement follows the platform:
 
 | Platform | New-window placement |
 | --- | --- |
-| Linux X11 (including Xwayland) | An unmanaged DND preview follows the pointer without tiling or focus transfer. Release remaps it as a normal client with window-manager placement or tiling. With live tab drag off, the window is created on release. |
+| Linux X11 (including Xwayland) | An unmanaged DND preview follows the pointer without tiling or focus transfer. Release retires it and creates an ordinary window around the same session. Floating window managers can honor its requested drop position; tiling window managers choose placement. With live tab drag off, the window is created on release. |
 | Linux Hyprland Wayland | A floating provisional window follows the logical global cursor through bounded IPC. Release tiles it on the cursor monitor and workspace. With live tab drag off, release-time creation and tiling remain unchanged. |
 | Linux Wayland with advertised `xdg-toplevel-drag` | The compositor moves the attached provisional window and determines its release placement. |
 | Linux Wayland without `xdg-toplevel-drag` | Creation waits for release; the compositor chooses placement. |

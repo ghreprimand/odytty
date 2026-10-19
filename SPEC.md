@@ -1521,15 +1521,14 @@ that closed while the picker was open, including when names are duplicated.
   held outside.
   The X11 preview uses override-redirect and the DND window type. While the
   button is held, the window manager does not tile, place, or focus it.
-  Release withdraws it, restores normal window type and
-  focus hints, clears override-redirect, and maps it as an ordinary client.
-  Window-manager placement or tiling applies after release. Adoption requires
-  fresh ICCCM NormalState evidence within 150 ms. An unconfirmed or failed
-  handoff drops the preview and uses ordinary release-time tear-out, keeping
-  the same session, PTY and history. Xwayland uses this fallback when its WM
-  does not adopt the remapped preview. If the ordinary window cannot open,
-  the tab returns to its source. A failed setup or move cancels safely.
-  Debug logging records cancellation and unconfirmed adoption.
+  Release retires the preview and creates an ordinary input-capable window
+  through the existing tear-out transaction, retaining the same session, PTY
+  and history. The new window requests the release position; floating window
+  managers can honor it, while tiling window managers choose placement. X11
+  and Xwayland use this path unconditionally: a former override-redirect
+  preview is never converted into a managed client. If ordinary window
+  creation fails, the tab returns to its source. A failed preview setup or
+  move cancels safely. Debug logging records cancellation.
   Its grabbed tab follows the pointer with scale-aware offsets and monitor
   clamping. The source, including a sole-tab source, survives until release
   commits once. Escape, returning to the strip, source or destination close,

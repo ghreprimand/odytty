@@ -14,7 +14,7 @@ mod hyprland;
 #[cfg(target_os = "linux")]
 pub(super) mod wayland;
 #[cfg(target_os = "linux")]
-mod x11;
+pub(super) mod x11;
 
 const FOCUS_SETTLE_BOUND: Duration = Duration::from_millis(150);
 
@@ -366,21 +366,6 @@ impl MultiWindowHost {
     }
 
     fn commit_live_tab_with_focus(&mut self, request_focus: impl FnOnce(&App)) -> bool {
-        self.commit_live_tab_with_handoff(request_focus, |drag| {
-            #[cfg(target_os = "linux")]
-            if let Some(follow) = drag.x11.as_ref() {
-                return follow.finish().map_err(|e| e.to_string());
-            }
-            let _ = drag;
-            Ok(true)
-        })
-    }
-
-    fn commit_live_tab_with_handoff(
-        &mut self,
-        request_focus: impl FnOnce(&App),
-        finish: impl FnOnce(&ProvisionalTab) -> Result<bool, String>,
-    ) -> bool {
         if self.live_drag.as_ref().is_some_and(|drag| {
             self.index_of(drag.destination).is_none() || drag.returned.borrow().is_some()
         }) {
@@ -402,14 +387,16 @@ impl MultiWindowHost {
             drag.next_move = Instant::now();
         }
         self.place_live_tab(Instant::now());
-        if let Some(drag) = self.live_drag.as_ref() {
-            match finish(drag) {
-                Ok(true) => {}
-                outcome => {
-                    tracing::warn!(?outcome, "X11 tab preview was not adopted");
-                    return self.fallback_live_tab_release();
-                }
-            }
+        // A converted override-redirect preview can retain NormalState without
+        // becoming a usable client under an Xwayland window manager. Always
+        // retire it and let ordinary window creation establish WM ownership.
+        if self
+            .live_drag
+            .as_ref()
+            .and_then(|drag| self.index_of(drag.source))
+            .is_some_and(|index| self.windows[index].is_x11_client())
+        {
+            return self.fallback_live_tab_release();
         }
         let Some(drag) = self.live_drag.take() else {
             return false;
@@ -1773,56 +1760,61 @@ mod tests {
     }
 }
 
-#[cfg(test)]
-mod adoption_tests {
+#[cfg(all(test, target_os = "linux"))]
+mod x11_release_tests {
     use super::tests::armed;
     use super::*;
 
     #[test]
-    fn x11_unadopted_or_failed_preview_falls_back_without_replacing_the_session() {
+    fn x11_release_uses_an_ordinary_window_without_replacing_the_session() {
         for two_tabs in [false, true] {
-            for outcome in [Ok(false), Err("finish failed".to_owned())] {
-                let (mut host, tab, _) = armed(two_tabs);
-                let session = host.windows[0].sessions.get(tab).unwrap();
-                let terminal = Arc::clone(&session.terminal);
-                let transport = Arc::clone(session.headless_session().unwrap());
-                terminal.lock().unwrap().advance(b"history retained\r\n");
-                let before = terminal.lock().unwrap().snapshot().cells[..16].to_vec();
-                let source = host.windows[0].process_window_id();
-                assert!(host.begin_live_tab(source, tab, |_| Ok(())));
-                let preview = host.windows[1].process_window_id();
-                assert!(!host.commit_live_tab_with_handoff(|_| {}, |_| outcome));
-                assert!(host.live_drag.is_none());
-                assert!(host.index_of(preview).is_none(), "preview must be retired");
-                let source_index = host.index_of(source).unwrap();
-                let request = host.windows[source_index].take_move_request();
-                let Some(crate::native::app::reparent::MoveRequest::TearOut(release)) = request
-                else {
-                    panic!("ordinary release-time tear-out must be queued");
-                };
-                assert_eq!(release.tab, tab);
-                assert!(host.move_to_new_window_with_tear_out(
-                    source,
-                    MoveScope::ActiveTab,
-                    true,
-                    Some(release.tab),
-                    |app| {
-                        assert!(!app.live_drag_destination);
-                        Ok(())
-                    },
-                ));
-                assert_eq!(host.windows.len(), if two_tabs { 2 } else { 1 });
-                let destination = host
-                    .windows
-                    .iter()
-                    .find(|app| app.sessions.owns_session(tab))
-                    .unwrap();
-                assert!(!destination.live_drag_destination);
-                let session = destination.sessions.get(tab).unwrap();
-                assert!(Arc::ptr_eq(&terminal, &session.terminal));
-                assert!(Arc::ptr_eq(&transport, session.headless_session().unwrap()));
-                assert_eq!(&terminal.lock().unwrap().snapshot().cells[..16], &before);
-            }
+            let (mut host, tab, _) = armed(two_tabs);
+            host.windows[0].set_x11_client_for_test(true);
+            let session = host.windows[0].sessions.get(tab).unwrap();
+            let terminal = Arc::clone(&session.terminal);
+            let transport = Arc::clone(session.headless_session().unwrap());
+            terminal.lock().unwrap().advance(b"history retained\r\n");
+            let before = terminal.lock().unwrap().snapshot().cells[..16].to_vec();
+            let source = host.windows[0].process_window_id();
+            assert!(host.begin_live_tab(source, tab, |_| Ok(())));
+            let preview = host.windows[1].process_window_id();
+            let release_position = Some([320, 240]);
+            host.live_drag.as_mut().unwrap().point = release_position;
+            assert!(!host.commit_live_tab());
+            assert!(host.live_drag.is_none());
+            assert!(host.index_of(preview).is_none(), "preview must be retired");
+            let source_index = host.index_of(source).unwrap();
+            let request = host.windows[source_index].take_move_request();
+            let Some(crate::native::app::reparent::MoveRequest::TearOut(release)) = request else {
+                panic!("ordinary release-time tear-out must be queued");
+            };
+            assert_eq!(release.tab, tab);
+            assert_eq!(release.position, release_position);
+            assert!(host.move_to_new_window_with_tear_out(
+                source,
+                MoveScope::ActiveTab,
+                true,
+                Some(release.tab),
+                |app| {
+                    assert!(!app.live_drag_destination);
+                    let session = app.sessions.get(tab).expect("same session token");
+                    assert!(Arc::ptr_eq(&terminal, &session.terminal));
+                    assert!(Arc::ptr_eq(&transport, session.headless_session().unwrap()));
+                    Ok(())
+                },
+            ));
+            assert_eq!(host.windows.len(), if two_tabs { 2 } else { 1 });
+            let destination = host
+                .windows
+                .iter()
+                .find(|app| app.sessions.owns_session(tab))
+                .unwrap();
+            assert_ne!(destination.process_window_id(), preview);
+            assert!(!destination.live_drag_destination);
+            let session = destination.sessions.get(tab).unwrap();
+            assert!(Arc::ptr_eq(&terminal, &session.terminal));
+            assert!(Arc::ptr_eq(&transport, session.headless_session().unwrap()));
+            assert_eq!(&terminal.lock().unwrap().snapshot().cells[..16], &before);
         }
     }
 
@@ -1830,9 +1822,10 @@ mod adoption_tests {
     fn x11_fallback_creation_failure_restores_the_source_without_a_preview() {
         let (mut host, tab, terminal) = armed(false);
         let source = host.windows[0].process_window_id();
+        host.windows[0].set_x11_client_for_test(true);
         assert!(host.begin_live_tab(source, tab, |_| Ok(())));
         let preview = host.windows[1].process_window_id();
-        assert!(!host.commit_live_tab_with_handoff(|_| {}, |_| Err("finish failed".into())));
+        assert!(!host.commit_live_tab());
         let source_index = host.index_of(source).unwrap();
         assert!(host.windows[source_index].take_move_request().is_some());
         assert!(!host.move_to_new_window_with_tear_out(

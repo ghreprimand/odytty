@@ -1040,6 +1040,8 @@ impl App {
                     .with_x11_window_type(vec![WindowType::Dnd])
             } else {
                 attributes
+                    .with_override_redirect(false)
+                    .with_x11_window_type(vec![WindowType::Normal])
             }
         };
 

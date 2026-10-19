@@ -169,6 +169,10 @@ impl MultiWindowHost {
                             app.try_resume_presentation(event_loop)
                                 .map_err(|err| err.to_string())?;
                             if let Some(window) = app.window.as_ref() {
+                                #[cfg(target_os = "linux")]
+                                if let Err(err) = super::live_tab_drag::x11::prepare_ordinary(window) {
+                                    tracing::warn!(%err, "could not request ordinary X11 tear-out input hint");
+                                }
                                 super::super::tab_tear_out::place_native(window, release);
                             }
                             #[cfg(target_os = "linux")]
