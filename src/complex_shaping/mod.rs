@@ -505,7 +505,10 @@ impl ComplexShaper {
 /// and cells outside `columns` (chrome columns) never lend. On a row the bidi
 /// `map` reorders, the owner must sit at an even level with the blank drawn
 /// immediately to its right. The cursor cell counts as blank, so typing never
-/// changes a glyph's size by moving the cursor.
+/// changes a glyph's size by moving the cursor. A blank's attributes other
+/// than hidden do not matter: a blank with its own background lends, the
+/// owner's ink draws over it in the owner's colours, and the blank keeps its
+/// background around the ink.
 #[derive(Clone, Debug)]
 pub struct BorrowRules<'a> {
     pub map: Option<&'a crate::grid::BidiDisplayMap>,

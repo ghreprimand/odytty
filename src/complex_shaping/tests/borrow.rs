@@ -164,6 +164,36 @@ fn no_borrow_into_nonblank() {
     assert_eq!(runs[0].paint_end(), runs[0].end);
 }
 
+/// A blank with its own SGR background still lends: the owner's ink, in the
+/// owner's colours, draws over it, and the blank keeps its background
+/// everywhere the ink does not reach, as it keeps its other content.
+#[test]
+fn a_blank_with_its_own_background_lends_and_keeps_it() {
+    let _guard = crate::test_lock::render_globals_lock();
+    let (font, mut atlas, _) = setup("Tamil-subset.ttf", "", 6);
+    let snapshot = terminal(&format!("{TAMIL}\x1b[44m \x1b[0m"), 6).snapshot();
+    ensure_cells(&mut atlas, &font, &snapshot);
+    let span = single_owner(&snapshot).expect("one owner");
+    assert_ne!(
+        snapshot.cells[span].attrs.background, snapshot.cells[0].attrs.background,
+        "the blank's background differs from the owner's"
+    );
+    let runs = runs_with(&snapshot, &font, &mut atlas, Some(&BorrowRules::open(6)));
+    assert_eq!(runs[0].paint_end(), span + 1, "the coloured blank lends");
+
+    // The blank's own background, drawn with nothing over it.
+    let alone = frame(&terminal("\x1b[44m \x1b[0m", 6).snapshot(), &atlas, &[]);
+    let blue = alone.px[0];
+    let lent = frame(&snapshot, &atlas, &runs).columns(span..span + 1);
+    let kept = lent.iter().filter(|pixel| **pixel == blue).count();
+    assert!(kept < lent.len(), "the owner's ink reaches the blank");
+    assert!(
+        kept * 2 > lent.len(),
+        "the blank keeps its background around the ink: {kept} of {}",
+        lent.len()
+    );
+}
+
 #[test]
 fn no_borrow_at_last_column() {
     let _guard = crate::test_lock::render_globals_lock();
