@@ -669,9 +669,10 @@ impl WorkspaceSet {
         self.shell_integration_enabled = on;
     }
 
-    /// The East Asian Ambiguous width policy fresh plain local and ssh models
-    /// are born with (the window's global value). Existing sessions keep
-    /// theirs; live changes reach them through the App's settings sweep.
+    /// The East Asian Ambiguous width policy fresh plain local, ssh, and
+    /// attached mirror models are born with (the window's global value).
+    /// Existing sessions keep theirs; live changes reach them through the
+    /// App's settings sweep.
     pub(in crate::native) fn set_birth_ambiguous_wide(&mut self, wide: bool) {
         self.ambiguous_wide = wide;
     }
@@ -1451,6 +1452,15 @@ impl WorkspaceSet {
 
         let mut terminal = terminal;
         terminal.set_local_hostname(self.local_hostname.clone());
+        // Neither the snapshot nor the attach protocol carries the host's East
+        // Asian Ambiguous width, so the mirror takes the window's birth width
+        // before its pump starts, like every other spawn path. The App's
+        // settings sweep later applies the same global value (a mirror has no
+        // launch profile), so the restored rows reflow once, here, and the
+        // first live bytes are laid out at the width the pane keeps. The host's
+        // own model keeps the default narrow width, so a cursor report the host
+        // answers counts an ambiguous character as one column.
+        terminal.set_ambiguous_wide(self.ambiguous_wide);
         let terminal = Arc::new(Mutex::new(terminal));
         let client = Arc::new(Mutex::new(client));
         let writer = attach_input_writer(client.clone(), token)?;

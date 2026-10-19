@@ -561,7 +561,9 @@ Every new session starts with its effective value: the launch session, new
 tabs, split panes, new workspaces, profile tabs, SSH tabs and attached
 sessions are measured with it from the first byte, so the first cursor
 position report a program receives already counts with it, and a restored
-layout is re-measured when it is applied. Applying settings repeats each
+layout is re-measured when it is applied. An attached session's cursor
+reports come from its session host, which counts ambiguous characters as
+one column whatever the window's setting. Applying settings repeats each
 pane's value; a value that does not change leaves the grid untouched, so a
 combining mark that arrives in the next read still joins its base.
 Greek and Cyrillic letters stay one column with `wide` on: they are Neutral in

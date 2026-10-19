@@ -487,10 +487,11 @@ pub(in crate::native) struct WorkspaceSet {
     /// Whether newly spawned local default shells should receive OdyTTY's OSC
     /// 133 integration wrapper. Existing sessions are not modified.
     pub(super) shell_integration_enabled: bool,
-    /// East Asian Ambiguous width policy a fresh plain local or ssh model is
-    /// born with, before its read pump starts, so the first bytes a child
-    /// prints are laid out (and cursor reports answered) at the window's
-    /// policy. A profile launch carries its own merged value instead.
+    /// East Asian Ambiguous width policy a fresh plain local, ssh, or
+    /// attached mirror model is born with, before its read pump starts, so
+    /// the first bytes a child prints are laid out (and, for a local or ssh
+    /// child, cursor reports answered) at the window's policy. A profile
+    /// launch carries its own merged value instead.
     /// Existing sessions are not modified.
     pub(super) ambiguous_wide: bool,
     /// Test-only observer run on a fresh local model right after its read

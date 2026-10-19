@@ -1444,6 +1444,65 @@ fn attach_by_id_presents_live_tab_and_repaints() {
     join_within(handle, "fake host thread");
 }
 
+#[test]
+fn an_attached_mirror_lays_out_its_first_bytes_at_the_birth_width() {
+    // The snapshot and the attach protocol carry no ambiguous width, so the
+    // mirror takes the window's birth width before its pump starts. The
+    // ambiguous plus-minus sign in the first live frame then fills two cells.
+    let base = unique_runtime_dir();
+    let runtime_dir = runtime_dir_path(base.path());
+    std::fs::create_dir_all(&runtime_dir).expect("create runtime dir");
+    std::fs::set_permissions(&runtime_dir, std::fs::Permissions::from_mode(0o700))
+        .expect("chmod 0700 runtime dir");
+    let id = "birth-width";
+    let socket_path = session_socket_path(&runtime_dir, id).expect("socket path");
+    let listener = UnixListener::bind(&socket_path).expect("bind fake host");
+
+    let snapshot = snapshot_bytes(&Terminal::new(20, 4));
+    let handle = std::thread::spawn(move || {
+        let mut stream = accept_within(&listener, FAKE_HOST_DEADLINE);
+        let _hello = read_client_hello(&mut stream).expect("read client hello");
+        write_host_hello(&mut stream, &HostHello::accepted()).expect("write host hello");
+        write_host_frame(&mut stream, &HostFrame::Snapshot(snapshot)).expect("write snapshot");
+        write_host_frame(
+            &mut stream,
+            &HostFrame::Output("\u{b1}X".as_bytes().to_vec()),
+        )
+        .expect("write output");
+        drain_until_disconnect(stream);
+    });
+
+    let mut set = WorkspaceSet::new(build_local_session(), None);
+    set.set_birth_ambiguous_wide(true);
+    let (tx, _rx) = mpsc::channel();
+    let token = set
+        .attach_in_new_tab_for_test(Some(base.path()), id, ChannelSink(tx))
+        .expect("attach-by-id presents a tab");
+    let column_after_output = || {
+        let term = set
+            .get(token)
+            .expect("attached session")
+            .terminal
+            .lock()
+            .unwrap();
+        row_text(&term, 0)
+            .contains('X')
+            .then(|| (term.ambiguous_wide(), term.screen().cursor().column))
+    };
+    assert!(
+        wait_until(|| column_after_output().is_some()),
+        "the live frame reaches the mirror"
+    );
+    assert_eq!(
+        column_after_output(),
+        Some((true, 3)),
+        "the mirror is wide and the plus-minus sign took two cells"
+    );
+
+    assert!(!set.close(token), "two tabs: closing one is not last");
+    join_within(handle, "fake host thread");
+}
+
 /// Regression: a mid-frame read timeout must not desync the snapshot
 /// poll loop. A stateless `read_exact`-based reader loses the bytes consumed
 /// before a stall when a frame's payload arrives split, and a retry parses
