@@ -310,9 +310,20 @@ and four quoting tests in each of bash, zsh, and fish. Missing prerequisites,
 missing execution markers, and failed assertions fail the check. Those GPU
 tests acquire their device through `src/native/test_support/gpu_device.rs`,
 so a new one shares this policy and belongs in the script's list. Two keep
-their own setup: the GL sibling-device test (ignored by default; it needs a
-headless GL host) and the dual-source subpixel shader test (it needs an optional
-adapter feature and skips without it).
+their own setup: the GL sibling-device test and the dual-source subpixel
+shader test (it needs an optional adapter feature and skips without it).
+
+The GL sibling-device test, `gl_sibling_release_preserves_drawn_pixels`, is
+manual. It is ignored by default and no CI lane runs it on any OS, because it
+needs a working headless EGL/GL adapter. Run it on such a host with:
+
+```sh
+cargo test --locked --lib gl_sibling_release_preserves_drawn_pixels -- --ignored
+```
+
+It is the only test of the shared GL presentation device path, and it covers
+the release case; the branches that refuse a lost device or mismatched
+requirements have no automated test.
 
 The integration tests in `tests/gpu_composite_smoke.rs` cannot reach the
 library's test helpers, so they read `ODYTTY_REQUIRE_GPU_TESTS` themselves: with
