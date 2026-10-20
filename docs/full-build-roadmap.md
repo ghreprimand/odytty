@@ -111,6 +111,16 @@ its cross-platform or evidence gate is not met.
   grapheme and width ownership, font-backed script shaping, optional primary-screen
   bidi display, alternate zero, SVG-in-OpenType color glyphs and legacy-symbol
   fallback retain terminal-cell metrics and logical selection and copy.
+- **v0.17.5 - General script coverage and bidirectional text.** Bounded
+  Unicode cluster ownership, font-backed shaping beyond the tuned script
+  groups, contextual joining beyond Arabic, and grapheme cluster mode 2027.
+  Bidirectional display covers right-to-left paragraphs and the alternate
+  screen, with direction controls and logical cell, selection and copy
+  semantics preserved. Reordering remains opt-in because its measured Linux
+  cost exceeds the default-on threshold; Windows and macOS cost remains
+  unmeasured. The checkpoint also includes measured efficiency work, image
+  extent consistency, tab-drag corrections and deferred cleanup. Cross-platform
+  acceptance, final regression checks and release publication remain required.
 - **v0.18.0 - Windows parity.** Supported default-terminal registration and a
   secure ConPTY detached/resumable-session path, with Linux and macOS regression
   coverage kept intact.
@@ -961,7 +971,8 @@ ship:
    reliability patch, the v0.15.6 cursor-glide regression fix, the v0.15.7
    Wayland stall-prevention and merge-autosave patch, and the v0.15.8 macOS
    idle-CPU patch. Version 0.16.0 publishes pane and window workflows;
-   v0.17.0 is published; v0.18.0 is the next planned feature checkpoint.
+   v0.17.0 is published; v0.17.5 is the next planned checkpoint, followed by
+   the v0.18.0 Windows parity feature checkpoint.
    Do not hold a completed checkpoint for later roadmap work, and
    do not pull a later feature forward without its platform, security,
    documentation, and evidence gates.
