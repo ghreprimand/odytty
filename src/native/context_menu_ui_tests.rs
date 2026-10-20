@@ -2000,3 +2000,92 @@ fn opening_another_surface_clears_the_navigator_target() {
     );
     assert!(m.navigator_target().is_none());
 }
+
+/// A menu with every field away from its default, as a previous open on any
+/// surface and the App's post-open setters could leave it. The literal names
+/// every field, so a new field fails to compile here until it is given a
+/// non-default value and the reset test below decides whether it persists.
+fn dirty_menu() -> ContextMenuUi {
+    let mut accelerators = ContextMenuUi::default().accelerators;
+    for label in accelerators.iter_mut() {
+        *label = Some("Ctrl+X".to_owned());
+    }
+    ContextMenuUi {
+        spawn: CellPoint { row: 9, column: 9 },
+        focused: 3,
+        copy_enabled: true,
+        cut_enabled: true,
+        paste_enabled: true,
+        delete_enabled: true,
+        command_actions_enabled: true,
+        prompt_editing_hint: true,
+        rename_target: Some(SessionToken(5)),
+        multi_pane: true,
+        multi_tab: true,
+        multi_workspace: true,
+        bound_workspace: true,
+        pane_read_only: true,
+        bidi_reorder: true,
+        bidi_direction: crate::settings::BidiDirection::Auto,
+        pane_broadcast: true,
+        broadcast_active: true,
+        workspace_count: 4,
+        surface: ContextMenuSurface::WorkspaceSlot(2),
+        path_target: Some(resolved_file()),
+        connection_target: Some(Box::new(conn_host("stale", ConnectionHostSource::Odytty))),
+        navigator_target: Some(NavigatorTarget::Live(SessionToken(6))),
+        navigator_detached_available: true,
+        window_actions: WindowMenuActions {
+            layout: MenuLayout::Floating,
+            tab_to_new_window: true,
+            tab_to_window: true,
+            pane_to_new_window: true,
+            pane_to_window: true,
+            merge: true,
+        },
+        workspace_slot_identity: Some(SessionToken(8)),
+        accelerators,
+        reserved_cols_left: 3,
+        reserved_cols_right: 2,
+        wheel_remainder: 0.5,
+        scroll_anchor: 4,
+    }
+}
+
+#[test]
+fn every_open_is_the_default_menu_plus_its_arguments() {
+    let spawn = CellPoint { row: 1, column: 2 };
+    let host = conn_host("web", ConnectionHostSource::Odytty);
+    let target = NavigatorTarget::Detached("s-1".to_owned());
+    let mut content = dirty_menu();
+    content.open(spawn, true, false, true, false, None, true, None);
+    let mut connection = dirty_menu();
+    connection.open_connection_row(spawn, 3, host.clone());
+    let mut navigator = dirty_menu();
+    navigator.open_navigator_row(spawn, target.clone(), true);
+    let expected = [
+        ContextMenuUi {
+            spawn,
+            copy_enabled: true,
+            paste_enabled: true,
+            multi_pane: true,
+            ..ContextMenuUi::default()
+        },
+        ContextMenuUi {
+            spawn,
+            surface: ContextMenuSurface::ConnectionRow(3),
+            connection_target: Some(Box::new(host)),
+            ..ContextMenuUi::default()
+        },
+        ContextMenuUi {
+            spawn,
+            surface: ContextMenuSurface::NavigatorRow,
+            navigator_target: Some(target),
+            navigator_detached_available: true,
+            ..ContextMenuUi::default()
+        },
+    ];
+    for (opened, expected) in [content, connection, navigator].iter().zip(&expected) {
+        assert_eq!(format!("{opened:?}"), format!("{expected:?}"));
+    }
+}
