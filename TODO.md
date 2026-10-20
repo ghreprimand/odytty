@@ -823,9 +823,11 @@ not a stretch goal.
       (off by default); open-ended `ssXX` remains deferred; see
       [`docs/shaping-roadmap.md`](docs/shaping-roadmap.md).
   - [x] Northern Indic owner shaping: Devanagari, Bengali, Gurmukhi,
-        Gujarati, and Odia width owners shaped with `harfrust` 0.8.4 and
-        fitted inside their cells, against licensed HarfBuzz reference
-        fixtures with one asserted known difference.
+        Gujarati, and Odia width owners shaped with `harfrust` 0.14.0 and
+        fitted inside their cells, matching every licensed HarfBuzz reference
+        fixture. Bengali ka, virama, ra (below-base ra), which 0.8.4 shaped
+        differently, matches since the 0.14.0 move, and the fixture contract
+        test requires that no row carries a known difference.
   - [x] Southern Indic owner shaping: Tamil, Telugu, Kannada, and Malayalam,
         with bounded fitting and licensed HarfBuzz reference fixtures.
   - [x] Khmer and Myanmar owner shaping: coeng stacks, below-base ro,
