@@ -4,6 +4,9 @@
 
 Run this from OdyTTY's own interactive terminal so the optional ucs-detect
 probe uses the same PTY and display settings as the recorded v0.17.0 baseline.
+The ucs-detect probe is Linux-only: its transcript is recorded through
+util-linux `script --return --command`. The grapheme and bidi corpora run on
+any OS with --skip-ucs-detect.
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -35,11 +39,23 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
-def run(label: str, command: list[str], *, cwd: Path, env: dict[str, str], output: Path) -> None:
+def run(
+    label: str,
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    output: Path,
+    interactive: bool = False,
+) -> None:
     log = output / f"{label}.log"
-    with log.open("w", encoding="utf-8") as stream:
-        result = subprocess.run(command, cwd=cwd, env=env, text=True, stdout=stream, stderr=subprocess.STDOUT)
-    print(f"step exit={result.returncode} {label} log={log}")
+    if interactive:
+        result = subprocess.run(command, cwd=cwd, env=env, text=True)
+        print(f"step exit={result.returncode} {label} transcript={output / 'ucs-detect.tty'}")
+    else:
+        with log.open("w", encoding="utf-8") as stream:
+            result = subprocess.run(command, cwd=cwd, env=env, text=True, stdout=stream, stderr=subprocess.STDOUT)
+        print(f"step exit={result.returncode} {label} log={log}")
     if result.returncode:
         raise SystemExit(result.returncode)
 
@@ -57,7 +73,7 @@ def main() -> int:
     parser.add_argument("--repo", type=Path, default=ROOT, help="release-candidate checkout")
     parser.add_argument("--ucd-dir", type=Path, default=os.environ.get("ODYTTY_UCD_DIR"), help="directory containing the three Unicode 17 corpus files")
     parser.add_argument("--output", type=Path, required=True, help="new or empty directory for logs and results")
-    parser.add_argument("--ucs-detect", type=Path, help="pinned ucs-detect executable; runs in this terminal")
+    parser.add_argument("--ucs-detect", type=Path, help="pinned ucs-detect executable; runs in this terminal through util-linux script (Linux-only)")
     parser.add_argument("--skip-ucs-detect", action="store_true", help="run only the checked-in grapheme and full bidi corpora")
     parser.add_argument("--baseline-ucs-json", type=Path, help="v0.17.0 baseline ucs-detect JSON result for comparison")
     parser.add_argument("--font", required=True, help="font family, face, and size used by the terminal")
@@ -112,12 +128,13 @@ def main() -> int:
     ucs_hash = None
     if not args.skip_ucs_detect:
         executable = str(args.ucs_detect.resolve())
-        ucs_args = [
+        detect_args = [
             executable, "--all", "--limit-codepoints-wide-pct", "1", "--limit-category-time", "0",
             "--no-terminal-test", "--set-software-name", "OdyTTY", "--set-software-version",
             f"0.17.5-{revision[:8]}", "--save-json", "ucs-detect.json", "--save-yaml", "ucs-detect.yaml",
         ]
-        run("ucs-detect", ucs_args, cwd=output, env=env, output=output)
+        ucs_args = ["script", "--quiet", "--return", "--command", shlex.join(detect_args), "ucs-detect.tty"]
+        run("ucs-detect", ucs_args, cwd=output, env=env, output=output, interactive=True)
         result_json = json.loads((output / "ucs-detect.json").read_text(encoding="utf-8"))
         canonical = json.dumps(result_json["test_results"], sort_keys=True, separators=(",", ":")).encode()
         ucs_hash = hashlib.sha256(canonical).hexdigest()
@@ -175,7 +192,7 @@ def main() -> int:
             else "v0.17.0 baseline comparison: not run"
         ),
         "",
-        "Step logs: `grapheme.log`, `bidi.log`, and, when run, `ucs-detect.log`.",
+        "Logs: `grapheme.log`, `bidi.log`, and, when run, the interactive `ucs-detect.tty` transcript.",
     ]
     (output / "conformance.md").write_text("\n".join(markdown) + "\n", encoding="utf-8")
     print(json.dumps(record, indent=2))

@@ -127,8 +127,9 @@ native execution. The CPU-only harness creates no window or GPU device.
 No compositor, refresh rate or GPU latency claim follows from these samples.
 
 The same pinned source build, font bytes, dimensions and row definitions apply
-to Windows x86_64 and macOS arm64. Preferred P3.1 replication is a source build
-on one fixed dedicated workstation per OS, with thirty paired off/on process blocks,
+to Windows x86_64 and macOS arm64. Preferred bidi frame-cost replication is a
+source build on one fixed dedicated workstation per OS, with thirty paired off/on
+process blocks,
 an OS-specific noise pass and the same statistics. Freeze its public-safe
 machine class and resource boundary first. Shared `windows-latest` and
 `macos-latest` runners are correctness checks, not controlled timing machines;

@@ -2955,7 +2955,7 @@ properties on every fresh row, so a full-screen program that sends `CSI 8 l`
 before entering, or clears the screen after sending it, keeps its own
 arrangement, and leaving it restores the primary rows with their own
 properties. The current mode and direction that BDSM and SCP select are
-terminal-wide, as in VTE: leaving the alternate screen does not restore them,
+terminal-wide: leaving the alternate screen does not restore them,
 so a program that leaves in explicit mode leaves the primary screen's next
 paragraphs explicit until it, RIS, or DECSTR resets them. Window-level menus,
 panels, pickers, dialogs,

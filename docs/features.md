@@ -678,7 +678,7 @@ to left, and draw without contextual joining; `CSI 8 h` restores the default
 implicit mode. Full-screen programs on the alternate screen are reordered the
 same way; the explicit mode applies to rows stamped after it, so a program sends
 `CSI 8 l` before entering the alternate screen or clears the screen after
-sending it. The mode and direction are terminal-wide, as in VTE, and are not
+sending it. The mode and direction are terminal-wide and are not
 restored when the alternate screen closes: a program that exits in explicit
 mode leaves later primary-screen paragraphs explicit until it, RIS, or DECSTR
 resets them. Images never move with text: a row covered by a Sixel, iTerm2, or
