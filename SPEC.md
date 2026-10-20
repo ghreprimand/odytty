@@ -1918,8 +1918,12 @@ that closed while the picker was open, including when names are duplicated.
 
 - Themed window border (`window_border`, off by default): an optional thin
   border around the terminal content in the theme's `border` role color, drawn
-  inside the window padding band, DPI-scaled, purely visual. A split, zoomed,
-  stacked, or floating tab keeps one border around the whole pane area.
+  inside the window padding band, DPI-scaled, purely visual. A split tab keeps
+  one border around the whole pane area in every arrangement, drawn by the
+  same code path. Tests pin the ring for tiled and zoomed splits at scale 1.0
+  with no tab bar or rail shown, and the DPI scaling and padding cap on a
+  single pane; stacked and floating tabs, a split under the tab bar or rail,
+  and a split at scale 2.0 have no test.
 
 - Follow-OS dark/light theme (`follow_os_theme`, off by default): switches
   between `os_theme_dark` and `os_theme_light` based on the desktop
