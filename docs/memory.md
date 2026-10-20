@@ -895,3 +895,15 @@ informative; it is simply not the target.
 
 The target was Kitty's row: the same class of terminal, doing the same class of
 work. The v0.12 W6 result meets it.
+
+## Shaping engine comparison
+
+The move from `harfrust` 0.8.4 to 0.14.0 retained a measured Devanagari
+cold-frame regression: first shaping of each face rose from 150 to 181
+microseconds per frame, about 20 percent. This is a measured residual, not a
+recovered cost. The comparison's warm rows, Bengali, Javanese, Balinese and
+Syriac cold frames, and three memory rows stayed within their frozen
+thresholds. These corpus measurements do not establish performance for every
+font or script, or Windows and macOS frame costs. The
+[October devlog](../devlog/2026-10.md)
+records the engine change and comparison.
