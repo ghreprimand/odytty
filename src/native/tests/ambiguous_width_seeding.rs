@@ -351,3 +351,17 @@ fn initialization_between_two_reads_keeps_a_mark_on_its_base() {
         assert_eq!(cell.combining(), &['\u{0301}'], "width {width:?}");
     }
 }
+
+#[test]
+#[cfg(unix)]
+fn detach_and_switch_starts_its_host_at_the_window_width() {
+    for (settings, wide) in [(wide_settings(), true), (Settings::default(), false)] {
+        let runtime_base = crate::test_dirs::ScratchDir::for_sockets("aw-host-");
+        let mut app = app_with(settings);
+        assert_eq!(
+            app.managed_host_ambiguous_wide_for_test(runtime_base.path().to_owned()),
+            Some(wide),
+            "the host configuration carries the window's ambiguous width"
+        );
+    }
+}

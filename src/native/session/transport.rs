@@ -1458,8 +1458,9 @@ impl WorkspaceSet {
         // settings sweep later applies the same global value (a mirror has no
         // launch profile), so the restored rows reflow once, here, and the
         // first live bytes are laid out at the width the pane keeps. The host's
-        // own model keeps the default narrow width, so a cursor report the host
-        // answers counts an ambiguous character as one column.
+        // own model starts at the width of the window or configuration that
+        // launched it and answers the program's cursor reports with it; a
+        // later setting change reaches the mirror only.
         terminal.set_ambiguous_wide(self.ambiguous_wide);
         let terminal = Arc::new(Mutex::new(terminal));
         let client = Arc::new(Mutex::new(client));

@@ -386,7 +386,14 @@ fn parse_session_new(args: &[String]) -> Result<DetachedSessionOptions, String> 
 
 #[cfg(unix)]
 fn run_new_detached(options: DetachedSessionOptions) -> AnyResult<String> {
-    run_new_detached_with_spawner(options, |config| spawn_host_on_demand(config).map(|_| ()))
+    // No window starts this host, so its model takes the configured width a
+    // new window would start with.
+    let ambiguous_wide = Settings::from_env().ambiguous_width.is_wide();
+    run_new_detached_with_spawner(options, |config| {
+        let mut config = config.clone();
+        config.ambiguous_wide = ambiguous_wide;
+        spawn_host_on_demand(&config).map(|_| ())
+    })
 }
 
 #[cfg(unix)]

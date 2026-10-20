@@ -196,6 +196,9 @@ impl App {
         let mut config = HostConfig::new(session_id.clone());
         config.runtime_base = runtime_base;
         config.command = HostCommand::DefaultShell { working_directory };
+        // The host's model is born at this window's width, the same value the
+        // attached mirror takes, so both lay the program's output out alike.
+        config.ambiguous_wide = self.settings.ambiguous_width.is_wide();
         if let Ok(paths) = config.runtime_paths() {
             let metadata = SessionMetadata {
                 id: session_id.clone(),
@@ -207,6 +210,21 @@ impl App {
         }
         spawner(&config)?;
         Ok(session_id)
+    }
+
+    /// Test seam: the ambiguous width of the host configuration Detach &
+    /// switch hands its spawner. The spawner refuses, so nothing attaches.
+    #[cfg(all(test, unix))]
+    pub(in crate::native) fn managed_host_ambiguous_wide_for_test(
+        &mut self,
+        runtime_base: PathBuf,
+    ) -> Option<bool> {
+        let mut seen = None;
+        let _ = self.spawn_managed_session(None, Some(runtime_base), |config| {
+            seen = Some(config.ambiguous_wide);
+            Err(std::io::Error::other("refused spawn (test)"))
+        });
+        seen
     }
 
     /// Test seam: drive the full Detach & switch orchestration with a spawner

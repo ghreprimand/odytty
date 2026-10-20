@@ -163,6 +163,12 @@ pub struct HostConfig {
     pub max_clients: usize,
     pub snapshot_limits: SnapshotCaptureLimits,
     pub kitty_named_transports: bool,
+    /// East Asian Ambiguous width the host's own terminal model is born with.
+    /// The host lays out the hosted program's output and answers its cursor
+    /// reports with this model, so it is the width of the window (or the
+    /// configuration, for `odytty new`) that starts the host. Later setting
+    /// changes do not reach a running host.
+    pub ambiguous_wide: bool,
 }
 
 impl HostConfig {
@@ -178,6 +184,7 @@ impl HostConfig {
             max_clients: DEFAULT_MAX_CLIENTS,
             snapshot_limits: SnapshotCaptureLimits::default(),
             kitty_named_transports: false,
+            ambiguous_wide: false,
         }
     }
 
@@ -229,13 +236,34 @@ pub fn spawn_host_on_demand(config: &HostConfig) -> Result<SpawnedHost> {
     }
     validate_scrollback_bound(config.snapshot_limits)?;
 
-    let mut command = Command::new(env::current_exe().context("resolve current executable")?);
+    let mut command = host_process_command(
+        env::current_exe().context("resolve current executable")?,
+        config,
+        &paths.socket,
+    );
+    let mut child = command.spawn().context("spawn session-host process")?;
+    await_host_socket(&mut child, &paths.socket, STARTUP_CONNECT_TIMEOUT)?;
+    Ok(SpawnedHost {
+        child,
+        socket_path: paths.socket,
+    })
+}
+
+/// The `session-host` process command for `config`, listening on `socket`.
+/// Every host option precedes the command arguments, because `--exec` hands
+/// the rest of the argument list to the child.
+fn host_process_command(
+    program: PathBuf,
+    config: &HostConfig,
+    socket: &std::path::Path,
+) -> Command {
+    let mut command = Command::new(program);
     command
         .arg("session-host")
         .arg("--session-id")
         .arg(&config.session_id)
         .arg("--socket")
-        .arg(&paths.socket)
+        .arg(socket)
         .arg("--idle-timeout-ms")
         .arg(config.detached_idle_timeout.as_millis().to_string())
         .arg("--max-scrollback-rows")
@@ -244,14 +272,11 @@ pub fn spawn_host_on_demand(config: &HostConfig) -> Result<SpawnedHost> {
         .arg(config.dimensions.columns.to_string())
         .arg("--rows")
         .arg(config.dimensions.rows.to_string());
+    if config.ambiguous_wide {
+        command.arg("--ambiguous-wide");
+    }
     config.command.append_process_args(&mut command);
-
-    let mut child = command.spawn().context("spawn session-host process")?;
-    await_host_socket(&mut child, &paths.socket, STARTUP_CONNECT_TIMEOUT)?;
-    Ok(SpawnedHost {
-        child,
-        socket_path: paths.socket,
-    })
+    command
 }
 
 /// Wait for the just-spawned host child's socket to come up. If it never does,
@@ -316,6 +341,9 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
     };
     let mut terminal = Terminal::new(config.dimensions.columns, config.dimensions.rows);
     terminal.set_kitty_named_transports_enabled(config.kitty_named_transports);
+    // Empty model: no reflow work. The hosted program's first cursor report
+    // already counts ambiguous characters at the starting window's width.
+    terminal.set_ambiguous_wide(config.ambiguous_wide);
     terminal.set_local_hostname(crate::local_hostname::get());
     terminal.set_scrollback_limit(config.snapshot_limits.max_scrollback_rows);
     let mut session = config.command.spawn(config.dimensions)?;
@@ -1075,6 +1103,10 @@ fn parse_internal_host_args(args: &[String]) -> Result<HostConfig> {
                 config.dimensions = Dimensions::new(config.dimensions.columns, rows);
                 index += 1;
             }
+            "--ambiguous-wide" => {
+                config.ambiguous_wide = true;
+                index += 1;
+            }
             "--working-directory" => {
                 index += 1;
                 working_directory =
@@ -1609,6 +1641,44 @@ mod launch_tests {
             let config = parse_internal_host_args(&args(list)).expect("parse");
             assert_eq!(working_directory_of(&config), Some(&PathBuf::from("/work")));
         }
+    }
+
+    #[test]
+    fn the_ambiguous_width_reaches_the_host_process_ahead_of_the_child_arguments() {
+        for wide in [true, false] {
+            let mut config = HostConfig::new("aw");
+            config.ambiguous_wide = wide;
+            config.command = HostCommand::Exec {
+                program: "prog".into(),
+                args: vec!["--ambiguous-wide".into()],
+                working_directory: None,
+            };
+            let command = host_process_command(
+                PathBuf::from("odytty"),
+                &config,
+                std::path::Path::new("/run/aw.sock"),
+            );
+            let argv: Vec<String> = command
+                .get_args()
+                .skip(1)
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            let parsed = parse_internal_host_args(&argv).expect("parse");
+            assert_eq!(parsed.ambiguous_wide, wide, "{argv:?}");
+            let HostCommand::Exec { args, .. } = &parsed.command else {
+                panic!("expected an exec command");
+            };
+            assert_eq!(
+                args,
+                &[OsString::from("--ambiguous-wide")],
+                "the child keeps its own arguments"
+            );
+        }
+        assert!(
+            !parse_internal_host_args(&args(&[]))
+                .expect("defaults")
+                .ambiguous_wide
+        );
     }
 
     #[test]

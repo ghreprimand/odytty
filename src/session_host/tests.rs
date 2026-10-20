@@ -261,6 +261,61 @@ fn host_reattach_replays_output_produced_while_detached() {
     assert_eq!(exit.reason, HostExitReason::DetachedIdleTimeout);
 }
 
+/// The cursor report the host answers after a cursor-home and a plus-minus sign
+/// (East Asian Ambiguous), with escape bytes shown as `E`.
+fn host_cursor_report_after_ambiguous_sign(wide: bool) -> String {
+    let temp = ScratchDir::for_sockets("sh-amb");
+    let id = if wide { "amb-wide" } else { "amb-narrow" };
+    // `read x` holds the probe until this client is attached, so the report
+    // arrives as live output.
+    let mut config = host_config_with_sh(
+        temp.path(),
+        id,
+        "read x; stty raw -echo; printf '\\033[H\\302\\261\\033[6n'; \
+         r=$(dd bs=1 count=6 2>/dev/null); stty sane; \
+         printf 'report:%s:end' \"$r\" | tr '\\033' E; sleep 1",
+        Duration::from_millis(200),
+    );
+    config.ambiguous_wide = wide;
+    let socket_path = config.runtime_paths().expect("runtime paths").socket;
+    let host = thread::spawn(move || run_host(config));
+    wait_for_socket(&socket_path);
+    let mut client = SessionHostClient::connect(&socket_path, id).expect("attach");
+    expect_snapshot(&mut client);
+    client.send_input(b"\n").expect("release the probe");
+    let deadline = Instant::now() + SHORT_WAIT;
+    let mut bytes = Vec::new();
+    let report = loop {
+        assert!(
+            Instant::now() < deadline,
+            "no cursor report; output={}",
+            String::from_utf8_lossy(&bytes)
+        );
+        if let Some(HostFrame::Output(chunk)) = client
+            .read_frame(Duration::from_millis(50))
+            .expect("read frame")
+        {
+            bytes.extend_from_slice(&chunk);
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        if let Some(start) = text.find("report:")
+            && let Some(len) = text[start..].find(":end")
+        {
+            break text[start + "report:".len()..start + len].to_owned();
+        }
+    };
+    client.detach().expect("detach");
+    drop(client);
+    let _ = join_within(host, "session-host thread");
+    report
+}
+
+#[test]
+fn a_host_started_wide_counts_an_ambiguous_sign_as_two_columns() {
+    assert_eq!(host_cursor_report_after_ambiguous_sign(true), "E[1;3R");
+    assert_eq!(host_cursor_report_after_ambiguous_sign(false), "E[1;2R");
+}
+
 #[test]
 fn host_exits_when_child_exits_even_with_client_attached() {
     let temp = ScratchDir::for_sockets("sh-exit");
