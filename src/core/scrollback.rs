@@ -1522,10 +1522,6 @@ fn line_all_blank(line: &LogicalLine) -> bool {
     line.marks.is_empty() && line.cells.iter().all(|c| *c == plain)
 }
 
-#[cfg(test)]
-#[path = "scrollback_count_tests.rs"]
-mod count_tests;
-
 fn count_projected_rows(line: &LogicalLine, width: usize, ambiguous_wide: bool) -> usize {
     let mut tmp = Vec::new();
     count_line_rows(line, width, ambiguous_wide, &mut tmp)
@@ -1888,3 +1884,7 @@ fn shift_boundary(kind: PromptKind, by: usize) -> PromptKind {
         None => kind,
     }
 }
+
+#[cfg(test)]
+#[path = "scrollback_count_tests.rs"]
+mod count_tests;

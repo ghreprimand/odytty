@@ -30,20 +30,6 @@ fn spawn_config_parent(config_file: &Path) -> Option<PathBuf> {
     config_file.parent().map(Path::to_path_buf)
 }
 
-#[cfg(all(test, unix))]
-#[test]
-fn spawn_config_parent_keeps_release_path_derivation_under_test() {
-    assert_eq!(
-        spawn_config_parent(Path::new("config space/odytty.conf")),
-        Some(PathBuf::from("config space"))
-    );
-    assert_eq!(
-        spawn_config_parent(Path::new("odytty.conf")),
-        Some(PathBuf::new())
-    );
-    assert_eq!(spawn_config_parent(Path::new("/")), None);
-}
-
 /// Test builds never resolve a spawn writer's directory from the live
 /// environment: a session spawned by one test thread would otherwise read
 /// `HOME`/`XDG_CONFIG_HOME` without the shared environment lock and write into
@@ -247,4 +233,22 @@ pub fn normalize_name(raw: &str) -> String {
         .filter(|ch| !matches!(ch, '-' | '_' | ' '))
         .flat_map(char::to_lowercase)
         .collect()
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spawn_config_parent_keeps_release_path_derivation_under_test() {
+        assert_eq!(
+            spawn_config_parent(Path::new("config space/odytty.conf")),
+            Some(PathBuf::from("config space"))
+        );
+        assert_eq!(
+            spawn_config_parent(Path::new("odytty.conf")),
+            Some(PathBuf::new())
+        );
+        assert_eq!(spawn_config_parent(Path::new("/")), None);
+    }
 }
