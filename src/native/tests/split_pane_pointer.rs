@@ -4,6 +4,14 @@
 //! ladder as a single pane; the pointer maps against the origin the pane's
 //! glyphs are drawn from; and a window-level modal owns pointer motion over
 //! every pane.
+//!
+//! A left press that keeps the focused pane falls through to the shared
+//! single-pane ladder. Each arm after it is covered here or elsewhere: the
+//! chrome arms (a content press with the tab bar shown, and a right press under
+//! it), the latched-button and selection releases, the open-modifier and
+//! report arms, the content context menu, and the middle-click PRIMARY paste.
+//! The scroll-thumb arm cannot take a split press: a split tab draws no thumb,
+//! which `split_pointer_bounds` checks across the whole thumb band.
 
 use std::io::Write;
 
@@ -37,10 +45,17 @@ impl Write for RecordingWriter {
 /// focused, has processed `output`, and records its PTY bytes. Returns the app,
 /// the right pane's recorder, and the `(left, right)` tokens.
 fn split_app(output: &[u8]) -> (App, Recorded, (SessionTokenAlias, SessionTokenAlias)) {
+    split_app_with(Settings::default(), output)
+}
+
+fn split_app_with(
+    settings: Settings,
+    output: &[u8],
+) -> (App, Recorded, (SessionTokenAlias, SessionTokenAlias)) {
     let (mut app, _first) = headless_app_with(
         NativeOptions::default(),
         Dimensions::new(COLUMNS, ROWS),
-        Settings::default(),
+        settings,
     );
     let left = app.active_session_token_for_test();
     let pane_dims = Dimensions::new(COLUMNS / 2 - 1, ROWS);
@@ -189,5 +204,75 @@ fn an_open_overlay_owns_motion_over_the_other_pane() {
     assert_eq!(
         app.cursor_icon_for_test(),
         winit::window::CursorIcon::Default
+    );
+}
+
+/// A split tab with the tab bar shown, so a content press passes the chrome
+/// routing before it reaches the shared ladder.
+fn split_app_under_tab_bar(output: &[u8]) -> (App, Recorded) {
+    let settings = Settings {
+        always_show_tab_bar: true,
+        ..Settings::default()
+    };
+    let (app, recorded, _) = split_app_with(settings, output);
+    assert!(app.tab_bar_visible_for_test(), "the tab bar is shown");
+    (app, recorded)
+}
+
+#[test]
+fn a_split_pane_click_under_the_tab_bar_reports_both_halves() {
+    let (mut app, recorded) = split_app_under_tab_bar(b"\x1b[?1000h\x1b[?1006h");
+    take(&recorded);
+    let point = right_pane_point();
+    app.pointer_move_for_test(point.0, point.1);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    let press = take(&recorded);
+    assert!(
+        press.starts_with("\x1b[<0;") && press.ends_with('M'),
+        "the press passes the chrome arms: {press:?}"
+    );
+    app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
+    let release = take(&recorded);
+    assert!(
+        release.starts_with("\x1b[<0;") && release.ends_with('m'),
+        "the release is not taken as a chrome release: {release:?}"
+    );
+    assert_eq!(
+        app.active_workspace_tab_count_for_test(),
+        1,
+        "no tab action ran"
+    );
+}
+
+#[test]
+fn a_right_press_in_a_split_pane_under_the_tab_bar_opens_the_content_menu() {
+    let (mut app, _recorded) = split_app_under_tab_bar(b"");
+    let point = right_pane_point();
+    app.pointer_move_for_test(point.0, point.1);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+    assert!(app.context_menu_open_for_test());
+    let labels = app.context_menu_labels_for_test();
+    assert!(
+        labels.contains(&"Paste Text") && labels.contains(&"Close Pane"),
+        "the content menu, not the tab-strip menu: {labels:?}"
+    );
+}
+
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
+))]
+#[test]
+fn a_middle_press_in_a_split_pane_pastes_primary_into_that_pane() {
+    let (mut app, recorded, _) = split_app(b"");
+    app.inject_paste_text_for_test("primary words");
+    take(&recorded);
+    let point = right_pane_point();
+    app.pointer_move_for_test(point.0, point.1);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Middle);
+    app.dispatch_mouse_button_for_test(false, WinitMouseButton::Middle);
+    assert!(
+        take(&recorded).contains("primary words"),
+        "the focused pane receives the PRIMARY text"
     );
 }
