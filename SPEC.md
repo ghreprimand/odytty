@@ -2109,7 +2109,12 @@ that closed while the picker was open, including when names are duplicated.
   socket close removes only that client; the hosted PTY and bounded terminal
   model continue until the child exits or the detached idle timeout kills and
   reaps it. Public CLI commands now cover `odytty new --detached`,
-  `odytty list`, and `odytty attach [--diagnostic] ID`.
+  `odytty list`, and `odytty attach [--diagnostic] ID`. Spawned Unix hosts
+  disconnect all three standard streams and create their own process session,
+  so they cannot hold command-substitution pipes or the caller's terminal job
+  control. Startup errors retain the kill-and-reap path and name the existing
+  private rotated log, where early host failures are recorded. Windows has no
+  detached host surface.
 
   `odytty new` accepts `--app-id` and `--class` in space and equals forms for
   launcher-parser compatibility. Detached creation has no window, so the value

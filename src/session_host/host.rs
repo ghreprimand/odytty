@@ -5,8 +5,9 @@ use std::env;
 use std::ffi::OsString;
 use std::io::{self, Read};
 use std::os::unix::net::UnixStream;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -242,7 +243,12 @@ pub fn spawn_host_on_demand(config: &HostConfig) -> Result<SpawnedHost> {
         &paths.socket,
     );
     let mut child = command.spawn().context("spawn session-host process")?;
-    await_host_socket(&mut child, &paths.socket, STARTUP_CONNECT_TIMEOUT)?;
+    await_host_socket(&mut child, &paths.socket, STARTUP_CONNECT_TIMEOUT).with_context(|| {
+        format!(
+            "session-host startup failed; diagnostics (if writable): {}",
+            crate::logging::state_log_dir().join("odytty.log").display()
+        )
+    })?;
     Ok(SpawnedHost {
         child,
         socket_path: paths.socket,
@@ -258,6 +264,25 @@ fn host_process_command(
     socket: &std::path::Path,
 ) -> Command {
     let mut command = Command::new(program);
+    // A persistent host must not retain a CLI capture pipe, terminal input,
+    // or the launching terminal's foreground job-control session. Logging
+    // already has an independent, owner-private rotating file sink.
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    // SAFETY: after fork this closure calls only the async-signal-safe setsid
+    // syscall and reads errno on failure. It allocates nothing, acquires no
+    // locks and invokes no logging or other Rust runtime machinery.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        });
+    }
     command
         .arg("session-host")
         .arg("--session-id")
@@ -300,9 +325,21 @@ pub(crate) fn await_host_socket(
 }
 
 pub fn run_internal_host_from_args(args: &[String]) -> Result<()> {
-    let mut config = parse_internal_host_args(args)?;
-    config.kitty_named_transports = crate::settings::Settings::from_env().kitty_named_transports;
-    run_host(config).map(|_| ())
+    let result = (|| {
+        let mut config = parse_internal_host_args(args)?;
+        config.kitty_named_transports =
+            crate::settings::Settings::from_env().kitty_named_transports;
+        run_host(config).map(|_| ())
+    })();
+    if let Err(error) = &result {
+        // main's Result termination prints errors to stderr, which an owned
+        // host deliberately disconnects. Preserve its early failure through
+        // the existing secure, rotated log even if RUST_LOG disables tracing.
+        let record = format!("session-host failed: {error:#}");
+        let bounded = record.chars().take(8192).collect::<String>();
+        crate::logging::append_record_directly(&format!("{bounded}\n"));
+    }
+    result
 }
 
 /// Unlinks the session socket on ANY exit from [`run_host`] - including the `?`

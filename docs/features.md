@@ -2289,6 +2289,11 @@ post-handshake commands have a two-second total send deadline; a zero-progress
 timeout drops only that frame, while a partial send closes the connection and
 reports unknown delivery. The session host keeps both alive through detach
 and attach cycles until the child exits or the idle timeout reaps it.
+Spawned Unix hosts have null standard streams and a separate process session,
+so capturing `odytty new --detached` returns its id without waiting for the
+host to exit. Early host failures use the existing private rotated log;
+the caller's startup error names that log destination when readiness fails.
+This isolation also applies to Detach & switch. Windows has no session host.
 
 Generated wide-glyph wrap padding occupies a visual cell without adding text
 to search, copy, or scrollback export. Typed spaces at soft-wrap boundaries
