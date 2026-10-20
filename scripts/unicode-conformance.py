@@ -3,7 +3,7 @@
 """Run the pinned Unicode 17 text conformance checks for a release candidate.
 
 Run this from OdyTTY's own interactive terminal so the optional ucs-detect
-probe uses the same PTY and display settings as the recorded P1.3 baseline.
+probe uses the same PTY and display settings as the recorded v0.17.0 baseline.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ EXPECTED = {
     "BidiTest.txt": "888bdfc8090652272d1f859cdb00ae659e2dc6c26740be61ef1d03998a687620",
     "BidiCharacterTest.txt": "a3e6e905ab5afbe318a96df5401d0372a04cd73ef139ab5e3cf0ae241c255488",
 }
-P1_3_FONT_SHA256 = "0c6b5c10fc03dee582d3983f6cad6dbed9d2f89a55b9e2dfc5fc70ce9db9538d"
+V0_17_0_FONT_SHA256 = "0c6b5c10fc03dee582d3983f6cad6dbed9d2f89a55b9e2dfc5fc70ce9db9538d"
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -59,9 +59,9 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True, help="new or empty directory for logs and results")
     parser.add_argument("--ucs-detect", type=Path, help="pinned ucs-detect executable; runs in this terminal")
     parser.add_argument("--skip-ucs-detect", action="store_true", help="run only the checked-in grapheme and full bidi corpora")
-    parser.add_argument("--baseline-ucs-json", type=Path, help="P1.3 ucs-detect JSON result for comparison")
+    parser.add_argument("--baseline-ucs-json", type=Path, help="v0.17.0 baseline ucs-detect JSON result for comparison")
     parser.add_argument("--font", required=True, help="font family, face, and size used by the terminal")
-    parser.add_argument("--font-sha256", default=P1_3_FONT_SHA256, help="font file SHA-256; defaults to the P1.3 Victor Mono face")
+    parser.add_argument("--font-sha256", default=V0_17_0_FONT_SHA256, help="font file SHA-256; defaults to the v0.17.0 baseline Victor Mono face")
     parser.add_argument("--machine-class", required=True, help="public-safe machine class from the frozen protocol")
     args = parser.parse_args()
 
@@ -78,11 +78,11 @@ def main() -> int:
         os.environ.get("ODYTTY_FONT_FAMILY") != "Victor Mono"
         or os.environ.get("ODYTTY_FONT_SIZE") != "20"
     ):
-        parser.error("launch OdyTTY with the P1.3 Victor Mono 20 px font settings before running ucs-detect")
+        parser.error("launch OdyTTY with the v0.17.0 baseline Victor Mono 20 px font settings before running ucs-detect")
     if len(args.font_sha256) != 64 or any(char not in "0123456789abcdef" for char in args.font_sha256):
         parser.error("--font-sha256 must be a lowercase SHA-256 value")
-    if not args.skip_ucs_detect and args.font_sha256 != P1_3_FONT_SHA256:
-        parser.error("the P1.3 comparison requires the frozen Victor Mono font file")
+    if not args.skip_ucs_detect and args.font_sha256 != V0_17_0_FONT_SHA256:
+        parser.error("the v0.17.0 baseline comparison requires the frozen Victor Mono font file")
     if args.ucs_detect is not None and not args.ucs_detect.is_file():
         parser.error(f"ucs-detect executable does not exist: {args.ucs_detect}")
     if corpus is None:
@@ -93,7 +93,7 @@ def main() -> int:
     for name, expected in EXPECTED.items():
         path = corpus / name
         if not path.is_file() or digest(path) != expected:
-            parser.error(f"{name} is missing or does not match Unicode 17.0.0 P1.3 SHA-256 {expected}")
+            parser.error(f"{name} is missing or does not match Unicode 17.0.0 SHA-256 {expected}")
 
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
     env = os.environ.copy()
@@ -138,12 +138,12 @@ def main() -> int:
         "grapheme_run": "grapheme.log",
         "bidi_run": "bidi.log",
         "ucs_detect_results_sha256": ucs_hash,
-        "p1_3_ucs_detect_results_sha256": baseline_hash,
-        "ucs_detect_matches_p1_3": ucs_hash == baseline_hash if ucs_hash and baseline_hash else None,
+        "baseline_ucs_detect_results_sha256": baseline_hash,
+        "ucs_detect_matches_baseline": ucs_hash == baseline_hash if ucs_hash and baseline_hash else None,
         "recorded_at_utc": datetime.now(timezone.utc).isoformat(),
     }
     (output / "conformance.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-    bidi_result = (
+    ucs_result = (
         f"ucs-detect `test_results` SHA-256: `{ucs_hash}`"
         if ucs_hash
         else "ucs-detect: not run"
@@ -167,12 +167,12 @@ def main() -> int:
         "",
         "## ucs-detect",
         "",
-        bidi_result,
-        f"P1.3 `test_results` SHA-256: `{baseline_hash}`" if baseline_hash else "P1.3 reference: not supplied",
+        ucs_result,
+        f"v0.17.0 baseline `test_results` SHA-256: `{baseline_hash}`" if baseline_hash else "v0.17.0 baseline reference: not supplied",
         (
-            f"Matches P1.3: `{str(ucs_hash == baseline_hash).lower()}`"
+            f"Matches v0.17.0 baseline: `{str(ucs_hash == baseline_hash).lower()}`"
             if ucs_hash and baseline_hash
-            else "P1.3 comparison: not run"
+            else "v0.17.0 baseline comparison: not run"
         ),
         "",
         "Step logs: `grapheme.log`, `bidi.log`, and, when run, `ucs-detect.log`.",

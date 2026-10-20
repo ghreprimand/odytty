@@ -900,10 +900,16 @@ work. The v0.12 W6 result meets it.
 
 The move from `harfrust` 0.8.4 to 0.14.0 retained a measured Devanagari
 cold-frame regression: first shaping of each face rose from 150 to 181
-microseconds per frame, about 20 percent. This is a measured residual, not a
-recovered cost. The comparison's warm rows, Bengali, Javanese, Balinese and
-Syriac cold frames, and three memory rows stayed within their frozen
-thresholds. These corpus measurements do not establish performance for every
+microseconds per frame, about 20 percent. The same comparison measured the
+parser-only scroll churn row about 18 percent slower, from 256.7 to 302.9
+microseconds. That is outside noise: the reference's 90th percentile was 262.7
+and the candidate's 10th percentile was 293.0. The full-terminal scroll-region
+churn row (10000 lines) on the same input moved 1.4 percent, which is neutral.
+No machine-code comparison was made, so the parser-only change is not
+attributed to code layout. Both are measured residuals, not recovered costs.
+The comparison's other rows, including the warm rows, the Bengali, Javanese,
+Balinese and Syriac cold frames, and three memory rows, stayed within their
+frozen thresholds. These corpus measurements do not establish performance for every
 font or script, or Windows and macOS frame costs. The
 [October devlog](../devlog/2026-10.md)
 records the engine change and comparison.
