@@ -93,9 +93,10 @@ jobs:
           key: ${{ matrix.os }}-cargo-v2-${{ hashFiles('Cargo.lock') }}
           restore-keys: ${{ matrix.os }}-cargo-v2-
 
-      # The corpus tool needs Python 3.11 or later (tomllib). One pinned
-      # interpreter serves it and every later Python step on all three OSes,
-      # instead of whatever each runner image ships.
+      # The corpus tool needs Python 3.11 or later (tomllib). The corpus steps
+      # below run this pinned interpreter on all three OSes instead of
+      # whatever each runner image ships. Only this job sets it up: the
+      # architecture-guards and shell-scripts jobs keep the image's python3.
       - name: Set up Python
         # v6.3.0
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
