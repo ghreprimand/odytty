@@ -409,6 +409,26 @@ fn check_real_system_faces(required: &[char]) {
         '\u{11315}',
         '\u{1A20}',
         '\u{1CD0}',
+        '\u{0712}',
+        '\u{0841}',
+        '\u{1E922}',
+        '\u{10D01}',
+        '\u{1820}',
+        '\u{1B13}',
+        '\u{1B8A}',
+        '\u{1BC5}',
+        '\u{1A00}',
+        '\u{AA06}',
+        '\u{1C00}',
+        '\u{1901}',
+        '\u{1140E}',
+        '\u{11191}',
+        '\u{1148F}',
+        '\u{1158E}',
+        '\u{1168A}',
+        '\u{11700}',
+        '\u{AA80}',
+        '\u{10A10}',
     ]);
     eprintln!(
         "script fallback resolved {resolved:04X?}; stock system lacks {absent:04X?}; \
@@ -527,4 +547,223 @@ fn cjk_nfd_hiragino_filename_resolves() {
     let (mut resolver, _dir) = resolver_on(Platform::Macos, &[(filename, CJK_LOOKUP)]);
     let face = resolver.resolve('\u{3042}').expect("NFD Hiragino answers");
     assert!(font_provides_outline_glyph(&face, '\u{3042}'));
+}
+
+/// One joining or shaped script added after the T2 and T3 shaping work: its
+/// macOS stock file name, its Windows stock file name, its fixture subset and a
+/// letter the subset maps. Each script must name its stock face first on both
+/// platforms and resolve that letter from a directory holding only the fixture
+/// under the stock name, so a script whose row is missing keeps the box here.
+fn assert_script_resolves_on_both_platforms(
+    macos_file: &str,
+    windows_file: &str,
+    bytes: &[u8],
+    ch: char,
+) {
+    for (platform, file) in [
+        (Platform::Macos, macos_file),
+        (Platform::Windows, windows_file),
+    ] {
+        let stem = super::super::discovery::normalize_family(&super::super::discovery::file_stem(
+            std::path::Path::new(file),
+        ));
+        let faces = candidate_faces(ch, platform)
+            .unwrap_or_else(|| panic!("{platform:?} U+{:04X} has no group", ch as u32));
+        assert!(
+            stem.contains(faces[0].0),
+            "{platform:?} U+{:04X}: {file} is not the first hint {:?}",
+            ch as u32,
+            faces[0]
+        );
+        let (mut resolver, _dir) = resolver_on(platform, &[(file, bytes)]);
+        let face = resolver
+            .resolve(ch)
+            .unwrap_or_else(|| panic!("{platform:?} {file} should resolve U+{:04X}", ch as u32));
+        assert!(
+            font_provides_outline_glyph(&face, ch),
+            "{platform:?} {file}"
+        );
+        assert_eq!(resolver.loaded_faces(), 1, "{platform:?} {file}");
+    }
+}
+
+macro_rules! added_script_face_test {
+    ($name:ident, $macos:literal, $windows:literal, $path:literal, $ch:literal) => {
+        #[test]
+        fn $name() {
+            assert_script_resolves_on_both_platforms(
+                $macos,
+                $windows,
+                include_bytes!(concat!("../../tests/fixtures/fonts/s5b/", $path)),
+                $ch,
+            );
+        }
+    };
+}
+
+added_script_face_test!(
+    syriac_resolves_from_noto_sans_syriac_and_estrangelo_edessa,
+    "NotoSansSyriac-Regular.ttf",
+    "estre.ttf",
+    "joining/Syriac-subset.ttf",
+    '\u{0712}'
+);
+added_script_face_test!(
+    mandaic_resolves_from_noto_sans_mandaic_and_the_sans_serif_collection,
+    "NotoSansMandaic-Regular.ttf",
+    "SansSerifCollection.ttf",
+    "joining/Mandaic-subset.ttf",
+    '\u{0841}'
+);
+added_script_face_test!(
+    adlam_resolves_from_noto_sans_adlam_and_ebrima,
+    "NotoSansAdlam-Regular.ttf",
+    "ebrima.ttf",
+    "joining/Adlam-subset.ttf",
+    '\u{1E922}'
+);
+added_script_face_test!(
+    hanifi_rohingya_resolves_from_noto_sans_and_the_sans_serif_collection,
+    "NotoSansHanifiRohingya-Regular.ttf",
+    "SansSerifCollection.ttf",
+    "joining/HanifiRohingya-subset.ttf",
+    '\u{10D01}'
+);
+added_script_face_test!(
+    mongolian_resolves_from_noto_sans_mongolian_and_mongolian_baiti,
+    "NotoSansMongolian-Regular.ttf",
+    "monbaiti.ttf",
+    "joining-ltr/Mongolian-subset.ttf",
+    '\u{1820}'
+);
+added_script_face_test!(
+    balinese_resolves_from_noto_serif_balinese_and_the_sans_serif_collection,
+    "NotoSerifBalinese-Regular.ttf",
+    "SansSerifCollection.ttf",
+    "brahmic-a/Balinese-subset.ttf",
+    '\u{1B13}'
+);
+added_script_face_test!(
+    sundanese_resolves_from_noto_sans_sundanese_and_the_sans_serif_collection,
+    "NotoSansSundanese-Regular.ttf",
+    "SansSerifCollection.ttf",
+    "brahmic-a/Sundanese-subset.ttf",
+    '\u{1B8A}'
+);
+added_script_face_test!(
+    batak_resolves_from_noto_sans_batak_and_the_sans_serif_collection,
+    "NotoSansBatak-Regular.ttf",
+    "SansSerifCollection.ttf",
+    "brahmic-a/Batak-subset.ttf",
+    '\u{1BC5}'
+);
+added_script_face_test!(
+    buginese_resolves_from_noto_sans_buginese_and_leelawadee_ui,
+    "NotoSansBuginese-Regular.ttf",
+    "LeelawUI.ttf",
+    "brahmic-a/Buginese-subset.ttf",
+    '\u{1A00}'
+);
+added_script_face_test!(
+    cham_resolves_from_noto_sans_cham_and_the_sans_serif_collection,
+    "NotoSansCham-Regular.ttf",
+    "SansSerifCollection.ttf",
+    "brahmic-a/Cham-subset.ttf",
+    '\u{AA06}'
+);
+added_script_face_test!(
+    lepcha_resolves_from_noto_sans_lepcha_and_the_sans_serif_collection,
+    "NotoSansLepcha-Regular.ttf",
+    "SansSerifCollection.ttf",
+    "brahmic-a/Lepcha-subset.ttf",
+    '\u{1C00}'
+);
+added_script_face_test!(
+    limbu_resolves_from_noto_sans_limbu_and_the_sans_serif_collection,
+    "NotoSansLimbu-Regular.ttf",
+    "SansSerifCollection.ttf",
+    "brahmic-a/Limbu-subset.ttf",
+    '\u{1901}'
+);
+added_script_face_test!(
+    newa_resolves_from_noto_sans_newa_and_the_sans_serif_collection,
+    "NotoSansNewa-Regular.ttf",
+    "SansSerifCollection.ttf",
+    "brahmic-b/Newa-subset.ttf",
+    '\u{1140E}'
+);
+added_script_face_test!(
+    sharada_resolves_from_noto_sans_sharada_and_the_sans_serif_collection,
+    "NotoSansSharada-Regular.ttf",
+    "SansSerifCollection.ttf",
+    "brahmic-b/Sharada-subset.ttf",
+    '\u{11191}'
+);
+added_script_face_test!(
+    tirhuta_resolves_from_noto_sans_tirhuta_and_the_sans_serif_collection,
+    "NotoSansTirhuta-Regular.ttf",
+    "SansSerifCollection.ttf",
+    "brahmic-b/Tirhuta-subset.ttf",
+    '\u{1148F}'
+);
+added_script_face_test!(
+    siddham_resolves_from_noto_sans_siddham_and_the_sans_serif_collection,
+    "NotoSansSiddham-Regular.ttf",
+    "SansSerifCollection.ttf",
+    "brahmic-b/Siddham-subset.ttf",
+    '\u{1158E}'
+);
+added_script_face_test!(
+    takri_resolves_from_noto_sans_takri_and_the_sans_serif_collection,
+    "NotoSansTakri-Regular.ttf",
+    "SansSerifCollection.ttf",
+    "brahmic-b/Takri-subset.ttf",
+    '\u{1168A}'
+);
+added_script_face_test!(
+    ahom_resolves_from_noto_serif_ahom_and_the_sans_serif_collection,
+    "NotoSerifAhom-Regular.ttf",
+    "SansSerifCollection.ttf",
+    "brahmic-b/Ahom-subset.ttf",
+    '\u{11700}'
+);
+added_script_face_test!(
+    tai_viet_resolves_from_noto_sans_tai_viet_and_the_sans_serif_collection,
+    "NotoSansTaiViet-Regular.ttf",
+    "SansSerifCollection.ttf",
+    "brahmic-b/TaiViet-subset.ttf",
+    '\u{AA80}'
+);
+added_script_face_test!(
+    kharoshthi_resolves_from_noto_sans_kharoshthi_and_segoe_ui_historic,
+    "NotoSansKharoshthi-Regular.ttf",
+    "seguihis.ttf",
+    "rtl/Kharoshthi-subset.ttf",
+    '\u{10A10}'
+);
+
+/// The added rows sit after every earlier row and leave its order unchanged:
+/// the first earlier script per platform is still Han, and N'Ko, the only
+/// joining script beyond Arabic with a row before, keeps its faces.
+#[test]
+fn added_rows_follow_the_earlier_rows_unchanged() {
+    assert_eq!(SCRIPT_FALLBACK[0].ranges[0], (0x2E80, 0x2FFF));
+    assert_eq!(
+        candidate_faces('\u{07CA}', Platform::Windows),
+        Some(&[("ebrima", 0), ("nyala", 0)][..])
+    );
+    assert_eq!(
+        candidate_faces('\u{07CA}', Platform::Macos),
+        Some(&[("notosansnko", 0)][..])
+    );
+    let first_added = SCRIPT_FALLBACK
+        .iter()
+        .position(|group| group.ranges[0] == (0x0700, 0x074F))
+        .expect("the Syriac row");
+    assert_eq!(SCRIPT_FALLBACK.len() - first_added, 20);
+    assert_eq!(
+        SCRIPT_FALLBACK[first_added - 1].ranges[0],
+        (0x1400, 0x167F),
+        "the Canadian syllabics row stays last of the earlier rows"
+    );
 }

@@ -475,15 +475,28 @@ followed by its Sangam MN face where it has one; Thai uses Thonburi, Lao Lao
 Sangam MN, Khmer Khmer Sangam MN, Myanmar Noto Sans Myanmar then Myanmar Sangam
 MN, Tibetan Kailasa, Javanese, Chakma, Tai Tham, N'Ko, Tifinagh and Vai their
 Noto Sans faces, Ethiopic Kefa, Cherokee Plantagenet Cherokee, and Canadian
-syllabics Euphemia CAS then Noto Sans Canadian Aboriginal. macOS ships no
-Grantha face, so Grantha keeps the box there. A face absent from a given system
-leaves its script boxed, and a script outside these ranges keeps the box. Faces
-are read on first need on the runtime worker thread, never at startup or on the
-render path, each at most once per run (a failed load is not retried), and the
-font folders are scanned once, on that thread. Complex-script clusters take the
-same faces through the same fallback call, so a shaped run is fitted to the em
-size of the face that resolves its base. Disabling symbol fallback turns this
-off with the rest of the chain. Linux fontconfig fallback is unchanged.
+syllabics Euphemia CAS then Noto Sans Canadian Aboriginal. The joining scripts
+Syriac, Mandaic, Adlam, Hanifi Rohingya, and Mongolian, and the shaped scripts
+Balinese, Sundanese, Batak, Buginese, Cham, Lepcha, Limbu, Newa, Sharada,
+Tirhuta, Siddham, Takri, Ahom, Tai Viet, and Kharoshthi use their Noto Sans
+faces on macOS (Noto Serif for Balinese and Ahom). On Windows, Adlam uses
+Ebrima, Mongolian uses Mongolian Baiti, Buginese Leelawadee UI, Kharoshthi
+Segoe UI Historic, Syriac Estrangelo Edessa (installed with the optional Syriac
+Supplemental Fonts feature), and the rest the Windows 11 Sans Serif Collection.
+Windows 10 therefore keeps the box for Mandaic, Hanifi Rohingya, Balinese,
+Sundanese, Batak, Cham, Lepcha, Limbu, Newa, Sharada, Tirhuta, Siddham, Takri,
+Ahom, Tai Viet, Grantha, and Tai Tham, and Windows 10 and 11 both keep it for
+Syriac unless that optional feature is installed. A fallback face draws these
+letters one cell at a time: joining forms need a text font that maps the run.
+macOS ships no Grantha face, so Grantha keeps the box there. A face absent from
+a given system leaves its script boxed, and a script outside these ranges keeps
+the box. Faces are read on first need on the runtime worker thread, never at
+startup or on the render path, each at most once per run (a failed load is not
+retried), and the font folders are scanned once, on that thread. Complex-script
+clusters take the same faces through the same fallback call, so a shaped run is
+fitted to the em size of the face that resolves its base. Disabling symbol
+fallback turns this off with the rest of the chain. Linux fontconfig fallback
+is unchanged.
 
 CJK uses the same lazy script lookup when the primary and static fallback
 faces miss. For Han, shared CJK punctuation and Bopomofo, Windows tries

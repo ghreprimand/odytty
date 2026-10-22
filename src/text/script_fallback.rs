@@ -87,14 +87,19 @@ impl ScriptFaces {
 /// Windows 11 adds the Sans Serif Collection, which carries Grantha, Tai Tham
 /// and the Vedic extensions; it is absent on Windows 10, where those scripts
 /// keep the box. Arial, Sylfaen and Nyala are second choices for the scripts
-/// they also carry.
+/// they also carry. The joining and shaped scripts listed last use Ebrima
+/// (Adlam), Mongolian Baiti, Leelawadee UI (Buginese), Segoe UI Historic
+/// (Kharoshthi), Estrangelo Edessa (Syriac, from the optional Syriac
+/// Supplemental Fonts feature) and otherwise the Sans Serif Collection, so on
+/// Windows 10 only Adlam, Mongolian, Buginese and Kharoshthi resolve among them.
 ///
 /// macOS ships SF Hebrew, SF Arabic, SF Armenian and SF Georgian, the Kohinoor,
 /// Mukta Mahee and Noto families and the Sangam MN faces for the Indic scripts,
 /// Thonburi, the Lao, Khmer and Myanmar Sangam MN faces, Kailasa, Noto Sans for
 /// Javanese, Chakma, Tai Tham, N'Ko, Tifinagh and Vai, Kefa, Plantagenet
-/// Cherokee and Euphemia CAS. It ships no Grantha face. Sangam MN and the Noto
-/// files live in the Supplemental folder, inside the scan depth.
+/// Cherokee and Euphemia CAS, and Noto Sans or Noto Serif faces for the joining
+/// and shaped scripts listed last. It ships no Grantha face. Sangam MN and the
+/// Noto files live in the Supplemental folder, inside the scan depth.
 /// CJK uses Microsoft YaHei/JhengHei, Yu Gothic and Malgun Gothic on Windows;
 /// PingFang, Hiragino and Apple SD Gothic Neo on macOS, when installed.
 pub(super) const SCRIPT_FALLBACK: &[ScriptFaces] = &[
@@ -311,6 +316,115 @@ pub(super) const SCRIPT_FALLBACK: &[ScriptFaces] = &[
         ranges: &[(0x1400, 0x167F), (0x18B0, 0x18FF)],
         windows: &[("gadugi", 0)],
         macos: &[("euphemiacas", 0), ("notosanscanadianaboriginal", 0)],
+    },
+    // The joining scripts beyond Arabic and N'Ko. Syriac (with the Syriac
+    // Supplement) uses Estrangelo Edessa from the Syriac Supplemental Fonts
+    // optional feature; Mandaic and Hanifi Rohingya, the Windows 11 Sans Serif
+    // Collection; Adlam, Ebrima; Mongolian (with the Mongolian Supplement),
+    // Mongolian Baiti. macOS carries each in a Noto Sans face.
+    ScriptFaces {
+        ranges: &[(0x0700, 0x074F), (0x0860, 0x086F)],
+        windows: &[("estre", 0)],
+        macos: &[("notosanssyriac", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x0840, 0x085F)],
+        windows: &[("sansserifcollection", 0)],
+        macos: &[("notosansmandaic", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x1E900, 0x1E95F)],
+        windows: &[("ebrima", 0)],
+        macos: &[("notosansadlam", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x10D00, 0x10D3F)],
+        windows: &[("sansserifcollection", 0)],
+        macos: &[("notosanshanifirohingya", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x1800, 0x18AF), (0x11660, 0x1167F)],
+        windows: &[("monbaiti", 0)],
+        macos: &[("notosansmongolian", 0)],
+    },
+    // The other shaped scripts with reference fixtures. Buginese uses Leelawadee
+    // UI and Kharoshthi Segoe UI Historic; the rest use the Windows 11 Sans
+    // Serif Collection, so Windows 10 keeps their box. macOS carries each in a
+    // Noto Sans face, or Noto Serif for Balinese and Ahom.
+    ScriptFaces {
+        ranges: &[(0x1B00, 0x1B7F)],
+        windows: &[("sansserifcollection", 0)],
+        macos: &[("notoserifbalinese", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x1B80, 0x1BBF), (0x1CC0, 0x1CCF)],
+        windows: &[("sansserifcollection", 0)],
+        macos: &[("notosanssundanese", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x1BC0, 0x1BFF)],
+        windows: &[("sansserifcollection", 0)],
+        macos: &[("notosansbatak", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x1A00, 0x1A1F)],
+        windows: &[("leelawui", 0)],
+        macos: &[("notosansbuginese", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0xAA00, 0xAA5F)],
+        windows: &[("sansserifcollection", 0)],
+        macos: &[("notosanscham", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x1C00, 0x1C4F)],
+        windows: &[("sansserifcollection", 0)],
+        macos: &[("notosanslepcha", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x1900, 0x194F)],
+        windows: &[("sansserifcollection", 0)],
+        macos: &[("notosanslimbu", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x11400, 0x1147F)],
+        windows: &[("sansserifcollection", 0)],
+        macos: &[("notosansnewa", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x11180, 0x111DF)],
+        windows: &[("sansserifcollection", 0)],
+        macos: &[("notosanssharada", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x11480, 0x114DF)],
+        windows: &[("sansserifcollection", 0)],
+        macos: &[("notosanstirhuta", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x11580, 0x115FF)],
+        windows: &[("sansserifcollection", 0)],
+        macos: &[("notosanssiddham", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x11680, 0x116CF)],
+        windows: &[("sansserifcollection", 0)],
+        macos: &[("notosanstakri", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x11700, 0x1174F)],
+        windows: &[("sansserifcollection", 0)],
+        macos: &[("notoserifahom", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0xAA80, 0xAADF)],
+        windows: &[("sansserifcollection", 0)],
+        macos: &[("notosanstaiviet", 0)],
+    },
+    ScriptFaces {
+        ranges: &[(0x10A00, 0x10A5F)],
+        windows: &[("seguihis", 0)],
+        macos: &[("notosanskharoshthi", 0)],
     },
 ];
 

@@ -3225,7 +3225,14 @@ Kannada, Malayalam Sangam MN and Sinhala Sangam MN, each followed by its Sangam
 MN face where it has one; Thonburi; Lao, Khmer and Myanmar Sangam MN (Noto Sans
 Myanmar first for Myanmar); Kailasa; Noto Sans for Javanese, Chakma, Tai Tham,
 N'Ko, Tifinagh and Vai; Kefa; Plantagenet Cherokee; and Euphemia CAS then Noto
-Sans Canadian Aboriginal. macOS has no Grantha face. Candidates are
+Sans Canadian Aboriginal. The joining scripts Syriac, Mandaic, Adlam, Hanifi
+Rohingya and Mongolian and the shaped scripts Balinese, Sundanese, Batak,
+Buginese, Cham, Lepcha, Limbu, Newa, Sharada, Tirhuta, Siddham, Takri, Ahom,
+Tai Viet and Kharoshthi use their Noto Sans faces on macOS (Noto Serif for
+Balinese and Ahom); on Windows, Ebrima for Adlam, Mongolian Baiti, Leelawadee
+UI for Buginese, Segoe UI Historic for Kharoshthi, Estrangelo Edessa (the
+optional Syriac Supplemental Fonts feature) for Syriac, and the Sans Serif
+Collection (Windows 11) for the rest. macOS has no Grantha face. Candidates are
 filename-stem hints under the platform font roots (macOS: System, its
 Supplemental folder and Library) with the symbol tail's Regular-first ranking
 and eight-candidate cap; a hint that prefixes a sibling script's stem relies on
