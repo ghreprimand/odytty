@@ -810,3 +810,73 @@ fn mapped_keycap_selector_keeps_explicit_font_substitution() {
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].covered_columns, 2);
 }
+
+/// Fails before the selector rule: a font that maps VS16 but ligates only
+/// base + keycap (as Apple Color Emoji's `morx` does, where VS16 is
+/// default-ignorable) drew the plain digit, because the mapped selector
+/// stayed between base and keycap and blocked the ligature. The selector now
+/// leaves the shaping stream for such a font, so every keycap resolves to
+/// its color glyph and draws over its two cells.
+#[test]
+fn mapped_keycap_selector_the_ligature_ignores_is_omitted() {
+    let font = EmojiFont::load(fixture_font("color-keycap-ignored-vs.ttf")).expect("load fixture");
+    assert_ne!(font.as_ref().charmap().map('\u{fe0f}'), 0, "VS16 is mapped");
+    for base in "#*0123456789".chars() {
+        let text = format!("{base}\u{fe0f}\u{20e3}");
+        assert_eq!(
+            probe_cluster_resolution(&font, &text),
+            super::FallbackOutcome::Resolved,
+            "{text:?}"
+        );
+        assert!(!super::keycap::keeps_selector_for_test(
+            font.as_ref(),
+            &text
+        ));
+        let mut terminal = Terminal::new(4, 1);
+        terminal.advance(text.as_bytes());
+        let snapshot = terminal.snapshot();
+        assert_eq!(snapshot.cells[0].grapheme(), text, "copy keeps VS16");
+        let mut rasterizer = EmojiRasterizer::from_font(font.clone());
+        let mut atlas = ColorGlyphAtlas::new(cell());
+        let runs = rasterizer.build_color_glyph_runs(&snapshot, &mut atlas);
+        assert_eq!(runs.len(), 1, "{text:?}");
+        assert_eq!(runs[0].covered_columns, 2);
+    }
+    // The explicit three-glyph rule keeps its selector.
+    let explicit =
+        EmojiFont::load(fixture_font("color-keycap-mapped-vs.ttf")).expect("load fixture");
+    assert!(super::keycap::keeps_selector_for_test(
+        explicit.as_ref(),
+        "1\u{fe0f}\u{20e3}"
+    ));
+    // A bare digit or a keycap without VS16 is untouched.
+    assert_eq!(
+        probe_cluster_resolution(&font, "1\u{fe0f}"),
+        super::FallbackOutcome::MissingGlyph
+    );
+}
+
+/// Authoritative on the macos-latest leg: the stock Apple Color Emoji draws
+/// every VS16 keycap as one color glyph. Skipped where the font is absent.
+#[cfg(target_os = "macos")]
+#[test]
+fn stock_apple_color_emoji_draws_vs16_keycaps_in_color() {
+    let path = std::path::Path::new("/System/Library/Fonts/Apple Color Emoji.ttc");
+    if !path.exists() {
+        eprintln!("Apple Color Emoji is absent; skipped");
+        return;
+    }
+    let font = EmojiFont::load(path.to_path_buf()).expect("load Apple Color Emoji");
+    let charmap = font.as_ref().charmap();
+    for base in "#*0123456789".chars() {
+        let text = format!("{base}\u{fe0f}\u{20e3}");
+        assert_eq!(
+            probe_cluster_resolution(&font, &text),
+            super::FallbackOutcome::Resolved,
+            "{text:?}: VS16 maps to {}, base to {}, keycap to {}",
+            charmap.map('\u{fe0f}'),
+            charmap.map(base),
+            charmap.map('\u{20e3}')
+        );
+    }
+}

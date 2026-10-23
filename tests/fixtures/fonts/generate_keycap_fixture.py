@@ -50,3 +50,13 @@ languagesystem DFLT dflt;
 feature ccmp { sub [BASES] zwj keycap by color; } ccmp;
 """.replace("BASES", " ".join(digits)))
 b.font.save(Path(__file__).with_name("color-keycap-mapped-vs.ttf"), reorderTables=False)
+
+# A mapped selector the ligature does not consume, as in a font whose
+# shaper treats VS16 as default-ignorable (Apple Color Emoji's morx): only
+# base + keycap ligates, so the selector must leave the shaping stream.
+del b.font["GSUB"]
+addOpenTypeFeaturesFromString(b.font, """
+languagesystem DFLT dflt;
+feature ccmp { sub [BASES] keycap by color; } ccmp;
+""".replace("BASES", " ".join(digits)))
+b.font.save(Path(__file__).with_name("color-keycap-ignored-vs.ttf"), reorderTables=False)

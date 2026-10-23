@@ -865,8 +865,10 @@ Variation selectors, flags, keycaps, skin tones, and common ZWJ clusters are
 supported by the color-glyph renderer. Unicode 17 listed VS16 bases, supported
 modifier-base skin tones, VS16 keycaps, regional-indicator pairs, and fully
 qualified RGI ZWJ sequences also share bounded two-cell grid owners. Width is
-independent of color-font coverage. Unrecognized continuations start separate
-owners. VS15 does not demote; standalone regional indicators and keycaps
+independent of color-font coverage. A VS16 keycap shapes without its selector
+unless the color font's ligature consumes the selector, so a font that ligates
+only base and keycap, such as Apple Color Emoji, draws it in color. Unrecognized
+continuations start separate owners. VS15 does not demote; standalone regional indicators and keycaps
 without VS16 stay one cell. Those compatibility choices differ from the
 frozen Python wcwidth reference.
 
