@@ -425,3 +425,284 @@ fn an_unmapped_joining_letter_splits_its_run() {
     let runs = LigatureShaper::new().build_runs(true, &snapshot, &fonts, &[]);
     assert!(runs.is_empty(), "{runs:?}");
 }
+
+/// A Latin-only style face: it maps the space and `M`, no joining letter.
+fn latin_only() -> FontHandle {
+    FontHandle::try_from_vec(
+        include_bytes!("../../tests/fixtures/fonts/cluster-size-primary.ttf").to_vec(),
+    )
+    .expect("project-authored Latin fixture")
+}
+
+/// An atlas over `primary` whose only fallback face is `fallback`.
+fn atlas_with_fallback(primary: &FontHandle, fallback: &FontHandle) -> crate::atlas::GlyphAtlas {
+    let mut atlas = crate::atlas::GlyphAtlas::build(primary, 28.0);
+    atlas.set_fallback_fonts(vec![Arc::new(fallback.clone())]);
+    atlas
+}
+
+/// The production entry with both switches on and default Latin features.
+fn runs_with_faces(
+    snapshot: &Snapshot,
+    fonts: &Fonts,
+    atlas: &mut crate::atlas::GlyphAtlas,
+    map: Option<&BidiDisplayMap>,
+) -> Vec<LigatureRun> {
+    LigatureShaper::new().build_runs_with_faces(
+        ShapingSwitches {
+            ligatures: true,
+            scripts: true,
+        },
+        snapshot,
+        fonts,
+        atlas,
+        &[],
+        LatinShapingFeatures::default(),
+        map,
+    )
+}
+
+/// Every reference row of `font_name`, shaped with a Latin-only style face
+/// and the fixture as the only fallback face, draws its reference glyphs per
+/// cell in logical and display order, exactly as with the fixture as the
+/// style face. Each key names the fallback face, and the atlas draws it from
+/// that face: its ink matches the same key drawn with the fixture as the
+/// style face.
+fn assert_fallback_runs_match_references(font_name: &str) {
+    let fixture = face(font_name);
+    let primary = latin_only();
+    assert_eq!(
+        primary
+            .glyph_id(references(font_name)[0].text.chars().next().unwrap())
+            .0,
+        0
+    );
+    let fonts = Fonts(primary.clone());
+    let style_fonts = Fonts(fixture.clone());
+    let mut joined = 0;
+    for reference in references(font_name) {
+        let snapshot = terminal(&reference.text, 8).snapshot();
+        let cells = snapshot
+            .cells
+            .iter()
+            .scan(0, |byte, cell| {
+                (*byte < reference.text.len()).then(|| *byte += cell.grapheme().len())
+            })
+            .count();
+        let map = BidiDisplayMap::plan(&snapshot, &[false]);
+        let mut atlas = atlas_with_fallback(&primary, &fixture);
+        let logical = runs_with_faces(&snapshot, &fonts, &mut atlas, None);
+        let display = runs_with_faces(&snapshot, &fonts, &mut atlas, Some(&map));
+        let style_logical = LigatureShaper::new().build_runs(true, &snapshot, &style_fonts, &[]);
+        let style_display =
+            LigatureShaper::new().build_runs_bidi(&snapshot, &style_fonts, &[], &map);
+        for (label, runs, style_runs) in [
+            ("logical", &logical, &style_logical),
+            ("display", &display, &style_display),
+        ] {
+            let got = drawn(&snapshot, runs, &fixture, cells);
+            let want = drawn(&snapshot, style_runs, &fixture, cells);
+            for column in 0..cells {
+                assert_eq!(
+                    sorted(got[column].clone()),
+                    sorted(want[column].clone()),
+                    "{font_name} {} {label} cell {column}",
+                    reference.note
+                );
+            }
+        }
+        if style_logical.is_empty() {
+            continue;
+        }
+        joined += 1;
+        let mut style_atlas = crate::atlas::GlyphAtlas::build(&fixture, 28.0);
+        for glyph in logical.iter().flat_map(|run| run.glyphs.iter()) {
+            assert_eq!(
+                glyph.key.face_fingerprint,
+                fixture.shaping_fingerprint(),
+                "{} names the fallback face",
+                reference.note
+            );
+            let fallback = atlas.ensure_shaped(&primary, glyph.key);
+            assert!(atlas.contains_shaped(glyph.key), "{}", reference.note);
+            let style = style_atlas.ensure_shaped(&fixture, glyph.key);
+            assert_eq!(
+                fallback.map(|bounds| (bounds.width, bounds.height)),
+                style.map(|bounds| (bounds.width, bounds.height)),
+                "{} draws the fallback face's glyph {}",
+                reference.note,
+                glyph.key.glyph_id
+            );
+        }
+    }
+    assert!(
+        joined >= 5,
+        "{font_name}: the joined rows join through the fallback face"
+    );
+}
+
+#[test]
+fn syriac_joins_from_a_fallback_face() {
+    assert_fallback_runs_match_references("Syriac-subset.ttf");
+}
+
+#[test]
+fn nko_joins_from_a_fallback_face() {
+    assert_fallback_runs_match_references("NKo-subset.ttf");
+}
+
+#[test]
+fn mandaic_joins_from_a_fallback_face() {
+    assert_fallback_runs_match_references("Mandaic-subset.ttf");
+}
+
+#[test]
+fn adlam_joins_from_a_fallback_face() {
+    assert_fallback_runs_match_references("Adlam-subset.ttf");
+}
+
+#[test]
+fn hanifi_rohingya_joins_from_a_fallback_face() {
+    assert_fallback_runs_match_references("HanifiRohingya-subset.ttf");
+}
+
+#[test]
+fn horizontal_mongolian_joins_from_a_fallback_face() {
+    assert_fallback_runs_match_references("Mongolian-subset.ttf");
+}
+
+/// Arabic letters, a lam-alef ligature and harakat on a fallback face draw
+/// what the same face draws as the style face, in both orders.
+#[test]
+fn arabic_joins_from_a_fallback_face() {
+    let arabic = FontHandle::try_from_vec(
+        include_bytes!("../../tests/fixtures/fonts/arabic-marks.ttf").to_vec(),
+    )
+    .expect("project-authored Arabic fixture");
+    let primary = latin_only();
+    let fonts = Fonts(primary.clone());
+    let style_fonts = Fonts(arabic.clone());
+    for text in [
+        "\u{0628}\u{0628}\u{0628}",
+        "\u{0628}\u{0644}\u{0627}",
+        "\u{0628}\u{064E}\u{0628}\u{0651}\u{0628}",
+    ] {
+        let snapshot = terminal(text, 8).snapshot();
+        let map = BidiDisplayMap::plan(&snapshot, &[false]);
+        let mut atlas = atlas_with_fallback(&primary, &arabic);
+        for (label, runs, style_runs) in [
+            (
+                "logical",
+                runs_with_faces(&snapshot, &fonts, &mut atlas, None),
+                LigatureShaper::new().build_runs(true, &snapshot, &style_fonts, &[]),
+            ),
+            (
+                "display",
+                runs_with_faces(&snapshot, &fonts, &mut atlas, Some(&map)),
+                LigatureShaper::new().build_runs_bidi(&snapshot, &style_fonts, &[], &map),
+            ),
+        ] {
+            assert!(!style_runs.is_empty(), "{text:?} joins on the style face");
+            assert!(
+                !runs.is_empty(),
+                "{text:?} {label} joins on the fallback face"
+            );
+            let cells = text
+                .chars()
+                .filter(|&ch| !(0x064B..=0x0652).contains(&(ch as u32)))
+                .count();
+            for column in 0..cells {
+                assert_eq!(
+                    sorted(drawn(&snapshot, &runs, &arabic, cells)[column].clone()),
+                    sorted(drawn(&snapshot, &style_runs, &arabic, cells)[column].clone()),
+                    "{text:?} {label} cell {column}"
+                );
+            }
+        }
+    }
+}
+
+/// A run whose fallback face is still being resolved draws per cell this
+/// frame and is not cached; once the face resolves, the run joins.
+#[test]
+fn a_pending_fallback_face_is_shaped_again_once_it_resolves() {
+    struct Faces {
+        face: Arc<FontHandle>,
+        ready: bool,
+    }
+    impl JoiningFaces for Faces {
+        fn joining_face(&mut self, _: &FontHandle, _: &[char]) -> ClusterFace {
+            if self.ready {
+                ClusterFace::Fallback(Arc::clone(&self.face))
+            } else {
+                ClusterFace::Pending
+            }
+        }
+    }
+    let fixture = face("NKo-subset.ttf");
+    let fonts = Fonts(latin_only());
+    let snapshot = terminal("\u{07CA}\u{07CB}\u{07CC}", 6).snapshot();
+    let mut faces = Faces {
+        face: Arc::new(fixture),
+        ready: false,
+    };
+    let mut shaper = LigatureShaper::new();
+    let build = |shaper: &mut LigatureShaper, faces: &mut Faces| {
+        shaper.build_runs_with_faces(
+            ShapingSwitches {
+                ligatures: true,
+                scripts: true,
+            },
+            &snapshot,
+            &fonts,
+            faces,
+            &[],
+            LatinShapingFeatures::default(),
+            None,
+        )
+    };
+    assert!(build(&mut shaper, &mut faces).is_empty());
+    assert_eq!(shaper.cached_rows(), 0, "a pending row is not cached");
+    faces.ready = true;
+    let runs = build(&mut shaper, &mut faces);
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert_eq!((runs[0].start, runs[0].end), (0, 3), "the whole run draws");
+    assert_eq!(shaper.cached_rows(), 1);
+    let calls = shaper.shape_calls();
+    assert_eq!(build(&mut shaper, &mut faces), runs);
+    assert_eq!(shaper.shape_calls(), calls, "the settled row is cached");
+}
+
+/// A style face that maps the run keeps it, whatever the fallback chain
+/// holds, and selection-style recoloring never splits a fallback run.
+#[test]
+fn the_style_face_keeps_runs_it_maps_and_recoloring_keeps_fallback_runs_whole() {
+    let fixture = face("Syriac-subset.ttf");
+    let other = face("NKo-subset.ttf");
+    let text = "\u{0712}\u{0712}\u{0712}";
+    let snapshot = terminal(text, 6).snapshot();
+    let mut atlas = atlas_with_fallback(&fixture, &other);
+    let style = runs_with_faces(&snapshot, &Fonts(fixture.clone()), &mut atlas, None);
+    assert!(!style.is_empty());
+    assert!(
+        style
+            .iter()
+            .flat_map(|run| run.glyphs.iter())
+            .all(|glyph| glyph.key.face_fingerprint == fixture.shaping_fingerprint())
+    );
+    assert_eq!(
+        style,
+        LigatureShaper::new().build_runs(true, &snapshot, &Fonts(fixture.clone()), &[])
+    );
+    let primary = latin_only();
+    let mut atlas = atlas_with_fallback(&primary, &fixture);
+    let plain = runs_with_faces(&snapshot, &Fonts(primary.clone()), &mut atlas, None);
+    let mut highlighted = snapshot.clone();
+    for cell in &mut highlighted.cells[1..2] {
+        cell.attrs.set_inverse(true);
+    }
+    assert_eq!(
+        runs_with_faces(&highlighted, &Fonts(primary), &mut atlas, None),
+        plain
+    );
+}

@@ -16,7 +16,10 @@
 
 use swash::shape::Direction;
 
-use super::{LigatureFonts, LigatureShaper, RowPlan, RunText, joining_script, shaping_run_bounds};
+use super::{
+    JoiningFaces, LigatureFonts, LigatureShaper, RowPlan, RunFace, RunText, joining_script,
+    run_face, shaping_run_bounds,
+};
 use crate::core::Cell;
 use crate::grid::{BidiDisplayMap, ColorRunCoverage};
 #[cfg(test)]
@@ -58,13 +61,15 @@ impl LigatureShaper {
         &mut self,
         cells: &[Cell],
         fonts: &F,
+        faces: &mut dyn JoiningFaces,
         row: usize,
         coverage: &ColorRunCoverage,
         levels: &[u8],
     ) -> RowPlan {
         let level = |column: usize| levels.get(column).copied().unwrap_or(0);
         let mut runs = Vec::new();
-        for (start, end, style) in shaping_run_bounds(cells, row, coverage, fonts) {
+        let (bounds, pending) = shaping_run_bounds(cells, row, coverage, fonts, faces);
+        for (start, end, style, face) in bounds {
             let mut segment = start;
             while segment < end {
                 let segment_level = level(segment);
@@ -93,14 +98,15 @@ impl LigatureShaper {
                         &run_text,
                         segment,
                         style,
-                        fonts.ligature_font(style),
+                        run_face(&face, fonts.ligature_font(style)),
+                        matches!(face, RunFace::Fallback(_)),
                         direction,
                     ));
                 }
                 segment = segment_end;
             }
         }
-        RowPlan { runs }
+        RowPlan { runs, pending }
     }
 
     /// Presentation runs for `snapshot` under `display` with default features,

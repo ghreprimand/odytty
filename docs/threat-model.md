@@ -1174,7 +1174,9 @@ in-memory set. It is never saved, and a new pane does not join on its own.
   `MAX_COMBINING` = 16, `src/core/types.rs`). A shaping result holding
   `.notdef`, a glyph id past `u16`, or more than `MAX_RUN_GLYPHS` = 64 glyphs is
   discarded. A contextual joining run never crosses a row, a script, a face, or
-  a bidi level; it is shaped on the text face only, a result holding `.notdef`
+  a bidi level; it is shaped on the text face, or on a fallback face that maps
+  every letter (at most `MAX_JOINING_FACES` = 64 distinct fallback faces per
+  atlas, `src/atlas/mod.rs`), a result holding `.notdef`
   or a glyph id past `u16` draws per cell, mark offsets are clamped to the `i16`
   range, and an overlay covers at most 255 cells, longer runs splitting at
   cluster boundaries (`src/ligature.rs`, `src/ligature/joining.rs`). The bidi

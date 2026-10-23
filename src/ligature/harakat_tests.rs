@@ -57,10 +57,17 @@ fn runs_for(text: &str) -> (Snapshot, Vec<LigatureRun>) {
 fn bounds_of(snapshot: &Snapshot) -> Vec<(usize, usize)> {
     let cols = snapshot.dimensions.columns;
     let coverage = ColorRunCoverage::new(&[], cols, 1);
-    shaping_run_bounds(&snapshot.cells[..cols], 0, &coverage, &Fonts(font()))
-        .into_iter()
-        .map(|(start, end, _)| (start, end))
-        .collect()
+    shaping_run_bounds(
+        &snapshot.cells[..cols],
+        0,
+        &coverage,
+        &Fonts(font()),
+        &mut StyleFacesOnly,
+    )
+    .0
+    .into_iter()
+    .map(|(start, end, _, _)| (start, end))
+    .collect()
 }
 
 fn glyph_vertices(verts: &[Vertex]) -> impl Iterator<Item = &Vertex> {

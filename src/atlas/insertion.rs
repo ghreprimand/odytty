@@ -193,10 +193,17 @@ impl GlyphAtlas {
         if key.cluster {
             return None;
         }
+        // A key a joining run shaped from a fallback face draws from that
+        // face, without the style's synthetic transform, as the per-cell
+        // fallback glyph does.
+        let joining_face = self.joining_face_for(&key);
+        let (font, synth) = match joining_face.as_deref() {
+            Some(face) => (face, SynthTransform::none()),
+            None => (font, self.synth_for(key.style)),
+        };
         let span = u32::from(key.span_cells);
         let slot = self.allocate_slots(span)?;
         let origin = slot_offset(slot, self.cols, self.cell);
-        let synth = self.synth_for(key.style);
         // A positioned mark moves its pen by the shaped offset. Raising the
         // pen baseline would also move the synthetic-italic shear origin, so
         // the shear that baseline shift removes is added back to x.

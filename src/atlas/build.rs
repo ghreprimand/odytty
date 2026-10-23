@@ -144,6 +144,7 @@ impl GlyphAtlas {
             symbol_map_fonts: Vec::new(),
             runtime_symbol_resolver: None,
             runtime_symbol_cache: HashMap::new(),
+            joining_faces: HashMap::new(),
         };
         atlas.set_texture_dimension_limit(max_dimension);
         atlas

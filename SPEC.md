@@ -3110,13 +3110,19 @@ The monochrome renderer draws resident marks over that base and suppresses a
 missing-mark tofu fallback, so a missing font glyph cannot obscure the base.
 With script shaping on, Arabic harakat on an Arabic letter inside a
 joining run of two or more cells are drawn instead by the shaping overlay at
-the font's mark-positioned offsets, and only when the text font maps the base
+the font's mark-positioned offsets, and only when the run's face maps the base
 and every mark on that cell; the monochrome path does not draw them again (see
 [`docs/shaping-roadmap.md`](docs/shaping-roadmap.md)). In the other joining
 scripts (Syriac, N'Ko, Mandaic, Adlam, Hanifi Rohingya, and Mongolian), marks
 of the letter's own script (Joining_Type T in Unicode 17.0.0, and the Mongolian
 vowel separator) ride their letter into its joining run the same way;
 Inherited marks and marks of another script keep the monochrome path.
+A joining run whose letters the text font does not map is shaped with the face
+the owner fallback would choose for those letters (a SYMMAP override, the
+static chain, or the runtime resolver for its first letter, which must map
+every letter): it joins exactly as from the text font, in logical and display
+order, and every cell of the run draws through the overlay at the run's size.
+A run whose face is still being resolved draws per cell until it resolves.
 
 With script shaping on, each width owner of a tuned script group is
 shaped on its own with `harfrust` 0.14.0 (script and horizontal direction

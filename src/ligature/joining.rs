@@ -8,8 +8,9 @@
 //! transparent nonspacing mark of the same script. Runs never mix scripts.
 //! Arabic keeps its own tables and its swash shaping, byte for byte; these
 //! scripts are shaped with harfrust, whose Arabic-family shaper implements
-//! their joining (including the Syriac final alaph forms), on the run's text
-//! face only, as Arabic is. The "plain" comparison for an overlay is each
+//! their joining (including the Syriac final alaph forms), on the run's face
+//! (the text face, or the fallback face that maps every letter the text face
+//! lacks), as Arabic is. The "plain" comparison for an overlay is each
 //! cell's own cmap glyph, which is what the per-cell path draws.
 //!
 //! Every run is shaped in its script's own horizontal direction (right to

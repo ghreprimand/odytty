@@ -948,13 +948,14 @@ impl GpuState {
         let ligature_ss01 = crate::settings::ligature_ss01_enabled();
         let ligature_ss02 = crate::settings::ligature_ss02_enabled();
         let mut ligature_shaper = LigatureShaper::new();
-        let mut initial_ligature_runs = ligature_shaper.build_runs_with_switches(
+        let mut initial_ligature_runs = ligature_shaper.build_runs_with_faces(
             crate::ligature::ShapingSwitches {
                 ligatures: ligatures_enabled,
                 scripts: script_shaping_enabled,
             },
             initial_snapshot,
             &fonts,
+            &mut atlas,
             &initial_color_glyph_runs,
             crate::ligature::LatinShapingFeatures {
                 ss01: ligature_ss01,

@@ -38,7 +38,7 @@ mod zero_tests;
 use arabic::{cluster_pen_offset, is_arabic_joining_base, mapped_mark_segments};
 use joining::{JoiningScript, cmap_glyphs, is_joining_mark, other_joining_script};
 
-use crate::atlas::{FontStyle, ShapedGlyphKey};
+use crate::atlas::{ClusterFace, FontStyle, GlyphAtlas, ShapedGlyphKey};
 use crate::core::{Cell, Snapshot};
 use crate::grid::{BidiDisplayMap, ColorGlyphRun, ColorRunCoverage, font_style_for_attrs};
 
@@ -182,6 +182,37 @@ pub trait LigatureFonts {
     fn ligature_font(&self, style: FontStyle) -> &FontHandle;
 }
 
+/// Chooses the face a joining run shapes with when its style face may not
+/// map its letters. The renderer passes its [`GlyphAtlas`]
+/// ([`GlyphAtlas::joining_face`]), so a run of letters drawn from a fallback
+/// face joins as it would from the style face.
+pub trait JoiningFaces {
+    fn joining_face(&mut self, primary: &FontHandle, letters: &[char]) -> ClusterFace;
+}
+
+impl JoiningFaces for GlyphAtlas {
+    fn joining_face(&mut self, primary: &FontHandle, letters: &[char]) -> ClusterFace {
+        GlyphAtlas::joining_face(self, primary, letters)
+    }
+}
+
+/// Shapes every run with its style face, the behavior without an atlas.
+struct StyleFacesOnly;
+
+impl JoiningFaces for StyleFacesOnly {
+    fn joining_face(&mut self, _: &FontHandle, _: &[char]) -> ClusterFace {
+        ClusterFace::Primary
+    }
+}
+
+/// The face one shaping run uses: its style face, or a fallback face that
+/// maps every letter of a joining run the style face does not.
+#[derive(Clone)]
+enum RunFace {
+    Style,
+    Fallback(Arc<FontHandle>),
+}
+
 /// One contextual glyph whose atlas slot is anchored to a source-column span.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LigatureGlyph {
@@ -275,6 +306,9 @@ impl RowKey {
 #[derive(Clone, Debug)]
 struct RowPlan {
     runs: Vec<RelativeRun>,
+    /// A joining run's face is still being resolved: the plan serves this
+    /// frame but is not cached, so a later rebuild shapes the run again.
+    pending: bool,
 }
 
 type RowBucket = Vec<(Arc<RowKey>, Arc<RowPlan>)>;
@@ -315,9 +349,11 @@ pub struct ShapingSwitches {
 /// of each script for joining scripts other than Arabic.
 pub struct LigatureShaper {
     context: ShapeContext,
-    joining_fonts: [Option<Arc<harfrust::Font>>; 4],
-    /// At most one plan per style and joining script.
-    joining_plans: Vec<(FontStyle, JoiningScript, Arc<harfrust::ShapePlan>)>,
+    /// The harfrust tables of each face a joining run shaped with, by
+    /// shaping fingerprint (the style faces and any fallback faces).
+    joining_fonts: Vec<(u64, Option<Arc<harfrust::Font>>)>,
+    /// At most one plan per face and joining script.
+    joining_plans: Vec<(u64, JoiningScript, Arc<harfrust::ShapePlan>)>,
     entries: HashMap<u64, RowBucket>,
     fifo: VecDeque<(u64, Arc<RowKey>)>,
     entry_count: usize,
@@ -360,7 +396,7 @@ impl LigatureShaper {
         self.entry_count = 0;
         self.face_fingerprints = [None; 4];
         self.face_generations = [0; 4];
-        self.joining_fonts = Default::default();
+        self.joining_fonts.clear();
         self.joining_plans.clear();
     }
 
@@ -453,6 +489,32 @@ impl LigatureShaper {
         latin_features: LatinShapingFeatures,
         bidi: Option<&BidiDisplayMap>,
     ) -> Vec<LigatureRun> {
+        self.build_runs_with_faces(
+            switches,
+            snapshot,
+            fonts,
+            &mut StyleFacesOnly,
+            color_runs,
+            latin_features,
+            bidi,
+        )
+    }
+
+    /// [`Self::build_runs_with_switches`] where a joining run whose letters
+    /// the style face does not map shapes with the face `faces` chooses (the
+    /// renderer passes its atlas). Its keys name that face's fingerprint, and
+    /// the atlas rasterizes them from it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_runs_with_faces<F: LigatureFonts>(
+        &mut self,
+        switches: ShapingSwitches,
+        snapshot: &Snapshot,
+        fonts: &F,
+        faces: &mut dyn JoiningFaces,
+        color_runs: &[ColorGlyphRun],
+        latin_features: LatinShapingFeatures,
+        bidi: Option<&BidiDisplayMap>,
+    ) -> Vec<LigatureRun> {
         if !switches.ligatures && !switches.scripts {
             return Vec::new();
         }
@@ -493,7 +555,16 @@ impl LigatureShaper {
                 plan
             } else {
                 self.shape_calls += 1;
-                let plan = Arc::new(self.shape_row(cells, fonts, row, &coverage, &levels));
+                let plan = Arc::new(self.shape_row(cells, fonts, faces, row, &coverage, &levels));
+                if plan.pending {
+                    output.extend(plan.runs.iter().map(|run| LigatureRun {
+                        row,
+                        start: run.start,
+                        end: run.end,
+                        glyphs: run.glyphs.clone(),
+                    }));
+                    continue;
+                }
                 if self.entry_count == LIGATURE_ROW_CACHE_CAPACITY
                     && let Some((oldest_fingerprint, oldest_key)) = self.fifo.pop_front()
                 {
@@ -544,15 +615,17 @@ impl LigatureShaper {
         &mut self,
         cells: &[Cell],
         fonts: &F,
+        faces: &mut dyn JoiningFaces,
         row: usize,
         coverage: &ColorRunCoverage,
         levels: &[u8],
     ) -> RowPlan {
         if !levels.is_empty() {
-            return self.shape_row_levels(cells, fonts, row, coverage, levels);
+            return self.shape_row_levels(cells, fonts, faces, row, coverage, levels);
         }
+        let (bounds, pending) = shaping_run_bounds(cells, row, coverage, fonts, faces);
         let mut runs = Vec::new();
-        for (start, end, style) in shaping_run_bounds(cells, row, coverage, fonts) {
+        for (start, end, style, face) in bounds {
             if end - start < 2 {
                 continue;
             }
@@ -561,49 +634,64 @@ impl LigatureShaper {
                 &run_text,
                 start,
                 style,
-                fonts.ligature_font(style),
+                run_face(&face, fonts.ligature_font(style)),
+                matches!(face, RunFace::Fallback(_)),
                 Direction::LeftToRight,
             ));
         }
-        RowPlan { runs }
+        RowPlan { runs, pending }
     }
 
-    /// The harfrust tables of `font` for style `style`, parsed once per
-    /// style until the faces change.
-    fn joining_font(&mut self, style: FontStyle, font: &FontHandle) -> Option<Arc<harfrust::Font>> {
-        let slot = &mut self.joining_fonts[font_style_index(style)];
-        if slot.is_none() {
-            *slot = crate::complex_shaping::shaper_data(font).map(Arc::new);
+    /// The harfrust tables of `font`, parsed once per face until the faces
+    /// change.
+    fn joining_font(&mut self, font: &FontHandle) -> Option<Arc<harfrust::Font>> {
+        let fingerprint = font.shaping_fingerprint();
+        if let Some((_, data)) = self.joining_fonts.iter().find(|(fp, _)| *fp == fingerprint) {
+            return data.clone();
         }
-        slot.clone()
+        if self.joining_fonts.len() >= JOINING_FACE_CACHE_CAPACITY {
+            self.joining_fonts.clear();
+            self.joining_plans.clear();
+        }
+        let data = crate::complex_shaping::shaper_data(font).map(Arc::new);
+        self.joining_fonts.push((fingerprint, data.clone()));
+        data
     }
 
-    /// The shaping plan of `script` on the style's text face, built once
-    /// until the faces change.
+    /// The shaping plan of `script` on the face `fingerprint` names, built
+    /// once until the faces change.
     fn joining_plan(
         &mut self,
-        style: FontStyle,
+        fingerprint: u64,
         script: JoiningScript,
         data: &harfrust::Font,
     ) -> Arc<harfrust::ShapePlan> {
         if let Some((_, _, plan)) = self
             .joining_plans
             .iter()
-            .find(|(s, j, _)| *s == style && *j == script)
+            .find(|(fp, j, _)| *fp == fingerprint && *j == script)
         {
             return Arc::clone(plan);
         }
         let plan = Arc::new(joining::plan(data, script));
-        self.joining_plans.push((style, script, Arc::clone(&plan)));
+        self.joining_plans
+            .push((fingerprint, script, Arc::clone(&plan)));
         plan
     }
 
+    /// Shape one compatible run with `font`. `fallback` marks a fallback
+    /// face chosen for a joining run: its keys name that face, and every
+    /// cell of the run draws through the overlay, so no letter of the run
+    /// falls back to the per-cell glyph, which is fitted to its cell rather
+    /// than set at the run's size.
+    #[allow(clippy::too_many_arguments)]
     fn shape_compatible_run(
         &mut self,
         run_text: &RunText,
         column_start: usize,
         style: FontStyle,
         font: &FontHandle,
+        fallback: bool,
         direction: Direction,
     ) -> Vec<RelativeRun> {
         let Some(font_ref) = FontRef::from_index(font.as_slice(), font.face_index() as usize)
@@ -621,10 +709,10 @@ impl LigatureShaper {
             // Each cell's own glyph against the joined run, shaped in the
             // script's direction whatever the row's layout; placement maps
             // the logical clusters to cells.
-            let Some(data) = self.joining_font(style, font) else {
+            let Some(data) = self.joining_font(font) else {
                 return Vec::new();
             };
-            let plan = self.joining_plan(style, script, &data);
+            let plan = self.joining_plan(font.shaping_fingerprint(), script, &data);
             let Some(on) = joining::shape_joining_run(&data, &plan, run_text, script) else {
                 return Vec::new();
             };
@@ -680,6 +768,15 @@ impl LigatureShaper {
             .iter()
             .filter(|glyph| glyph.marked)
             .map(|glyph| glyph.source_start);
+        if fallback {
+            return whole_run_overlays(
+                &on,
+                column_start,
+                run_text.cell_bytes.len(),
+                style,
+                font_fingerprint(font),
+            );
+        }
         if same_glyphs(&off, &on) && marked_columns.clone().next().is_none() {
             return Vec::new();
         }
@@ -838,26 +935,55 @@ fn compatible_run_bounds(
     bounds
 }
 
-/// [`compatible_run_bounds`] further split around marked cells whose marks
-/// the run's shaping face does not map; those cells stay on the monochrome
-/// combining path.
+/// [`compatible_run_bounds`] with each run's face, further split around
+/// cells whose letter or marks that face does not map; those cells stay on
+/// the per-cell path. A joining run the style face does not fully map takes
+/// the face `faces` chooses; the flag reports a face still being resolved.
 fn shaping_run_bounds<F: LigatureFonts>(
     cells: &[Cell],
     row: usize,
     coverage: &ColorRunCoverage,
     fonts: &F,
-) -> Vec<(usize, usize, FontStyle)> {
+    faces: &mut dyn JoiningFaces,
+) -> (Vec<(usize, usize, FontStyle, RunFace)>, bool) {
     let mut bounds = Vec::new();
+    let mut pending = false;
     for (start, end, style) in compatible_run_bounds(cells, row, coverage) {
-        let font = fonts.ligature_font(style);
+        let primary = fonts.ligature_font(style);
+        let face = if end - start >= 2 && joining_script(cells[start].ch).is_some() {
+            let letters: Vec<char> = cells[start..end].iter().map(|cell| cell.ch).collect();
+            match faces.joining_face(primary, &letters) {
+                ClusterFace::Fallback(face) => RunFace::Fallback(face),
+                ClusterFace::Pending => {
+                    pending = true;
+                    RunFace::Style
+                }
+                ClusterFace::Primary | ClusterFace::Unavailable => RunFace::Style,
+            }
+        } else {
+            RunFace::Style
+        };
+        let font = run_face(&face, primary);
+        let segments = mapped_mark_segments(cells, start, end, font);
         bounds.extend(
-            mapped_mark_segments(cells, start, end, font)
+            segments
                 .into_iter()
-                .map(|segment| (segment.start, segment.end, style)),
+                .map(|segment| (segment.start, segment.end, style, face.clone())),
         );
     }
-    bounds
+    (bounds, pending)
 }
+
+/// The face handle a run shapes with.
+fn run_face<'a>(face: &'a RunFace, style_face: &'a FontHandle) -> &'a FontHandle {
+    match face {
+        RunFace::Style => style_face,
+        RunFace::Fallback(face) => face,
+    }
+}
+
+/// Distinct faces whose joining tables the shaper keeps at once.
+const JOINING_FACE_CACHE_CAPACITY: usize = 16;
 
 fn font_style_index(style: FontStyle) -> usize {
     match style {

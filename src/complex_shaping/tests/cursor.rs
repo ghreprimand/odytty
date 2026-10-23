@@ -252,3 +252,71 @@ fn block_cursor_draws_shaped_owner_glyphs_on_a_reordered_row() {
         "ink left of the block keeps its content-pass pixels"
     );
 }
+
+/// Joining twin: the block over a letter of a run joined through a fallback
+/// face redraws the run's joined glyphs clipped to the block, so the ink
+/// inside the block is the joined form the content pass drew there.
+#[test]
+fn block_cursor_redraws_a_letter_joined_from_a_fallback_face() {
+    let _guard = crate::test_lock::render_globals_lock();
+    let primary = FontHandle::try_from_vec(
+        include_bytes!("../../../tests/fixtures/fonts/cluster-size-primary.ttf").to_vec(),
+    )
+    .expect("project-authored Latin fixture");
+    let nko = FontHandle::try_from_vec(
+        include_bytes!("../../../tests/fixtures/fonts/s5b/joining/NKo-subset.ttf").to_vec(),
+    )
+    .expect("OFL N'Ko subset");
+    let mut terminal = Terminal::new(4, 1);
+    terminal.advance("\u{07CA}\u{07CB}\u{07CC}\x1b[1;2H".as_bytes());
+    let snapshot = terminal.snapshot();
+    assert!(snapshot.cursor_visible);
+    let mut atlas = GlyphAtlas::build(&primary, PX);
+    atlas.set_fallback_fonts(vec![std::sync::Arc::new(nko)]);
+    ensure_cells(&mut atlas, &primary, &snapshot);
+    let mut runs = crate::ligature::LigatureShaper::new().build_runs_with_faces(
+        crate::ligature::ShapingSwitches {
+            ligatures: true,
+            scripts: true,
+        },
+        &snapshot,
+        &Fonts(primary.clone()),
+        &mut atlas,
+        &[],
+        crate::ligature::LatinShapingFeatures::default(),
+        None,
+    );
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    for glyph in runs.iter().flat_map(|run| run.glyphs.iter()) {
+        atlas.ensure_shaped(&primary, glyph.key);
+    }
+    runs.retain(|run| run.glyphs.iter().all(|g| atlas.contains_shaped(g.key)));
+    assert_eq!(runs.len(), 1, "every joined glyph is resident");
+
+    let plain = frame(&snapshot, &atlas, &runs);
+    let shaped = with_cursor(&snapshot, &atlas, &runs, &runs);
+    let per_cell = with_cursor(&snapshot, &atlas, &runs, &[]);
+    let background = plain.px[plain.px.len() - 1];
+    let cursor_fill = {
+        let mut blank = Terminal::new(4, 1);
+        blank.advance(b"\x1b[1;1H");
+        with_cursor(&blank.snapshot(), &atlas, &[], &[]).px[0]
+    };
+    let content_ink = ink_mask(&plain, 1..2, background);
+    assert!(
+        content_ink.contains(&true),
+        "the joined letter inks its cell"
+    );
+    assert_eq!(
+        ink_mask(&shaped, 1..2, cursor_fill),
+        content_ink,
+        "the block redraws the joined form"
+    );
+    assert_ne!(
+        ink_mask(&per_cell, 1..2, cursor_fill),
+        content_ink,
+        "the per-cell redraw draws the cell's own fitted glyph"
+    );
+    assert_eq!(shaped.columns(0..1), plain.columns(0..1));
+    assert_eq!(shaped.columns(2..4), plain.columns(2..4));
+}

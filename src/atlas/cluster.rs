@@ -111,6 +111,44 @@ pub fn face_maps_all(face: &FontHandle, scalars: &[char]) -> bool {
 }
 
 impl GlyphAtlas {
+    /// The face that shapes a joining run whose letters are `letters` under
+    /// the style face `primary`. A `primary` that maps every letter shapes
+    /// the run, as it always has. Otherwise the run takes the face an owner
+    /// of the same letters would ([`Self::cluster_face`]: a SYMMAP override,
+    /// the static chain, or the runtime resolver for the first letter, which
+    /// must map every letter). A fallback face is registered so
+    /// [`Self::ensure_shaped`] rasterizes the run's keys from it; when
+    /// [`MAX_JOINING_FACES`] are registered a new face is unavailable.
+    pub fn joining_face(&mut self, primary: &FontHandle, letters: &[char]) -> ClusterFace {
+        if face_maps_all(primary, letters) {
+            return ClusterFace::Primary;
+        }
+        match self.cluster_face(primary, letters) {
+            ClusterFace::Fallback(face) => {
+                let fingerprint = face.shaping_fingerprint();
+                if fingerprint == primary.shaping_fingerprint() {
+                    return ClusterFace::Primary;
+                }
+                if !self.joining_faces.contains_key(&fingerprint) {
+                    if self.joining_faces.len() >= MAX_JOINING_FACES {
+                        return ClusterFace::Unavailable;
+                    }
+                    self.joining_faces.insert(fingerprint, Arc::clone(&face));
+                }
+                ClusterFace::Fallback(face)
+            }
+            other => other,
+        }
+    }
+
+    /// The registered joining face a shaped key names, if any.
+    pub(super) fn joining_face_for(&self, key: &ShapedGlyphKey) -> Option<Arc<FontHandle>> {
+        if self.joining_faces.is_empty() {
+            return None;
+        }
+        self.joining_faces.get(&key.face_fingerprint).cloned()
+    }
+
     /// The face that shapes an owner whose scalars are `scalars` (base
     /// first) under the style face `primary`. Precedence follows the scalar
     /// path: a SYMMAP override for the base, then `primary`, then the static

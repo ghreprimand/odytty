@@ -1193,13 +1193,16 @@ impl GpuState {
     ) -> Vec<LigatureRun> {
         // BIDI: a reordered row shapes per level run, matching the display
         // map the cell build places it with; logical-order rows are unchanged.
-        self.ligature_shaper.build_runs_with_switches(
+        // A joining run whose letters come from a fallback face shapes with
+        // that face, which the atlas chooses and rasterizes from.
+        self.ligature_shaper.build_runs_with_faces(
             crate::ligature::ShapingSwitches {
                 ligatures: self.ligatures_enabled,
                 scripts: self.script_shaping_enabled,
             },
             snapshot,
             &self.fonts,
+            &mut self.atlas,
             color_runs,
             crate::ligature::LatinShapingFeatures {
                 ss01: self.ligature_ss01,

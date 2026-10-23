@@ -565,7 +565,18 @@ pub struct GlyphAtlas {
     /// by default and untouched unless a resolver is installed and the static
     /// chain misses, so the default path costs nothing.
     runtime_symbol_cache: HashMap<char, Option<Arc<FontHandle>>>,
+    /// Fallback faces that shape joining runs, by shaping fingerprint (see
+    /// [`Self::joining_face`]). [`Self::ensure_shaped`] rasterizes a key
+    /// whose `face_fingerprint` names one of these from that face instead
+    /// of the style face it is handed. Bounded by [`MAX_JOINING_FACES`]; the
+    /// ligature shaper that holds keys naming these faces is cleared with
+    /// every atlas rebuild, so no key outlives its face.
+    joining_faces: HashMap<u64, Arc<FontHandle>>,
 }
+
+/// Distinct fallback faces [`GlyphAtlas::joining_face`] registers. A further
+/// face is reported unavailable, so its runs keep the per-cell path.
+pub const MAX_JOINING_FACES: usize = 64;
 
 #[cfg(test)]
 mod tests;
