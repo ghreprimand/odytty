@@ -93,6 +93,7 @@ pub(super) enum SettingsLevel {
 pub(super) struct SettingsPanel {
     edits: SettingsEditOverlay,
     environment_overrides: Vec<&'static str>,
+    surface_opaque: bool,
     /// Full setting roster; the base for both the section filter and the search
     /// filter. With no active filters, `entries == all_entries` (identical).
     all_entries: Vec<SettingInfo>,
@@ -137,6 +138,7 @@ pub(super) struct SettingsPanelSignature {
     pub(super) editing_buffer: Option<String>,
     pub(super) changed_count: usize,
     pub(super) environment_overrides: Vec<&'static str>,
+    pub(super) surface_opaque: bool,
     pub(super) message: Option<String>,
     pub(super) entries: Vec<SettingsPanelEntrySignature>,
     pub(super) query: String,

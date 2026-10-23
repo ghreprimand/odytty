@@ -131,6 +131,10 @@ impl GpuState {
         let previous = std::mem::replace(&mut self.surface, surface);
         drop(previous);
         self.surface.configure(&self.device, &self.config);
+        self.opaque_transparency_warned = false;
+        let adapter = self.adapter.get_info();
+        tracing::warn!(backend = ?adapter.backend, adapter = %adapter.name,
+            alpha_mode = ?self.config.alpha_mode, "odytty: surface presentation");
         Ok(())
     }
 }

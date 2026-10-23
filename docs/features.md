@@ -2542,9 +2542,18 @@ toward white so text stays legible over busy backdrops, applied after the
 minimum-contrast floor and leaving colour emoji unchanged. Both live in
 Settings → Rendering.
 
-Wayland and macOS support compositing natively, X11 requires a compositor, and
-Windows uses DWM. In an environment without alpha compositing, the setting has
-no visible effect.
+Wayland and macOS support compositing natively; X11 requires a compositor.
+Windows transparency now works through DX12 DirectComposition with a matching
+window style. The default stays on at 80; `window_opacity = 100` keeps the
+window solid. `WGPU_DX12_PRESENTATION_SYSTEM=Hwnd` requests the ordinary opaque
+DX12 path; `Visual` requests DirectComposition. An unavailable Visual window,
+surface or initial configuration is retired before retrying in a new ordinary
+window. Vulkan and GL on Windows keep their opaque path. When transparency is
+on but a surface offers only Opaque, Settings shows a plain notice next to
+Window transparency; this also applies on X11 without alpha compositing.
+The log records backend, adapter and alpha mode once per surface and warns
+when requested transparency is unavailable. DirectComposition cannot be
+captured with RenderDoc; use the Hwnd override for that tool.
 
 An open menu, picker, or settings panel remains the same themed, opaque surface
 in one-pane and split-pane tabs without making the whole window opaque, also

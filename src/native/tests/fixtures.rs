@@ -79,6 +79,7 @@ pub(super) fn closed_overlay_signature() -> OverlayRenderSignature {
         mode: OverlayMode::Settings,
         panel: SettingsPanelSignature {
             environment_overrides: Vec::new(),
+            surface_opaque: false,
             selected: 0,
             scroll: 0,
             editing_key: None,

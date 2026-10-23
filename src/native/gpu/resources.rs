@@ -436,6 +436,7 @@ pub(in crate::native) struct GpuState {
     /// this to `1.0` - the window stays translucent and only the panel's own
     /// cell span is held opaque (see `overlay_opaque_region`).
     pub(super) window_bg_alpha: f32,
+    pub(super) opaque_transparency_warned: bool,
     /// While content cells draw below full
     /// opacity AND an overlay panel, rename band, or HUD chip is merged into the
     /// single-pane snapshot, that surface's cell span (in the built snapshot's
@@ -698,31 +699,22 @@ impl GpuState {
         display: winit::event_loop::OwnedDisplayHandle,
         event_proxy: Option<winit::event_loop::EventLoopProxy<UserEvent>>,
         session: SessionToken,
+        presentation: wgpu::Dx12SwapchainKind,
     ) -> Result<Self, NativeError> {
         let effect = effect_params(visual);
         let text = text_params(options.text_gamma);
         let size = window.inner_size();
         let scale = (window.scale_factor() as f32).max(1.0);
         let physical_px = physical_font_px(options.font_size_px, scale);
-        let (instance, surface, adapter, adapter_info) = bring_up_adapter(&window, &display)?;
+        let (instance, surface, adapter, adapter_info) =
+            bring_up_adapter(&window, &display, presentation)?;
 
         // Capture adapter identity for the About panel before any device work.
         // Read-only diagnostics; does not influence rendering.
         let adapter_diagnostics = AdapterDiagnostics::from_wgpu(&adapter_info);
-        // Name the selected adapter once at startup so a performance report can
-        // be diagnosed from the log alone. Routed through `tracing` (not
-        // stderr) so it lands in the rotated `odytty.log`: stderr may be
-        // redirected to /dev/null (the scenario `logging.rs` was built for),
-        // and on Windows the GUI subsystem has no visible stderr at all, so the
-        // log is the only place the adapter identity survives. Emitted at WARN
-        // because the log's default floor is WARN - an INFO line would be
-        // dropped by default, leaving "diagnosed from the log alone" untrue.
-        // The summary is device metadata only (backend/name/limits), never
-        // terminal content. A software rasterizer - a silent
-        // llvmpipe/lavapipe/SwiftShader or Windows WARP fallback - is the usual
-        // cause of a "very slow even with effects off" report, so it earns a
-        // louder warning pointing at the docs.
-        tracing::warn!("odytty: GPU adapter: {}", adapter_diagnostics.summary());
+        // Software fallback (llvmpipe/lavapipe/SwiftShader or Windows WARP)
+        // is a common cause of unexpectedly slow rendering, so name it and
+        // point at the troubleshooting steps rather than leaving it silent.
         if adapter_is_software(&adapter_info) {
             tracing::warn!(
                 "odytty: WARNING: rendering in software ({}); expect low performance. \
@@ -811,7 +803,34 @@ impl GpuState {
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
-        surface.configure(&device, &config);
+        if cfg!(windows) && presentation == wgpu::Dx12SwapchainKind::DxgiFromVisual {
+            // Surface::configure reports backend failures through device error
+            // scopes. Capture them before publishing the App, so its caller can
+            // retire this window and recreate one with a redirection bitmap.
+            let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
+            let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+            let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+            surface.configure(&device, &config);
+            let errors =
+                [validation, memory, internal].map(|scope| pollster::block_on(scope.pop()));
+            if let Some(error) = errors.into_iter().flatten().next() {
+                return Err(NativeError::SurfaceCreation(error.to_string()));
+            }
+        } else {
+            surface.configure(&device, &config);
+        }
+        // Name the adapter, backend and alpha mode once for this surface so
+        // rendering reports can be diagnosed from the log alone. Use tracing
+        // to retain the record in rotated odytty.log: launchers may discard
+        // stderr, and Windows GUI launches have no visible console. WARN is
+        // the default floor; INFO would silently omit the diagnostic. This is
+        // device metadata only, never terminal contents. The software-adapter
+        // warning above makes the common CPU-rasterizer slowdown explicit.
+        tracing::warn!(
+            "odytty: GPU adapter: {} alpha_mode={:?}",
+            adapter_diagnostics.summary(),
+            config.alpha_mode
+        );
 
         // --- Glyph atlas: rasterize at physical pixels for crisp HiDPI text.
         let font_zero = crate::settings::font_zero_enabled();
@@ -1178,6 +1197,7 @@ impl GpuState {
             selection_opacity: crate::settings::DEFAULT_SELECTION_OPACITY,
             text_brightness: crate::settings::DEFAULT_TEXT_BRIGHTNESS,
             window_bg_alpha: 1.0,
+            opaque_transparency_warned: false,
             overlay_opaque_region: None,
             row_fade: None,
             bidi_display: None,
@@ -1320,6 +1340,22 @@ impl GpuState {
             self.clear_color.b as f32,
             1.0,
         ]
+    }
+
+    /// Report an unavailable transparency request once per surface and return
+    /// the mode used by the Settings capability notice.
+    pub(in crate::native) fn note_transparency_request(
+        &mut self,
+        enabled: bool,
+    ) -> wgpu::CompositeAlphaMode {
+        if enabled
+            && self.config.alpha_mode == wgpu::CompositeAlphaMode::Opaque
+            && !self.opaque_transparency_warned
+        {
+            tracing::warn!("odytty: window transparency is on but the graphics surface is opaque");
+            self.opaque_transparency_warned = true;
+        }
+        self.config.alpha_mode
     }
 
     /// Set the effective window background alpha for upcoming

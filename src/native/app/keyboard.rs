@@ -878,7 +878,19 @@ impl App {
         self.request_selection_redraw();
     }
 
+    pub(in crate::native) fn set_settings_surface_alpha(
+        &mut self,
+        alpha: wgpu::CompositeAlphaMode,
+    ) {
+        self.overlay
+            .set_settings_surface_opaque(alpha == wgpu::CompositeAlphaMode::Opaque);
+    }
+
     fn prepare_settings_overlay(&mut self) {
+        if let Some(gpu) = self.gpu.as_mut() {
+            let alpha = gpu.note_transparency_request(self.settings.window_transparency);
+            self.set_settings_surface_alpha(alpha);
+        }
         self.cancel_pending_text_paste();
         if self.search.is_open() {
             self.close_search(true);

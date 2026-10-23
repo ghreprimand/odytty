@@ -263,9 +263,18 @@ floats over full-bleed content without reflowing it.
 overlay remain opaque. The selection is fully opaque by default and has its own
 strength control, `selection_opacity`, independent of the window opacity.
 
-Wayland and macOS support compositing natively, X11 requires a compositor, and
-Windows uses DWM. An environment without alpha compositing shows no visible
-change.
+Wayland and macOS support compositing natively; X11 requires a compositor.
+Windows transparency now works through DX12 DirectComposition with a matching
+window style. The default stays on at 80; `window_opacity = 100` keeps the
+window solid. `WGPU_DX12_PRESENTATION_SYSTEM=Hwnd` requests the ordinary opaque
+DX12 path; `Visual` requests DirectComposition. An unavailable Visual window,
+surface or initial configuration is retired before retrying in a new ordinary
+window. Vulkan and GL on Windows keep their opaque path. When transparency is
+on but a surface offers only Opaque, Settings shows a plain notice next to
+Window transparency; this also applies on X11 without alpha compositing.
+The log records backend, adapter and alpha mode once per surface and warns
+when requested transparency is unavailable. DirectComposition cannot be
+captured with RenderDoc; use the Hwnd override for that tool.
 
 ### Keep Colored Blocks And Text Legible At Low Opacity
 

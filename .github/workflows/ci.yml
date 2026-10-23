@@ -208,7 +208,7 @@ jobs:
         timeout-minutes: 12
         shell: pwsh
         run: |
-          $groups = @('automation::windows::tests', 'pty::windows::tests', 'state_dir::windows_export_tests')
+          $groups = @('automation::windows::tests', 'pty::windows::tests', 'state_dir::windows_export_tests', 'native::gpu::windows_presentation::tests', 'settings_transparency_notice_tracks_the_real_surface_alpha_and_signature')
           foreach ($group in $groups) {
             $listed = @(cargo test --locked --lib $group -- --list)
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

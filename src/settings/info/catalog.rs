@@ -588,7 +588,7 @@ impl Settings {
                 env: WINDOW_TRANSPARENCY_ENV,
                 name: "Window transparency",
                 value: bool_display(self.window_transparency).to_owned(),
-                description: "When on, the terminal background is drawn at the Window opacity below so the desktop shows through; text, cursor, and every overlay (menus, pickers, settings) stay fully opaque. Selection strength is independent and defaults to fully opaque. On by default: at full Window opacity the render is byte-identical to the opaque path. Requires platform compositing (Wayland and macOS natively; X11 needs a compositor; Windows uses DWM). Where no alpha compositing is offered the toggle has no visible effect.",
+                description: "When on, the terminal background is drawn at the Window opacity below so the desktop shows through; text, cursor, and every overlay (menus, pickers, settings) stay fully opaque. Selection strength is independent and defaults to fully opaque. On by default: at full Window opacity the render is byte-identical to the opaque path. Requires platform compositing (Wayland and macOS natively; X11 needs a compositor; Windows uses DX12 DirectComposition). An opaque graphics surface shows a notice next to this setting; Windows Vulkan, GL and the HWND fallback remain opaque.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],

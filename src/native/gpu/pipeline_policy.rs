@@ -27,6 +27,8 @@ struct InstanceOwner {
 }
 
 static INSTANCE_OWNER: OnceLock<InstanceOwner> = OnceLock::new();
+// A fallback HWND window must never reuse an instance admitted for Visual.
+static VISUAL_INSTANCE_OWNER: OnceLock<InstanceOwner> = OnceLock::new();
 
 #[cfg(test)]
 static TEST_INSTANCE_OWNER: OnceLock<InstanceOwner> = OnceLock::new();
@@ -54,7 +56,14 @@ fn process_instance(
     backends: wgpu::Backends,
     descriptor: wgpu::InstanceDescriptor,
 ) -> wgpu::Instance {
-    INSTANCE_OWNER
+    let owner = if descriptor.backend_options.dx12.presentation_system
+        == wgpu::Dx12SwapchainKind::DxgiFromVisual
+    {
+        &VISUAL_INSTANCE_OWNER
+    } else {
+        &INSTANCE_OWNER
+    };
+    owner
         .get_or_init(InstanceOwner::default)
         .get_or_insert_with(backends, || wgpu::Instance::new(descriptor))
 }
@@ -303,6 +312,7 @@ pub(in crate::native) fn surface_failure_action(
 pub(in crate::native) fn bring_up_adapter(
     window: &Arc<Window>,
     display: &winit::event_loop::OwnedDisplayHandle,
+    presentation: wgpu::Dx12SwapchainKind,
 ) -> Result<
     (
         wgpu::Instance,
@@ -312,7 +322,14 @@ pub(in crate::native) fn bring_up_adapter(
     ),
     NativeError,
 > {
-    let stages = backend_stages(wgpu::Backends::from_env());
+    // A Visual window has no redirection bitmap. It may use DX12 only;
+    // other backends require the separately recreated ordinary window.
+    let explicit = wgpu::Backends::from_env();
+    let stages = if cfg!(windows) && presentation == wgpu::Dx12SwapchainKind::DxgiFromVisual {
+        vec![wgpu::Backends::DX12]
+    } else {
+        backend_stages(explicit)
+    };
     let mut last_adapter_error: Option<String> = None;
     let mut fallback: Option<(
         wgpu::Instance,
@@ -333,6 +350,7 @@ pub(in crate::native) fn bring_up_adapter(
         let mut descriptor =
             wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(display.clone()));
         descriptor.backends = *backends;
+        descriptor.backend_options.dx12.presentation_system = presentation;
         let instance = process_instance(*backends, descriptor);
 
         let surface = match instance.create_surface(window.clone()) {
@@ -381,7 +399,16 @@ pub(in crate::native) fn bring_up_adapter(
         };
 
         let (adapter, adapter_info) = rescue_software_adapter(&instance, &surface, adapter);
-        if !adapter_is_software(&adapter_info) {
+        let software = adapter_is_software(&adapter_info);
+        if cfg!(windows)
+            && super::windows_presentation::retry_software_visual(presentation, explicit, software)
+        {
+            return Err(NativeError::NoAdapter(
+                "only a software DirectComposition adapter; retrying ordinary backend selection"
+                    .to_owned(),
+            ));
+        }
+        if !software {
             return Ok((instance, surface, adapter, adapter_info));
         }
         if software_adapter_is_final(index, stages.len()) {

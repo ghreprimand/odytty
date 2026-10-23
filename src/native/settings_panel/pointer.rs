@@ -486,6 +486,27 @@ impl SettingsPanel {
                     zone,
                 },
             ));
+            if self.surface_opaque && entry.key == "window_transparency" && entry.value == "on" {
+                for text in wrap_words(
+                    "This window cannot be transparent with the current graphics backend.",
+                    body_width.saturating_sub(4).max(1),
+                ) {
+                    if rows.len() >= content_height {
+                        break;
+                    }
+                    rows.push((
+                        SettingsPanelLine {
+                            text: format!("  {text}"),
+                            focused: false,
+                            bold: false,
+                        },
+                        RowHit {
+                            entry_index: None,
+                            zone: RowZone::Message,
+                        },
+                    ));
+                }
+            }
         }
 
         // A query that matches nothing shows an explicit notice rather

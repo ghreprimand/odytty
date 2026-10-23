@@ -12,6 +12,7 @@ impl SettingsPanel {
             editing_buffer: self.editing.as_ref().map(|edit| edit.buffer.clone()),
             changed_count: self.edits.changed_count(),
             environment_overrides: self.environment_overrides.clone(),
+            surface_opaque: self.surface_opaque,
             message: self.message.clone(),
             entries: self
                 .entries

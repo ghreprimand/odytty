@@ -1045,20 +1045,80 @@ impl App {
             }
         };
 
-        let window = Arc::new(
-            event_loop
-                .create_window(attributes)
-                .map_err(|err| NativeError::WindowCreation(err.to_string()))?,
+        let attempts = crate::native::gpu::windows_presentation::presentation_attempts(
+            cfg!(windows),
+            wgpu::Backends::from_env(),
+            wgpu::Dx12SwapchainKind::from_env(),
         );
-        // A newly created native surface starts visible until its backend
-        // reports otherwise; do not carry an old surface's occlusion latch
-        // across a quick-terminal hide/recreate cycle.
+        let mut result = None;
+        for (index, presentation) in attempts.iter().copied().enumerate() {
+            #[cfg(windows)]
+            let attributes = {
+                use winit::platform::windows::WindowAttributesExtWindows;
+                attributes
+                    .clone()
+                    .with_visible(false)
+                    .with_no_redirection_bitmap(
+                        presentation == wgpu::Dx12SwapchainKind::DxgiFromVisual,
+                    )
+            };
+            #[cfg(not(windows))]
+            let attributes = attributes.clone();
+            let window = match event_loop.create_window(attributes) {
+                Ok(window) => Arc::new(window),
+                Err(error) if index + 1 < attempts.len() => {
+                    tracing::warn!(%error, "odytty: DirectComposition window unavailable; retrying an ordinary HWND window");
+                    continue;
+                }
+                Err(error) => return Err(NativeError::WindowCreation(error.to_string())),
+            };
+            // Preserve ordinary startup ordering: acquire the first terminal
+            // snapshot only after the native window exists and IME is enabled.
+            // Allow composition input (CJK input methods and compose/dead-key
+            // accents). Without this, winit suppresses IME and composed text
+            // never reaches the terminal.
+            window.set_ime_allowed(true);
+            // Seed the first buffer from the current shared-terminal snapshot;
+            // any PTY output already pumped is picked up by the first redraw.
+            let initial_snapshot = crate::native::lock_recover(&self.terminal).snapshot();
+            let gpu = GpuState::new(
+                window.clone(),
+                &self.options,
+                &initial_snapshot,
+                self.effective_theme,
+                self.visual,
+                self.settings.effective_stem_darken(),
+                bloom_options(&self.settings),
+                crt_options(&self.settings),
+                event_loop.owned_display_handle(),
+                self.sessions.winit_event_proxy(),
+                self.sessions.active_id(),
+                presentation,
+            );
+            match gpu {
+                Ok(gpu) => {
+                    #[cfg(windows)]
+                    window.set_visible(true);
+                    result = Some((window, gpu, initial_snapshot));
+                    break;
+                }
+                Err(error) if index + 1 < attempts.len() => {
+                    // GpuState::new has dropped its surface and device before
+                    // this window is retired. HWND fallback creates a fresh,
+                    // ordinary window, never a bitmap-less HWND swapchain.
+                    tracing::warn!(%error, "odytty: DirectComposition unavailable; recreating an opaque HWND window");
+                    drop(window);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        let (window, mut gpu, initial_snapshot) =
+            result.expect("presentation policy always offers a window");
         self.window_occluded = false;
         self.clear_frame_callback_hatch_episode();
-        // v0.15.0 C: this native surface is a fresh incarnation. Advance the
-        // window's surface generation NOW, at the actual creation transition, so
-        // the host's file-drop surface registry never carries a stale generation
-        // for a recreated surface (even one that reuses a `wl_surface` address).
+        // This newly created native surface is a fresh incarnation. Advance
+        // its generation so the file-drop registry cannot retain a stale
+        // identity across recreation, even if a wl_surface address is reused.
         #[cfg(target_os = "linux")]
         {
             self.surface_generation = crate::native::window_owner::next_surface_generation()
@@ -1066,28 +1126,6 @@ impl App {
                     NativeError::WindowCreation("surface generation space exhausted".to_owned())
                 })?;
         }
-
-        // IME: allow composition input (CJK input methods, compose/dead-key
-        // accents) to deliver `Ime::Preedit`/`Ime::Commit` events. Without this
-        // winit suppresses IME and composed text never reaches the terminal.
-        window.set_ime_allowed(true);
-
-        // Seed the first buffer from the current shared-terminal snapshot (any
-        // PTY output already pumped is picked up by the first redraw below).
-        let initial_snapshot = crate::native::lock_recover(&self.terminal).snapshot();
-        let mut gpu = GpuState::new(
-            window.clone(),
-            &self.options,
-            &initial_snapshot,
-            self.effective_theme,
-            self.visual,
-            self.settings.effective_stem_darken(),
-            bloom_options(&self.settings),
-            crt_options(&self.settings),
-            event_loop.owned_display_handle(),
-            self.sessions.winit_event_proxy(),
-            self.sessions.active_id(),
-        )?;
         // Push live cell pixel metrics to the terminal core so graphics
         // placements (sixel/kitty) compute the correct cell extent.
         let cell = gpu.cell();

@@ -464,3 +464,56 @@ fn stepper_release_without_pointer_cell_stays_inert_after_click() {
         "move after release does not change any numeric value"
     );
 }
+
+#[test]
+fn settings_transparency_notice_tracks_the_real_surface_alpha_and_signature() {
+    let settings = Settings {
+        window_transparency: true,
+        ..Settings::default()
+    };
+    let (mut app, _) =
+        headless_app_with(NativeOptions::default(), Dimensions::new(120, 50), settings);
+    app.open_settings_section_for_test("Rendering");
+    let signature = app.overlay_signature_for_test();
+    let target = signature
+        .panel
+        .entries
+        .iter()
+        .position(|entry| entry.key == "window_transparency")
+        .unwrap();
+    for _ in signature.panel.selected..target {
+        app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::ArrowDown), false, false);
+    }
+    assert_eq!(
+        app.settings_selected_info_for_test().unwrap().key,
+        "window_transparency"
+    );
+    let notice = "This window cannot be transparent with the current graphics backend.";
+    app.set_settings_surface_alpha(wgpu::CompositeAlphaMode::Opaque);
+    assert!(
+        app.render_overlay_rows_for_test(120, 50)
+            .join("\n")
+            .contains(notice)
+    );
+    assert!(
+        app.render_overlay_rows_for_test(80, 24)
+            .join("\n")
+            .contains(notice),
+        "the notice must survive an ordinary short terminal viewport"
+    );
+    let opaque = app.overlay_signature_for_test();
+    app.set_settings_surface_alpha(wgpu::CompositeAlphaMode::PreMultiplied);
+    assert_ne!(opaque, app.overlay_signature_for_test());
+    assert!(
+        !app.render_overlay_rows_for_test(120, 50)
+            .join("\n")
+            .contains(notice)
+    );
+    app.set_settings_surface_alpha(wgpu::CompositeAlphaMode::Opaque);
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
+    assert!(
+        !app.render_overlay_rows_for_test(120, 50)
+            .join("\n")
+            .contains(notice)
+    );
+}

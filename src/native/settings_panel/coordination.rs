@@ -22,6 +22,7 @@ impl SettingsPanel {
             path_picker: None,
             edits,
             environment_overrides: Vec::new(),
+            surface_opaque: false,
             selected: 0,
             scroll: 0,
             editing: None,
@@ -33,6 +34,10 @@ impl SettingsPanel {
         };
         panel.clamp();
         panel
+    }
+
+    pub(in crate::native) fn set_surface_opaque(&mut self, opaque: bool) {
+        self.surface_opaque = opaque;
     }
 
     pub(in crate::native) fn set_environment_overrides(&mut self, mut keys: Vec<&'static str>) {

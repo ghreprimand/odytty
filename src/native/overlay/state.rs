@@ -222,6 +222,10 @@ impl OverlayUi {
         self.panel.adopt_unsaved_external(settings);
     }
 
+    pub(in crate::native) fn set_settings_surface_opaque(&mut self, opaque: bool) {
+        self.panel.set_surface_opaque(opaque);
+    }
+
     pub(in crate::native) fn set_settings_environment_overrides(
         &mut self,
         keys: Vec<&'static str>,

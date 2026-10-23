@@ -110,3 +110,5 @@ pub(in crate::native) use pipeline_policy::headless_test_instance;
 
 #[cfg(test)]
 pub(in crate::native) use pipeline_policy::{HeadlessGpuFixture, headless_gpu_lifetime};
+
+pub(in crate::native) mod windows_presentation;

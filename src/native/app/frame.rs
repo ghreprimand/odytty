@@ -343,6 +343,10 @@ impl App {
     /// exactly the paths that reached it before, and skipped on exactly the
     /// paths that skipped it.
     pub(super) fn on_redraw_requested(&mut self) -> bool {
+        if let Some(gpu) = self.gpu.as_mut() {
+            let alpha = gpu.note_transparency_request(self.settings.window_transparency);
+            self.set_settings_surface_alpha(alpha);
+        }
         if self.live_drag_map_blocked {
             return true;
         }
