@@ -560,6 +560,18 @@ ships a prebuilt `OdyTTY.app` for Apple Silicon (arm64). The binary is
 account and no notarization - enough for the app to launch, but not an Apple
 Developer identity. There is no `.dmg` and no Gatekeeper-approved signature yet.
 
+A Dock or Finder launch may supply no POSIX locale. On macOS, when `LANG`,
+`LC_ALL` and `LC_CTYPE` are all unset, new child processes receive
+`LANG=<AppleLocale>.UTF-8` if that locale is installed under `/usr/share/locale`,
+or `LANG=en_US.UTF-8` otherwise. Preference modifiers such as `@calendar=gregorian`
+and script subtags such as `-Hans` are removed before the locale lookup.
+Inherited and profile locale settings are
+preserved, including explicitly empty values. This applies to tabs, panes,
+quick terminal, session-host shells and the local SSH client; remote locale
+forwarding remains the SSH configuration. Linux inherits its desktop-session
+locale unchanged. Windows uses its ConPTY Unicode console path without this
+POSIX locale default.
+
 ### Homebrew (recommended)
 
 The Homebrew tap installs the prebuilt app and performs the disclosed quarantine

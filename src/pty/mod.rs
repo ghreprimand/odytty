@@ -27,6 +27,8 @@ mod exit_poll;
 mod exit_report;
 #[cfg(any(windows, test))]
 mod held_gate;
+#[cfg(any(target_os = "macos", test))]
+mod locale;
 #[cfg(any(windows, test))]
 pub(crate) mod program_path;
 #[cfg(unix)]
@@ -433,15 +435,20 @@ impl CommandBuilder {
 
     #[cfg_attr(not(unix), allow(dead_code))]
     fn into_command(self) -> Command {
-        let mut command = Command::new(self.program);
-        command.args(self.args);
-        if let Some(path) = self.current_dir {
+        // Apply after profile overrides, at the common Unix spawn boundary.
+        #[cfg(target_os = "macos")]
+        let builder = self.with_macos_locale();
+        #[cfg(not(target_os = "macos"))]
+        let builder = self;
+        let mut command = Command::new(builder.program);
+        command.args(builder.args);
+        if let Some(path) = builder.current_dir {
             command.current_dir(path);
         }
-        for (key, value) in self.env {
+        for (key, value) in builder.env {
             command.env(key, value);
         }
-        for key in self.env_remove {
+        for key in builder.env_remove {
             command.env_remove(key);
         }
         command

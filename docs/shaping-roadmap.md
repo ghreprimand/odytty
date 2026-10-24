@@ -236,6 +236,32 @@ observed boundary in the same class predicted by the model: scripts that need
 conjunct formation, glyph reordering, or cluster reassembly across logical
 cells.
 
+### Text correction costs
+
+The combined printable-ASCII fallback, macOS Grantha fallback, Chakma label,
+wide-owner cursor and macOS locale corrections were compared against
+1cc645a8 on the Linux AMD Ryzen 9 9950X3D desktop class. The frozen
+[internal-1 protocol](internal-benchmark-protocol.md) retained thirty
+alternating paired runs, all 67 original rows, and their original operation
+counts, units and thresholds. Four rows crossed their frozen 3% regression
+thresholds:
+
+| Row | Change |
+| --- | ---: |
+| `decfra fill 2000 ops` | +3.078% |
+| `decsera mixed-prot 2000 ops` | +4.391% |
+| `cursor_tail_only()` | +19.623%, from 7.695 to 9.205 ns per call |
+| `bidi ascii live on four-pane frame` | +3.240% |
+
+These combined measurements do not identify a cause or attribute a change to
+an individual correction. No speedup is claimed. CPU geometry and cursor-tail
+rows use ordinary ASCII content; initial atlas creation is outside their
+frame timings. Cold fallback when the primary lacks ASCII, wide-owner glyph
+redraw as a distinct endpoint, RGBA cursor rebuild/upload, native cursor
+effects, GPU submission/presentation, macOS/Windows execution and macOS locale
+startup remain unmeasured. These Linux CPU results make no native or
+cross-platform cost claim.
+
 ## Standing scope boundaries
 
 ### Bidirectional layout

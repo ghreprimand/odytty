@@ -2525,7 +2525,14 @@ font, or application combination has been validated.
   metadata.
 
 - **macOS:** The Unix PTY backend remains in use, with Darwin-native runtime
-  directory handling and a dedicated blocking CI runner.
+  directory handling and a dedicated blocking CI runner. At final child-command
+  conversion, if LANG, LC_ALL and LC_CTYPE are all unset, LANG defaults to
+  `<AppleLocale>.UTF-8` when installed under `/usr/share/locale`, after
+  removing preference modifiers and script subtags, otherwise
+  `en_US.UTF-8`. Explicit inherited and profile locale values are preserved.
+  This includes session-host, quick-terminal and local SSH child processes;
+  it does not configure remote SSH locale forwarding. Linux and Windows
+  receive no locale environment changes.
 
 - **Windows:** ConPTY, native paths, and Windows-specific open and reveal
   behavior support the current terminal surface. Unix socket features remain
