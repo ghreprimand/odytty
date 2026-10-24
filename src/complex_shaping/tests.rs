@@ -196,8 +196,11 @@ const GROUPS: &[Group] = &[
         known_diffs: &[],
         // Four ZWNJ controls and Chakma's ZWJ control keep separate owners.
         owner_floor: 22,
+        // Chakma U+11134 is the visible killer (maayyaa), drawn after its
+        // consonant; U+11133 is the invisible stacker.
         changed_notes: &[
             "stacker",
+            "visible-killer",
             "split-vowel",
             "pre-base-vowel",
             "cakra",
@@ -1206,4 +1209,35 @@ fn enabled_groups_preserve_copy_fallback_off_and_bidi_owner_spans() {
             assert_eq!(visual, (visual[0]..visual[0] + span).collect::<Vec<_>>());
         }
     }
+}
+
+/// Fails before the label fix: the Chakma row of U+11134 was labelled a
+/// stacker. U+11134 is the visible killer (maayyaa), which HarfBuzz draws
+/// after its consonant with no conjunct; U+11133 is the invisible stacker.
+/// The fixture corpus and its references agree on the label.
+#[test]
+fn chakma_visible_killer_rows_are_not_labelled_stackers() {
+    let group = GROUPS.iter().find(|group| group.name == "g6").unwrap();
+    let killer_rows: Vec<Row> = group_rows(group)
+        .into_iter()
+        .filter(|row| row.text.contains('\u{11134}'))
+        .collect();
+    assert_eq!(killer_rows.len(), 3);
+    for row in &killer_rows {
+        assert_ne!(row.note, "stacker", "{row:?}");
+    }
+    let plain = killer_rows
+        .iter()
+        .find(|row| row.text == "\u{11107}\u{11134}\u{11107}")
+        .expect("the direct killer row");
+    assert_eq!(plain.note, "visible-killer");
+    assert_eq!(
+        plain.x_advance.iter().filter(|&&a| a > 0).count(),
+        2,
+        "two letters"
+    );
+    let corpus = include_str!("../../tests/fixtures/fonts/s5b/corpus.json");
+    let chakma = &corpus[corpus.find("\"id\": \"chakma-1\"").unwrap()..];
+    let note = chakma.find("\"note\": ").unwrap();
+    assert!(chakma[note..].starts_with("\"note\": \"visible-killer\""));
 }

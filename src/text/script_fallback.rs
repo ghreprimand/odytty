@@ -91,7 +91,8 @@ impl ScriptFaces {
 /// (Adlam), Mongolian Baiti, Leelawadee UI (Buginese), Segoe UI Historic
 /// (Kharoshthi), Estrangelo Edessa (Syriac, from the optional Syriac
 /// Supplemental Fonts feature) and otherwise the Sans Serif Collection, so on
-/// Windows 10 only Adlam, Mongolian, Buginese and Kharoshthi resolve among them.
+/// Windows 10 only Adlam, Mongolian, Buginese and Kharoshthi resolve among them,
+/// and Syriac too where that optional feature is installed.
 ///
 /// macOS ships SF Hebrew, SF Arabic, SF Armenian and SF Georgian, the Kohinoor,
 /// Mukta Mahee and Noto families and the Sangam MN faces for the Indic scripts,
