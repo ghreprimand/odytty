@@ -98,8 +98,11 @@ impl ScriptFaces {
 /// Thonburi, the Lao, Khmer and Myanmar Sangam MN faces, Kailasa, Noto Sans for
 /// Javanese, Chakma, Tai Tham, N'Ko, Tifinagh and Vai, Kefa, Plantagenet
 /// Cherokee and Euphemia CAS, and Noto Sans or Noto Serif faces for the joining
-/// and shaped scripts listed last. It ships no Grantha face. Sangam MN and the
-/// Noto files live in the Supplemental folder, inside the scan depth.
+/// and shaped scripts listed last. Grantha Sangam MN is not a file of its own
+/// but face 1 of `Tamil Sangam MN.ttc` (face 0 is Tamil Sangam MN, 2 and 3 the
+/// Bold pair), so the Grantha row names that collection at face index 1.
+/// Sangam MN and the Noto files live in the Supplemental folder, inside the
+/// scan depth.
 /// CJK uses Microsoft YaHei/JhengHei, Yu Gothic and Malgun Gothic on Windows;
 /// PingFang, Hiragino and Apple SD Gothic Neo on macOS, when installed.
 pub(super) const SCRIPT_FALLBACK: &[ScriptFaces] = &[
@@ -246,11 +249,12 @@ pub(super) const SCRIPT_FALLBACK: &[ScriptFaces] = &[
         windows: &[("nirmala", 0), ("sansserifcollection", 0)],
         macos: &[("notosanschakma", 0)],
     },
-    // Grantha: Windows 11 only; macOS ships no face.
+    // Grantha: the Sans Serif Collection on Windows 11 only; on macOS the
+    // Grantha Sangam MN face, index 1 of the Tamil Sangam MN collection.
     ScriptFaces {
         ranges: &[(0x11300, 0x1137F)],
         windows: &[("nirmala", 0), ("sansserifcollection", 0)],
-        macos: &[],
+        macos: &[("tamilsangammn", 1)],
     },
     ScriptFaces {
         ranges: &[(0x0E00, 0x0E7F)],

@@ -11,3 +11,5 @@ All Unicode text is stored as ASCII U+XXXX sequences. The parent corpus.json def
 Regeneration requires the recorded tool versions and verifies the frozen normalization repertoire. License files remove trailing whitespace while retaining their complete wording and copyright notices; source and normalized license hashes are recorded separately.
 
 Khmer stray-mark references retain the shaper-inserted U+25CC circle; Myanmar omits that mapping and keeps a no-circle control. Only the Myanmar stray-mark source comparison uses a temporary source copy with the circle mapping removed; all ordinary source comparisons use the untouched upstream face.
+
+`collections/TamilSangamMN-layout.ttc` packs the committed Tamil and Grantha subsets into a four-face collection in the face order of the macOS Tamil Sangam MN collection, for the script-face fallback tests. It is built by `generate_collection_fixture.py` from the subsets alone; see `collections/README.md`.

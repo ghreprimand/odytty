@@ -493,9 +493,9 @@ Windows 10 therefore keeps the box for Mandaic, Hanifi Rohingya, Balinese,
 Sundanese, Batak, Cham, Lepcha, Limbu, Newa, Sharada, Tirhuta, Siddham, Takri,
 Ahom, Tai Viet, Grantha, and Tai Tham, and Windows 10 and 11 both keep it for
 Syriac unless that optional feature is installed. A run of joining letters the
-text font lacks joins from the fallback face that maps them all. macOS ships no
-Grantha face, so Grantha keeps the box there. A face absent from a given system
-leaves its script boxed, and a script outside these ranges keeps the box. Faces
+text font lacks joins from the fallback face that maps them all. On macOS,
+Grantha resolves from the Grantha Sangam MN face inside the Tamil Sangam MN
+collection file. A face absent from a given system leaves its script boxed, and a script outside these ranges keeps the box. Faces
 are read on first need on the runtime worker thread, never at startup or on the
 render path, each at most once per run (a failed load is not retried), and the
 font folders are scanned once, on that thread. Complex-script clusters take the

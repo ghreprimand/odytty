@@ -3238,7 +3238,9 @@ Tai Viet and Kharoshthi use their Noto Sans faces on macOS (Noto Serif for
 Balinese and Ahom); on Windows, Ebrima for Adlam, Mongolian Baiti, Leelawadee
 UI for Buginese, Segoe UI Historic for Kharoshthi, Estrangelo Edessa (the
 optional Syriac Supplemental Fonts feature) for Syriac, and the Sans Serif
-Collection (Windows 11) for the rest. macOS has no Grantha face. Candidates are
+Collection (Windows 11) for the rest. Grantha on macOS resolves from the
+Grantha Sangam MN face, which is face 1 of `Tamil Sangam MN.ttc` rather than a
+file of its own; Tamil keeps face 0 of the same file. Candidates are
 filename-stem hints under the platform font roots (macOS: System, its
 Supplemental folder and Library) with the symbol tail's Regular-first ranking
 and eight-candidate cap; a hint that prefixes a sibling script's stem relies on
@@ -3246,8 +3248,7 @@ that ranking and on the coverage check. A face counts only if it maps the
 codepoint with a monochrome outline. The font roots are scanned and each face
 read on first need on the worker thread, each at most once per run, failures
 included, so startup and the render path do not wait. Codepoints outside these
-script ranges, and Grantha on macOS, keep the box and settle at once without
-queueing the worker. A face absent from a system leaves its script boxed there.
+script ranges keep the box and settle at once without queueing the worker. A face absent from a system leaves its script boxed there.
 Complex-script owners use the same call, so the chosen face must map every
 scalar of the owner and is fitted by the owner em-size rule.
 

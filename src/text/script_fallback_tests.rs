@@ -43,6 +43,10 @@ const THAI: &[u8] =
 const TIBETAN: &[u8] =
     include_bytes!("../../tests/fixtures/fonts/s5b/thai-lao-tibetan/Tibetan-subset.ttf");
 const JAVANESE: &[u8] = include_bytes!("../../tests/fixtures/fonts/s5b/g6/Javanese-subset.ttf");
+/// The macOS `Tamil Sangam MN.ttc` face order: Tamil at faces 0 and 2, Grantha
+/// at faces 1 and 3.
+const TAMIL_SANGAM_COLLECTION: &[u8] =
+    include_bytes!("../../tests/fixtures/fonts/s5b/collections/TamilSangamMN-layout.ttc");
 
 /// The code points of the Windows acceptance sheet: Hebrew, Arabic, Devanagari,
 /// Tamil, Sinhala, Thai, Lao, Khmer, Myanmar, Tibetan and Javanese.
@@ -261,25 +265,65 @@ fn macos_sheet_code_points_name_their_stock_face_first() {
     }
 }
 
-/// Only Grantha has no stock macOS face, and it is never looked up.
+/// Fails before the Grantha row named a macOS face. macOS ships Grantha Sangam
+/// MN as face 1 of `Tamil Sangam MN.ttc`, not as a file of its own, so Grantha
+/// resolves from that face of the collection, Tamil keeps face 0 of the same
+/// file, and the `Tamil MN.ttc` sibling is never a candidate for either.
 #[test]
-fn only_grantha_has_no_macos_face_and_it_loads_nothing() {
+fn grantha_resolves_from_face_one_of_the_tamil_sangam_mn_collection() {
     let empty: Vec<u32> = SCRIPT_FALLBACK
         .iter()
         .filter(|group| group.macos.is_empty())
         .map(|group| group.ranges[0].0)
         .collect();
-    assert_eq!(empty, [0x11300]);
-    let (mut resolver, _dir) = resolver_on(
+    assert_eq!(empty, Vec::<u32>::new(), "every script has a macOS face");
+    assert_eq!(
+        candidate_faces('\u{11315}', Platform::Macos),
+        Some(&[("tamilsangammn", 1)][..])
+    );
+    assert_eq!(
+        candidate_faces('\u{0B95}', Platform::Macos),
+        Some(&[("tamilsangammn", 0), ("inaimathi", 0)][..]),
+        "the Tamil row is unchanged"
+    );
+    let (mut resolver, dir) = resolver_on(
         Platform::Macos,
         &[
-            ("kohinoor.ttf", DEVANAGARI),
-            ("notosanschakma.ttf", DEVANAGARI),
+            ("Tamil MN.ttc", TAMIL_SANGAM_COLLECTION),
+            ("Tamil Sangam MN.ttc", TAMIL_SANGAM_COLLECTION),
         ],
     );
-    assert!(candidate_faces('\u{11315}', Platform::Macos).is_none());
+    let inventory = FontFileInventory::new(vec![dir.0.clone()]);
+    assert_eq!(
+        hint_matches(&inventory, "tamilsangammn"),
+        [&dir.join("Tamil Sangam MN.ttc")],
+        "only the Sangam MN collection matches the hint"
+    );
+    let grantha = resolver
+        .resolve('\u{11315}')
+        .expect("Grantha Sangam MN answers");
+    assert!(font_provides_outline_glyph(&grantha, '\u{11315}'));
+    assert!(
+        !font_provides_outline_glyph(&grantha, '\u{0B95}'),
+        "face 1, not the Tamil face 0"
+    );
+    let tamil = resolver
+        .resolve('\u{0B95}')
+        .expect("Tamil Sangam MN answers");
+    assert!(font_provides_outline_glyph(&tamil, '\u{0B95}'));
+    assert!(!font_provides_outline_glyph(&tamil, '\u{11315}'));
+    assert_eq!(resolver.loaded_faces(), 2, "one face per script, one file");
+}
+
+/// Grantha is looked up only at face index 1, never in the Tamil face 0: a
+/// file under the collection name with no second face leaves Grantha boxed
+/// while Tamil still resolves from it.
+#[test]
+fn grantha_does_not_fall_back_to_the_tamil_face_of_the_collection() {
+    let (mut resolver, _dir) = resolver_on(Platform::Macos, &[("Tamil Sangam MN.ttc", TAMIL)]);
     assert!(resolver.resolve('\u{11315}').is_none());
-    assert_eq!(resolver.loaded_faces(), 0);
+    assert_eq!(resolver.loaded_faces(), 0, "a lone face has no index 1");
+    assert!(resolver.resolve('\u{0B95}').is_some());
 }
 
 /// `kohinoor` is a prefix of the Bangla, Gujarati and Telugu stems. The shortest
