@@ -280,9 +280,11 @@ impl App {
         effect: Position,
     ) {
         let logical = snapshot.cursor;
+        let (lead, span) = crate::grid::cursor_owner(snapshot);
+        let owner = (span, logical.column.saturating_sub(lead.column));
         snapshot.cursor = effect;
         self.update_cursor_motion(now, snapshot, cell);
-        self.update_cursor_streak(now, snapshot, style, cell);
+        self.update_cursor_streak_with_owner(now, snapshot, style, cell, owner);
         snapshot.cursor = logical;
     }
 

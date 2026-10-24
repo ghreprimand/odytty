@@ -1782,3 +1782,33 @@ fn adapter_summary_names_backend_and_device_class() {
     let d = diag("NVIDIA GeForce RTX 4080", "DiscreteGpu");
     assert_eq!(d.summary(), "NVIDIA GeForce RTX 4080 (Vulkan, DiscreteGpu)");
 }
+
+#[test]
+fn cursor_glow_wide_owner_uses_both_cells_only_for_blocks() {
+    let mut snapshot = glow_snapshot();
+    let column = snapshot.cursor.column;
+    snapshot.cells[snapshot.cursor.row * snapshot.dimensions.columns + column + 1]
+        .wide_continuation = true;
+    for style in [CursorStyle::Block, CursorStyle::Underline, CursorStyle::Bar] {
+        let cell = CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        };
+        let glow = glow_instance(
+            &snapshot,
+            cell,
+            style,
+            CursorRenderParams::default(),
+            1.0,
+            1.0,
+        )
+        .unwrap();
+        let expected = match style {
+            CursorStyle::Block => [27.0, 29.0, 43.0, 45.0],
+            CursorStyle::Underline => crate::grid::cursor_underline_rect(27.0, 29.0, 8.0, 16.0),
+            CursorStyle::Bar => crate::grid::cursor_bar_rect(27.0, 29.0, 8.0, 16.0),
+        };
+        assert_eq!(glow.source_rect, expected);
+    }
+}

@@ -107,22 +107,41 @@ impl GpuState {
             pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
             pass.draw(0..grid::VERTS_PER_QUAD as u32, background_count..cell_count);
         }
-        if self.color_glyph_vertex_count > 0 {
+        if self.color_glyph_content_vertex_count > 0 {
             pass.set_pipeline(&self.color_glyph_pipeline);
             pass.set_bind_group(0, &self.color_glyph_bind_group, &[]);
             pass.set_vertex_buffer(0, self.color_glyph_vertex_buf.slice(..));
             pass.draw(
                 0..grid::VERTS_PER_QUAD as u32,
-                0..self.color_glyph_vertex_count,
+                0..self.color_glyph_content_vertex_count,
             );
         }
-        if cell_count < self.vertex_count {
+        let cursor_end = self
+            .cursor_end_vertex_count
+            .min(self.vertex_count)
+            .max(cell_count);
+        if cell_count < cursor_end {
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+            pass.draw(0..grid::VERTS_PER_QUAD as u32, cell_count..cursor_end);
+        }
+        if self.color_glyph_content_vertex_count < self.color_glyph_vertex_count {
+            pass.set_pipeline(&self.color_glyph_pipeline);
+            pass.set_bind_group(0, &self.color_glyph_bind_group, &[]);
+            pass.set_vertex_buffer(0, self.color_glyph_vertex_buf.slice(..));
+            pass.draw(
+                0..grid::VERTS_PER_QUAD as u32,
+                self.color_glyph_content_vertex_count..self.color_glyph_vertex_count,
+            );
+        }
+        if cursor_end < self.vertex_count {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
             pass.draw(
                 0..grid::VERTS_PER_QUAD as u32,
-                cell_count..self.vertex_count,
+                cursor_end..self.vertex_count,
             );
         }
         self.image_layer.draw_above(pass);

@@ -146,7 +146,8 @@ impl App {
         }
         // Destination cell origin (the logical cursor cell). Defensive clamp
         // mirroring `push_cursor` / the glow.
-        let col = ctx.cursor.column.min(cols - 1) as f32;
+        let (span, offset) = self.cursor_streak.owner_geometry();
+        let col = ctx.cursor.column.min(cols - 1).saturating_sub(offset) as f32;
         let row = ctx.cursor.row.min(rows - 1) as f32;
         let pad = ctx.window_padding.as_f32();
         let x0 = pad + col * cell_w;
@@ -163,7 +164,12 @@ impl App {
         let mut color = base;
         color[3] = profile.echo_alpha * intensity;
         out.push(SolidQuad {
-            rect: [x0 + gx, y0 + gy, x0 + gx + cell_w, y0 + gy + cell_h],
+            rect: [
+                x0 + gx,
+                y0 + gy,
+                x0 + gx + cell_w * span as f32,
+                y0 + gy + cell_h,
+            ],
             color,
         });
     }
@@ -239,6 +245,32 @@ mod tests {
 
     fn pos(row: usize, column: usize) -> Position {
         Position { row, column }
+    }
+
+    #[test]
+    fn trail_wide_owner_spans_two_cells() {
+        let mut app = build_app().expect("headless app");
+        app.settings.cursor_trail = true;
+        app.settings.cursor_motion = true;
+        let mut terminal = crate::core::Terminal::new(COLS, ROWS);
+        terminal.advance("界\x1b[1;1H".as_bytes());
+        let snapshot = terminal.snapshot();
+        let now = Instant::now();
+        app.update_cursor_streak(
+            now,
+            &snapshot,
+            crate::core::CursorStyle::Block,
+            CellSize {
+                width: CELL_W,
+                height: CELL_H,
+                baseline: 0,
+            },
+        );
+        arm_midslide(&mut app);
+        let mut quads = Vec::new();
+        app.paint_cursor_trail_quads(&ctx_at(&app, snapshot.cursor, true, now), &mut quads);
+        assert_eq!(quads.len(), 1);
+        assert!((quads[0].rect[2] - quads[0].rect[0] - 2.0 * CELL_W as f32).abs() < 0.001);
     }
 
     // --- T-TRAIL-1: off-path identity ---------------------------------------

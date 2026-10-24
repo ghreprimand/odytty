@@ -4417,11 +4417,7 @@ fn spacing_mark_anchor_applies_only_to_spacing_marks_of_two_cell_owners() {
     assert_eq!(retained_scalar_dx('\u{094D}', 2.0, 10.0), 0.0);
 }
 
-/// Cursor-pass twin. Fails before the anchor rule: the block cursor redrew
-/// the visarga at the lead origin, over the consonant inside the block. The
-/// mark now anchors in the second cell, outside the one-cell block, so the
-/// block draws only the consonant and the content pass's visarga keeps its
-/// color.
+/// The full-owner block redraws the spacing mark at the second cell anchor.
 #[test]
 fn block_cursor_spacing_mark_stays_in_second_cell() {
     let (_font, atlas) = spacing_mark_atlas();
@@ -4437,11 +4433,62 @@ fn block_cursor_spacing_mark_stays_in_second_cell() {
         let mut cursor = Vec::new();
         append_cursor_vertices(&mut cursor, &snapshot, &atlas, CursorStyle::Block);
         assert_eq!(glyph_spans(&cursor, ka.uv).len(), 1, "{prefix:?}");
-        let block = [column * cell_w, (column + 1.0) * cell_w];
+        let block = [column * cell_w, (column + 2.0) * cell_w];
         assert_eq!(
-            glyph_spans(&cursor, visarga.uv),
-            Vec::<[f32; 2]>::new(),
-            "{prefix:?}: no visarga ink inside the block {block:?}"
+            glyph_spans(&cursor, visarga.uv).len(),
+            1,
+            "{prefix:?}: visarga ink inside the block {block:?}"
         );
     }
+}
+
+fn assert_block_cursor_owner_width(text: &str, columns: usize) {
+    let atlas = atlas().expect("bundled font");
+    let mut terminal = Terminal::new(6, 1);
+    terminal.advance(text.as_bytes());
+    terminal.advance(b"\x1b[1;1H");
+    let snapshot = terminal.snapshot();
+    for focused in [true, false] {
+        let mut vertices = Vec::new();
+        append_cursor_vertices_with_origin(
+            &mut vertices,
+            &snapshot,
+            &atlas,
+            CursorStyle::Block,
+            [0.0, 0.0],
+            CursorRenderParams {
+                focused,
+                ..Default::default()
+            },
+        );
+        let max_x = vertices
+            .iter()
+            .map(|v| v.end_pos[0])
+            .fold(0.0_f32, f32::max);
+        assert_eq!(
+            max_x,
+            atlas.cell.width as f32 * columns as f32,
+            "{text:?} focused={focused}"
+        );
+    }
+}
+
+#[test]
+fn block_cursor_wide_owner_cjk_fills_both_cells() {
+    assert_block_cursor_owner_width("界", 2);
+}
+
+#[test]
+fn block_cursor_wide_owner_emoji_fills_both_cells() {
+    assert_block_cursor_owner_width("😀", 2);
+}
+
+#[test]
+fn block_cursor_wide_owner_shaped_conjunct_fills_both_cells() {
+    assert_block_cursor_owner_width("\u{0915}\u{094d}\u{0937}", 2);
+}
+
+#[test]
+fn block_cursor_wide_owner_one_cell_control_is_unchanged() {
+    assert_block_cursor_owner_width("A", 1);
 }

@@ -436,7 +436,12 @@ pub(in crate::native) fn build_cursor_glow_instance_with_bidi(
     // Clamp first, then place at the clamped cell's drawn column, exactly as
     // the cursor block does.
     let row_index = snapshot.cursor.row.min(rows - 1);
-    let col_index = snapshot.cursor.column.min(cols - 1);
+    let (owner, span) = grid::cursor_owner(snapshot);
+    let col_index = if cursor_style == CursorStyle::Block {
+        owner.column
+    } else {
+        snapshot.cursor.column.min(cols - 1)
+    };
     let col = bidi.map_or(col_index, |map| map.visual_column(row_index, col_index)) as f32;
     let row = row_index as f32;
     let x0 = origin[0] + col * cell_w + params.offset[0];
@@ -444,7 +449,7 @@ pub(in crate::native) fn build_cursor_glow_instance_with_bidi(
     let source_rect = follower
         .and_then(|follower| cursor_streak_source_rect(snapshot, cell, origin, follower, bidi))
         .unwrap_or_else(|| match cursor_style {
-            CursorStyle::Block => [x0, y0, x0 + cell_w, y0 + cell_h],
+            CursorStyle::Block => [x0, y0, x0 + cell_w * span as f32, y0 + cell_h],
             CursorStyle::Underline => grid::cursor_underline_rect(x0, y0, cell_w, cell_h),
             CursorStyle::Bar => grid::cursor_bar_rect(x0, y0, cell_w, cell_h),
         });

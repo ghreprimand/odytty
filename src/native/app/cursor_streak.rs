@@ -28,6 +28,54 @@ mod follower_tests {
     use super::*;
     use crate::settings::CursorTrailStrength;
 
+    #[test]
+    fn cursor_streak_wide_owner_keeps_prior_and_target_widths() {
+        let now = Instant::now();
+        let mut state = CursorStreakState::default();
+        let mut prior = snapshot(0, 1);
+        prior.cells[2].wide_continuation = true;
+        state.update(
+            now,
+            None,
+            &prior,
+            CursorStyle::Block,
+            cell(),
+            true,
+            CursorTrailStrength::Balanced,
+        );
+        let mut current = snapshot(0, 30);
+        current.cells[31].wide_continuation = true;
+        state.update(
+            now,
+            None,
+            &current,
+            CursorStyle::Block,
+            cell(),
+            true,
+            CursorTrailStrength::Balanced,
+        );
+        let CursorStreakPhase::Active(follower) = state.phase else {
+            panic!("large jump starts follower")
+        };
+        assert_eq!(follower.target_rect, [240.0, 0.0, 256.0, 16.0]);
+        assert_eq!(state.owner_geometry(), (2, 0));
+        // Same-column overwrite can change width during a running follower.
+        current.cells[31].wide_continuation = false;
+        state.update(
+            now + CURSOR_STREAK_FRAME,
+            None,
+            &current,
+            CursorStyle::Block,
+            cell(),
+            true,
+            CursorTrailStrength::Balanced,
+        );
+        let CursorStreakPhase::Active(follower) = state.phase else {
+            panic!("follower remains active")
+        };
+        assert_eq!(follower.target_rect, [240.0, 0.0, 248.0, 16.0]);
+    }
+
     fn dimensions() -> Dimensions {
         Dimensions::new(80, 24)
     }
@@ -376,6 +424,7 @@ mod follower_tests {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PresentedCursor {
+    owner: (usize, usize),
     cursor: Position,
     style: CursorStyle,
     dimensions: Dimensions,
@@ -450,13 +499,23 @@ impl CursorStreakState {
         from.column.abs_diff(to.column) + from.row.abs_diff(to.row)
     }
 
-    fn cursor_rect(position: Position, style: CursorStyle, cell: CellSize) -> [f32; 4] {
-        let x0 = position.column as f32 * cell.width as f32;
+    fn cursor_rect(
+        position: Position,
+        style: CursorStyle,
+        cell: CellSize,
+        owner: (usize, usize),
+    ) -> [f32; 4] {
+        let column = if style == CursorStyle::Block {
+            position.column.saturating_sub(owner.1)
+        } else {
+            position.column
+        };
+        let x0 = column as f32 * cell.width as f32;
         let y0 = position.row as f32 * cell.height as f32;
         let cell_w = cell.width as f32;
         let cell_h = cell.height as f32;
         match style {
-            CursorStyle::Block => [x0, y0, x0 + cell_w, y0 + cell_h],
+            CursorStyle::Block => [x0, y0, x0 + cell_w * owner.0 as f32, y0 + cell_h],
             CursorStyle::Underline => crate::grid::cursor_underline_rect(x0, y0, cell_w, cell_h),
             CursorStyle::Bar => crate::grid::cursor_bar_rect(x0, y0, cell_w, cell_h),
         }
@@ -552,8 +611,8 @@ impl CursorStreakState {
     ) {
         let mut follower = CursorFollower {
             destination: current,
-            presented_rect: Self::cursor_rect(prior.cursor, style, cell),
-            target_rect: Self::cursor_rect(current, style, cell),
+            presented_rect: Self::cursor_rect(prior.cursor, style, cell, prior.owner),
+            target_rect: Self::cursor_rect(current, style, cell, self.owner_geometry()),
             style,
             dimensions,
             cell,
@@ -570,6 +629,7 @@ impl CursorStreakState {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[cfg(test)]
     pub(in crate::native) fn update(
         &mut self,
         now: Instant,
@@ -580,8 +640,34 @@ impl CursorStreakState {
         enabled: bool,
         strength: crate::settings::CursorTrailStrength,
     ) {
+        let (lead, span) = crate::grid::cursor_owner(snapshot);
+        let owner = (span, snapshot.cursor.column.saturating_sub(lead.column));
+        self.update_with_owner(
+            now, seed_prior, snapshot, style, cell, enabled, strength, owner,
+        );
+    }
+
+    pub(in crate::native) fn owner_geometry(&self) -> (usize, usize) {
+        self.presented
+            .filter(|p| p.style == CursorStyle::Block)
+            .map_or((1, 0), |p| p.owner)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::native) fn update_with_owner(
+        &mut self,
+        now: Instant,
+        seed_prior: Option<(Position, Dimensions, CursorStyle)>,
+        snapshot: &Snapshot,
+        style: CursorStyle,
+        cell: CellSize,
+        enabled: bool,
+        strength: crate::settings::CursorTrailStrength,
+        owner: (usize, usize),
+    ) {
         let prior = self.presented.or_else(|| {
             seed_prior.map(|(cursor, dimensions, style)| PresentedCursor {
+                owner: (1, 0),
                 cursor,
                 style,
                 dimensions,
@@ -589,6 +675,7 @@ impl CursorStreakState {
             })
         });
         self.presented = Some(PresentedCursor {
+            owner,
             cursor: snapshot.cursor,
             style,
             dimensions: snapshot.dimensions,
@@ -610,7 +697,7 @@ impl CursorStreakState {
         }
 
         let current = snapshot.cursor;
-        let moved = current != prior.cursor;
+        let moved = current != prior.cursor || owner != prior.owner;
         let phase = self.phase;
         match phase {
             CursorStreakPhase::Idle => {
@@ -643,7 +730,8 @@ impl CursorStreakState {
                 follower.strength = strength;
                 if moved {
                     follower.destination = current;
-                    follower.target_rect = Self::cursor_rect(current, style, cell);
+                    follower.target_rect =
+                        Self::cursor_rect(current, style, cell, self.owner_geometry());
                     follower.retargeted_at = now;
                 } else if current != follower.destination {
                     self.clear();
@@ -690,12 +778,31 @@ impl CursorStreakState {
 
 impl App {
     #[allow(clippy::too_many_arguments)]
+    #[cfg(test)]
     pub(in crate::native) fn update_cursor_streak(
         &mut self,
         now: Instant,
         snapshot: &Snapshot,
         style: CursorStyle,
         cell: CellSize,
+    ) {
+        let (lead, span) = crate::grid::cursor_owner(snapshot);
+        self.update_cursor_streak_with_owner(
+            now,
+            snapshot,
+            style,
+            cell,
+            (span, snapshot.cursor.column.saturating_sub(lead.column)),
+        );
+    }
+
+    pub(super) fn update_cursor_streak_with_owner(
+        &mut self,
+        now: Instant,
+        snapshot: &Snapshot,
+        style: CursorStyle,
+        cell: CellSize,
+        owner: (usize, usize),
     ) {
         let enabled = self.settings.cursor_motion
             && self.settings.cursor_trail
@@ -704,7 +811,7 @@ impl App {
             && self.viewport.offset() == 0;
         let strength = self.settings.cursor_trail_strength;
         self.cursor_streak
-            .update(now, None, snapshot, style, cell, enabled, strength);
+            .update_with_owner(now, None, snapshot, style, cell, enabled, strength, owner);
     }
 
     pub(super) fn cursor_streak_deadline(&self) -> Option<Instant> {

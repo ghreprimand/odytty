@@ -56,7 +56,7 @@ fn ink_mask(frame: &Frame, columns: std::ops::Range<usize>, fill: [f32; 3]) -> V
 /// drew the lead cell's own consonant and stacked its retained scalars at
 /// the lead origin. It now redraws the owner's shaped glyphs clipped to the
 /// block, so the ink inside the block has the conjunct's exact shape, and
-/// the owner's second cell keeps its content-pass pixels.
+/// both cells show the complete inverted owner.
 #[test]
 fn block_cursor_draws_shaped_owner_glyphs() {
     let _guard = crate::test_lock::render_globals_lock();
@@ -76,8 +76,8 @@ fn block_cursor_draws_shaped_owner_glyphs() {
     let shaped = with_cursor(&snapshot, &atlas, &runs, &runs);
     let per_cell = with_cursor(&snapshot, &atlas, &runs, &[]);
     assert_eq!(
-        shaped.columns(1..4),
-        plain.columns(1..4),
+        shaped.columns(2..4),
+        plain.columns(2..4),
         "ink outside the block keeps its content-pass pixels"
     );
     let background = plain.px[plain.px.len() - 1];
@@ -86,8 +86,8 @@ fn block_cursor_draws_shaped_owner_glyphs() {
         blank.px[0]
     };
     assert_ne!(cursor_fill, background, "the block is visible");
-    let content_ink = ink_mask(&plain, 0..1, background);
-    let cursor_ink = ink_mask(&shaped, 0..1, cursor_fill);
+    let content_ink = ink_mask(&plain, 0..2, background);
+    let cursor_ink = ink_mask(&shaped, 0..2, cursor_fill);
     assert!(
         content_ink.contains(&true),
         "the conjunct inks the lead cell"
@@ -97,7 +97,7 @@ fn block_cursor_draws_shaped_owner_glyphs() {
         "the block redraws the conjunct's shape"
     );
     assert_ne!(
-        ink_mask(&per_cell, 0..1, cursor_fill),
+        ink_mask(&per_cell, 0..2, cursor_fill),
         content_ink,
         "the per-cell redraw draws a different shape"
     );
@@ -234,16 +234,16 @@ fn block_cursor_draws_shaped_owner_glyphs_on_a_reordered_row() {
         );
         composite(&blank, &atlas, &verts).px[0]
     };
-    let content_ink = ink_mask(&plain, lead..lead + 1, background);
+    let content_ink = ink_mask(&plain, lead..lead + 2, background);
     assert!(content_ink.contains(&true), "the conjunct inks its lead");
     assert_eq!(
-        ink_mask(&shaped, lead..lead + 1, cursor_fill),
+        ink_mask(&shaped, lead..lead + 2, cursor_fill),
         content_ink,
         "the block redraws the conjunct's shape at its visual column"
     );
     assert_eq!(
-        shaped.columns(lead + 1..20),
-        plain.columns(lead + 1..20),
+        shaped.columns(lead + 2..20),
+        plain.columns(lead + 2..20),
         "ink right of the block keeps its content-pass pixels"
     );
     assert_eq!(

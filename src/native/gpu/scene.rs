@@ -572,6 +572,7 @@ impl GpuState {
         // earlier panes' emoji and desync the `color_start` offset (a slice
         // `[color_start..]` on the now-empty buffer panicked in multi-pane render).
         let mut pane_color_buf: Vec<ColorGlyphVertex> = Vec::new();
+        let mut cursor_color_buf = Vec::new();
         let mut cursor_glow_instance = None;
         let mut cursor_streak_instance = None;
         let mut retained_cursor_overlays = Vec::new();
@@ -670,6 +671,21 @@ impl GpuState {
                 grid::push_solid_quad(&mut tail, overlay);
             }
             if pane.focused {
+                grid::build_cursor_color_glyph_vertices(
+                    &mut cursor_color_buf,
+                    pane.snapshot,
+                    &self.color_glyph_atlas,
+                    runs,
+                    pane.cursor_style,
+                    pane.origin,
+                    cursor_params,
+                    pane.bidi,
+                );
+                grid::clip_quads_vertical(&mut cursor_color_buf, pane.clip);
+                if let Some(clip) = pane.content_clip {
+                    grid::clip_quads_to_rect(&mut cursor_color_buf, clip);
+                }
+                grid::subtract_rects_from_quads(&mut cursor_color_buf, pane.occluders);
                 cursor_glow_instance = pane.cursor_glow.and_then(|request| {
                     build_cursor_glow_instance_with_bidi(
                         pane.snapshot,
@@ -802,6 +818,7 @@ impl GpuState {
         // the panel draws opaquely over every pane in the final
         // `[cell_vertex_count..vertex_count]` segment. The panel snapshot fills
         // its whole rect (no transparent cells), so this is a clean opaque box.
+        self.cursor_end_vertex_count = self.vertices.len() as u32;
         self.push_overlay_tops(overlay_top);
         // The revealed rail overlay strip is the very last thing drawn -
         // over the panes, dividers, per-pane overlays, and any window overlay -
@@ -811,6 +828,9 @@ impl GpuState {
         }
         self.vertex_count = self.vertices.len() as u32;
         self.background_vertex_count = self.background_vertex_count.min(self.vertex_count);
+        self.color_glyph_content_vertex_count = self.color_glyph_vertices.len() as u32;
+        self.color_glyph_vertices
+            .extend_from_slice(&cursor_color_buf);
         self.color_glyph_vertex_count = self.color_glyph_vertices.len() as u32;
 
         // Upload the cell/overlay buffer.
@@ -1160,10 +1180,12 @@ impl GpuState {
             cursor_streak,
         );
         self.rebuild_cursor_streak(snapshot, cursor_origin, cursor_streak);
+        self.rebuild_cursor_color(snapshot, cursor_style, cursor_origin, cursor_params);
         self.retained_cursor_overlays.clear();
         self.retained_cursor_overlays.extend_from_slice(overlays);
         self.retained_cursor_glow = cursor_glow;
         self.retained_cursor_streak = cursor_streak;
+        self.cursor_end_vertex_count = self.vertices.len() as u32;
         self.push_overlay_tops(overlay_top);
         // The revealed rail overlay strip draws topmost - after the
         // cursor and every overlay - so the floating band sits over the live
@@ -1350,21 +1372,50 @@ impl GpuState {
             // New-output fade: emoji on a fading row ramp in with mono ink.
             row_fade_view(row_fade_spec.as_ref()),
         );
-        self.color_glyph_vertex_count = self.color_glyph_vertices.len() as u32;
+        self.color_glyph_content_vertex_count = self.color_glyph_vertices.len() as u32;
+        self.upload_color_glyphs(0);
+    }
 
+    fn rebuild_cursor_color(
+        &mut self,
+        snapshot: &Snapshot,
+        style: CursorStyle,
+        origin: [f32; 2],
+        params: CursorRenderParams,
+    ) {
+        self.color_glyph_vertices
+            .truncate(self.color_glyph_content_vertex_count as usize);
+        let mut cursor = Vec::new();
+        grid::build_cursor_color_glyph_vertices(
+            &mut cursor,
+            snapshot,
+            &self.color_glyph_atlas,
+            &self.color_glyph_runs,
+            style,
+            origin,
+            params,
+            self.bidi_display.as_ref(),
+        );
+        self.color_glyph_vertices.extend_from_slice(&cursor);
+        self.upload_color_glyphs(self.color_glyph_content_vertex_count as usize);
+    }
+
+    fn upload_color_glyphs(&mut self, mut first: usize) {
+        self.color_glyph_vertex_count = self.color_glyph_vertices.len() as u32;
         let needed = std::mem::size_of_val(self.color_glyph_vertices.as_slice()) as u64;
         if needed > self.color_glyph_vertex_buf_capacity_bytes {
+            first = 0;
             self.color_glyph_vertex_buf_capacity_bytes = needed.next_power_of_two();
             self.color_glyph_vertex_buf = create_color_glyph_vertex_buffer(
                 &self.device,
                 self.color_glyph_vertex_buf_capacity_bytes,
             );
         }
-        if !self.color_glyph_vertices.is_empty() {
+        if first < self.color_glyph_vertices.len() {
             self.queue.write_buffer(
                 &self.color_glyph_vertex_buf,
-                0,
-                bytemuck::cast_slice(&self.color_glyph_vertices),
+                (first * std::mem::size_of::<ColorGlyphVertex>()) as u64,
+                bytemuck::cast_slice(&self.color_glyph_vertices[first..]),
             );
         }
     }
@@ -1465,6 +1516,8 @@ impl GpuState {
         );
         self.rebuild_cursor_streak(snapshot, origin, cursor_streak);
 
+        self.rebuild_cursor_color(snapshot, cursor_style, origin, params);
+        self.cursor_end_vertex_count = self.cell_vertex_count + self.cursor_vertices.len() as u32;
         self.cursor_vertices
             .extend_from_slice(&self.retained_overlay_top);
         let cell_vertices = self.cell_vertex_count as usize;

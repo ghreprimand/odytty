@@ -3166,7 +3166,10 @@ italic; fallback faces draw without synthesis, as on the scalar path. An owner
 without a covering face, with a pending runtime answer, with `.notdef` in its
 shaped result, or whose slot does not fit in a full atlas keeps the per-cell
 path for that frame. Backgrounds, decorations, selection, search highlights,
-the cursor block, copy, search, and widths stay cell-owned. A Block cursor on
+copy, search, and widths stay cell-owned. A Block cursor and its outline and
+effects cover the complete one- or two-cell owner; a borrowed blank does not
+enlarge that owner. Color emoji redraw above the block and below window
+overlays. Bars and underlines keep one-cell geometry. A Block cursor on
 a shaped owner or on a letter of a joining run redraws that run's shaped
 glyphs, clipped to the block, in the cursor's contrast color; under a Latin
 ligature it redraws the cell's own glyph. On the per-cell path, a spacing mark

@@ -1067,6 +1067,8 @@ not a stretch goal.
   - [x] Render the three cursor shapes through the existing quad path; blink is
         focus-aware and busy-redraw-free (solid with no scheduled wake when the
         style does not blink or the window is unfocused).
+- [x] Block cursors, hollow outlines and effects cover whole wide owners;
+      shaped glyphs and color emoji redraw inside the full block.
 - [x] Cursor presentation effects (`cursor_easing`, `cursor_trail`,
       `cursor_motion`, and `cursor_glow` on by default).
   - [x] Cursor easing (`cursor_easing`, on by default): opacity fades across each

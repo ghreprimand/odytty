@@ -1188,3 +1188,59 @@ fn sixel_covered_row_keeps_logical_text_order() {
         "the uncovered row still draws in display order"
     );
 }
+
+#[test]
+fn block_cursor_wide_owner_color_redraw_tracks_bidi_and_visibility() {
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    };
+    let mut atlas = ColorGlyphAtlas::new(cell);
+    let key = ColorGlyphKey::new(1, ColorGlyphId::Glyph(8), 16.0, 1.0, 2);
+    atlas
+        .insert_premultiplied(key, 2, &vec![255; 16 * 16 * 4])
+        .unwrap();
+    let mut terminal = terminal("\u{05D0}😀\u{05D1}x", 8, 1);
+    terminal.advance(b"\x1b[?25h\x1b[1;2H");
+    let snapshot = terminal.snapshot();
+    let map = display_map(&terminal);
+    let runs = [ColorGlyphRun::cluster(0, 1, key, 2)];
+    let mut out = Vec::new();
+    build_cursor_color_glyph_vertices(
+        &mut out,
+        &snapshot,
+        &atlas,
+        &runs,
+        CursorStyle::Block,
+        [3.0, 5.0],
+        CursorRenderParams::default(),
+        Some(&map),
+    );
+    assert_eq!(out.len(), 1);
+    let x = 3.0 + map.visual_column(0, 1) as f32 * 8.0;
+    assert_eq!(out[0].pos, [x, 5.0]);
+    assert_eq!(out[0].end_pos, [x + 16.0, 21.0]);
+    for params in [
+        CursorRenderParams {
+            focused: false,
+            ..Default::default()
+        },
+        CursorRenderParams {
+            follower_active: true,
+            ..Default::default()
+        },
+    ] {
+        build_cursor_color_glyph_vertices(
+            &mut out,
+            &snapshot,
+            &atlas,
+            &runs,
+            CursorStyle::Block,
+            [0.0, 0.0],
+            params,
+            Some(&map),
+        );
+        assert!(out.is_empty());
+    }
+}
