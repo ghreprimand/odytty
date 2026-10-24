@@ -49,12 +49,13 @@ impl GlyphAtlas {
     /// default) restores the pre-feature missing-glyph path exactly, so a build
     /// with no fallback is byte-identical to the minimal renderer.
     ///
-    /// Like [`Self::set_synthetic_styles`] / [`Self::set_geometric_boxdraw`],
-    /// this only governs glyphs rasterized after it is set; the native layer
-    /// installs it on a freshly built atlas and reinstalls it after a rebuild,
-    /// so the dynamic region never mixes resolved and unresolved fallbacks.
+    /// Unlike [`Self::set_synthetic_styles`] / [`Self::set_geometric_boxdraw`],
+    /// installing the chain also fills missing prebuilt ASCII cells. Dynamic
+    /// glyphs use it when they are first ensured. The native layer installs the
+    /// chain on a freshly built atlas and reinstalls it after a rebuild.
     pub fn set_fallback_fonts(&mut self, fonts: Vec<Arc<FontHandle>>) {
         self.fallback_chain = fonts;
+        self.refresh_ascii_fallbacks();
     }
 
     /// Install the resolved SYMMAP override faces (`(start, end, face)` ranges,

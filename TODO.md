@@ -791,8 +791,9 @@ not a stretch goal.
   - [x] Atlas extracted to `src/atlas/`; missing-glyph fallback box, dynamic
         glyph cache with page-append growth (no eviction), and full-rebuild
         size invalidation with a `revision()`/`take_dirty()` re-upload signal.
-  - [x] Native render loop calls `ensure()` for non-ASCII cells, re-uploads the
-        atlas texture on `take_dirty()`, and rebuilds vertices against the
+  - [x] Native render loop calls `ensure()` for visible cells, including ASCII
+        fallback cells. It re-uploads the atlas texture on `take_dirty()` and
+        rebuilds vertices against the
         current atlas so real resident glyphs render instead of fallback boxes.
   - [x] Symbol/Nerd-font fallback: `symbol_fallback` defaults on, backed
         by a bundled `SymbolsNerdFontMono` face with explicit > bundled > host

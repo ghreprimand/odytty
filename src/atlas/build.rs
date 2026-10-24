@@ -94,10 +94,14 @@ impl GlyphAtlas {
         draw_fallback_box(&mut data, width, subpixel, fox + border, foy + border, cell);
 
         // Slots 1..=95: printable ASCII at the build pixel size.
+        let mut ascii_missing = HashSet::new();
         for code in FIRST_CHAR..=LAST_CHAR {
             let ch = char::from_u32(code).unwrap_or(' ');
             let slot = code - FIRST_CHAR + 1;
             let origin = slot_offset(slot, cols, cell);
+            if font.glyph_id(ch).0 == 0 {
+                ascii_missing.insert(ch);
+            }
             if let Some(ink) = rasterize_glyph(
                 font,
                 Pen { px, baseline },
@@ -127,6 +131,8 @@ impl GlyphAtlas {
             slot_span,
             cols,
             capacity_rows,
+            ascii_missing,
+            ascii_fallbacks: HashSet::new(),
             next_slot: base_slots,
             max_slots: MAX_ATLAS_SLOTS,
             max_texture_dimension: max_dimension,
@@ -148,6 +154,95 @@ impl GlyphAtlas {
         };
         atlas.set_texture_dimension_limit(max_dimension);
         atlas
+    }
+
+    /// Rasterize any missing printable ASCII cells from the installed fallback
+    /// chain. Primary-face glyphs have already been rasterized by the original
+    /// build loop and are never touched here.
+    pub(super) fn refresh_ascii_fallbacks(&mut self) {
+        for ch in self.ascii_missing.iter().copied().collect::<Vec<_>>() {
+            let had_fallback = self.ascii_fallbacks.remove(&ch);
+            self.clear_ascii_slot(ch);
+            if had_fallback {
+                let slot = ch as u32 - FIRST_CHAR + 1;
+                self.slot_ink[slot as usize] = GlyphInk::cell(self.cell);
+                self.revision += 1;
+                self.dirty = true;
+            }
+            let face = self
+                .fallback_chain
+                .iter()
+                .find(|face| font_has_glyph(face, ch))
+                .cloned();
+            if let Some(face) = face {
+                self.rasterize_ascii_fallback(ch, &face);
+            }
+        }
+    }
+
+    /// Attempt to fill one missing base ASCII cell during glyph ensuring. A
+    /// pending runtime lookup remains eligible for retry on the next frame.
+    pub(super) fn ensure_ascii_fallback(&mut self, ch: char) {
+        if !self.ascii_missing.contains(&ch) || self.ascii_fallbacks.contains(&ch) {
+            return;
+        }
+        match self.symbol_fallback(ch) {
+            SymbolFallback::Settled(Some(face)) => self.rasterize_ascii_fallback(ch, &face),
+            SymbolFallback::Settled(None) => {
+                self.ascii_fallbacks.insert(ch);
+            }
+            SymbolFallback::Pending => {}
+        }
+    }
+
+    fn rasterize_ascii_fallback(&mut self, ch: char, face: &FontHandle) {
+        let code = ch as u32;
+        let slot = code - FIRST_CHAR + 1;
+        let origin = slot_offset(slot, self.cols, self.cell);
+        self.clear_ascii_slot(ch);
+        let pad = (SYMBOL_CELL_INSET * self.cell.width.min(self.cell.height) as f32).round();
+        if let Some(ink) = rasterize_glyph(
+            face,
+            Pen {
+                px: self.px,
+                baseline: self.cell.baseline as f32,
+            },
+            ch,
+            0.0,
+            &mut self.data,
+            self.width,
+            self.subpixel,
+            SlotRegion {
+                origin,
+                cell: self.cell,
+                outer_w: slot_w(self.cell),
+            },
+            SynthTransform::none(),
+            Some(CellFit {
+                box_w: self.cell.width as f32,
+                box_h: self.cell.height as f32,
+                pad,
+            }),
+        ) {
+            self.slot_ink[slot as usize] = ink;
+        }
+        self.ascii_fallbacks.insert(ch);
+        self.revision += 1;
+        self.dirty = true;
+    }
+
+    fn clear_ascii_slot(&mut self, ch: char) {
+        let slot = ch as u32 - FIRST_CHAR + 1;
+        let origin = slot_offset(slot, self.cols, self.cell);
+        let clear_w = slot_w(self.cell) as usize;
+        let clear_h = slot_h(self.cell) as usize;
+        let stride = self.width as usize * self.subpixel.bytes_per_pixel() as usize;
+        let bpp = self.subpixel.bytes_per_pixel() as usize;
+        for y in origin.1 as usize..origin.1 as usize + clear_h {
+            let start = y * stride + origin.0 as usize * bpp;
+            self.data[start..start + clear_w * bpp].fill(0);
+        }
+        self.slot_ink[slot as usize] = GlyphInk::cell(self.cell);
     }
 }
 

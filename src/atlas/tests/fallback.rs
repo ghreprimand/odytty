@@ -42,6 +42,70 @@ fn marker_inked_font() -> FontHandle {
     .expect("parse inked marker fixture")
 }
 
+#[test]
+fn ascii_missing_from_primary_rasterizes_from_static_fallback() {
+    let primary = FontHandle::try_from_vec(
+        include_bytes!("../../../tests/fixtures/fonts/s5b/brahmic-a/Balinese-subset.ttf").to_vec(),
+    )
+    .expect("Balinese subset fixture");
+    let fallback = Arc::new(test_font());
+    assert_eq!(primary.glyph_id('a').0, 0, "primary fixture omits ASCII a");
+    assert!(
+        font_has_glyph(&fallback, 'a'),
+        "fallback fixture covers ASCII a"
+    );
+    assert!(
+        font_has_glyph(&fallback, '\u{00E9}'),
+        "fallback fixture covers Latin-1 e-acute"
+    );
+
+    let mut atlas = GlyphAtlas::build(&primary, 24.0);
+    let a_uv = atlas.uv_rect('a').expect("ASCII atlas cell");
+    assert_eq!(cell_ink(&atlas, a_uv), 0, "primary has no ASCII a ink");
+    atlas.set_fallback_fonts(vec![fallback]);
+
+    assert!(
+        cell_ink(&atlas, a_uv) > 0,
+        "ASCII a must rasterize visibly from the fallback face"
+    );
+
+    let latin_uv = atlas
+        .ensure(&primary, '\u{00E9}')
+        .expect("Latin-1 glyph atlas cell");
+    assert_ne!(latin_uv, atlas.slot_uv(FALLBACK_SLOT));
+    assert!(
+        cell_ink(&atlas, latin_uv) > 0,
+        "Latin-1 e-acute must rasterize visibly from the fallback face"
+    );
+}
+
+#[test]
+fn fallback_chain_keeps_covered_primary_ascii_byte_identical() {
+    let primary = test_font();
+    let fallback = Arc::new(
+        FontHandle::try_from_vec(
+            include_bytes!("../../../tests/fixtures/fonts/bidi-mixed.ttf").to_vec(),
+        )
+        .expect("Latin fallback fixture"),
+    );
+    for code in FIRST_CHAR..=LAST_CHAR {
+        let ch = char::from_u32(code).expect("printable ASCII codepoint");
+        assert!(
+            font_has_glyph(&primary, ch),
+            "primary fixture covers {ch:?}"
+        );
+    }
+
+    let mut atlas = GlyphAtlas::build(&primary, 24.0);
+    let primary_bytes = atlas.data.clone();
+    atlas.set_fallback_fonts(vec![fallback]);
+    for code in FIRST_CHAR..=LAST_CHAR {
+        let ch = char::from_u32(code).expect("printable ASCII codepoint");
+        atlas.ensure(&primary, ch).expect("prebuilt ASCII cell");
+    }
+    assert_eq!(atlas.data, primary_bytes);
+}
+
 /// A symbol face carrying U+E0A0 as a wide block, standing in for an installed
 /// symbol or Nerd font. No primary fixture in this module maps it.
 pub(super) fn symbol_block_font() -> FontHandle {
@@ -384,6 +448,37 @@ mod runtime_resolver {
     fn clear_counting_resolver(_ch: char) -> RuntimeSymbol {
         CLEAR_CALLS.fetch_add(1, Ordering::SeqCst);
         RuntimeSymbol::Ready(None)
+    }
+
+    static ASCII_CALLS: AtomicUsize = AtomicUsize::new(0);
+    fn ascii_resolver(_ch: char) -> RuntimeSymbol {
+        ASCII_CALLS.fetch_add(1, Ordering::SeqCst);
+        RuntimeSymbol::Ready(Some(Arc::new(test_font())))
+    }
+
+    #[test]
+    fn missing_ascii_uses_runtime_fallback_only_when_ensured() {
+        let primary = FontHandle::try_from_vec(
+            include_bytes!("../../../tests/fixtures/fonts/s5b/brahmic-a/Balinese-subset.ttf")
+                .to_vec(),
+        )
+        .expect("Balinese subset fixture");
+        assert_eq!(primary.glyph_id('a').0, 0, "primary fixture omits ASCII a");
+        let mut atlas = GlyphAtlas::build(&primary, 24.0);
+        atlas.set_fallback_fonts(Vec::new());
+        ASCII_CALLS.store(0, Ordering::SeqCst);
+        atlas.set_runtime_symbol_resolver(Some(ascii_resolver));
+        assert_eq!(ASCII_CALLS.load(Ordering::SeqCst), 0, "setup stays lazy");
+
+        let uv = atlas.ensure(&primary, 'a').expect("ASCII atlas cell");
+        assert!(
+            cell_ink(&atlas, uv) > 0,
+            "runtime fallback must draw ASCII a"
+        );
+        atlas
+            .ensure(&primary, 'a')
+            .expect("cached ASCII atlas cell");
+        assert_eq!(ASCII_CALLS.load(Ordering::SeqCst), 1, "answer is cached");
     }
 
     /// The final answer of one `symbol_fallback` query. The resolver tests

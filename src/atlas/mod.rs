@@ -40,6 +40,8 @@
 //!
 //! Slot 0 is a synthesized **missing-glyph fallback** (a hollow box). Slots
 //! `1..=95` hold printable ASCII (`0x20..=0x7E`), rasterized at build time.
+//! Missing primary-face entries can be replaced from the fallback chain without
+//! changing their fixed UV positions.
 //! Slots beyond that are a **dynamic region**: non-ASCII glyphs are rasterized
 //! on demand by [`GlyphAtlas::ensure`], appending pages of rows when the region
 //! fills (no eviction - existing slots never move, so resident UV rects stay
@@ -50,16 +52,16 @@
 //! ## Live vs. dynamic paths
 //!
 //! Printable ASCII is prebuilt at atlas construction time. Before geometry
-//! construction each frame, the native renderer ensures every visible styled
-//! and non-ASCII glyph and combining mark is resident, using the cell's
-//! effective font style. [`GlyphAtlas::uv_rect`] is the **immutable** lookup:
+//! construction each frame, the native renderer ensures each visible glyph and
+//! combining mark is resident, using the cell's effective font style.
+//! [`GlyphAtlas::uv_rect`] is the **immutable** lookup:
 //! it returns the resident glyph's real rect, or the fallback box for a
 //! printable glyph that is unavailable or not yet resident. The **mutable**
 //! [`GlyphAtlas::ensure`] rasterizes a glyph on demand, growing the atlas and
 //! flagging [`GlyphAtlas::take_dirty`] so the native layer re-uploads the
 //! texture.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -470,6 +472,13 @@ pub struct GlyphAtlas {
     /// pages). `height == capacity_rows * slot_h(cell)` (the cell plus its slot
     /// borders).
     capacity_rows: u32,
+    /// Printable ASCII codepoints whose primary-face cmap entry was missing at
+    /// build time. Kept empty for ordinary Latin faces so their prebuilt path
+    /// remains unchanged; missing entries can be filled from the configured
+    /// fallback chain without changing the fixed ASCII UV layout.
+    ascii_missing: HashSet<char>,
+    /// Missing ASCII entries already rasterized from a fallback face.
+    ascii_fallbacks: HashSet<char>,
     /// Next free slot for dynamic insertion; also the current slot count.
     next_slot: u32,
     /// Slot ceiling imposed by bitmap bytes, texture height and slot count.

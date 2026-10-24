@@ -453,6 +453,12 @@ output-limit failure disables runtime fallback for that session and wakes the
 windows, so later requests settle without a face. Windows and macOS run the
 same worker for script faces, described next.
 
+Printable ASCII keeps its prebuilt cell positions. A primary face that maps an
+ASCII glyph keeps its original raster; a missing glyph uses the first covering
+face in the configured fallback chain. If the static chain misses, runtime
+fallback is requested when that ASCII cell is ensured for drawing. Latin-1
+glyphs continue through the dynamic scalar fallback path.
+
 Windows and macOS script fallback. After the static chain misses (bundled
 faces, host Nerd face, and the platform symbol tail: Segoe UI Symbol, Segoe
 MDL2 Assets and Cambria Math on Windows; Menlo, Apple Symbols and STIX Two Math

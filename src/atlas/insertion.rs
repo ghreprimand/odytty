@@ -7,7 +7,9 @@ impl GlyphAtlas {
     /// Resolve `ch` to a UV rect, rasterizing a real glyph into the dynamic
     /// region on first use (the **mutable** counterpart to [`Self::uv_rect`]).
     ///
-    /// - Printable ASCII and already-resident codepoints resolve immediately.
+    /// - Printable ASCII resolves to its fixed slot; a missing primary glyph
+    ///   first checks the configured fallback path. Already-resident dynamic
+    ///   codepoints also resolve immediately.
     /// - A non-ASCII codepoint the font provides is rasterized into the next
     ///   free slot, growing the atlas by a page of rows if the region is full;
     ///   [`Self::take_dirty`] then reports the texture needs re-uploading.
@@ -35,6 +37,9 @@ impl GlyphAtlas {
     ) -> Option<[f32; 4]> {
         let code = ch as u32;
         if style == FontStyle::Regular && (FIRST_CHAR..=LAST_CHAR).contains(&code) {
+            if !self.ascii_missing.is_empty() {
+                self.ensure_ascii_fallback(ch);
+            }
             return Some(self.slot_uv(code - FIRST_CHAR + 1));
         }
         if let Some(&slot) = self.dynamic.get(&(style, ch)) {
