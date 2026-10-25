@@ -28,8 +28,9 @@ properties. ZWJ preserves virama/stacker links; Chakma U+11134 keeps prior
 separate owners with ZWJ. A Tai Tham spacing sign before SAKOT stays in the
 owner. ZWNJ ends consonant joining. Gurmukhi,
 Tamil, Sinhala, Chakma, and Grantha width units can cross extended-grapheme boundaries.
-Exact VS16 keycaps omit an unmapped selector only from color shaping so an unmapped
-selector cannot block a present base-plus-enclosing-keycap ligature. Logical
+Exact VS16 keycaps shape without their selector unless the color font's
+ligature consumes it. A font that maps VS16 but ligates only base and keycap,
+such as Apple Color Emoji, can therefore draw the keycap in color. Logical
 source ranges, width and cache identity retain the selector. Capability probes
 and live rendering share this seam; flag, modifier and ZWJ inputs are unchanged.
 
