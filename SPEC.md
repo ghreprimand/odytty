@@ -2868,6 +2868,13 @@ leads, the bundled faces guarantee the out-of-the-box path never depends on
 host-installed Nerd fonts, and a host-discovered face can extend coverage at the
 tail.
 
+Ordinary spacing glyphs drawn from fallback faces are fitted and centered
+inside their one- or two-cell span, including missing ASCII, styled text and
+Latin-1. Narrow primary-font cells do not let fallback letters or digits
+overlap adjacent cells. Cell metrics, logical text and cursor advances stay
+unchanged. Symbol/SYMMAP icons and combining marks keep their overflow
+placement; covered primary glyphs keep their original rasterization.
+
 Every host-discovered face in this chain, the color-emoji face, and a
 configured `font_weight` face is chosen from a ranked candidate list rather
 than a single best match: a candidate that fails to load (unreadable, over

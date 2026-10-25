@@ -222,6 +222,7 @@ impl GlyphAtlas {
                 box_w: self.cell.width as f32,
                 box_h: self.cell.height as f32,
                 pad,
+                allow_overflow: false,
             }),
         ) {
             self.slot_ink[slot as usize] = ink;

@@ -53,6 +53,8 @@ impl GlyphAtlas {
         // empty-map state) means no override and the scan is skipped, so the
         // path below is byte-identical to the no-SYMMAP renderer.
         let override_arc = self.symbol_map_font_for(ch);
+        let allow_overflow =
+            override_arc.is_some() || fallback::is_symbol_codepoint(ch) || is_combining_mark(ch);
         // Geometric box-drawing: when enabled, recognized line/block/
         // Powerline codepoints are rasterized from cell-aligned geometry instead
         // of the font glyph - and render even if the font lacks the codepoint.
@@ -117,10 +119,10 @@ impl GlyphAtlas {
                 Some(fb) => (fb, SynthTransform::none()),
                 None => (font, self.synth_for(style)),
             };
-            // Symbol-fallback and SYMMAP-override faces are icon faces: fit each
-            // glyph into its cell box (aspect-preserving) and center it, so they
-            // form an even column instead of rendering at the body em-size with
-            // natural bearing (overflow/clip + ragged x). Primary-font glyphs
+            // Fit fallback and SYMMAP glyphs aspect-preservingly and center
+            // them. Ordinary fallback text stays inside its source cells;
+            // symbol and SYMMAP faces retain their icon overflow gutter.
+            // Primary-font glyphs
             // (`symbol_font` is `None`) pass `None` → byte-identical placement.
             let fit = symbol_font.as_ref().map(|_| {
                 let pad =
@@ -129,6 +131,7 @@ impl GlyphAtlas {
                     box_w: (cells * self.cell.width) as f32,
                     box_h: self.cell.height as f32,
                     pad,
+                    allow_overflow,
                 }
             });
             // Combining marks carry a zero advance and hang their ink LEFT of

@@ -64,6 +64,13 @@ remain outside this model (see Standing scope boundaries, below).
 
 ## Current support boundary
 
+Ordinary spacing glyphs drawn from fallback faces are fitted and centered
+inside their one- or two-cell span, including missing ASCII, styled text and
+Latin-1. Narrow primary-font cells do not let fallback letters or digits
+overlap adjacent cells. Cell metrics, logical text and cursor advances stay
+unchanged. Symbol/SYMMAP icons and combining marks keep their overflow
+placement; covered primary glyphs keep their original rasterization.
+
 Form-value editing uses the same terminal owner boundaries: Backspace removes
 the final owner in profile and connection fields, Settings edits, and Theme
 Builder save names. This does not change shaping, terminal input encoding,
@@ -262,6 +269,17 @@ redraw as a distinct endpoint, RGBA cursor rebuild/upload, native cursor
 effects, GPU submission/presentation, macOS/Windows execution and macOS locale
 startup remain unmeasured. These Linux CPU results make no native or
 cross-platform cost claim.
+
+### Narrow-primary fallback fit cost
+
+The narrow-primary fallback fit correction was compared against 943557f2
+with the frozen internal-1 protocol on the Linux AMD Ryzen 9 9950X3D desktop
+class, using thirty paired runs. Of 67 rows, 63 were neutral, three classified
+as improved, and one exceeded its regression threshold: `parser scroll churn
+10000` moved from 254.798 to 314.214 microseconds, +23.319% against a 5.199%
+threshold. This comparison does not establish a cause for that movement; no
+speedup is claimed. Cold narrow-primary fallback/atlas construction, native
+GPU work and macOS/Windows runtime remain unmeasured.
 
 ## Standing scope boundaries
 

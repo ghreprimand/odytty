@@ -126,10 +126,10 @@ const SYMBOL_MAX_UPSCALE: f32 = 2.0;
 
 /// Opt-in directive to **fit-and-center** a glyph inside its cell box instead of
 /// placing it at the font's natural left bearing on the text baseline. Passed
-/// `Some` only for symbol-fallback / SYMMAP-override (icon) faces, whose em-size
-/// ink does not match OdyTTY's cell aspect and would otherwise overflow/clip and
-/// render as a ragged column. Every text path (primary font, ASCII build,
-/// synthetic styles) passes `None`, leaving placement byte-identical.
+/// `Some` for fallback and SYMMAP-override faces whose em-size ink may not
+/// match the primary cell aspect. Ordinary spacing text fits the cell span;
+/// icons may use the overflow gutter. Covered primary glyphs pass `None`,
+/// leaving their natural placement byte-identical.
 #[derive(Clone, Copy)]
 pub(super) struct CellFit {
     /// Drawable cell-box width in pixels (`span * cell.width`).
@@ -139,6 +139,9 @@ pub(super) struct CellFit {
     /// Inset padding in pixels per side. In the height-fraction model this only
     /// narrows the width safety cap (`max_draw_w`); it no longer drives size.
     pub(super) pad: f32,
+    /// Symbol/SYMMAP ink may use the slot gutter; ordinary spacing text must
+    /// stay inside the source-cell span so adjacent letters cannot overlap.
+    pub(super) allow_overflow: bool,
 }
 
 /// Height-fraction fit scale for a symbol/icon glyph (aspect-preserving).
@@ -337,7 +340,12 @@ pub(super) fn rasterize_glyph_run(
         // Width safety cap: the slot's drawable region (cell + overflow margin)
         // inside the ATLAS_PAD bleed gutter, minus the inset pad on each side, so
         // a wide glyph scaled to height still cannot clip or kiss a neighbour.
-        let max_draw_w = (outer_w as f32 - 2.0 * ATLAS_PAD as f32 - 2.0 * f.pad).max(1.0);
+        let drawable_w = if f.allow_overflow {
+            outer_w as f32 - 2.0 * ATLAS_PAD as f32
+        } else {
+            f.box_w
+        };
+        let max_draw_w = (drawable_w - 2.0 * f.pad).max(1.0);
         let s = symbol_fit_scale_v2(
             nb.width(),
             nb.height(),
@@ -360,8 +368,17 @@ pub(super) fn rasterize_glyph_run(
             origin_y: top - sb.min.y,
         })
     });
-    let x_lo = ox as i32 + ATLAS_PAD as i32;
-    let x_hi = (ox + outer_w) as i32 - ATLAS_PAD as i32;
+    let slot_lo = ox as i32 + ATLAS_PAD as i32;
+    let slot_hi = (ox + outer_w) as i32 - ATLAS_PAD as i32;
+    // Pixel rounding and the LCD filter may add edge coverage after fitting.
+    // Constrain both raster writes and filtering to the actual text-cell span.
+    let (x_lo, x_hi) = match fit.filter(|f| !f.allow_overflow) {
+        Some(f) => (
+            inner_x.max(slot_lo),
+            (inner_x + f.box_w as i32).min(slot_hi),
+        ),
+        None => (slot_lo, slot_hi),
+    };
     let y_lo = oy as i32 + ATLAS_PAD as i32;
     let y_hi = (oy + slot_h(cell)) as i32 - ATLAS_PAD as i32;
     let mut min_x = i32::MAX;

@@ -79,6 +79,134 @@ fn ascii_missing_from_primary_rasterizes_from_static_fallback() {
     );
 }
 
+fn narrow_primary() -> FontHandle {
+    FontHandle::try_from_vec(
+        include_bytes!("../../../tests/fixtures/fonts/s5b/brahmic-a/Balinese-subset.ttf").to_vec(),
+    )
+    .expect("Balinese subset fixture")
+}
+
+fn assert_fallback_within_cell(atlas: &GlyphAtlas, ch: char) {
+    let ink = atlas.glyph_quad(ch).expect("fallback glyph bounds");
+    assert!(ink.width > 0, "{ch:?} must remain visible");
+    assert!(
+        ink.offset_x >= 0 && ink.offset_x + ink.width as i32 <= atlas.cell.width as i32,
+        "{ch:?}: cell={:?}, ink={ink:?}",
+        atlas.cell,
+    );
+}
+
+#[test]
+fn narrow_primary_static_ascii_and_latin_fallback_stay_inside_cells() {
+    let primary = narrow_primary();
+    for px in [16.0, 24.0, 48.0] {
+        for mode in [SubpixelMode::Off, SubpixelMode::Rgb, SubpixelMode::Bgr] {
+            let mut atlas = GlyphAtlas::build_with_options(&primary, px, mode, 1.0);
+            let metrics = atlas.cell;
+            atlas.set_fallback_fonts(vec![Arc::new(test_font())]);
+            for ch in "aMW019é".chars() {
+                atlas.ensure(&primary, ch).expect("fallback slot");
+                assert_fallback_within_cell(&atlas, ch);
+            }
+            assert_eq!(atlas.cell, metrics, "fallback never changes cell metrics");
+        }
+    }
+}
+
+#[test]
+fn narrow_primary_styled_ascii_fallback_stays_inside_cells() {
+    let primary = narrow_primary();
+    let mut atlas = GlyphAtlas::build(&primary, 24.0);
+    atlas.set_fallback_fonts(vec![Arc::new(test_font())]);
+    for ch in "aMW019é".chars() {
+        let uv = atlas
+            .ensure_styled(&primary, FontStyle::Bold, ch)
+            .expect("styled fallback");
+        let slot = atlas.dynamic[&(FontStyle::Bold, ch)];
+        let ink = atlas.slot_ink[slot as usize];
+        assert!(
+            ink.offset_x >= 0 && ink.offset_x + ink.width as i32 <= atlas.cell.width as i32,
+            "{ch:?}: cell={:?}, ink={ink:?}, uv={uv:?}",
+            atlas.cell,
+        );
+    }
+}
+
+#[test]
+fn narrow_primary_fallback_grid_keeps_logical_copy_wrap_and_reflow() {
+    use crate::core::Terminal;
+    use crate::selection::{CellPoint, SelectionRange, selected_text};
+
+    let primary = narrow_primary();
+    let mut atlas = GlyphAtlas::build(&primary, 24.0);
+    atlas.set_fallback_fonts(vec![Arc::new(test_font())]);
+    let text = "aMW019éaMW01";
+    let mut terminal = Terminal::new(6, 5);
+    terminal.advance(b"\x1b[?25l");
+    terminal.advance(text.as_bytes());
+    for (columns, copied) in [
+        (6, "aMW019\néaMW01"),
+        (8, "aMW019éa\nMW01"),
+        (4, "aMW0\n19éa\nMW01"),
+        (12, text),
+    ] {
+        terminal.resize(columns, 5);
+        let snapshot = terminal.snapshot();
+        let last = text.chars().count() - 1;
+        assert_eq!(
+            selected_text(
+                &snapshot,
+                SelectionRange {
+                    start: CellPoint { row: 0, column: 0 },
+                    end: CellPoint {
+                        row: last / columns,
+                        column: last % columns
+                    },
+                }
+            ),
+            copied,
+        );
+        assert_eq!(copied.replace('\n', ""), text);
+        for ch in text.chars() {
+            atlas.ensure(&primary, ch).expect("visible fallback");
+            assert_fallback_within_cell(&atlas, ch);
+        }
+        let vertices = crate::grid::build_vertices(&snapshot, &atlas);
+        let glyphs: Vec<_> = vertices.iter().filter(|v| v.is_glyph > 0.0).collect();
+        assert_eq!(glyphs.len(), text.chars().count());
+        for (index, glyph) in glyphs.iter().enumerate() {
+            let column = index % columns;
+            let left = (column as u32 * atlas.cell.width) as f32;
+            let right = left + atlas.cell.width as f32;
+            assert!(glyph.pos[0] >= left && glyph.end_pos[0] <= right);
+        }
+        assert_eq!(terminal.snapshot().cursor, snapshot.cursor);
+    }
+}
+
+#[test]
+fn narrow_primary_fallback_mark_keeps_existing_overflow_placement() {
+    let primary = narrow_primary();
+    let fallback = Arc::new(test_font());
+    let mark = '\u{0301}';
+    assert!(font_has_glyph(&fallback, mark));
+    let mut ordinary = GlyphAtlas::build(&primary, 24.0);
+    ordinary.set_fallback_fonts(vec![fallback.clone()]);
+    ordinary.ensure(&primary, mark).expect("fallback mark");
+    let mut overridden = GlyphAtlas::build(&primary, 24.0);
+    overridden.set_symbol_map_fonts(vec![(mark as u32, mark as u32, fallback)]);
+    overridden
+        .ensure(&primary, mark)
+        .expect("same mark via unchanged icon fit");
+    assert_eq!(
+        ordinary.uv_rect(mark),
+        Some(ordinary.slot_uv(FALLBACK_SLOT))
+    );
+    let ink = overridden.glyph_quad(mark).expect("forced mark ink");
+    assert!(ink.width > 0);
+    assert!(ink.offset_x + ink.width as i32 > overridden.cell.width as i32);
+}
+
 #[test]
 fn fallback_chain_keeps_covered_primary_ascii_byte_identical() {
     let primary = test_font();
@@ -479,6 +607,7 @@ mod runtime_resolver {
             .ensure(&primary, 'a')
             .expect("cached ASCII atlas cell");
         assert_eq!(ASCII_CALLS.load(Ordering::SeqCst), 1, "answer is cached");
+        assert_fallback_within_cell(&atlas, 'a');
     }
 
     /// The final answer of one `symbol_fallback` query. The resolver tests

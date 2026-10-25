@@ -459,6 +459,13 @@ face in the configured fallback chain. If the static chain misses, runtime
 fallback is requested when that ASCII cell is ensured for drawing. Latin-1
 glyphs continue through the dynamic scalar fallback path.
 
+Ordinary spacing glyphs drawn from fallback faces are fitted and centered
+inside their one- or two-cell span, including missing ASCII, styled text and
+Latin-1. Narrow primary-font cells do not let fallback letters or digits
+overlap adjacent cells. Cell metrics, logical text and cursor advances stay
+unchanged. Symbol/SYMMAP icons and combining marks keep their overflow
+placement; covered primary glyphs keep their original rasterization.
+
 Windows and macOS script fallback. After the static chain misses (bundled
 faces, host Nerd face, and the platform symbol tail: Segoe UI Symbol, Segoe
 MDL2 Assets and Cambria Math on Windows; Menlo, Apple Symbols and STIX Two Math
