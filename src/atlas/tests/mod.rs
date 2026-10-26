@@ -14,6 +14,7 @@ mod geometry;
 mod glyph_quad;
 mod marks;
 mod metrics;
+mod positive_advance;
 mod scaling;
 mod script_runtime;
 mod stem_darken;

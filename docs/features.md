@@ -789,7 +789,10 @@ exactly the Unicode 17.0.0 nonspacing and enclosing marks (General_Category
 Mn and Me) as marks drawn over the base cell; spacing marks (Mc) draw from
 their own pen position like other glyphs. On this per-cell path a spacing mark
 (Grapheme_Cluster_Break SpacingMark) of a two-cell owner draws in the owner's
-second cell, after its base, rather than over the base.
+second cell, after its base, rather than over the base. A resident nonspacing
+or enclosing mark with a positive font advance compensates that advance at
+the pen, so its ink stays over the base on content and block-cursor redraws,
+including bidi display. Zero-advance marks keep their existing placement.
 
 Supported box-drawing, block and shade elements, Braille, Powerline separators,
 and Symbols for Legacy Computing sextants, octants, diagonal-edged blocks

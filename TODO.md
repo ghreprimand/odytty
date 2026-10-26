@@ -794,7 +794,9 @@ not a stretch goal.
   - [x] Native render loop calls `ensure()` for visible cells, including ASCII
         fallback cells. Ordinary fallback spacing ink fits its source-cell
         span even with a narrow primary font; icons and combining marks retain
-        overflow placement. It re-uploads the atlas texture on `take_dirty()` and
+        overflow placement. Retained nonspacing/enclosing marks compensate a
+        positive font advance so content and block cursors keep their complete
+        ink over the base, including bidi display. It re-uploads the atlas texture on `take_dirty()` and
         rebuilds vertices against the
         current atlas so real resident glyphs render instead of fallback boxes.
   - [x] Symbol/Nerd-font fallback: `symbol_fallback` defaults on, backed

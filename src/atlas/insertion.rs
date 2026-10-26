@@ -123,7 +123,8 @@ impl GlyphAtlas {
             // them. Ordinary fallback text stays inside its source cells;
             // symbol and SYMMAP faces retain their icon overflow gutter.
             // Primary-font glyphs
-            // (`symbol_font` is `None`) pass `None` → byte-identical placement.
+            // (`symbol_font` is `None`) keep natural baseline rasterization;
+            // retained mark advances are compensated by the anchor below.
             let fit = symbol_font.as_ref().map(|_| {
                 let pad =
                     (SYMBOL_CELL_INSET * self.cell.width.min(self.cell.height) as f32).round();
@@ -134,14 +135,25 @@ impl GlyphAtlas {
                     allow_overflow,
                 }
             });
-            // Combining marks carry a zero advance and hang their ink LEFT of
-            // the pen (they are typeset after their base advances). Anchoring
-            // the pen one cell to the right places that ink over the slot's
-            // cell box - the same anchor mechanism `ensure_shaped` uses - so
-            // the renderer can draw the mark quad at the base cell's origin
-            // and the recorded `GlyphInk` offsets land the ink on the base.
+            // A retained nonspacing/enclosing mark ends at the base cell's
+            // advance. Zero-advance faces hang ink left of that pen; faces
+            // with a positive mark advance need that advance subtracted so
+            // their right-bearing ink does not shift into the slot gutter.
+            // Fitted SYMMAP marks keep their existing centered placement.
             let anchor_x = if is_combining_mark(ch) {
+                let advance = if fit.is_none() {
+                    raster_font
+                        .as_scaled(self.px.into())
+                        .h_advance(raster_font.glyph_id(ch))
+                } else {
+                    0.0
+                };
                 self.cell.width as f32
+                    - if advance.is_finite() && advance > 0.0 {
+                        advance
+                    } else {
+                        0.0
+                    }
             } else {
                 0.0
             };

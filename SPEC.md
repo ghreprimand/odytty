@@ -3120,7 +3120,11 @@ apply to emoji owners. Renderer cluster assembly respects owned spans and
 does not combine adjacent flag owners. Font coverage cannot change grid width.
 
 Zero-width combining marks remain stored with their base cell in arrival order.
-The monochrome renderer draws resident marks over that base and suppresses a
+The monochrome renderer subtracts a resident nonspacing/enclosing mark's
+positive font advance from its one-cell pen anchor, keeping its complete ink
+over the base instead of clipping it in the atlas gutter. Zero-advance marks,
+spacing-mark positions and fitted symbol overrides retain their placement.
+The renderer suppresses a
 missing-mark tofu fallback, so a missing font glyph cannot obscure the base.
 With script shaping on, Arabic harakat on an Arabic letter inside a
 joining run of two or more cells are drawn instead by the shaping overlay at

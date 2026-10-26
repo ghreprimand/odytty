@@ -69,7 +69,22 @@ inside their one- or two-cell span, including missing ASCII, styled text and
 Latin-1. Narrow primary-font cells do not let fallback letters or digits
 overlap adjacent cells. Cell metrics, logical text and cursor advances stay
 unchanged. Symbol/SYMMAP icons and combining marks keep their overflow
-placement; covered primary glyphs keep their original rasterization.
+placement. Retained primary nonspacing/enclosing marks compensate any positive
+font advance at their pen so their ink stays over the owner instead of being
+clipped in the atlas gutter. Zero-advance marks and covered spacing glyphs
+keep their original placement. This applies to normal/styled content and
+block-cursor redraw, including bidi display; source text and widths do not change.
+
+The correction was compared against 4ba0cb36 on the frozen internal-1
+protocol on the Linux AMD Ryzen 9 9950X3D desktop class, using thirty paired
+runs. Of 67 rows, 62 were neutral, two classified as improved, and three
+exceeded their 3% regression thresholds: `resize reflow (deep scrollback)`
+rose from 181.475 to 189.848 microseconds (+4.614%); `resize reflow
+(height-only, deep)` rose from 156.848 to 163.283 microseconds (+4.103%);
+and `CI documentation guard` rose from 31.863 to 34.179 milliseconds
+(+7.270%). No cause for those movements or speedup is established. Cold
+positive-advance mark insertion, native GPU work and macOS/Windows runtime
+remain unmeasured.
 
 Form-value editing uses the same terminal owner boundaries: Backspace removes
 the final owner in profile and connection fields, Settings edits, and Theme

@@ -94,8 +94,8 @@ impl GlyphAtlas {
     /// [`Self::glyph_quad_styled`] this NEVER resolves to the hollow-box
     /// fallback: a mark the font lacks must simply not draw, because its quad
     /// is composited OVER an already-drawn base glyph and a tofu box there
-    /// would obscure the base. Marks rasterize with a one-cell pen anchor (see
-    /// `ensure_styled`), so the returned offsets place the ink on the base
+    /// would obscure the base. The mark pen compensates a positive font
+    /// advance (see `ensure_styled`), so the returned offsets place the ink on the base
     /// cell when the quad is anchored at that cell's origin.
     pub fn combining_mark_quad(&self, style: FontStyle, ch: char) -> Option<GlyphBounds> {
         let &slot = self.dynamic.get(&(style, ch))?;

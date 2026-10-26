@@ -1244,3 +1244,135 @@ fn block_cursor_wide_owner_color_redraw_tracks_bidi_and_visibility() {
         assert!(out.is_empty());
     }
 }
+
+fn positive_advance_setup() -> (GlyphAtlas, Fonts) {
+    let face = FontHandle::try_from_vec(
+        include_bytes!("../../tests/fixtures/fonts/positive-advance-marks.ttf").to_vec(),
+    )
+    .expect("authored mark fixture");
+    let mut atlas = GlyphAtlas::build(&face, 20.0);
+    atlas.set_synthetic_styles(true, true, true);
+    for style in [
+        FontStyle::Regular,
+        FontStyle::Bold,
+        FontStyle::Italic,
+        FontStyle::BoldItalic,
+    ] {
+        for ch in ['A', 'B', '\u{0301}', '\u{0300}'] {
+            atlas
+                .ensure_styled(&face, style, ch)
+                .expect("fixture glyph");
+        }
+    }
+    (atlas, Fonts(face))
+}
+
+fn positive_advance_frame(mark: char, sgr: &str, rtl: bool, cursor_only: bool) -> Frame {
+    let (atlas, _) = positive_advance_setup();
+    let mut term = Terminal::new(6, 1);
+    term.advance(format!("{sgr}A{mark}B\x1b[1;1H").as_bytes());
+    let snapshot = term.snapshot();
+    let map = BidiDisplayMap::plan_with_paragraphs(
+        &snapshot,
+        &[false],
+        &BidiParagraphContext::default(),
+        BidiParagraphs {
+            properties: &[],
+            default_direction: if rtl {
+                crate::core::BidiBaseDirection::RightToLeft
+            } else {
+                crate::core::BidiBaseDirection::LeftToRight
+            },
+        },
+    );
+    if rtl {
+        assert_ne!(
+            map.visual_column(0, 0),
+            0,
+            "owner moves to its bidi display cell"
+        );
+    }
+    let mut vertices = Vec::new();
+    if cursor_only {
+        append_cursor_vertices_with_origin_and_bidi(
+            &mut vertices,
+            &snapshot,
+            &atlas,
+            CursorStyle::Block,
+            [0.0, 0.0],
+            CursorRenderParams::default(),
+            Some(&map),
+        );
+    } else {
+        build_cell_vertices_with_bidi_into(&mut vertices, &snapshot, &atlas, &[], &[], &map);
+    }
+    composite(&snapshot, &atlas, &vertices)
+}
+
+#[test]
+fn positive_advance_mark_content_pixels_follow_normal_and_bidi_owner() {
+    let _render = crate::test_lock::render_globals_lock();
+    for sgr in ["", "\x1b[1m", "\x1b[3m", "\x1b[1;3m"] {
+        for rtl in [false, true] {
+            let actual = positive_advance_frame('\u{0301}', sgr, rtl, false);
+            let expected = positive_advance_frame('\u{0300}', sgr, rtl, false);
+            assert!(
+                actual == expected,
+                "positive-advance content ink matches equivalent zero-advance ink, sgr={sgr:?} rtl={rtl}"
+            );
+        }
+    }
+}
+
+#[test]
+fn positive_advance_mark_block_cursor_keeps_complete_ink() {
+    let _render = crate::test_lock::render_globals_lock();
+    for sgr in ["", "\x1b[1m", "\x1b[3m", "\x1b[1;3m"] {
+        for rtl in [false, true] {
+            let actual = positive_advance_frame('\u{0301}', sgr, rtl, true);
+            let expected = positive_advance_frame('\u{0300}', sgr, rtl, true);
+            assert!(
+                actual == expected,
+                "block redraw keeps complete positive-advance mark, sgr={sgr:?} rtl={rtl}"
+            );
+        }
+    }
+}
+
+#[test]
+fn positive_advance_mark_copy_and_reflow_keep_logical_source() {
+    use crate::selection::{CellPoint, SelectionRange, selected_text};
+    let mut term = Terminal::new(4, 3);
+    term.advance("ABA\u{0301}BAB".as_bytes());
+    for (cols, expected) in [
+        (4, "ABA\u{0301}B\nAB"),
+        (3, "ABA\u{0301}\nBAB"),
+        (6, "ABA\u{0301}BAB"),
+    ] {
+        term.resize(cols, 3);
+        let snapshot = term.snapshot();
+        let copied = selected_text(
+            &snapshot,
+            SelectionRange {
+                start: CellPoint { row: 0, column: 0 },
+                end: CellPoint {
+                    row: 2,
+                    column: cols - 1,
+                },
+            },
+        );
+        assert_eq!(
+            copied.trim_end(),
+            expected,
+            "snapshot copy keeps source order and physical row separators"
+        );
+        assert_eq!(
+            snapshot
+                .cells
+                .iter()
+                .filter(|cell| cell.combining() == ['\u{0301}'])
+                .count(),
+            1
+        );
+    }
+}
