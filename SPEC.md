@@ -3258,7 +3258,8 @@ Buginese, Cham, Lepcha, Limbu, Newa, Sharada, Tirhuta, Siddham, Takri, Ahom,
 Tai Viet and Kharoshthi use their Noto Sans faces on macOS (Noto Serif for
 Balinese and Ahom); on Windows, Ebrima for Adlam, Mongolian Baiti, Leelawadee
 UI for Buginese, Segoe UI Historic for Kharoshthi, Estrangelo Edessa (the
-optional Syriac Supplemental Fonts feature) for Syriac, and the Sans Serif
+optional Syriac Supplemental Fonts feature) then the stock Segoe UI Historic
+for Syriac, and the Sans Serif
 Collection (Windows 11) for the rest. Grantha on macOS resolves from the
 Grantha Sangam MN face, which is face 1 of `Tamil Sangam MN.ttc` rather than a
 file of its own; Tamil keeps face 0 of the same file. Candidates are

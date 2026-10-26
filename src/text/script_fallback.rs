@@ -90,9 +90,9 @@ impl ScriptFaces {
 /// they also carry. The joining and shaped scripts listed last use Ebrima
 /// (Adlam), Mongolian Baiti, Leelawadee UI (Buginese), Segoe UI Historic
 /// (Kharoshthi), Estrangelo Edessa (Syriac, from the optional Syriac
-/// Supplemental Fonts feature) and otherwise the Sans Serif Collection, so on
-/// Windows 10 only Adlam, Mongolian, Buginese and Kharoshthi resolve among them,
-/// and Syriac too where that optional feature is installed.
+/// Supplemental Fonts feature) then Segoe UI Historic (Syriac, stock on
+/// Windows 10 and 11) and otherwise the Sans Serif Collection, so on Windows 10
+/// only Adlam, Mongolian, Buginese, Kharoshthi and Syriac resolve among them.
 ///
 /// macOS ships SF Hebrew, SF Arabic, SF Armenian and SF Georgian, the Kohinoor,
 /// Mukta Mahee and Noto families and the Sangam MN faces for the Indic scripts,
@@ -323,13 +323,14 @@ pub(super) const SCRIPT_FALLBACK: &[ScriptFaces] = &[
         macos: &[("euphemiacas", 0), ("notosanscanadianaboriginal", 0)],
     },
     // The joining scripts beyond Arabic and N'Ko. Syriac (with the Syriac
-    // Supplement) uses Estrangelo Edessa from the Syriac Supplemental Fonts
-    // optional feature; Mandaic and Hanifi Rohingya, the Windows 11 Sans Serif
+    // Supplement) uses Estrangelo Edessa where the optional Syriac
+    // Supplemental Fonts feature installs it, then the stock Segoe UI
+    // Historic, which shares its loaded face with Kharoshthi; Mandaic and Hanifi Rohingya, the Windows 11 Sans Serif
     // Collection; Adlam, Ebrima; Mongolian (with the Mongolian Supplement),
     // Mongolian Baiti. macOS carries each in a Noto Sans face.
     ScriptFaces {
         ranges: &[(0x0700, 0x074F), (0x0860, 0x086F)],
-        windows: &[("estre", 0)],
+        windows: &[("estre", 0), ("seguihis", 0)],
         macos: &[("notosanssyriac", 0)],
     },
     ScriptFaces {

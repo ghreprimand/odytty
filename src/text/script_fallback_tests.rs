@@ -811,3 +811,66 @@ fn added_rows_follow_the_earlier_rows_unchanged() {
         "the Canadian syllabics row stays last of the earlier rows"
     );
 }
+
+/// Stock Windows 10 and 11 carry Syriac in Segoe UI Historic (`seguihis.ttf`,
+/// whose design languages include Syrc); Estrangelo Edessa comes only from
+/// the optional Syriac Supplemental Fonts feature. With only the stock face
+/// installed, a Syriac letter must resolve from it instead of keeping the
+/// box, and Estrangelo Edessa stays the first choice where it is installed.
+#[test]
+fn syriac_resolves_from_stock_segoe_ui_historic_without_the_optional_feature() {
+    let faces = candidate_faces('\u{0712}', Platform::Windows).expect("the Syriac group");
+    assert_eq!(
+        faces.first(),
+        Some(&("estre", 0)),
+        "Estrangelo Edessa stays first"
+    );
+    for ch in ['\u{0712}', '\u{0710}'] {
+        let (mut resolver, _dir) = resolver_on(
+            Platform::Windows,
+            &[(
+                "seguihis.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/joining/Syriac-subset.ttf"),
+            )],
+        );
+        let face = resolver
+            .resolve(ch)
+            .unwrap_or_else(|| panic!("stock Segoe UI Historic should answer U+{:04X}", ch as u32));
+        assert!(font_provides_outline_glyph(&face, ch));
+    }
+    // An installed Estrangelo Edessa that lacks the letter falls through to
+    // the stock face, which then answers.
+    let (mut resolver, _dir) = resolver_on(
+        Platform::Windows,
+        &[
+            (
+                "estre.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/rtl/Kharoshthi-subset.ttf"),
+            ),
+            (
+                "seguihis.ttf",
+                include_bytes!("../../tests/fixtures/fonts/s5b/joining/Syriac-subset.ttf"),
+            ),
+        ],
+    );
+    let face = resolver
+        .resolve('\u{0712}')
+        .expect("falls through to Segoe UI Historic");
+    assert!(font_provides_outline_glyph(&face, '\u{0712}'));
+    assert_eq!(resolver.loaded_faces(), 2);
+    // Where both carry the letter, Estrangelo Edessa answers and the stock
+    // face is never read.
+    let syriac: &[u8] = include_bytes!("../../tests/fixtures/fonts/s5b/joining/Syriac-subset.ttf");
+    let (mut resolver, _dir) = resolver_on(
+        Platform::Windows,
+        &[("estre.ttf", syriac), ("seguihis.ttf", syriac)],
+    );
+    assert!(resolver.resolve('\u{0712}').is_some());
+    assert_eq!(resolver.loaded_faces(), 1);
+    // The stock face is one cache entry shared with Kharoshthi's row: a
+    // Kharoshthi lookup after a Syriac one reads no further file.
+    let (mut resolver, _dir) = resolver_on(Platform::Windows, &[("seguihis.ttf", syriac)]);
+    assert!(resolver.resolve('\u{0712}').is_some());
+    assert!(resolver.resolve('\u{10A10}').is_none());
+    assert_eq!(resolver.loaded_faces(), 1);
+}
