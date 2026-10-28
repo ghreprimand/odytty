@@ -1,5 +1,17 @@
 # Contributing to OdyTTY
 
+Windows source builds and tests need the explicitly staged native runtime.
+Use PowerShell 7.4 or later and .NET SDK 10.0.100 to run
+`scripts/conpty-runtime/Prepare.ps1 -Destination ./target/verified-conpty`, then
+`scripts/conpty-runtime/Stage.ps1 -Runtime ./target/verified-conpty -Destination
+@('./target/debug', './target/debug/deps', './target/release')`.
+CI uses these same helpers. Cargo builds stay independent of native downloads.
+Runtime updates must change all native hashes, the exact package allowlist,
+notices and inventory together, repeat signature and native transport/package
+checks, and retain explicit unknown source-build provenance where applicable.
+RustSec covers the Rust dependency graph; maintain the native runtime's
+publisher advisory and version checks separately.
+
 OdyTTY is developed in the open in a public repository. These are the working
 conventions for changes and commits. See the [`DEVLOG.md`](DEVLOG.md) index for
 the monthly development record, [`TODO.md`](TODO.md) for the milestone

@@ -41,10 +41,10 @@ jobs:
     # below for the mechanism and why it cannot mask a real failure). Because two
     # 12-min test attempts can stack on top of a cold release+debug build
     # (~8-12 min; `target` is no longer cached - see the Cache step), the macOS
-    # job needs a wider ceiling: 40 min fits a cold build + clippy + two test
-    # attempts, while ubuntu/windows keep the tight 25-min fail-fast tripwire
-    # (single test attempt, comfortably above a cold build, well below a hang).
-    timeout-minutes: ${{ matrix.os == 'macos-latest' && 40 || 25 }}
+    # macOS needs 40 minutes for its bounded PTY retry. Windows allows the
+    # additional frozen-backend/candidate transport builds, each with a 900s
+    # subprocess deadline. Linux retains its 25-minute ceiling.
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 40 || matrix.os == 'windows-latest' && 60 || 25 }}
     strategy:
       fail-fast: false
       matrix:
@@ -59,9 +59,13 @@ jobs:
         id: checkout
         continue-on-error: true
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: ${{ matrix.os == 'windows-latest' && '0' || '3' }}
       - name: Checkout (retry)
         if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: ${{ matrix.os == 'windows-latest' && '0' || '3' }}
 
       # The Wayland title-bar text backend (crossfont) links FreeType and
       # Fontconfig through pkg-config on Linux. Release jobs already install
@@ -104,6 +108,9 @@ jobs:
           python-version: "3.12"
 
       # Offline intake checks exercise pathlib replacement on every supported OS.
+      - name: Bundled ConPTY identity contracts
+        run: python scripts/conpty-runtime/check.py
+
       - name: Corpus intake self-tests
         run: python scripts/compatibility-corpus.py selftest
 
@@ -118,8 +125,44 @@ jobs:
       - name: Format check
         run: cargo fmt --check
 
+      - name: Set up pinned native-package verifier
+        if: runner.os == 'Windows'
+        uses: actions/setup-dotnet@2016bd2012dba4e32de620c46fe006a3ac9f0602
+        with:
+          dotnet-version: '10.0.100'
+
+      - name: Verify bundled ConPTY package online
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          & ./scripts/conpty-runtime/Test-Tools.ps1
+          & ./scripts/conpty-runtime/Prepare.ps1 -Destination (Join-Path $env:RUNNER_TEMP 'verified-conpty')
+
       - name: Build
         run: cargo build --release --locked
+
+      - name: Stage bundled ConPTY beside executables
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          & ./scripts/conpty-runtime/Stage.ps1 -Runtime (Join-Path $env:RUNNER_TEMP 'verified-conpty') -Destination @('target/debug', 'target/debug/deps', 'target/release')
+
+      - name: Windows default-route fixture and fresh package checks
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          rustc --edition=2024 -Dwarnings -Copt-level=2 scripts/conpty-runtime/fixed-producer.rs -o target/debug/deps/fixed-producer.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./scripts/conpty-runtime/Test-Package.ps1 -Binary target/release/odytty.exe -Runtime (Join-Path $env:RUNNER_TEMP 'verified-conpty')
+
+      - name: Windows default-route failing-before and passing-after
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 31
+        run: '& ./scripts/conpty-runtime/Test-DefaultRoute.ps1'
 
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
@@ -208,7 +251,7 @@ jobs:
         timeout-minutes: 12
         shell: pwsh
         run: |
-          $groups = @('automation::windows::tests', 'pty::windows::tests', 'state_dir::windows_export_tests', 'native::gpu::windows_presentation::tests', 'settings_transparency_notice_tracks_the_real_surface_alpha_and_signature')
+          $groups = @('automation::windows::tests', 'pty::windows::tests', 'pty::windows::runtime', 'state_dir::windows_export_tests', 'native::gpu::windows_presentation::tests', 'settings_transparency_notice_tracks_the_real_surface_alpha_and_signature')
           foreach ($group in $groups) {
             $listed = @(cargo test --locked --lib $group -- --list)
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -220,6 +263,18 @@ jobs:
             foreach ($group in $groups) {
               Write-Host "Windows runtime repeat=$iteration group=$group threads=4"
               cargo test --locked --lib $group -- --test-threads=4 --show-output
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
+          }
+
+      - name: Windows bundled transport repeats
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          foreach ($iteration in 1..5) {
+            foreach ($group in @('conpty_graphics_transport', 'conpty_keyboard_passthrough', 'conpty_button_passthrough')) {
+              cargo test --locked --test $group -- --test-threads=4 --show-output
               if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             }
           }

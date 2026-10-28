@@ -1,5 +1,12 @@
 # OdyTTY - Spec
 
+Windows PTY creation uses the required bundled Microsoft ConPTY
+1.25.260930003 runtime with exact offline native-file integrity checks before
+loading. Create, resize and close retain the same provider and existing
+lifecycle semantics. Missing or changed assets fail with a complete-folder
+reinstall instruction. Linux and macOS retain their existing PTY backends.
+Windows source builds stage the runtime explicitly; build.rs does not fetch it.
+
 Published release: **v0.17.0**.
 
 Current development work is tracked in [TODO.md](TODO.md). Release evidence

@@ -122,3 +122,20 @@ permissive licences such as MIT, Apache-2.0, BSD, ISC and Zlib, and under the
 MPL-2.0. Their licence notices are reproduced in the file THIRD-PARTY-LICENSES,
 which ships beside this file and is generated from the locked dependency list
 (`Cargo.lock` in the source archive).
+
+--------------------------------------------------------------------------------
+Bundled Windows ConPTY runtime
+--------------------------------------------------------------------------------
+
+Windows packages include Microsoft.Windows.Console.ConPTY 1.25.260930003,
+Copyright (c) Microsoft Corporation. All rights reserved. The native runtime
+is licensed under MIT; its complete release-associated license is reproduced
+in licenses/conpty/LICENSE-MICROSOFT.txt. The full publisher third-party
+notices are reproduced, without trimming their release-wide scope, in
+licenses/conpty/THIRD-PARTY-NOTICES.md. These notices do not establish that
+every named component is linked in the three shipped native files.
+
+licenses/conpty/runtime-manifest.json records the exact NuGet package and
+native member identities. The associated source release is a reference,
+not proof of the compiled source commit. THIRD-PARTY-LICENSES separately
+covers the Rust dependency closure.

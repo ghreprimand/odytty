@@ -124,11 +124,11 @@ fn every_other_package_calls_the_install_helper_or_the_list() {
         ),
         (
             ".github/workflows/release.yml",
-            "Get-Content dist/font-licenses.txt",
+            "& ./scripts/conpty-runtime/Package.ps1",
         ),
         (
             ".github/workflows/dev-build.yml",
-            "Get-Content dist/font-licenses.txt",
+            "& ./scripts/conpty-runtime/Package.ps1",
         ),
     ] {
         assert!(
@@ -136,6 +136,11 @@ fn every_other_package_calls_the_install_helper_or_the_list() {
             "{file} does not ship the font licences"
         );
     }
+    assert!(read("scripts/conpty-runtime/Package.ps1").contains("dist/font-licenses.txt"));
+    assert!(
+        read("scripts/conpty-runtime/Package.ps1")
+            .contains("$path.Substring('assets/fonts/'.Length)")
+    );
     // The AUR package and the macOS app also carry the notices themselves.
     assert!(read("dist/aur/PKGBUILD").contains("install -Dm644 NOTICE"));
     assert!(read("dist/macos/make-app.sh").contains("\"$ROOT/NOTICE\""));

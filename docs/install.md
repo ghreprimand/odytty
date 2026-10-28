@@ -788,6 +788,29 @@ yet. Launch it directly instead: from the Start menu, by typing `odytty`, or
 from a pinned shortcut. Detached/resumable session hosting is Unix-only in this
 release; the Windows build opens local ConPTY-backed tabs and panes.
 
+### Bundled Windows console runtime
+
+Windows PTYs use Microsoft.Windows.Console.ConPTY 1.25.260930003 from the
+fixed package directory `runtime/conpty/1.25.260930003/` beside the executable.
+It contains `conpty.dll`, `x64/OpenConsole.exe` and `arm64/OpenConsole.exe`;
+both companions are required by the publisher's native-host layout. Full
+publisher license texts and the binary inventory are under `licenses/conpty/`.
+
+The native files are checked against embedded sizes and SHA256 hashes offline
+before the first PTY is created. Missing, altered or incomplete runtime files
+produce a reinstall error; there is no silent system-provider fallback.
+The files stay open against replacement while OdyTTY runs. Close all sessions
+before replacing the complete package folder. Preserve the directory layout
+and keep each native runtime file path below 1024 UTF-16 code units, including
+the absolute Windows path prefix. The loader rejects paths that exceed its
+bounded path-observation buffers. `--help` and `--version` do not require a PTY.
+
+Windows 10 remains an intended platform. The publisher states Windows build
+17763 or later for this runtime; that is not a verified minimum build for
+OdyTTY. The current oldest-version and ARM64-host execution coverage remains
+unavailable. Native image rendering, IME and GPU acceptance require separate
+device checks; a transport/core regression does not establish those results.
+
 ### Windows scope
 
 The Windows build carries the full rendering, theme, effect, and inline-graphics
@@ -814,7 +837,7 @@ scoop update
 scoop update odytty
 ```
 
-- **Portable zip:** re-download the always-latest `odytty-windows-x86_64.zip`, re-verify the hash against `SHA256SUMS`, and replace the old `odytty.exe`.
+- **Portable zip:** re-download the always-latest `odytty-windows-x86_64.zip`, re-verify the hash against `SHA256SUMS`, close all OdyTTY sessions, extract into a fresh directory, and replace the complete old package folder. Keep `runtime/` and `licenses/` beside `odytty.exe`; copying only the executable is insufficient.
 
 ## Build From Source
 
@@ -847,7 +870,24 @@ sudo dnf install pkgconf-pkg-config fontconfig-devel freetype-devel   # Fedora
 sudo pacman -S --needed pkgconf fontconfig freetype2   # Arch
 ```
 
-macOS and Windows need no extra packages.
+macOS needs no extra packages. Windows source builds require an explicit
+native-runtime preparation step after the Rust build. Install PowerShell 7.4 or later
+and .NET SDK 10.0.100 for preparation, then run from PowerShell 7.4 or later:
+
+```powershell
+cargo build --release --locked
+./scripts/conpty-runtime/Prepare.ps1 -Destination ./target/verified-conpty
+./scripts/conpty-runtime/Stage.ps1 -Runtime ./target/verified-conpty -Destination @('./target/release', './target/debug', './target/debug/deps')
+```
+
+Preparation downloads the fixed Microsoft package and checks its NuGet author
+signature and native Authenticode publisher, timestamps and certificate chains
+online. It requires a fresh destination and fails on verification errors. Reuse
+the verified directory for staging; remove old staged runtime folders only
+after closing processes that use them. `cargo build` itself does not download
+native executables. `cargo install` users must stage beside the installed
+executable as well. The shipped Windows zip already contains these files;
+end users do not need PowerShell 7, .NET or online verification to launch it.
 
 Build the release binary:
 

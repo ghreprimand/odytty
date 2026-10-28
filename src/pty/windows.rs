@@ -56,9 +56,7 @@ use windows::Win32::Foundation::{
 use windows::Win32::Globalization::{
     CSTR_EQUAL, CSTR_GREATER_THAN, CSTR_LESS_THAN, CompareStringOrdinal,
 };
-use windows::Win32::System::Console::{
-    COORD, ClosePseudoConsole, CreatePseudoConsole, HPCON, ResizePseudoConsole,
-};
+use windows::Win32::System::Console::{COORD, HPCON};
 use windows::Win32::System::Environment::{FreeEnvironmentStringsW, GetEnvironmentStringsW};
 use windows::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -80,6 +78,9 @@ use windows::Win32::System::Threading::{
     WaitForMultipleObjects, WaitForSingleObject,
 };
 use windows::core::{PCWSTR, PWSTR};
+
+mod runtime;
+use runtime::Provider;
 
 use super::env_block;
 use super::held_gate::StartOutcome;
@@ -275,7 +276,17 @@ impl PtySession {
         self.launch_shell
     }
 
-    pub fn spawn_command(dimensions: Dimensions, mut command: CommandBuilder) -> Result<Self> {
+    pub fn spawn_command(dimensions: Dimensions, command: CommandBuilder) -> Result<Self> {
+        // All ordinary, profile, automation and held launches share this path.
+        reject_interior_nul(&command)?;
+        Self::spawn_with_provider(dimensions, command, Provider::bundled()?)
+    }
+
+    fn spawn_with_provider(
+        dimensions: Dimensions,
+        mut command: CommandBuilder,
+        provider: Provider,
+    ) -> Result<Self> {
         // `CreateProcessW` reads the command line and directory up to the
         // first NUL and the environment block splits on it, so an interior
         // NUL would silently drop the rest. Refuse it, as Unix `Command` does.
@@ -307,13 +318,13 @@ impl PtySession {
             // so the parent copies are dropped immediately after - REQUIRED,
             // or the output reader never sees EOF.
             let size = coord(dimensions);
-            let hpcon =
-                CreatePseudoConsole(size, handle_of(&input_read), handle_of(&output_write), 0)
-                    .context("CreatePseudoConsole")?;
+            let hpcon = provider
+                .create(size, handle_of(&input_read), handle_of(&output_write))
+                .context("CreatePseudoConsole")?;
             // Guard the pseudoconsole so any `?` early return below (attribute
             // setup or `CreateProcessW`) closes it instead of leaking it - Drop
             // for PtySession only runs once `Self` is constructed at the bottom.
-            let hpcon_guard = HpconGuard(hpcon);
+            let hpcon_guard = HpconGuard(hpcon, provider);
             drop(input_read);
             drop(output_write);
 
@@ -483,7 +494,7 @@ impl PtySession {
             // degrade the session invisibly. On failure the child is
             // terminated, the pseudoconsole closed, and the error surfaced as
             // one failed session instead of a silently degraded one.
-            let pcon = Arc::new(PconShared::new(hpcon.0));
+            let pcon = Arc::new(PconShared::with_provider(hpcon.0, provider));
             let pending_diagnostic = Arc::new(Mutex::new(None));
             let waiter = match spawn_child_waiter(
                 &process,
@@ -789,7 +800,8 @@ struct PconShared {
     /// Raw `HPCON` value. Stored as `isize` (its newtype payload) so the
     /// struct is trivially `Send`/`Sync`; rewrapped as `HPCON` at call sites.
     hpcon: isize,
-    /// `true` once [`ClosePseudoConsole`] has run. Guarded by the mutex whose
+    provider: Provider,
+    /// `true` once `ConptyClosePseudoConsole` has run. Guarded by the mutex whose
     /// critical sections span the `ResizePseudoConsole`/`ClosePseudoConsole`
     /// calls (see the type docs for why a bare atomic is not enough).
     closed: Mutex<bool>,
@@ -808,9 +820,15 @@ struct PconShared {
 }
 
 impl PconShared {
+    #[cfg(test)]
     fn new(hpcon: isize) -> Self {
+        Self::with_provider(hpcon, Provider::bundled().expect("bundled test runtime"))
+    }
+
+    fn with_provider(hpcon: isize, provider: Provider) -> Self {
         Self {
             hpcon,
+            provider,
             closed: Mutex::new(false),
             teardown_requested: AtomicBool::new(false),
             #[cfg(test)]
@@ -858,7 +876,11 @@ impl PconShared {
         // SAFETY: `hpcon` came from a successful `CreatePseudoConsole`; the
         // held lock guarantees `ClosePseudoConsole` has not run and cannot run
         // concurrently.
-        unsafe { ResizePseudoConsole(HPCON(self.hpcon), size).context("resize pty") }
+        unsafe {
+            self.provider
+                .resize(HPCON(self.hpcon), size)
+                .context("resize pty")
+        }
     }
 
     /// Close the pseudoconsole exactly once across every closer (the
@@ -871,7 +893,7 @@ impl PconShared {
             // is closed exactly once thanks to the flag under the held lock;
             // no `ResizePseudoConsole` can be in flight while we hold it.
             unsafe {
-                ClosePseudoConsole(HPCON(self.hpcon));
+                self.provider.close(HPCON(self.hpcon));
             }
         }
     }
@@ -1159,7 +1181,7 @@ impl Write for PtyWriter {
 /// `CreatePseudoConsole` and `Self` construction cannot leak the `HPCON` (which
 /// has no `Drop`) plus its pipe buffers. On the success path the spawn forgets
 /// this guard and hands ownership to `Drop for PtySession`, the single closer.
-struct HpconGuard(HPCON);
+struct HpconGuard(HPCON, Provider);
 
 impl Drop for HpconGuard {
     fn drop(&mut self) {
@@ -1167,7 +1189,7 @@ impl Drop for HpconGuard {
         // closed exactly once - only reached when the spawn errors out before
         // ownership transfers to `PtySession` (which `forget`s this guard).
         unsafe {
-            ClosePseudoConsole(self.0);
+            self.1.close(self.0);
         }
     }
 }

@@ -68,6 +68,12 @@ quarantine-clearing step. Intel Macs currently use the
 
 ### Windows
 
+Windows packages include a required, versioned Microsoft ConPTY runtime and
+its complete publisher notices. Install and upgrade the complete extracted
+folder, including `runtime/` and `licenses/`, beside `odytty.exe`.
+[Windows source builds](docs/install.md#build-from-source) explicitly stage
+the verified runtime after Cargo builds; startup checks its identity offline.
+
 With [Scoop](https://scoop.sh) installed:
 
 ```powershell

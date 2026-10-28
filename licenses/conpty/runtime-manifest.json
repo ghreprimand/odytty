@@ -1,0 +1,49 @@
+{
+  "package": "Microsoft.Windows.Console.ConPTY",
+  "version": "1.25.260930003",
+  "url": "https://api.nuget.org/v3-flatcontainer/microsoft.windows.console.conpty/1.25.260930003/microsoft.windows.console.conpty.1.25.260930003.nupkg",
+  "archive_size": 1763391,
+  "archive_sha256": "02b07b349af66d801159bdf9e440d4a1ce78bb951f37fc8609731665afdae7ee",
+  "archive_sha512_base64": "LuqMk9r5oTzeRne35IOlUdSQ7DkjorOIbcnODGZ81MvmUpTr/1VBQz3fAdCNCwkfuR0Mluq+H7rS3Hes/A1fOw==",
+  "compiled_source_commit": null,
+  "publisher_sbom": null,
+  "release_source_reference": {
+    "tag": "v1.25.2733.0",
+    "commit": "dc8ae365847d41f62d1ebca93815bb00959bc12f",
+    "meaning": "Release association only; not proof of the compiled binary source."
+  },
+  "notice_scope": "Complete release-associated publisher notices, including components not established as linked in these three binaries. Not a binary component inventory.",
+  "verification": "NuGet author fingerprints and all signatures online at preparation; exact native size/SHA256 offline before PTY creation.",
+  "members": [
+    {
+      "path": "conpty.dll",
+      "package_member": "runtimes/win-x64/native/conpty.dll",
+      "size": 119608,
+      "sha256": "feeef341d891643c62d30b6b07800bc70f0bc148f44cb8c3bee84aa557ae805a"
+    },
+    {
+      "path": "x64/OpenConsole.exe",
+      "package_member": "build/native/runtimes/x64/OpenConsole.exe",
+      "size": 1089376,
+      "sha256": "3d66b23d0a71bb8eed2b77edc8b9df9bf54ce6c8fb74c863a30e760997f80586"
+    },
+    {
+      "path": "arm64/OpenConsole.exe",
+      "package_member": "build/native/runtimes/arm64/OpenConsole.exe",
+      "size": 1149752,
+      "sha256": "4313825a3ba634d113cc6ed3bc8ce735e3c19d360cecd985794787479469f91f"
+    }
+  ],
+  "notices": [
+    {
+      "path": "LICENSE-MICROSOFT.txt",
+      "size": 1116,
+      "sha256": "5d177f23ecfeb0ea8e050b6a5a16355e1ae9a0b286436ca8f83ed08b3795be6b"
+    },
+    {
+      "path": "THIRD-PARTY-NOTICES.md",
+      "size": 23176,
+      "sha256": "e7fbaadee6ab20c28b87730a510ee5f5815d8fb4bd88d1d54d282dc2a74c0726"
+    }
+  ]
+}

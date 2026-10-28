@@ -1,5 +1,12 @@
 # OdyTTY Feature Reference
 
+Windows sessions use bundled Microsoft ConPTY 1.25.260930003 to carry graphics
+through the native console transport. Keep the complete Windows package
+folder when installing or upgrading. Offline integrity checks reject missing
+or changed native files before creating a PTY. Automated fixed Sixel coverage
+checks transport and core image/cursor state; native pixel and IME acceptance
+remain separate from those checks.
+
 Use this guide to understand OdyTTY's terminal behavior, configure the native
 app, and work with tabs, panes, workspaces, remote hosts, and shell integration.
 For installation and a shorter overview, start with the

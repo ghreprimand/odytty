@@ -319,11 +319,11 @@ fn every_package_definition_ships_the_file() {
         ),
         (
             ".github/workflows/release.yml",
-            "Copy-Item README.md, LICENSE, NOTICE, THIRD-PARTY-LICENSES dist/windows/package/",
+            "& ./scripts/conpty-runtime/Package.ps1",
         ),
         (
             ".github/workflows/dev-build.yml",
-            "Copy-Item README.md, LICENSE, NOTICE, THIRD-PARTY-LICENSES dist/windows/package/",
+            "& ./scripts/conpty-runtime/Package.ps1",
         ),
         (
             ".github/workflows/release.yml",
@@ -332,6 +332,15 @@ fn every_package_definition_ships_the_file() {
     ] {
         assert!(read(file).contains(needle), "{file} does not ship {FILE}");
     }
+}
+
+#[test]
+fn windows_shared_helper_retains_the_rust_notices() {
+    let helper = read("scripts/conpty-runtime/Package.ps1");
+    assert!(helper.contains("@('README.md','LICENSE','NOTICE','THIRD-PARTY-LICENSES')"));
+    assert!(
+        helper.contains("Copy-Item -LiteralPath (Join-Path $repository $file) -Destination $root")
+    );
 }
 
 #[test]

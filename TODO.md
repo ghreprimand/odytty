@@ -1,5 +1,12 @@
 # OdyTTY TODO
 
+The Windows Sixel transport correction bundles Microsoft ConPTY 1.25.260930003
+with full release-associated notices, offline native identity checks and
+complete-folder installation. Native default-route transport, host identity,
+lifecycle and package checks run on Windows CI. Device pixel acceptance,
+oldest-Windows execution and ARM64-host coverage remain separate requirements;
+no device pass is implied by the automated transport test.
+
 Published release: **v0.17.0**.
 
 Living delivery record and forward backlog for OdyTTY. Each release section

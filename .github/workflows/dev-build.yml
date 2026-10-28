@@ -37,8 +37,26 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up pinned native-package verifier
+        uses: actions/setup-dotnet@2016bd2012dba4e32de620c46fe006a3ac9f0602
+        with:
+          dotnet-version: '10.0.100'
+
+      - name: Verify bundled ConPTY package online
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          & ./scripts/conpty-runtime/Test-Tools.ps1
+          & ./scripts/conpty-runtime/Prepare.ps1 -Destination (Join-Path $env:RUNNER_TEMP 'verified-conpty')
+
       - name: Build release binary
         run: cargo build --release --locked
+
+      - name: Stage bundled ConPTY beside executables
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          & ./scripts/conpty-runtime/Stage.ps1 -Runtime (Join-Path $env:RUNNER_TEMP 'verified-conpty') -Destination @('target/debug', 'target/debug/deps', 'target/release')
 
       - name: Smoke test the Windows binary
         # --version exits before any GPU/window init, so it runs headlessly in CI.
@@ -54,18 +72,8 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           $sha = "$env:COMMIT_SHA".Substring(0, 9)
-          New-Item -ItemType Directory -Force dist/windows/package | Out-Null
           New-Item -ItemType Directory -Force dist/build | Out-Null
-          Copy-Item target/release/odytty.exe dist/windows/package/
-          Copy-Item README.md, LICENSE, NOTICE, THIRD-PARTY-LICENSES dist/windows/package/
-          # The bundled fonts' licence texts, as in the release package.
-          foreach ($path in Get-Content dist/font-licenses.txt) {
-            if ($path.Trim() -eq '') { continue }
-            $relative = $path.Substring('assets/fonts/'.Length)
-            $target = Join-Path dist/windows/package/licenses/fonts $relative
-            New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
-            Copy-Item $path $target
-          }
+          & ./scripts/conpty-runtime/Package.ps1 -Binary target/release/odytty.exe -Runtime (Join-Path $env:RUNNER_TEMP 'verified-conpty') -Destination dist/windows/package
           Set-Content -Path dist/windows/package/DEV-BUILD.txt -Value @"
           Unreleased development build of OdyTTY.
           Commit: $env:COMMIT_SHA

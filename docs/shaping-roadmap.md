@@ -1,5 +1,11 @@
 # Text Shaping Roadmap
 
+Windows graphics transport uses the required bundled ConPTY 1.25.260930003
+runtime. The default-route fixed Sixel test observes bytes before parsing and
+checks the unchanged core image and cursor. This does not establish renderer
+pixels, script shaping, bidi performance or device acceptance; their existing
+validation requirements remain in force.
+
 Companion to the shaping summary in [`docs/features.md`](features.md). This document states
 the current model, its measured limit, the standing scope boundaries, and the
 work that remains possible without weakening terminal semantics.

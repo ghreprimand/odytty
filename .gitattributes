@@ -26,3 +26,7 @@
 # `$Format:%h$` placeholder in the one file below with the real commit hash so
 # the About panel still reports a truthful commit. Applies to ONLY this file.
 .git_archival.txt export-subst
+
+# Publisher notices retain their exact released bytes, including CRLF.
+licenses/conpty/LICENSE-MICROSOFT.txt -text whitespace=-blank-at-eol,-blank-at-eof,cr-at-eol
+licenses/conpty/THIRD-PARTY-NOTICES.md -text whitespace=-blank-at-eol,-blank-at-eof,cr-at-eol
