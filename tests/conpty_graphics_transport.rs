@@ -4,6 +4,8 @@
 #![cfg(windows)]
 #[path = "support/conpty_cleanup.rs"]
 mod conpty_cleanup;
+#[path = "support/conpty_host.rs"]
+mod conpty_host;
 #[path = "support/conpty_replies.rs"]
 mod conpty_replies;
 #[path = "../src/test_dirs/allocation.rs"]
@@ -38,12 +40,12 @@ fn current_dir() -> PathBuf {
 
 // Only an owned helper executes PTY work. Its job contains the helper and all
 // newly created hosts/clients; hard deadline termination closes that job too.
-fn contain_helper() {
+fn contain_helper() -> windows::Win32::Foundation::HANDLE {
     use std::os::windows::io::{FromRawHandle, OwnedHandle};
     use windows::Win32::System::JobObjects::*;
     use windows::Win32::System::Threading::GetCurrentProcess;
     // SAFETY: newly owned job, exact information structure, own process only.
-    unsafe {
+    let job = unsafe {
         let job = CreateJobObjectW(None, None).unwrap();
         let handle = OwnedHandle::from_raw_handle(job.0);
         let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
@@ -58,18 +60,25 @@ fn contain_helper() {
         AssignProcessToJobObject(job, GetCurrentProcess()).unwrap();
         // Process-lifetime owner: closing here would kill the helper itself.
         std::mem::forget(handle);
-    }
+        job
+    };
     std::thread::spawn(|| {
         std::thread::sleep(Duration::from_secs(45));
         eprintln!("conpty_product_helper=deadline");
         std::process::exit(124);
     });
+    job
 }
 fn run_owned(exe: &Path, mode: &str, cwd: &Path) {
     let child_env = scratch_dirs::ChildEnv::new();
+    let state_root = child_env.vars()[0].1.parent().unwrap().to_owned();
+    let temp = state_root.join("temp");
+    std::fs::create_dir(&temp).unwrap();
     let mut child = Command::new(exe)
         .args(["--exact", "product_child", "--nocapture"])
         .envs(child_env.vars())
+        .env("TEMP", &temp)
+        .env("TMP", &temp)
         .env("ODYTTY_CONPTY_PRODUCT_CHILD", mode)
         .current_dir(cwd)
         .creation_flags(0x0800_0000)
@@ -103,6 +112,8 @@ fn run_owned(exe: &Path, mode: &str, cwd: &Path) {
     };
     let out = out.join().unwrap();
     let err = err.join().unwrap();
+    conpty_cleanup::retry(|| std::fs::remove_dir_all(&state_root))
+        .expect("clean owned helper state after exit");
     assert!(
         out.len() <= 65536 && err.len() <= 65536,
         "helper output bound"
@@ -226,19 +237,9 @@ fn default_transport() {
         "conpty_default_transport=exact_dcs;core_image=true;core_cursor=true;eof=true;reply_bytes={replies}"
     );
 }
-fn host_identity_and_shell() {
-    use std::os::windows::ffi::OsStringExt;
-    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-    use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::System::Threading::{
-        OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-        QueryFullProcessImageNameW,
-    };
+fn host_identity_and_shell(job: windows::Win32::Foundation::HANDLE) {
     let script = r#"
 [Console]::OutputEncoding=[Console]::InputEncoding=[Text.UTF8Encoding]::new($false);
-Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class OwnConsole { [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p); }';
-[uint32]$owner=0; $window=[OwnConsole]::GetConsoleWindow(); [void][OwnConsole]::GetWindowThreadProcessId($window,[ref]$owner);
-[Console]::WriteLine(('OWN_HOST={0};' -f $owner));
 [Console]::WriteLine(('CWD_MATCH='+((Get-Location).ProviderPath -eq $env:ODYTTY_NATIVE_EXPECTED_CWD)));
 [Console]::WriteLine(('ENV_VALUE='+$env:ODYTTY_NATIVE_VALUE));
 [Console]::WriteLine('READY_INPUT');
@@ -250,6 +251,15 @@ Start-Sleep -Seconds 3
     let scratch = support::TempDir::new("conpty-shell-", false);
     let cwd = scratch.path().join("cwd space \u{03b1}");
     std::fs::create_dir(&cwd).unwrap();
+    let impostor = scratch.path().join("different files");
+    for arch in ["x64", "arm64"] {
+        std::fs::create_dir_all(impostor.join(arch)).unwrap();
+        std::fs::write(
+            impostor.join(arch).join("OpenConsole.exe"),
+            b"not the running file",
+        )
+        .unwrap();
+    }
     let mut command = odytty::pty::CommandBuilder::new(program.into_os_string());
     for arg in ["-NoProfile", "-NonInteractive", "-Command", script] {
         command.arg(arg);
@@ -260,7 +270,7 @@ Start-Sleep -Seconds 3
     let mut session = PtySession::spawn_command(dimensions(), command).unwrap();
     let mut reader = session.try_clone_reader().unwrap();
     let mut writer = session.take_writer().unwrap();
-    let (tx, rx) = mpsc::channel::<Result<u32, String>>();
+    let (tx, rx) = mpsc::channel::<Result<(), String>>();
     let thread = std::thread::spawn(move || -> Result<conpty_replies::Replies, String> {
         let mut raw = Vec::new();
         let mut terminal = Terminal::new(80, 24);
@@ -293,11 +303,7 @@ Start-Sleep -Seconds 3
                 return Err(reason);
             }
             if !sent && String::from_utf8_lossy(&raw).contains("READY_INPUT") {
-                let text = String::from_utf8_lossy(&raw);
-                let tail = text.split("OWN_HOST=").nth(1).expect("host marker");
-                let pid: u32 = tail.split(';').next().unwrap().parse().unwrap();
-                assert!(pid > 0);
-                tx.send(Ok(pid)).expect("host observation receiver");
+                let _ = tx.send(Ok(()));
                 if let Err(error) = writer.write_all("input \u{03b1} \u{4e2d}\r".as_bytes()) {
                     return Err(format!(
                         "unicode_input_write_failed={:?}; replies={replies:?}",
@@ -312,70 +318,95 @@ Start-Sleep -Seconds 3
             let _ = tx.send(Err(reason.clone()));
             return Err(reason);
         }
-        assert!(String::from_utf8_lossy(&raw).contains("ECHO_INPUT=input \u{03b1} \u{4e2d};"));
-        assert!(String::from_utf8_lossy(&raw).contains("CWD_MATCH=True"));
-        assert!(
-            String::from_utf8_lossy(&raw).contains("ENV_VALUE=value \u{03b1} \u{4e2d} 'quoted'")
+        let text = String::from_utf8_lossy(&raw);
+        let input = text.contains("ECHO_INPUT=input \u{03b1} \u{4e2d};");
+        let cwd = text.contains("CWD_MATCH=True");
+        let env = text.contains("ENV_VALUE=value \u{03b1} \u{4e2d} 'quoted'");
+        println!(
+            "conpty_shell_observation=input:{input};cwd:{cwd};env:{env};eof:true;replies:{replies:?}"
         );
+        if !input || !cwd || !env || !replies.complete() {
+            return Err(format!(
+                "shell_assertions_failed;input={input};cwd={cwd};env={env};replies={replies:?}"
+            ));
+        }
         Ok(replies)
     });
-    let pid = rx
-        .recv_timeout(Duration::from_secs(25))
-        .expect("own attached console observation deadline")
-        .unwrap_or_else(|reason| panic!("{reason}"));
-    // Query only the PID supplied by our owned child's attached console window.
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.unwrap();
-    let handle = unsafe { OwnedHandle::from_raw_handle(handle.0) };
-    let mut wide = [0; 1024];
-    let mut len = wide.len() as u32;
-    unsafe {
-        QueryFullProcessImageNameW(
-            HANDLE(handle.as_raw_handle()),
-            PROCESS_NAME_WIN32,
-            windows::core::PWSTR(wide.as_mut_ptr()),
-            &mut len,
-        )
-    }
-    .unwrap();
-    let image = PathBuf::from(OsString::from_wide(&wide[..len as usize]))
-        .canonicalize()
-        .unwrap();
-    let base = current_dir().join(RUNTIME);
-    let expected = [
-        base.join("x64/OpenConsole.exe").canonicalize().unwrap(),
-        base.join("arm64/OpenConsole.exe").canonicalize().unwrap(),
-    ];
-    assert!(
-        expected.contains(&image),
-        "own console must use the pinned companion"
+    let ready = rx.recv_timeout(Duration::from_secs(25));
+    // The pseudoconsole's message-only HWND is not a host identity contract.
+    // Inspect only this helper's private job while its single session is alive.
+    let host = if matches!(ready, Ok(Ok(()))) {
+        conpty_host::verify(job, &current_dir().join(RUNTIME))
+    } else {
+        Err("shell_ready_observation_failed".into())
+    };
+    let different_file = if host.is_ok() {
+        match conpty_host::verify(job, &impostor) {
+            Err(reason) if reason.starts_with("own_job_pinned_host_mismatch;") => Ok(()),
+            _ => Err("different_file_identity_negative_failed"),
+        }
+    } else {
+        Err("primary_host_identity_failed")
+    };
+    let case_alias = if host.is_ok() {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        let wide: Vec<u16> = current_dir()
+            .join(RUNTIME)
+            .as_os_str()
+            .encode_wide()
+            .map(|c| {
+                if (b'a' as u16..=b'z' as u16).contains(&c) {
+                    c - 32
+                } else {
+                    c
+                }
+            })
+            .collect();
+        conpty_host::verify(job, Path::new(&OsString::from_wide(&wide)))
+    } else {
+        Err("primary_host_identity_failed".into())
+    };
+    let resize = session.resize(Dimensions {
+        rows: 25,
+        columns: 81,
+    });
+    // Never panic on an identity mismatch while the reader still needs the
+    // live PTY. Collect EOF, reply progress and child status before teardown.
+    let reader_result = thread.join();
+    let exit = session.wait();
+    drop(session);
+    let cleanup = conpty_cleanup::retry(|| std::fs::remove_dir_all(scratch.path()));
+    println!(
+        "conpty_host_checks=collected;host={host:?};different_file={different_file:?};case_alias={case_alias:?};resize={};reader={reader_result:?};exit={};cleanup={}",
+        resize.is_ok(),
+        exit.as_ref().is_ok_and(|s| s.success()),
+        cleanup.is_ok()
     );
-    session
-        .resize(Dimensions {
-            rows: 25,
-            columns: 81,
-        })
-        .unwrap();
-    let replies = thread
-        .join()
+    cleanup.expect("clean shell fixture after session exit");
+    assert!(ready.is_ok_and(|r| r.is_ok()), "shell readiness");
+    host.unwrap_or_else(|reason| panic!("{reason}"));
+    different_file.unwrap();
+    case_alias.unwrap();
+    resize.unwrap();
+    let replies = reader_result
         .expect("host reader thread")
         .unwrap_or_else(|reason| panic!("{reason}"));
     assert!(
         replies.complete(),
         "host replies incomplete at EOF: {replies:?}"
     );
+    assert!(exit.unwrap().success());
     println!(
-        "conpty_host_replies generated_bytes={} written_bytes={} completed_replies={} complete=true eof=true",
-        replies.generated_bytes, replies.written_bytes, replies.completed_replies
+        "conpty_owned_host=verified;unicode_input=true;env=true;cwd=true;resize=true;eof=true"
     );
-    assert!(session.wait().unwrap().success());
-    println!("conpty_owned_host=verified;unicode_input=true;resize=true;eof=true");
 }
+
 #[test]
 fn product_child() {
     let Some(mode) = std::env::var_os("ODYTTY_CONPTY_PRODUCT_CHILD") else {
         return;
     };
-    contain_helper();
+    let job = contain_helper();
     match mode.to_str().unwrap() {
         "transport" => default_transport(),
         "late-shadow" => {
@@ -397,7 +428,7 @@ fn product_child() {
                 std::fs::remove_file(shadow).unwrap();
             }
         }
-        "host" => host_identity_and_shell(),
+        "host" => host_identity_and_shell(job),
         "missing" => {
             let result = PtySession::spawn_shell_command(dimensions(), "exit 0");
             let error = match result {
@@ -429,90 +460,96 @@ fn default_public_spawn_uses_owned_bundled_host_and_unicode_input() {
 #[test]
 fn fresh_package_unicode_spaces_hostile_cwd_and_missing_asset_failures() {
     let scratch = support::TempDir::new("conpty-package-", false);
-    let package = scratch.path().join("package space \u{03b1}");
-    std::fs::create_dir(&package).unwrap();
-    let exe = package.join("product-test.exe");
-    std::fs::copy(std::env::current_exe().unwrap(), &exe).unwrap();
-    let hostile = scratch.path().join("cwd");
-    std::fs::create_dir(&hostile).unwrap();
-    for name in [
-        "conpty.dll",
-        "OpenConsole.exe",
-        "icu.dll",
-        "D3DCOMPILER_47.dll",
-    ] {
-        std::fs::write(hostile.join(name), b"must never load").unwrap();
-    }
-    run_owned(&exe, "missing", &hostile);
-    for arch in ["x64", "arm64"] {
-        std::fs::create_dir_all(package.join(RUNTIME).join(arch)).unwrap();
-    }
-    for member in ["conpty.dll", "x64/OpenConsole.exe", "arm64/OpenConsole.exe"] {
+    let outcome = std::panic::catch_unwind(|| {
+        let package = scratch.path().join("package space \u{03b1}");
+        std::fs::create_dir(&package).unwrap();
+        let exe = package.join("product-test.exe");
+        std::fs::copy(std::env::current_exe().unwrap(), &exe).unwrap();
+        let hostile = scratch.path().join("cwd");
+        std::fs::create_dir(&hostile).unwrap();
+        for name in [
+            "conpty.dll",
+            "OpenConsole.exe",
+            "icu.dll",
+            "D3DCOMPILER_47.dll",
+        ] {
+            std::fs::write(hostile.join(name), b"must never load").unwrap();
+        }
+        run_owned(&exe, "missing", &hostile);
+        for arch in ["x64", "arm64"] {
+            std::fs::create_dir_all(package.join(RUNTIME).join(arch)).unwrap();
+        }
+        for member in ["conpty.dll", "x64/OpenConsole.exe", "arm64/OpenConsole.exe"] {
+            std::fs::copy(
+                current_dir().join(RUNTIME).join(member),
+                package.join(RUNTIME).join(member),
+            )
+            .unwrap();
+        }
         std::fs::copy(
-            current_dir().join(RUNTIME).join(member),
-            package.join(RUNTIME).join(member),
+            current_dir().join("fixed-producer.exe"),
+            package.join("fixed-producer.exe"),
         )
         .unwrap();
-    }
-    std::fs::copy(
-        current_dir().join("fixed-producer.exe"),
-        package.join("fixed-producer.exe"),
-    )
-    .unwrap();
-    run_owned(&exe, "transport", &hostile);
-    run_owned(&exe, "host", &hostile);
-    run_owned(&exe, "late-shadow", &hostile);
-    for member in ["conpty.dll", "x64/OpenConsole.exe", "arm64/OpenConsole.exe"] {
-        let path = package.join(RUNTIME).join(member);
-        let bytes = std::fs::read(&path).unwrap();
-        conpty_cleanup::retry(|| std::fs::remove_file(&path))
-            .expect("remove native member after helper exit");
+        run_owned(&exe, "transport", &hostile);
+        run_owned(&exe, "host", &hostile);
+        run_owned(&exe, "late-shadow", &hostile);
+        for member in ["conpty.dll", "x64/OpenConsole.exe", "arm64/OpenConsole.exe"] {
+            let path = package.join(RUNTIME).join(member);
+            let bytes = std::fs::read(&path).unwrap();
+            conpty_cleanup::retry(|| std::fs::remove_file(&path))
+                .expect("remove native member after helper exit");
+            run_owned(&exe, "missing", &hostile);
+            let mut changed = bytes.clone();
+            changed[64] ^= 1;
+            std::fs::write(&path, changed).unwrap();
+            run_owned(&exe, "missing", &hostile);
+            std::fs::write(&path, bytes).unwrap();
+        }
+        let shadow = package.join(RUNTIME).join("OpenConsole.exe");
+        std::fs::write(&shadow, b"shadow").unwrap();
         run_owned(&exe, "missing", &hostile);
-        let mut changed = bytes.clone();
-        changed[64] ^= 1;
-        std::fs::write(&path, changed).unwrap();
-        run_owned(&exe, "missing", &hostile);
-        std::fs::write(&path, bytes).unwrap();
-    }
-    let shadow = package.join(RUNTIME).join("OpenConsole.exe");
-    std::fs::write(&shadow, b"shadow").unwrap();
-    run_owned(&exe, "missing", &hostile);
-    conpty_cleanup::retry(|| std::fs::remove_file(&shadow))
-        .expect("remove shadow after helper exit");
-    let host_dir = package.join(RUNTIME).join("arm64");
-    let outside = scratch.path().join("outside");
-    conpty_cleanup::retry(|| std::fs::rename(&host_dir, &outside))
-        .expect("move host directory after helper exit");
-    let powershell = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
-        .join("System32/WindowsPowerShell/v1.0/powershell.exe");
-    let child_env = scratch_dirs::ChildEnv::new();
-    let mut junction_child=Command::new(powershell).args(["-NoProfile","-NonInteractive","-Command",
+        conpty_cleanup::retry(|| std::fs::remove_file(&shadow))
+            .expect("remove shadow after helper exit");
+        let host_dir = package.join(RUNTIME).join("arm64");
+        let outside = scratch.path().join("outside");
+        conpty_cleanup::retry(|| std::fs::rename(&host_dir, &outside))
+            .expect("move host directory after helper exit");
+        let powershell = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+            .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        let child_env = scratch_dirs::ChildEnv::new();
+        let mut junction_child=Command::new(powershell).args(["-NoProfile","-NonInteractive","-Command",
         "$ErrorActionPreference='Stop'; New-Item -ItemType Junction -Path $env:ODYTTY_OWN_LINK -Target $env:ODYTTY_OWN_TARGET | Out-Null"])
         .envs(child_env.vars()).env("ODYTTY_OWN_LINK",&host_dir).env("ODYTTY_OWN_TARGET",&outside)
         .creation_flags(0x0800_0000).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(20);
-    let status = loop {
-        if let Some(status) = junction_child.try_wait().unwrap() {
-            break status;
-        }
-        if Instant::now() >= deadline {
-            let _ = junction_child.kill();
-            let _ = junction_child.wait();
-            panic!("owned junction deadline");
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
-    assert!(status.success(), "owned junction fixture");
-    run_owned(&exe, "missing", &hostile);
-    conpty_cleanup::retry(|| std::fs::remove_dir(&host_dir))
-        .expect("remove junction after helper exit");
-    conpty_cleanup::retry(|| std::fs::rename(&outside, &host_dir))
-        .expect("restore host directory after helper exit");
-    // An offline complete-folder replacement after all processes have exited.
-    let upgraded = scratch.path().join("replacement");
-    conpty_cleanup::retry(|| std::fs::rename(&package, &upgraded))
-        .expect("replace package after helper exit");
-    run_owned(&upgraded.join("product-test.exe"), "transport", &hostile);
-    conpty_cleanup::retry(|| std::fs::remove_dir_all(scratch.path()))
-        .expect("clean package after all owned helpers exited");
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let status = loop {
+            if let Some(status) = junction_child.try_wait().unwrap() {
+                break status;
+            }
+            if Instant::now() >= deadline {
+                let _ = junction_child.kill();
+                let _ = junction_child.wait();
+                panic!("owned junction deadline");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert!(status.success(), "owned junction fixture");
+        run_owned(&exe, "missing", &hostile);
+        conpty_cleanup::retry(|| std::fs::remove_dir(&host_dir))
+            .expect("remove junction after helper exit");
+        conpty_cleanup::retry(|| std::fs::rename(&outside, &host_dir))
+            .expect("restore host directory after helper exit");
+        // An offline complete-folder replacement after all processes have exited.
+        let upgraded = scratch.path().join("replacement");
+        conpty_cleanup::retry(|| std::fs::rename(&package, &upgraded))
+            .expect("replace package after helper exit");
+        run_owned(&upgraded.join("product-test.exe"), "transport", &hostile);
+    });
+    let cleanup = conpty_cleanup::retry(|| std::fs::remove_dir_all(scratch.path()));
+    println!("conpty_package_cleanup={}", cleanup.is_ok());
+    cleanup.expect("clean package after all owned helpers exited");
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
 }

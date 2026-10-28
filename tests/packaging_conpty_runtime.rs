@@ -103,3 +103,28 @@ fn host_fixture_selects_utf8_before_all_console_io() {
     assert!(script.contains("[Console]::ReadLine()"));
     assert!(script.contains("ENV_VALUE="));
 }
+
+#[path = "support/conpty_host.rs"]
+mod conpty_host;
+
+#[test]
+fn host_identity_uses_private_job_and_file_handles_without_window_proxy() {
+    #[cfg(windows)]
+    let _native_check: fn(
+        windows::Win32::Foundation::HANDLE,
+        &std::path::Path,
+    ) -> Result<(), String> = conpty_host::verify;
+    let source = read("tests/conpty_graphics_transport.rs");
+    assert!(!source.contains("GetConsoleWindow"));
+    assert!(!source.contains("GetWindowThreadProcessId"));
+    assert!(source.contains("conpty_host::verify(job"));
+    let identity = read("tests/support/conpty_host.rs");
+    for api in [
+        "QueryInformationJobObject",
+        "IsProcessInJob",
+        "GetFileInformationByHandleEx",
+    ] {
+        assert!(identity.contains(api));
+    }
+    assert!(!identity.contains("CreateToolhelp32Snapshot"));
+}
