@@ -218,27 +218,95 @@ fn file_drop_shell_refuses_missing_process_metadata() {
 fn proc_stat_pgrp_uses_field_after_final_comm_parenthesis() {
     assert_eq!(
         proc_stat_pgrp("17 (name with ) spaces) S 1 4242 3 4 5"),
-        Some(4242)
+        Ok(4242)
     );
-    assert_eq!(proc_stat_pgrp("malformed"), None);
+    assert_eq!(proc_stat_pgrp("malformed"), Err(StatParseStage::NoNameEnd));
     // Malformed prefixes must not shift another numeric field into the pgrp
     // position: missing state, multi-character state, non-numeric ppid.
-    assert_eq!(proc_stat_pgrp("17 (comm) 1 4242 3"), None);
-    assert_eq!(proc_stat_pgrp("17 (comm) SS 1 4242 3"), None);
-    assert_eq!(proc_stat_pgrp("17 (comm) S x 4242 3"), None);
-    assert_eq!(proc_stat_pgrp("17 (comm) S 1"), None);
-    assert_eq!(proc_stat_pgrp("17 (comm) S 1 4242"), Some(4242));
+    assert_eq!(
+        proc_stat_pgrp("17 (comm) 1 4242 3"),
+        Err(StatParseStage::BadState)
+    );
+    assert_eq!(
+        proc_stat_pgrp("17 (comm) SS 1 4242 3"),
+        Err(StatParseStage::BadState)
+    );
+    assert_eq!(
+        proc_stat_pgrp("17 (comm) S x 4242 3"),
+        Err(StatParseStage::BadPpid)
+    );
+    assert_eq!(
+        proc_stat_pgrp("17 (comm) S 1"),
+        Err(StatParseStage::MissingPgrp)
+    );
+    assert_eq!(proc_stat_pgrp("17 (comm) S 1 4242"), Ok(4242));
+}
+
+/// Each place a stat can stop parsing has its own finite name, and the scan
+/// reports it with the byte count it read, never the bytes.
+#[cfg(target_os = "linux")]
+#[test]
+fn scan_names_where_an_unparsable_stat_stopped() {
+    for (stat, stage) in [
+        ("4300 (proc", StatParseStage::NoNameEnd),
+        ("4300 (proc)", StatParseStage::MissingState),
+        ("4300 (proc)  ", StatParseStage::MissingState),
+        ("4300 (proc) 9 1 4242 3", StatParseStage::BadState),
+        ("4300 (proc) S", StatParseStage::MissingPpid),
+        ("4300 (proc) S -1 4242 3", StatParseStage::BadPpid),
+        ("4300 (proc) S 1", StatParseStage::MissingPgrp),
+        ("4300 (proc) S 1 4294967296 3", StatParseStage::BadPgrp),
+    ] {
+        let proc = ScriptedProc::new(&["4242", "4300"], move |pid| {
+            if pid == 4300 {
+                Ok(stat.as_bytes().to_vec())
+            } else {
+                idle_launch_stat(pid)
+            }
+        });
+        assert_eq!(
+            scan_launch_group(&proc, LAUNCH),
+            Err(ScanRefusal::Unparsable {
+                pid: 4300,
+                stage,
+                len: stat.len(),
+            }),
+            "{stat:?}"
+        );
+    }
+    // A parsed member is never reported as unparsable, and the reverse.
+    let member = ScriptedProc::new(&["4242", "4300"], |pid| {
+        Ok(format!("{pid} (proc) S 1 {LAUNCH} 3").into_bytes())
+    });
+    assert_eq!(
+        scan_launch_group(&member, LAUNCH),
+        Err(ScanRefusal::Member { pid: 4300 })
+    );
+    // The diagnostic text carries no byte of the process name.
+    let named = ScriptedProc::new(&["4242", "4300"], |pid| {
+        if pid == 4300 {
+            Ok(b"4300 (secret-name".to_vec())
+        } else {
+            idle_launch_stat(pid)
+        }
+    });
+    let refusal = format!("{:?}", scan_launch_group(&named, LAUNCH));
+    assert!(!refusal.contains("secret"), "{refusal}");
+    assert!(
+        refusal.contains("NoNameEnd") && refusal.contains("len: 17"),
+        "{refusal}"
+    );
 }
 
 #[cfg(target_os = "linux")]
 #[test]
 fn traced_group_members_are_seen_and_unparsable_stats_refuse() {
     // A ptrace-stopped member reports lowercase `t`; older kernels report `x`.
-    assert_eq!(proc_stat_pgrp("18 (gdb target) t 1 4242 3"), Some(4242));
-    assert_eq!(proc_stat_pgrp("18 (dead) x 1 4242 3"), Some(4242));
+    assert_eq!(proc_stat_pgrp("18 (gdb target) t 1 4242 3"), Ok(4242));
+    assert_eq!(proc_stat_pgrp("18 (dead) x 1 4242 3"), Ok(4242));
     assert_eq!(
         stat_group_verdict("18 (gdb target) t 1 4242 3", 18, 4242),
-        StatGroupVerdict::Refuse,
+        StatGroupVerdict::Member,
         "a traced member of the launch group refuses the drop"
     );
     assert_eq!(
@@ -251,7 +319,7 @@ fn traced_group_members_are_seen_and_unparsable_stats_refuse() {
     );
     assert_eq!(
         stat_group_verdict("malformed", 20, 4242),
-        StatGroupVerdict::Refuse,
+        StatGroupVerdict::Unparsable(StatParseStage::NoNameEnd),
         "a stat that cannot be parsed hides a possible member"
     );
 }
@@ -403,15 +471,21 @@ fn scan_reads_the_stat_as_bytes_whatever_the_process_name_holds() {
     });
     assert_eq!(
         scan_launch_group(&member, LAUNCH),
-        Err(ScanRefusal::Refuse { pid: 9000 })
+        Err(ScanRefusal::Member { pid: 9000 })
     );
     // The launch child itself may carry such a name.
     let launch = ScriptedProc::new(&["4242"], move |pid| Ok(odd(pid, LAUNCH)));
     assert_eq!(scan_launch_group(&launch, LAUNCH), Ok(()));
     // Truncated or unparsable bytes after the name still refuse.
-    assert_eq!(proc_stat_pgrp(b"17 (sl\xffe) S 1"), None);
-    assert_eq!(proc_stat_pgrp(b"17 (sl\xffe) S \xff 4242"), None);
-    assert_eq!(proc_stat_pgrp(b"17 (sl\xffe) S 1 4242"), Some(4242));
+    assert_eq!(
+        proc_stat_pgrp(b"17 (sl\xffe) S 1"),
+        Err(StatParseStage::MissingPgrp)
+    );
+    assert_eq!(
+        proc_stat_pgrp(b"17 (sl\xffe) S \xff 4242"),
+        Err(StatParseStage::BadPpid)
+    );
+    assert_eq!(proc_stat_pgrp(b"17 (sl\xffe) S 1 4242"), Ok(4242));
 }
 
 #[cfg(target_os = "linux")]
@@ -444,7 +518,7 @@ fn scan_refuses_a_second_group_member_a_bad_stat_a_missing_launch_and_a_huge_lis
     });
     assert_eq!(
         scan_launch_group(&member, LAUNCH),
-        Err(ScanRefusal::Refuse { pid: 4300 })
+        Err(ScanRefusal::Member { pid: 4300 })
     );
     let garbled = ScriptedProc::new(&["4242", "4300"], |pid| {
         if pid == 4300 {
@@ -455,7 +529,11 @@ fn scan_refuses_a_second_group_member_a_bad_stat_a_missing_launch_and_a_huge_lis
     });
     assert_eq!(
         scan_launch_group(&garbled, LAUNCH),
-        Err(ScanRefusal::Refuse { pid: 4300 })
+        Err(ScanRefusal::Unparsable {
+            pid: 4300,
+            stage: StatParseStage::NoNameEnd,
+            len: 7,
+        })
     );
     let absent = ScriptedProc::new(&["1", "9000"], idle_launch_stat);
     assert_eq!(

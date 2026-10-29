@@ -600,8 +600,30 @@ fn current_program(pid: u32) -> Option<PathBuf> {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 const MAX_GROUP_SCAN_PIDS: usize = 65_536;
 
+/// Where a `/proc/<pid>/stat` stopped parsing. Finite and content-free, so a
+/// refusal can say why a stat was unreadable without repeating any of its
+/// bytes (the process name inside may be private).
 #[cfg(target_os = "linux")]
-fn proc_stat_pgrp(stat: impl AsRef<[u8]>) -> Option<u32> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StatParseStage {
+    /// No `)` closes the process name.
+    NoNameEnd,
+    /// Nothing follows the name.
+    MissingState,
+    /// The state is not a single letter.
+    BadState,
+    /// Nothing follows the state.
+    MissingPpid,
+    /// The parent pid is not a decimal `u32`.
+    BadPpid,
+    /// Nothing follows the parent pid.
+    MissingPgrp,
+    /// The process group is not a decimal `u32`.
+    BadPgrp,
+}
+
+#[cfg(target_os = "linux")]
+fn proc_stat_pgrp(stat: impl AsRef<[u8]>) -> Result<u32, StatParseStage> {
     // The stat is bytes, not text: `comm` is whatever the process (or its
     // executable's file name) holds and need not be UTF-8. Field 2 (`comm`) is
     // parenthesized and may itself contain spaces, `)`, or any other byte.
@@ -609,18 +631,21 @@ fn proc_stat_pgrp(stat: impl AsRef<[u8]>) -> Option<u32> {
     // Validate the state and ppid tokens so a malformed prefix cannot shift a
     // different numeric field into the pgrp position.
     let stat = stat.as_ref();
-    let after_comm = stat.get(stat.iter().rposition(|&byte| byte == b')')? + 1..)?;
-    let mut fields = after_comm
+    let name_end = stat
+        .iter()
+        .rposition(|&byte| byte == b')')
+        .ok_or(StatParseStage::NoNameEnd)?;
+    let mut fields = stat[name_end + 1..]
         .split(u8::is_ascii_whitespace)
         .filter(|field| !field.is_empty());
-    let state = fields.next()?;
+    let state = fields.next().ok_or(StatParseStage::MissingState)?;
     // proc(5) states are letters, including lowercase `t` (tracing stop)
     // and, on older kernels, `x` and `w`.
     if state.len() != 1 || !state[0].is_ascii_alphabetic() {
-        return None;
+        return Err(StatParseStage::BadState);
     }
-    ascii_u32(fields.next()?)?;
-    ascii_u32(fields.next()?)
+    ascii_u32(fields.next().ok_or(StatParseStage::MissingPpid)?).ok_or(StatParseStage::BadPpid)?;
+    ascii_u32(fields.next().ok_or(StatParseStage::MissingPgrp)?).ok_or(StatParseStage::BadPgrp)
 }
 
 #[cfg(target_os = "linux")]
@@ -676,9 +701,16 @@ enum ScanRefusal {
         kind: std::io::ErrorKind,
         errno: Option<i32>,
     },
-    /// This process is another member of the group, or its stat cannot be read
-    /// as one.
-    Refuse { pid: u32 },
+    /// This process is another member of the launch group.
+    Member { pid: u32 },
+    /// This process's stat was read but did not parse, so it may hide a
+    /// member. Carries only where parsing stopped and the byte count read,
+    /// never the bytes themselves.
+    Unparsable {
+        pid: u32,
+        stage: StatParseStage,
+        len: usize,
+    },
     /// The launch child never appeared in the listing.
     LaunchNotListed,
 }
@@ -718,10 +750,17 @@ fn scan_launch_group(source: &dyn ProcSource, launch_pid: u32) -> Result<(), Sca
                 });
             }
         };
-        match stat_group_verdict(stat, pid, launch_pid) {
+        match stat_group_verdict(&stat, pid, launch_pid) {
             StatGroupVerdict::Outside => {}
             StatGroupVerdict::Launch => found_launch = true,
-            StatGroupVerdict::Refuse => return Err(ScanRefusal::Refuse { pid }),
+            StatGroupVerdict::Member => return Err(ScanRefusal::Member { pid }),
+            StatGroupVerdict::Unparsable(stage) => {
+                return Err(ScanRefusal::Unparsable {
+                    pid,
+                    stage,
+                    len: stat.len(),
+                });
+            }
         }
     }
     if found_launch {
@@ -744,18 +783,19 @@ enum StatGroupVerdict {
     Outside,
     /// The process is the launch child itself.
     Launch,
-    /// Another group member, or a stat that cannot be read as one, may hide
-    /// a member: refuse.
-    Refuse,
+    /// Another member of the launch group: refuse.
+    Member,
+    /// A stat that cannot be parsed may hide a member: refuse.
+    Unparsable(StatParseStage),
 }
 
 #[cfg(target_os = "linux")]
 fn stat_group_verdict(stat: impl AsRef<[u8]>, pid: u32, launch_pid: u32) -> StatGroupVerdict {
     match proc_stat_pgrp(stat) {
-        None => StatGroupVerdict::Refuse,
-        Some(pgrp) if pgrp != launch_pid => StatGroupVerdict::Outside,
-        Some(_) if pid == launch_pid => StatGroupVerdict::Launch,
-        Some(_) => StatGroupVerdict::Refuse,
+        Err(stage) => StatGroupVerdict::Unparsable(stage),
+        Ok(pgrp) if pgrp != launch_pid => StatGroupVerdict::Outside,
+        Ok(_) if pid == launch_pid => StatGroupVerdict::Launch,
+        Ok(_) => StatGroupVerdict::Member,
     }
 }
 
