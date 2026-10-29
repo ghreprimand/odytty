@@ -114,7 +114,7 @@ pub(in crate::native) struct ViewportUniform {
     pub(in crate::native) text: [f32; 4],
 }
 
-fn create_atlas_texture(
+pub(in crate::native) fn create_atlas_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     atlas: &GlyphAtlas,
@@ -162,7 +162,7 @@ fn create_atlas_texture(
 // read with the atlas's own row stride. The monochrome atlas is exempt from
 // this: its builder bounds the geometry by the device limit before allocating,
 // so `create_atlas_texture` keeps asserting that the extent is unclamped.
-fn create_color_atlas_texture(
+pub(in crate::native) fn create_color_atlas_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     atlas: &ColorGlyphAtlas,
@@ -465,6 +465,15 @@ pub(in crate::native) struct GpuState {
     pub(super) borrow_rows: Option<(Vec<bool>, std::ops::Range<usize>)>,
     /// Opaque window overlay vertices preserved across synchronized cursor frames.
     pub(super) retained_overlay_top: Vec<grid::Vertex>,
+    /// Color glyphs of the opaque window overlay layers, preserved with
+    /// `retained_overlay_top` and drawn layer by layer over it.
+    pub(super) retained_overlay_top_color: Vec<ColorGlyphVertex>,
+    /// Per-layer instance counts of `retained_overlay_top` and
+    /// `retained_overlay_top_color`, in paint order.
+    pub(super) overlay_top_segments: Vec<super::types::OverlayTopSegment>,
+    /// Color runs of this frame's overlay layers, between the atlas pass and
+    /// the vertex build.
+    pub(super) overlay_top_runs: Vec<Vec<ColorGlyphRun>>,
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
     /// live PTY output arrives.
     pub(in crate::native) atlas: GlyphAtlas,
@@ -1208,6 +1217,9 @@ impl GpuState {
             bidi_display: None,
             borrow_rows: None,
             retained_overlay_top: Vec::new(),
+            retained_overlay_top_color: Vec::new(),
+            overlay_top_segments: Vec::new(),
+            overlay_top_runs: Vec::new(),
             atlas,
             color_glyph_atlas,
             emoji_rasterizer,

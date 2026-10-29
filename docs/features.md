@@ -2104,7 +2104,11 @@ The monochrome preview shows each recorded character with its combining marks
 and cluster scalars in the cells the recording gave it, so a character recorded
 two cells wide (including an ambiguous-width character with
 `ambiguous_width = wide`) keeps both cells. Attributes and colors are not
-shown.
+shown, except that an emoji draws as the same color glyph the terminal draws
+for it; an emoji the color emoji font does not cover keeps its monochrome
+glyph. With Reorder
+Right-to-Left Text on, or in a split tab, the preview draws other script
+clusters cell by cell rather than shaped.
 
 ### Connect To Saved Or Ad-Hoc Hosts
 

@@ -2178,7 +2178,11 @@ that closed while the picker was open, including when names are duplicated.
   it again, so an emoji sequence, a script cluster or an ambiguous-width
   character recorded as wide takes the same cells as on screen, and a cluster
   the recording split with a control sequence stays split; attributes and
-  colors are not reproduced. Replay
+  colors are not reproduced, but an emoji draws as the color glyph the terminal
+  draws for it (an emoji without color-font coverage stays monochrome). When the
+  preview is a separate window layer (bidi reordering on, or a split tab), each
+  layer draws its color glyphs over its own panel and below any later layer,
+  and other script clusters draw per cell rather than shaped. Replay
   is presentation-only - it never mutates live core terminal state, so the live
   frame is byte-identical whether or not the overlay is active. Recording is
   local-only: frames live only in memory, never written to disk or sent over the

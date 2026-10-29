@@ -74,13 +74,14 @@ pub(in crate::native) use resources::AdapterDiagnostics;
 pub(super) use resources::GpuState;
 #[cfg(test)]
 pub(super) use resources::{
-    ViewportUniform, create_atlas_bind_group, create_color_atlas_bind_group,
-    grow_vertex_buffer_capacity, physical_font_px,
+    ViewportUniform, create_atlas_bind_group, create_atlas_texture, create_color_atlas_bind_group,
+    create_color_atlas_texture, grow_vertex_buffer_capacity, physical_font_px,
 };
 
 #[cfg(test)]
 pub(super) use scene::{
-    append_cursor_layer_vertices, ensure_snapshot_glyphs, multi_pane_wallpaper_edge_wash_quads,
+    append_cursor_layer_vertices, build_overlay_top_vertices_into, ensure_snapshot_glyphs,
+    multi_pane_wallpaper_edge_wash_quads, prepare_overlay_top_glyphs, splice_overlay_top_color,
     wallpaper_edge_wash_quads_with_pin,
 };
 
@@ -94,6 +95,8 @@ pub(super) use types::{
     append_cursor_glow_vertices, append_cursor_streak_vertices, quads_excluding,
     rail_overlay_chrome_pin, retained_cursor_effects,
 };
+#[cfg(test)]
+pub(super) use types::{OverlayDrawStep, OverlayTopSegment, for_each_overlay_draw_step};
 #[cfg(test)]
 pub(super) use types::{
     build_cursor_glow_instance, build_cursor_glow_instance_with_bidi, build_cursor_streak_instance,

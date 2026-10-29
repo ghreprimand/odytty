@@ -80,7 +80,8 @@ impl GpuState {
         let cell_count = self.cell_vertex_count.min(self.vertex_count);
         // Canonical Kitty render order: background cell quads -> negative-z
         // images -> analytic cursor aura -> coverage glyphs/decorations ->
-        // color glyphs -> cursor/overlays -> non-negative-z images. Keeping the
+        // color glyphs -> cursor/overlays -> window overlay layers, each with
+        // its own color glyphs -> non-negative-z images. Keeping the
         // aura below both glyph lanes preserves text pixels exactly.
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
@@ -135,15 +136,34 @@ impl GpuState {
                 self.color_glyph_content_vertex_count..self.color_glyph_vertex_count,
             );
         }
-        if cursor_end < self.vertex_count {
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.bind_group, &[]);
-            pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-            pass.draw(
-                0..grid::VERTS_PER_QUAD as u32,
-                cursor_end..self.vertex_count,
-            );
-        }
+        // Window overlay layers, each followed by its own color glyphs, then
+        // the floating rail strip.
+        let color_total = self.color_glyph_vertex_count.saturating_add(
+            self.overlay_top_segments
+                .iter()
+                .fold(0u32, |sum, segment| sum.saturating_add(segment.color)),
+        );
+        super::types::for_each_overlay_draw_step(
+            cursor_end,
+            self.vertex_count,
+            self.color_glyph_vertex_count,
+            color_total,
+            &self.overlay_top_segments,
+            |step| match step {
+                super::types::OverlayDrawStep::Cells(start, end) => {
+                    pass.set_pipeline(&self.pipeline);
+                    pass.set_bind_group(0, &self.bind_group, &[]);
+                    pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+                    pass.draw(0..grid::VERTS_PER_QUAD as u32, start..end);
+                }
+                super::types::OverlayDrawStep::Color(start, end) => {
+                    pass.set_pipeline(&self.color_glyph_pipeline);
+                    pass.set_bind_group(0, &self.color_glyph_bind_group, &[]);
+                    pass.set_vertex_buffer(0, self.color_glyph_vertex_buf.slice(..));
+                    pass.draw(0..grid::VERTS_PER_QUAD as u32, start..end);
+                }
+            },
+        );
         self.image_layer.draw_above(pass);
         // NOTE: the C4 viewer overlay is intentionally NOT drawn here. It is
         // composited in a dedicated pass on the swapchain AFTER the CRT/bloom

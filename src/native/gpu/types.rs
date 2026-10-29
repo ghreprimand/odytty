@@ -543,6 +543,8 @@ pub(in crate::native) fn cursor_glow_falloff(outside: f32, radius: f32) -> f32 {
 /// and so would be overdrawn by other panes' glyphs - an `OverlayTop`'s full
 /// cell vertices (background **and** glyphs) are appended after the dividers and
 /// per-pane overlays, so the panel composites opaquely on top of everything.
+/// Its color glyphs (an emoji in the replay preview) draw right after its own
+/// cells, before any later layer.
 /// The snapshot is sized and positioned in window space by the caller. The
 /// single-pane bidi path also uses this layer to preserve the terminal map.
 /// With reordering off, single-pane overlays paint into the terminal snapshot.
@@ -554,6 +556,60 @@ pub(in crate::native) struct OverlayTop<'a> {
     /// Background treatment params (matches the panes so any global treatment
     /// is consistent across the frame).
     pub(in crate::native) treatment: grid::BackgroundTreatmentParams,
+}
+
+/// One window-level overlay layer's share of the trailing draw segment: its
+/// opaque cell vertices (background and mono glyphs), then the color glyphs
+/// drawn over them, before the next layer. Drawing each layer's color glyphs
+/// right after its own cells keeps an emoji in the replay preview visible over
+/// its panel and still covered by a later layer (the rename band).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::native) struct OverlayTopSegment {
+    /// Cell instances of this layer in the main vertex buffer.
+    pub(in crate::native) cells: u32,
+    /// Color-glyph instances of this layer in the color-glyph buffer.
+    pub(in crate::native) color: u32,
+}
+
+/// One draw of the trailing segment, as instance ranges `[start, end)`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::native) enum OverlayDrawStep {
+    /// Main vertex buffer, cell pipeline.
+    Cells(u32, u32),
+    /// Color-glyph buffer, color-glyph pipeline.
+    Color(u32, u32),
+}
+
+/// Visit the trailing draws in paint order: each overlay layer's cells and
+/// then its color glyphs, then whatever follows the layers in the main buffer
+/// (the floating rail strip). Cell layers start at `cells_start`, color layers
+/// at `color_start`; every range is clamped to its buffer's count, and empty
+/// ranges are skipped.
+pub(in crate::native) fn for_each_overlay_draw_step(
+    cells_start: u32,
+    vertex_count: u32,
+    color_start: u32,
+    color_count: u32,
+    segments: &[OverlayTopSegment],
+    mut step: impl FnMut(OverlayDrawStep),
+) {
+    let mut cells = cells_start.min(vertex_count);
+    let mut color = color_start.min(color_count);
+    for segment in segments {
+        let cells_end = cells.saturating_add(segment.cells).min(vertex_count);
+        if cells < cells_end {
+            step(OverlayDrawStep::Cells(cells, cells_end));
+        }
+        cells = cells_end;
+        let color_end = color.saturating_add(segment.color).min(color_count);
+        if color < color_end {
+            step(OverlayDrawStep::Color(color, color_end));
+        }
+        color = color_end;
+    }
+    if cells < vertex_count {
+        step(OverlayDrawStep::Cells(cells, vertex_count));
+    }
 }
 
 /// The rail **auto-hide overlay**: the revealed rail band drawn as a

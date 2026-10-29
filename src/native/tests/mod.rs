@@ -322,6 +322,7 @@ mod read_only_label;
 mod read_only_pane;
 mod replace_prompt;
 mod replay_isolation;
+mod replay_overlay_emoji;
 mod resize_retry_app;
 mod restore_theme;
 mod script_shaping;

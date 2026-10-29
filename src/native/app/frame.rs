@@ -860,6 +860,7 @@ impl App {
                 #[cfg(test)]
                 {
                     self.single_pane_frame_probe_for_test = Some((signature.clone(), update));
+                    self.overlay_top_probe_for_test = overlay_top.clone();
                 }
                 // TRANSPARENCY: window background alpha for this frame,
                 // computed before the mutable GPU borrow.

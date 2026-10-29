@@ -1504,6 +1504,10 @@ impl App {
         let overlay_top = self
             .build_overlay_top(content, cell)
             .or_else(|| self.build_transient_hud_top(content, cell));
+        #[cfg(test)]
+        {
+            self.overlay_top_probe_for_test = overlay_top.iter().cloned().collect();
+        }
         let treatment_for_overlay = treatment;
         // Solid quads composited over the pane snapshots: the inter-pane
         // dividers plus the tab strip's own quads (the active-tab outline). Both

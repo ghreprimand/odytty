@@ -1046,6 +1046,14 @@ impl App {
         self.multipane_pane_probe_for_test.clone()
     }
 
+    /// The window-level overlay layers the last frame handed to the GPU as
+    /// `OverlayTop` (snapshot and window-space origin), in paint order. Empty
+    /// when the frame drew none (reordering off in a single pane).
+    #[cfg(test)]
+    pub(in crate::native) fn overlay_top_layers_for_test(&self) -> &[(Snapshot, [f32; 2])] {
+        &self.overlay_top_probe_for_test
+    }
+
     /// Deliver a dirty single-pane frame through the real redraw handler and
     /// return its generated signature and final geometry decision. Test cell
     /// metrics allow snapshot and cache policy to run without GPU presentation.

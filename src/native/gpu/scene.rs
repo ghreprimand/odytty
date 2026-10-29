@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 
 use crate::atlas;
 use crate::core::{CursorStyle, RgbColor, Snapshot};
+use crate::emoji::{ColorGlyphAtlas, EmojiRasterizer};
 use crate::graphics::{StoredImageId, VisiblePlacement};
 use crate::grid::{self, ColorGlyphRun, ColorGlyphVertex, CursorRenderParams, SolidQuad, Vertex};
 use crate::ligature::LigatureRun;
@@ -27,7 +28,7 @@ use super::resources::{
 };
 use super::types::{
     CursorGlowInstance, CursorGlowRequest, CursorStreakInstance, CursorStreakRequest, OverlayTop,
-    PaneRender, PanelFrameQuads, RailOverlay,
+    OverlayTopSegment, PaneRender, PanelFrameQuads, RailOverlay,
 };
 use super::types::{
     accumulate_pane_color_glyphs, append_cursor_glow_vertices, append_cursor_streak_vertices,
@@ -85,6 +86,76 @@ pub(in crate::native) fn ensure_snapshot_glyphs_excluding_color_runs(
             let _ = atlas.ensure_styled(fonts.font_for(style), style, mark);
         }
     }
+}
+
+/// Prepare one window-level overlay layer: rasterize the color glyphs its
+/// cells own (an emoji recorded in a replay frame) and ensure the mono glyph
+/// of every other cell. Returns the layer's color runs. Shaping and ligature
+/// runs are not built for overlay layers; their text draws per cell.
+pub(in crate::native) fn prepare_overlay_top_glyphs(
+    atlas: &mut GlyphAtlas,
+    fonts: &StyleFonts,
+    rasterizer: &mut EmojiRasterizer,
+    color_atlas: &mut ColorGlyphAtlas,
+    snapshot: &Snapshot,
+) -> Vec<ColorGlyphRun> {
+    let runs = rasterizer.build_color_glyph_runs(snapshot, color_atlas);
+    ensure_snapshot_glyphs_excluding_color_runs(atlas, fonts, snapshot, &runs);
+    runs
+}
+
+/// Build one window-level overlay layer: its opaque cell vertices into
+/// `cells` (a cell a color run covers draws no mono glyph) and its color
+/// glyphs into `color`. Both outputs are cleared first.
+pub(in crate::native) fn build_overlay_top_vertices_into(
+    cells: &mut Vec<Vertex>,
+    color: &mut Vec<ColorGlyphVertex>,
+    atlas: &GlyphAtlas,
+    color_atlas: &ColorGlyphAtlas,
+    overlay: &OverlayTop,
+    runs: &[ColorGlyphRun],
+    text_brightness: f32,
+) {
+    grid::build_cell_vertices_with_focus_dim_and_origin_into(
+        cells,
+        overlay.snapshot,
+        atlas,
+        runs,
+        0.0,
+        overlay.origin,
+        overlay.treatment,
+        // Window-level chrome stays opaque over translucent content.
+        1.0,
+        // Overlay panel text lifts with the rest of the window's ink
+        // (`1.0` = identity).
+        text_brightness,
+        // The overlay-top snapshot IS the panel; its own opaque layer is
+        // composited last, so no per-cell force is needed here.
+        None,
+        grid::ChromePin::NONE,
+    );
+    grid::build_color_glyph_vertices_with_origin_into(
+        color,
+        overlay.snapshot,
+        color_atlas,
+        runs,
+        overlay.origin,
+        grid::ChromePin::NONE,
+        grid::RowFade::NONE,
+    );
+}
+
+/// Replace everything after the cursor's color glyphs (`cursor_end`) with the
+/// overlay layers' retained color glyphs. Returns whether any were appended,
+/// so the caller uploads only then.
+pub(in crate::native) fn splice_overlay_top_color(
+    buffer: &mut Vec<ColorGlyphVertex>,
+    cursor_end: usize,
+    retained: &[ColorGlyphVertex],
+) -> bool {
+    buffer.truncate(cursor_end);
+    buffer.extend_from_slice(retained);
+    !retained.is_empty()
 }
 
 pub(super) fn vertex_bytes_len(vertices: &[Vertex]) -> u64 {
@@ -532,18 +603,10 @@ impl GpuState {
             pane_runs.push(runs);
             pane_ligature_runs.push(ligature_runs);
         }
-        // The topmost overlay panel is text-only (borders, labels, values); its
-        // mono glyphs must be in the atlas before any vertices are built. It
-        // carries no color glyphs (overlays never render emoji), so it is
-        // excluded with an empty run list.
-        for overlay in overlay_top {
-            ensure_snapshot_glyphs_excluding_color_runs(
-                &mut self.atlas,
-                &self.fonts,
-                overlay.snapshot,
-                &[],
-            );
-        }
+        // The topmost overlay layers' glyphs (mono, and color for an emoji
+        // the replay preview shows) must be in both atlases before any
+        // vertices are built.
+        self.prepare_overlay_tops(overlay_top);
         // The revealed rail overlay strip's mono glyphs join the atlas in
         // the same ensure pass.
         if let Some(rail) = rail_overlay.as_ref() {
@@ -832,6 +895,10 @@ impl GpuState {
         self.color_glyph_vertices
             .extend_from_slice(&cursor_color_buf);
         self.color_glyph_vertex_count = self.color_glyph_vertices.len() as u32;
+        // Overlay layers' color glyphs follow the cursor's; the layer
+        // segments draw them right after their own cells.
+        self.color_glyph_vertices
+            .extend_from_slice(&self.retained_overlay_top_color);
 
         // Upload the cell/overlay buffer.
         let needed = vertex_bytes_len(&self.vertices);
@@ -962,36 +1029,68 @@ impl GpuState {
     /// Append opaque window-level layers after terminal glyphs and cursor
     /// layers, in order, so a later layer draws over an earlier one where they
     /// overlap.
+    ///
+    /// Each layer's color glyphs are kept with its segment counts, so the
+    /// frame draws them over that layer and under the next one. The cell and
+    /// color vertices are retained for cursor-only and synchronized frames.
     fn push_overlay_tops(&mut self, overlays: &[OverlayTop]) {
         self.retained_overlay_top.clear();
+        self.retained_overlay_top_color.clear();
+        self.overlay_top_segments.clear();
+        let runs = std::mem::take(&mut self.overlay_top_runs);
         let mut layer = Vec::new();
-        for overlay in overlays {
-            self.build_overlay_top_layer(overlay, &mut layer);
+        let mut color = Vec::new();
+        for (index, overlay) in overlays.iter().enumerate() {
+            build_overlay_top_vertices_into(
+                &mut layer,
+                &mut color,
+                &self.atlas,
+                &self.color_glyph_atlas,
+                overlay,
+                runs.get(index).map_or(&[][..], Vec::as_slice),
+                self.text_brightness,
+            );
             self.retained_overlay_top.extend_from_slice(&layer);
+            self.retained_overlay_top_color.extend_from_slice(&color);
+            self.overlay_top_segments.push(OverlayTopSegment {
+                cells: layer.len() as u32,
+                color: color.len() as u32,
+            });
         }
+        self.overlay_top_runs = runs;
         self.vertices.extend_from_slice(&self.retained_overlay_top);
     }
 
-    /// The opaque cell vertices of one window-level layer.
-    fn build_overlay_top_layer(&self, overlay: &OverlayTop, out: &mut Vec<grid::Vertex>) {
-        grid::build_cell_vertices_with_focus_dim_and_origin_into(
-            out,
-            overlay.snapshot,
-            &self.atlas,
-            &[],
-            0.0,
-            overlay.origin,
-            overlay.treatment,
-            // Window-level chrome stays opaque over translucent content.
-            1.0,
-            // Overlay panel text lifts with the rest of
-            // the window's ink (`1.0` = identity).
-            self.text_brightness,
-            // The overlay-top snapshot IS the panel; its own opaque layer is
-            // composited last, so no per-cell force is needed here.
-            None,
-            grid::ChromePin::NONE,
-        );
+    /// Ensure every overlay layer's glyphs in both atlases and keep its color
+    /// runs for [`Self::push_overlay_tops`]. Runs before any atlas texture
+    /// refresh of the frame.
+    fn prepare_overlay_tops(&mut self, overlays: &[OverlayTop]) {
+        self.overlay_top_runs.clear();
+        for overlay in overlays {
+            let runs = prepare_overlay_top_glyphs(
+                &mut self.atlas,
+                &self.fonts,
+                &mut self.emoji_rasterizer,
+                &mut self.color_glyph_atlas,
+                overlay.snapshot,
+            );
+            self.overlay_top_runs.push(runs);
+        }
+    }
+
+    /// Append the retained overlay layers' color glyphs after the cursor's
+    /// and upload them. `color_glyph_vertex_count` keeps marking the end of
+    /// the cursor's color glyphs; the layer segments address the rest.
+    fn append_overlay_top_color(&mut self) {
+        let cursor_end = self.color_glyph_vertex_count as usize;
+        if splice_overlay_top_color(
+            &mut self.color_glyph_vertices,
+            cursor_end,
+            &self.retained_overlay_top_color,
+        ) {
+            self.upload_color_glyphs(cursor_end);
+            self.color_glyph_vertex_count = cursor_end as u32;
+        }
     }
 
     /// Rebuild the cell vertex buffer from a fresh terminal snapshot plus
@@ -1031,14 +1130,7 @@ impl GpuState {
         );
         self.ensure_ligature_glyphs(&mut ligature_runs);
         self.add_complex_runs(snapshot, &color_glyph_runs, &mut ligature_runs, None);
-        for overlay in overlay_top {
-            ensure_snapshot_glyphs_excluding_color_runs(
-                &mut self.atlas,
-                &self.fonts,
-                overlay.snapshot,
-                &[],
-            );
-        }
+        self.prepare_overlay_tops(overlay_top);
         // The revealed rail overlay strip's mono glyphs must join the
         // atlas before any texture refresh, alongside the terminal snapshot's.
         if let Some(rail) = rail_overlay.as_ref() {
@@ -1187,6 +1279,7 @@ impl GpuState {
         self.retained_cursor_streak = cursor_streak;
         self.cursor_end_vertex_count = self.vertices.len() as u32;
         self.push_overlay_tops(overlay_top);
+        self.append_overlay_top_color();
         // The revealed rail overlay strip draws topmost - after the
         // cursor and every overlay - so the floating band sits over the live
         // content it reveals atop. `None` leaves the frame byte-identical.
@@ -1517,6 +1610,8 @@ impl GpuState {
         self.rebuild_cursor_streak(snapshot, origin, cursor_streak);
 
         self.rebuild_cursor_color(snapshot, cursor_style, origin, params);
+        // The retained overlay layers keep their color glyphs over the panel.
+        self.append_overlay_top_color();
         self.cursor_end_vertex_count = self.cell_vertex_count + self.cursor_vertices.len() as u32;
         self.cursor_vertices
             .extend_from_slice(&self.retained_overlay_top);
