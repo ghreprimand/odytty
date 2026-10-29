@@ -1,12 +1,13 @@
 # Release notes
 
-Published release: **v0.17.0**.
+Published release: **v0.17.5**.
 
 A short guide to what each OdyTTY release adds or improves for everyday use.
 For the detailed development history, see the [devlog](../../DEVLOG.md).
 
 | Release | Highlights |
 | --- | --- |
+| [v0.17.5](0.17.5.md) | Cluster ownership and font shaping beyond the tuned script groups, joining scripts beyond Arabic including fallback faces, right-to-left paragraphs and alternate-screen bidi display, wide-owner block cursors, ASCII and Grantha fallback, macOS color keycaps, Windows transparency, the bundled Windows ConPTY runtime for Sixel, color emoji in layered replay previews, the macOS child locale, image extent consistency, X11 tab release, startup ambiguous width and detached launches. |
 | [v0.17.0](0.17.0.md) | International text ownership, script shaping, optional bidi display, alternate zero, SVG color glyphs and legacy symbols. |
 | [v0.16.1](0.16.1.md) | AppImage update information and the companion zsync asset for AppImage update tools such as AppImageUpdate. |
 | [v0.16.0](0.16.0.md) | Read-only panes, guarded broadcast input, macOS secure keyboard input, moving tabs and panes between windows, stacked and floating layouts, scrollback export, an Ambiguous width preference, and a Windows first-command placement fix. |

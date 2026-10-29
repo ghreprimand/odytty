@@ -44,6 +44,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.17.5" date="2026-10-29">
+      <description>
+        <p>This release extends grapheme cluster ownership and font-backed shaping beyond the previously tuned script groups, adds contextual joining for Syriac, N'Ko, Mandaic, Adlam, Hanifi Rohingya and horizontal Mongolian, and adds right-to-left paragraph direction and opt-in bidirectional display on the alternate screen, while cells, selection and copied text stay logical. Bidirectional display remains off by default.</p>
+        <p>It also corrects font fallback for ASCII and Grantha, block cursors over wide characters, image extents, the ambiguous width of new sessions, detached session launches and X11 tab release, and draws recorded emoji in color in layered session replay previews. Windows packages now bundle a verified Microsoft ConPTY runtime for Sixel output and support window transparency.</p>
+      </description>
+    </release>
     <release version="0.17.0" date="2026-10-14">
       <description>
         <p>This release improves international text ownership and font-backed script shaping, adds optional bidirectional display and an alternate zero setting, and expands bounded SVG color glyph and legacy-symbol rendering while retaining terminal-cell metrics and logical copied text.</p>

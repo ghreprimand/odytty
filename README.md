@@ -1,6 +1,6 @@
 # OdyTTY
 
-Published release: **v0.17.0**.
+Published release: **v0.17.5**.
 
 **A from-scratch, GPU-rendered Rust terminal with an Odyssey visual identity.**
 
@@ -139,8 +139,9 @@ sessions.
   font is available, Kitty graphics, and Sixel share the `wgpu` renderer.
   Atlas bitmap budgets bound cache residency, not total GPU memory; see the
   [capacity limits](SPEC.md#bound-emoji-atlas-capacity).
-- **International text:** Unicode 17 grapheme clusters and terminal widths for
-  every script and emoji sequence, font shaping of complex-script clusters,
+- **International text:** Unicode 17 grapheme clusters and terminal widths
+  for emoji sequences and for scripts beyond the previously tuned groups,
+  within the documented width profile, font shaping of complex-script clusters,
   contextual joining for Arabic, Syriac, N'Ko, Mandaic, Adlam, Hanifi Rohingya,
   and Mongolian, and opt-in bidirectional display; see the
   [feature reference](docs/features.md) and
@@ -170,11 +171,18 @@ sessions.
 
 ## Status
 
-OdyTTY is a broad pre-1.0 terminal. The published v0.17.0 release keeps
-script clusters and emoji sequences in their cells, shapes complex scripts with
-the font, adds opt-in right-to-left display order, stock-font script fallback on
-Windows and macOS, an alternate zero, SVG color glyphs, Legacy Computing
-diagonals, and live tab drag, while selection and copy stay logical; see the
+OdyTTY is a broad pre-1.0 terminal. The published v0.17.5 release keeps
+script clusters and emoji sequences in their cells beyond the previously tuned
+script groups, shapes complex scripts and joining scripts beyond Arabic with
+the font, including runs drawn from fallback faces, and offers opt-in
+right-to-left display order on the primary and alternate screens with
+paragraph direction controls. Block cursors cover complete wide owners,
+Windows window transparency works through DirectComposition, Windows packages
+bundle a verified ConPTY runtime that carries Sixel output, and macOS child
+shells receive a UTF-8 locale when none is set, alongside stock-font script
+fallback on Windows and macOS, an alternate zero, SVG color glyphs, Legacy
+Computing diagonals, and live tab drag, while selection and copy stay
+logical; see the
 [release notes](docs/releases/README.md). In development for the next release:
 see [TODO.md](TODO.md) and the [full roadmap](docs/full-build-roadmap.md).
 

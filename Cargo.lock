@@ -1711,7 +1711,7 @@ dependencies = [
 
 [[package]]
 name = "odytty"
-version = "0.17.0"
+version = "0.17.5"
 dependencies = [
  "ab_glyph_rasterizer",
  "anyhow",

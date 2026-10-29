@@ -1,13 +1,6 @@
 # OdyTTY TODO
 
-The Windows Sixel transport correction bundles Microsoft ConPTY 1.25.260930003
-with full release-associated notices, offline native identity checks and
-complete-folder installation. Native default-route transport, host identity,
-lifecycle and package checks run on Windows CI. Device pixel acceptance,
-oldest-Windows execution and ARM64-host coverage remain separate requirements;
-no device pass is implied by the automated transport test.
-
-Published release: **v0.17.0**.
+Published release: **v0.17.5**.
 
 Living delivery record and forward backlog for OdyTTY. Each release section
 below records what shipped in that cycle; historical stage sections preserve
@@ -28,6 +21,68 @@ roadmap.
 Internal regression work uses the [frozen sampling protocol](docs/internal-benchmark-protocol.md).
 Windows/macOS bidi cost, native first-frame startup and GPU presentation costs
 still require controlled measurement apparatus.
+
+## v0.17.5: General Script Coverage And Bidirectional Text (published)
+
+Code items have passing blocking Linux, macOS, and Windows CI. Device items
+name the platforms and checks with recorded hands-on results; they do not
+claim acceptance on other platforms. The release notes are in
+[`docs/releases/0.17.5.md`](docs/releases/0.17.5.md).
+
+- [x] Bounded cluster ownership from Unicode properties beyond the tuned script
+      groups, including text split across program writes, with grapheme cluster mode
+      2027 permanently set.
+- [x] Font shaping for multi-scalar owners outside the tuned script groups
+      while `script_shaping` is on; missing font coverage keeps scalar
+      fallback. Oversized shaped clusters may use a following blank cell.
+- [x] Block cursors and unfocused outlines cover the complete one- or two-cell
+      owner, with shaped ink clipped to that span and color emoji keeping
+      their RGBA pixels.
+- [x] Contextual joining for Syriac, N'Ko, Mandaic, Adlam, Hanifi Rohingya and
+      horizontal Mongolian, including runs drawn from a fallback face that maps
+      every letter; vertical Mongolian and historic joining scripts stay
+      outside the supported groups.
+- [x] Windows and macOS fallback faces for the newly shaped scripts, printable
+      ASCII from the first covering fallback face when the primary lacks a
+      glyph, and macOS Grantha from the Tamil Sangam MN collection.
+- [x] VS16 keycaps shape without the selector unless the color ligature
+      consumes it, so Apple Color Emoji draws them in color.
+- [x] `harfrust` 0.14.0 resolves the recorded Bengali ka, virama, ra
+      difference from the HarfBuzz reference.
+- [x] Right-to-left and automatic paragraph direction through `bidi_direction`,
+      SCP, and explicit layout through `CSI 8 l`/`CSI 8 h`, with Settings and
+      right-click menu controls.
+- [x] Opt-in `bidi_reorder` on the alternate screen and on rows with Sixel,
+      Kitty or iTerm2 images, keeping cells, cursor and mouse reports,
+      selection and copy logical. Reordering stays off by default because its
+      measured Linux cost exceeds the default-on threshold.
+- [x] Windows and macOS CJK system-face fallback after the primary and static
+      chains miss, in a fixed order that does not infer regional forms.
+- [x] Windows window transparency through DX12 DirectComposition, with an
+      opaque HWND retry and a Settings notice when the surface cannot be
+      transparent.
+- [x] Windows PTYs use the bundled Microsoft ConPTY 1.25.260930003 runtime,
+      verified offline before loading, so Sixel output reaches the terminal;
+      packages ship it with its full notices and must be installed as a
+      complete folder. Native transport, host identity, lifecycle and package
+      checks run on Windows CI, and Sixel pixels and resize were checked on a
+      Windows device; oldest-Windows execution and ARM64 hosts were not
+      covered.
+- [x] macOS child processes receive an installed UTF-8 locale when LANG,
+      LC_ALL and LC_CTYPE are all unset; explicit values are preserved.
+- [x] X11 tab release retires the drag preview and opens an ordinary window
+      around the same session; cancellation is safe.
+- [x] New sessions apply ambiguous width before the PTY starts; detached
+      session launches release capture pipes and terminal job control;
+      triple-click selects the whole logical line across soft wraps;
+      Authorization header redaction accounts for escaped values.
+- [x] Image protocols share the remaining scroll-room bound without scrolling
+      to make room.
+- [x] The Session Replay preview draws a recorded emoji as the terminal's
+      color glyph when it is a separate window layer (bidi reordering on, or a
+      split tab); other script clusters there still draw per cell.
+- [x] Measured efficiency work, deferred cleanup, and test temporary folders
+      that tolerate spaces and leave nothing behind.
 
 ## v0.17.0: International Text (published)
 
