@@ -340,7 +340,11 @@ stays literal. Paste keeps its own preview rules.
 
 Linux and macOS insert only when an eligible local launch shell owns and is the
 sole member of the PTY foreground group and its current executable still
-matches that shell family. Remote and attached panes refuse local paths. Open
+matches that shell family. On Linux, a process record retained across task
+release gets one fresh read: a vanished PID is ignored, and a live record is
+checked normally. Unresolved, malformed or unreadable process metadata and
+additional foreground-group members still refuse insertion.
+Remote and attached panes refuse local paths. Open
 overlays refuse with `Close the current dialog before dropping files.` Windows
 refuses insertion with
 `File drop insertion is not available on Windows in this version. Copy the path manually.`

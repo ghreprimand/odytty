@@ -218,7 +218,7 @@ fn file_drop_shell_refuses_missing_process_metadata() {
 fn proc_stat_pgrp_uses_field_after_final_comm_parenthesis() {
     assert_eq!(
         proc_stat_pgrp("17 (name with ) spaces) S 1 4242 3 4 5"),
-        Ok(4242)
+        Ok(Some(4242))
     );
     assert_eq!(proc_stat_pgrp("malformed"), Err(StatParseStage::NoNameEnd));
     // Malformed prefixes must not shift another numeric field into the pgrp
@@ -239,7 +239,7 @@ fn proc_stat_pgrp_uses_field_after_final_comm_parenthesis() {
         proc_stat_pgrp("17 (comm) S 1"),
         Err(StatParseStage::MissingPgrp)
     );
-    assert_eq!(proc_stat_pgrp("17 (comm) S 1 4242"), Ok(4242));
+    assert_eq!(proc_stat_pgrp("17 (comm) S 1 4242"), Ok(Some(4242)));
 }
 
 /// Each place a stat can stop parsing has its own finite name, and the scan
@@ -302,8 +302,8 @@ fn scan_names_where_an_unparsable_stat_stopped() {
 #[test]
 fn traced_group_members_are_seen_and_unparsable_stats_refuse() {
     // A ptrace-stopped member reports lowercase `t`; older kernels report `x`.
-    assert_eq!(proc_stat_pgrp("18 (gdb target) t 1 4242 3"), Ok(4242));
-    assert_eq!(proc_stat_pgrp("18 (dead) x 1 4242 3"), Ok(4242));
+    assert_eq!(proc_stat_pgrp("18 (gdb target) t 1 4242 3"), Ok(Some(4242)));
+    assert_eq!(proc_stat_pgrp("18 (dead) x 1 4242 3"), Ok(Some(4242)));
     assert_eq!(
         stat_group_verdict("18 (gdb target) t 1 4242 3", 18, 4242),
         StatGroupVerdict::Member,
@@ -396,11 +396,173 @@ fn scan_skips_a_process_that_exits_between_the_listing_and_its_stat_read() {
     }
 }
 
+/// A reader can retain a task reference across release. Linux then emits the
+/// initialized parent/group/session fields even though the stat read succeeds.
+#[cfg(target_os = "linux")]
+#[test]
+fn proc_stat_pgrp_accepts_released_task_sentinel() {
+    for state in ["X", "Z", "S"] {
+        let stat = format!("4300 (proc) {state} 0 -1 -1 0 -1 0");
+        assert_eq!(proc_stat_pgrp(&stat).map(|_| ()), Ok(()), "{stat}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn scan_skips_released_tasks_without_counting_a_released_launch() {
+    for state in ["X", "Z", "S"] {
+        let proc = released_then(
+            4300,
+            state,
+            Err(std::io::Error::from_raw_os_error(libc::ENOENT)),
+        );
+        assert_eq!(scan_launch_group(&proc, LAUNCH), Ok(()), "{state}");
+        let released_launch = released_then(
+            LAUNCH,
+            state,
+            Err(std::io::Error::from_raw_os_error(libc::ESRCH)),
+        );
+        assert_eq!(
+            scan_launch_group(&released_launch, LAUNCH),
+            Err(ScanRefusal::LaunchNotListed),
+            "a released launch is absent: {state}"
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn released_stat_controls_keep_malformed_and_live_members_fail_closed() {
+    for (tail, stage) in [
+        ("1 0 -1 -1", StatParseStage::BadState),
+        ("XX 0 -1 -1", StatParseStage::BadState),
+        ("S -1 -1 -1", StatParseStage::BadPpid),
+        ("S 4294967296 -1 -1", StatParseStage::BadPpid),
+        ("S 1 -1 -1", StatParseStage::BadPgrp),
+        ("S 1 -1 3", StatParseStage::BadPgrp),
+        ("S 0 -1 3", StatParseStage::BadPgrp),
+        ("S +0 -1 -1", StatParseStage::BadPgrp),
+        ("S 00 -1 -1", StatParseStage::BadPgrp),
+        ("S 0 -01 -1", StatParseStage::BadPgrp),
+        ("S 0 -1 -01", StatParseStage::BadPgrp),
+        ("S 0 -2 -1", StatParseStage::BadPgrp),
+        ("S 0 -4294967295 -1", StatParseStage::BadPgrp),
+        ("S 0 4294967296 -1", StatParseStage::BadPgrp),
+        ("S 0 abc -1", StatParseStage::BadPgrp),
+        ("S 0", StatParseStage::MissingPgrp),
+        ("S 0 -1", StatParseStage::BadPgrp),
+        ("S 0 -1 0", StatParseStage::BadPgrp),
+        ("S 0 -1 -2", StatParseStage::BadPgrp),
+        ("S 0 -1 abc", StatParseStage::BadPgrp),
+    ] {
+        let stat = format!("4300 (proc) {tail}");
+        assert_eq!(proc_stat_pgrp(&stat).map(|_| ()), Err(stage), "{stat}");
+        let len = stat.len();
+        let proc = ScriptedProc::new(&["4242", "4300"], move |pid| {
+            if pid == 4300 {
+                Ok(stat.as_bytes().to_vec())
+            } else {
+                idle_launch_stat(pid)
+            }
+        });
+        assert_eq!(
+            scan_launch_group(&proc, LAUNCH),
+            Err(ScanRefusal::Unparsable {
+                pid: 4300,
+                stage,
+                len
+            })
+        );
+    }
+    // Even an exit-state task remains a real member until release has removed
+    // its group metadata. The state letter alone never justifies skipping it.
+    for state in ["X", "Z", "S"] {
+        let proc = ScriptedProc::new(&["4242", "4300"], move |pid| {
+            Ok(format!("{pid} (proc) {state} 1 {LAUNCH} 3").into_bytes())
+        });
+        assert_eq!(
+            scan_launch_group(&proc, LAUNCH),
+            Err(ScanRefusal::Member { pid: 4300 })
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn released_stat_confirmation_judges_live_records_and_refuses_uncertainty() {
+    for errno in [libc::ENOENT, libc::ESRCH] {
+        let proc = released_then(4300, "S", Err(std::io::Error::from_raw_os_error(errno)));
+        assert_eq!(scan_launch_group(&proc, LAUNCH), Ok(()));
+    }
+    let member = released_then(4300, "S", Ok(b"4300 (proc) S 1 4242 3".to_vec()));
+    assert_eq!(
+        scan_launch_group(&member, LAUNCH),
+        Err(ScanRefusal::Member { pid: 4300 })
+    );
+    let outside = released_then(4300, "S", Ok(b"4300 (proc) S 1 77 3".to_vec()));
+    assert_eq!(scan_launch_group(&outside, LAUNCH), Ok(()));
+    for pid in [4300, LAUNCH] {
+        let twice = released_then(pid, "X", Ok(format!("{pid} (proc) X 0 -1 -1").into_bytes()));
+        assert_eq!(
+            scan_launch_group(&twice, LAUNCH),
+            Err(ScanRefusal::ReleasedUnconfirmed { pid })
+        );
+    }
+    for stat in [b"garbled".as_slice(), b"4300 (proc) S 0 -2 -1"] {
+        let proc = released_then(4300, "X", Ok(stat.to_vec()));
+        let stage = if stat == b"garbled" {
+            StatParseStage::NoNameEnd
+        } else {
+            StatParseStage::BadPgrp
+        };
+        assert_eq!(
+            scan_launch_group(&proc, LAUNCH),
+            Err(ScanRefusal::Unparsable {
+                pid: 4300,
+                stage,
+                len: stat.len()
+            })
+        );
+    }
+    for errno in [libc::EACCES, libc::EIO, libc::EINVAL, libc::EAGAIN] {
+        let proc = released_then(4300, "X", Err(std::io::Error::from_raw_os_error(errno)));
+        assert_eq!(
+            scan_launch_group(&proc, LAUNCH),
+            Err(ScanRefusal::StatUnreadable {
+                pid: 4300,
+                kind: std::io::Error::from_raw_os_error(errno).kind(),
+                errno: Some(errno),
+            })
+        );
+    }
+}
+
+/// Each target PID must be read exactly twice: the kernel sentinel, then one
+/// scripted outcome. Any accidental retry exhausts the script and fails.
+#[cfg(target_os = "linux")]
+fn released_then(pid: u32, state: &'static str, next: std::io::Result<Vec<u8>>) -> ScriptedProc {
+    let replies = std::cell::RefCell::new(std::collections::VecDeque::from([
+        Ok(format!("{pid} (proc) {state} 0 -1 -1 0 -1 0").into_bytes()),
+        next,
+    ]));
+    ScriptedProc::new(&["4300", "4242"], move |read_pid| {
+        if read_pid == pid {
+            replies
+                .borrow_mut()
+                .pop_front()
+                .expect("only one sentinel confirmation read")
+        } else {
+            idle_launch_stat(read_pid)
+        }
+    })
+}
+
 /// The production scan fails closed: a stat read that fails for any reason but
 /// the process having exited hides a possible group member, so the scan
 /// reports a busy shell. This pins which errors can do that, so a rare
 /// `false` from the live scan is attributable to an unexpected `/proc` error
-/// on the host, never to the ordinary exit race the test above covers.
+/// on the host. The ordinary exit paths are covered by the vanished-process
+/// and released-task tests above.
 #[cfg(target_os = "linux")]
 #[test]
 fn scan_refuses_and_names_an_unexpected_stat_read_error() {
@@ -485,7 +647,7 @@ fn scan_reads_the_stat_as_bytes_whatever_the_process_name_holds() {
         proc_stat_pgrp(b"17 (sl\xffe) S \xff 4242"),
         Err(StatParseStage::BadPpid)
     );
-    assert_eq!(proc_stat_pgrp(b"17 (sl\xffe) S 1 4242"), Ok(4242));
+    assert_eq!(proc_stat_pgrp(b"17 (sl\xffe) S 1 4242"), Ok(Some(4242)));
 }
 
 #[cfg(target_os = "linux")]

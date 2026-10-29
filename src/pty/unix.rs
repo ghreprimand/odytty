@@ -623,7 +623,9 @@ enum StatParseStage {
 }
 
 #[cfg(target_os = "linux")]
-fn proc_stat_pgrp(stat: impl AsRef<[u8]>) -> Result<u32, StatParseStage> {
+// `None` denotes the exact Linux released-task sentinel. Its PID still needs
+// confirmation: a non-leader exec can replace the referenced task.
+fn proc_stat_pgrp(stat: impl AsRef<[u8]>) -> Result<Option<u32>, StatParseStage> {
     // The stat is bytes, not text: `comm` is whatever the process (or its
     // executable's file name) holds and need not be UTF-8. Field 2 (`comm`) is
     // parenthesized and may itself contain spaces, `)`, or any other byte.
@@ -644,8 +646,20 @@ fn proc_stat_pgrp(stat: impl AsRef<[u8]>) -> Result<u32, StatParseStage> {
     if state.len() != 1 || !state[0].is_ascii_alphabetic() {
         return Err(StatParseStage::BadState);
     }
-    ascii_u32(fields.next().ok_or(StatParseStage::MissingPpid)?).ok_or(StatParseStage::BadPpid)?;
-    ascii_u32(fields.next().ok_or(StatParseStage::MissingPgrp)?).ok_or(StatParseStage::BadPgrp)
+    let ppid = fields.next().ok_or(StatParseStage::MissingPpid)?;
+    ascii_u32(ppid).ok_or(StatParseStage::BadPpid)?;
+    let pgrp = fields.next().ok_or(StatParseStage::MissingPgrp)?;
+    // Linux do_task_stat initializes ppid/pgid/sid to 0/-1/-1. If
+    // lock_task_sighand fails after release, those values are printed even
+    // though the read succeeds. The state was sampled earlier, so do not
+    // require X or Z. Recognize only this byte-exact tuple; every other
+    // negative or malformed group still refuses. The caller confirms the PID
+    // separately because a non-leader exec can release its old leader task
+    // while the numeric PID remains live.
+    if ppid == b"0" && pgrp == b"-1" && fields.next() == Some(b"-1".as_slice()) {
+        return Ok(None);
+    }
+    ascii_u32(pgrp).map(Some).ok_or(StatParseStage::BadPgrp)
 }
 
 #[cfg(target_os = "linux")]
@@ -711,6 +725,9 @@ enum ScanRefusal {
         stage: StatParseStage,
         len: usize,
     },
+    /// The confirmation read still references a released task. Its numeric
+    /// pid may be live after a non-leader exec, so it cannot be skipped.
+    ReleasedUnconfirmed { pid: u32 },
     /// The launch child never appeared in the listing.
     LaunchNotListed,
 }
@@ -732,26 +749,23 @@ fn scan_launch_group(source: &dyn ProcSource, launch_pid: u32) -> Result<(), Sca
         if numeric_entries > MAX_GROUP_SCAN_PIDS {
             return Err(ScanRefusal::TooManyEntries);
         }
-        let stat = match source.read_stat(pid) {
-            Ok(stat) => stat,
-            // The process exited between the listing and this read (ENOENT or
-            // ESRCH). Any other failure hides a possible group member: refuse.
-            Err(err)
-                if err.kind() == std::io::ErrorKind::NotFound
-                    || err.raw_os_error() == Some(libc::ESRCH) =>
-            {
-                continue;
-            }
-            Err(err) => {
-                return Err(ScanRefusal::StatUnreadable {
-                    pid,
-                    kind: err.kind(),
-                    errno: err.raw_os_error(),
-                });
-            }
+        let Some(mut stat) = read_group_stat(source, pid)? else {
+            continue;
         };
-        match stat_group_verdict(&stat, pid, launch_pid) {
+        let mut verdict = stat_group_verdict(&stat, pid, launch_pid);
+        if verdict == StatGroupVerdict::Released {
+            // The referenced task was released, but a non-leader exec may
+            // have replaced it at the same PID. Reopen that PID exactly once:
+            // only a vanished PID is skipped; a fresh record is judged below.
+            let Some(fresh) = read_group_stat(source, pid)? else {
+                continue;
+            };
+            stat = fresh;
+            verdict = stat_group_verdict(&stat, pid, launch_pid);
+        }
+        match verdict {
             StatGroupVerdict::Outside => {}
+            StatGroupVerdict::Released => return Err(ScanRefusal::ReleasedUnconfirmed { pid }),
             StatGroupVerdict::Launch => found_launch = true,
             StatGroupVerdict::Member => return Err(ScanRefusal::Member { pid }),
             StatGroupVerdict::Unparsable(stage) => {
@@ -770,6 +784,26 @@ fn scan_launch_group(source: &dyn ProcSource, launch_pid: u32) -> Result<(), Sca
     }
 }
 
+/// Only a vanished process can be skipped. All other read failures may hide a
+/// group member, including on the one sentinel confirmation read.
+#[cfg(target_os = "linux")]
+fn read_group_stat(source: &dyn ProcSource, pid: u32) -> Result<Option<Vec<u8>>, ScanRefusal> {
+    match source.read_stat(pid) {
+        Ok(stat) => Ok(Some(stat)),
+        Err(err)
+            if err.kind() == std::io::ErrorKind::NotFound
+                || err.raw_os_error() == Some(libc::ESRCH) =>
+        {
+            Ok(None)
+        }
+        Err(err) => Err(ScanRefusal::StatUnreadable {
+            pid,
+            kind: err.kind(),
+            errno: err.raw_os_error(),
+        }),
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn foreground_group_is_launch_child_only(launch_pid: u32) -> bool {
     scan_launch_group(&LiveProc, launch_pid).is_ok()
@@ -779,6 +813,8 @@ fn foreground_group_is_launch_child_only(launch_pid: u32) -> bool {
 #[cfg(target_os = "linux")]
 #[derive(Debug, PartialEq, Eq)]
 enum StatGroupVerdict {
+    /// The referenced task was released; confirm whether its PID is gone.
+    Released,
     /// The process is outside the launch group.
     Outside,
     /// The process is the launch child itself.
@@ -793,9 +829,10 @@ enum StatGroupVerdict {
 fn stat_group_verdict(stat: impl AsRef<[u8]>, pid: u32, launch_pid: u32) -> StatGroupVerdict {
     match proc_stat_pgrp(stat) {
         Err(stage) => StatGroupVerdict::Unparsable(stage),
-        Ok(pgrp) if pgrp != launch_pid => StatGroupVerdict::Outside,
-        Ok(_) if pid == launch_pid => StatGroupVerdict::Launch,
-        Ok(_) => StatGroupVerdict::Member,
+        Ok(None) => StatGroupVerdict::Released,
+        Ok(Some(pgrp)) if pgrp != launch_pid => StatGroupVerdict::Outside,
+        Ok(Some(_)) if pid == launch_pid => StatGroupVerdict::Launch,
+        Ok(Some(_)) => StatGroupVerdict::Member,
     }
 }
 
