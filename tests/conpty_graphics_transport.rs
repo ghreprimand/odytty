@@ -4,6 +4,8 @@
 #![cfg(windows)]
 #[path = "support/conpty_cleanup.rs"]
 mod conpty_cleanup;
+#[path = "support/conpty_cwd.rs"]
+mod conpty_cwd;
 #[path = "support/conpty_host.rs"]
 mod conpty_host;
 #[path = "support/conpty_replies.rs"]
@@ -240,7 +242,14 @@ fn default_transport() {
 fn host_identity_and_shell(job: windows::Win32::Foundation::HANDLE) {
     let script = r#"
 [Console]::OutputEncoding=[Console]::InputEncoding=[Text.UTF8Encoding]::new($false);
-[Console]::WriteLine(('CWD_MATCH='+((Get-Location).ProviderPath -eq $env:ODYTTY_NATIVE_EXPECTED_CWD)));
+try {
+    $dirs=@([Environment]::CurrentDirectory,(Get-Location -ErrorAction Stop).ProviderPath);
+    if (($dirs | Where-Object { $_.Length -gt 1024 -or $_.Contains("`n") -or $_.Contains("`r") }).Count -ne 0) { throw 'cwd_report_invalid' };
+    [IO.File]::WriteAllLines($env:ODYTTY_NATIVE_CWD_REPORT,[string[]]$dirs,[Text.UTF8Encoding]::new($false));
+    [Console]::WriteLine('CWD_REPORT=Written');
+} catch {
+    [Console]::WriteLine('CWD_REPORT=Failed');
+};
 [Console]::WriteLine(('ENV_VALUE='+$env:ODYTTY_NATIVE_VALUE));
 [Console]::WriteLine('READY_INPUT');
 $line=[Console]::ReadLine(); [Console]::WriteLine(('ECHO_INPUT={0};' -f $line));
@@ -251,6 +260,13 @@ Start-Sleep -Seconds 3
     let scratch = support::TempDir::new("conpty-shell-", false);
     let cwd = scratch.path().join("cwd space \u{03b1}");
     std::fs::create_dir(&cwd).unwrap();
+    // Retain the exact owned directory object through child exit. The shell's
+    // Win32 cwd and PowerShell provider location must both name this object.
+    let expected_cwd = conpty_cwd::Directory::open(&cwd).unwrap();
+    let cwd_report = scratch.path().join("cwd-report.txt");
+    let wrong_cwd = scratch.path().join("different directory");
+    std::fs::create_dir(&wrong_cwd).unwrap();
+    let wrong_cwd = conpty_cwd::Directory::open(&wrong_cwd).unwrap();
     let impostor = scratch.path().join("different files");
     for arch in ["x64", "arm64"] {
         std::fs::create_dir_all(impostor.join(arch)).unwrap();
@@ -265,7 +281,7 @@ Start-Sleep -Seconds 3
         command.arg(arg);
     }
     command.current_dir(cwd.clone());
-    command.env("ODYTTY_NATIVE_EXPECTED_CWD", cwd.into_os_string());
+    command.env("ODYTTY_NATIVE_CWD_REPORT", cwd_report.as_os_str());
     command.env("ODYTTY_NATIVE_VALUE", "value \u{03b1} \u{4e2d} 'quoted'");
     let mut session = PtySession::spawn_command(dimensions(), command).unwrap();
     let mut reader = session.try_clone_reader().unwrap();
@@ -320,14 +336,14 @@ Start-Sleep -Seconds 3
         }
         let text = String::from_utf8_lossy(&raw);
         let input = text.contains("ECHO_INPUT=input \u{03b1} \u{4e2d};");
-        let cwd = text.contains("CWD_MATCH=True");
+        let cwd_report = text.contains("CWD_REPORT=Written");
         let env = text.contains("ENV_VALUE=value \u{03b1} \u{4e2d} 'quoted'");
         println!(
-            "conpty_shell_observation=input:{input};cwd:{cwd};env:{env};eof:true;replies:{replies:?}"
+            "conpty_shell_observation=input:{input};cwd_report:{cwd_report};env:{env};eof:true;replies:{replies:?}"
         );
-        if !input || !cwd || !env || !replies.complete() {
+        if !input || !cwd_report || !env || !replies.complete() {
             return Err(format!(
-                "shell_assertions_failed;input={input};cwd={cwd};env={env};replies={replies:?}"
+                "shell_assertions_failed;input={input};cwd_report={cwd_report};env={env};replies={replies:?}"
             ));
         }
         Ok(replies)
@@ -366,6 +382,11 @@ Start-Sleep -Seconds 3
     } else {
         Err("primary_host_identity_failed".into())
     };
+    let directory = expected_cwd.verify(&cwd_report);
+    let different_directory = match wrong_cwd.verify(&cwd_report) {
+        Err("cwd_directory_identity_mismatch") => Ok(()),
+        _ => Err("different_directory_identity_negative_failed"),
+    };
     let resize = session.resize(Dimensions {
         rows: 25,
         columns: 81,
@@ -375,9 +396,11 @@ Start-Sleep -Seconds 3
     let reader_result = thread.join();
     let exit = session.wait();
     drop(session);
+    drop(expected_cwd);
+    drop(wrong_cwd);
     let cleanup = conpty_cleanup::retry(|| std::fs::remove_dir_all(scratch.path()));
     println!(
-        "conpty_host_checks=collected;host={host:?};different_file={different_file:?};case_alias={case_alias:?};resize={};reader={reader_result:?};exit={};cleanup={}",
+        "conpty_host_checks=collected;host={host:?};different_file={different_file:?};case_alias={case_alias:?};directory={directory:?};different_directory={different_directory:?};resize={};reader={reader_result:?};exit={};cleanup={}",
         resize.is_ok(),
         exit.as_ref().is_ok_and(|s| s.success()),
         cleanup.is_ok()
@@ -387,6 +410,8 @@ Start-Sleep -Seconds 3
     host.unwrap_or_else(|reason| panic!("{reason}"));
     different_file.unwrap();
     case_alias.unwrap();
+    directory.unwrap();
+    different_directory.unwrap();
     resize.unwrap();
     let replies = reader_result
         .expect("host reader thread")

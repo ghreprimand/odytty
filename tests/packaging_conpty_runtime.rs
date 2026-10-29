@@ -128,3 +128,25 @@ fn host_identity_uses_private_job_and_file_handles_without_window_proxy() {
     }
     assert!(!identity.contains("CreateToolhelp32Snapshot"));
 }
+
+#[path = "support/conpty_cwd.rs"]
+mod conpty_cwd;
+
+#[test]
+fn cwd_fixture_checks_both_directory_identities_instead_of_path_text() {
+    #[cfg(windows)]
+    let _native_check: fn(
+        &conpty_cwd::Directory,
+        &std::path::Path,
+    ) -> Result<(), &'static str> = conpty_cwd::Directory::verify;
+    let source = read("tests/conpty_graphics_transport.rs");
+    assert!(
+        !source.contains("CWD_MATCH="),
+        "text equality is not directory identity"
+    );
+    assert!(source.contains("[Environment]::CurrentDirectory"));
+    assert!(source.contains("(Get-Location -ErrorAction Stop).ProviderPath"));
+    assert!(source.contains("expected_cwd.verify(&cwd_report)"));
+    assert!(source.contains("wrong_cwd.verify(&cwd_report)"));
+    assert!(source.contains("command.current_dir(cwd.clone())"));
+}
