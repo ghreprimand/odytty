@@ -281,8 +281,8 @@ mod transport {
     use async_io::Timer;
     use futures_lite::{StreamExt, future};
     use zbus::proxy::SignalStream;
-    use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
     use zbus::{Connection, Proxy};
+    use zbus::{OwnedObjectPath, OwnedVariant, Variant};
 
     /// Cap on the session-bus connect + proxy + subscribe phase.
     const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -722,7 +722,7 @@ mod transport {
                     ));
                 }
             };
-            let options: HashMap<&str, Value> = HashMap::new();
+            let options: HashMap<&str, Variant> = HashMap::new();
             match registry
                 .call_method("Register", &(PORTAL_APP_ID, options))
                 .await
@@ -781,9 +781,9 @@ mod transport {
                 PortalFailure::Unavailable(format!("cannot watch the portal response: {e}"))
             })?;
 
-            let mut options: HashMap<&str, Value> = HashMap::new();
-            options.insert("handle_token", Value::from(token));
-            options.insert("session_handle_token", Value::from(session_token));
+            let mut options: HashMap<&str, Variant> = HashMap::new();
+            options.insert("handle_token", Variant::from(token));
+            options.insert("session_handle_token", Variant::from(session_token));
             shortcuts
                 .call_method("CreateSession", &(options,))
                 .await
@@ -844,17 +844,17 @@ mod transport {
                 PortalFailure::Unavailable(format!("cannot watch the portal response: {e}"))
             })?;
 
-            let mut props: HashMap<&str, Value> = HashMap::new();
-            props.insert("description", Value::from(binding.description.clone()));
+            let mut props: HashMap<&str, Variant> = HashMap::new();
+            props.insert("description", Variant::from(binding.description.clone()));
             props.insert(
                 "preferred_trigger",
-                Value::from(binding.preferred_trigger.clone()),
+                Variant::from(binding.preferred_trigger.clone()),
             );
-            let shortcut_list: Vec<(String, HashMap<&str, Value>)> =
+            let shortcut_list: Vec<(String, HashMap<&str, Variant>)> =
                 vec![(binding.id.clone(), props)];
             let parent_window = String::new();
-            let mut options: HashMap<&str, Value> = HashMap::new();
-            options.insert("handle_token", Value::from(token));
+            let mut options: HashMap<&str, Variant> = HashMap::new();
+            options.insert("handle_token", Variant::from(token));
 
             shortcuts
                 .call_method(
@@ -886,10 +886,12 @@ mod transport {
                 Waited::Elapsed => ActivationPoll::Idle,
                 Waited::Signal(None) => ActivationPoll::Closed,
                 Waited::Signal(Some(message)) => {
-                    match message
-                        .body()
-                        .deserialize::<(OwnedObjectPath, String, u64, HashMap<String, OwnedValue>)>(
-                        ) {
+                    match message.body().deserialize::<(
+                        OwnedObjectPath,
+                        String,
+                        u64,
+                        HashMap<String, OwnedVariant>,
+                    )>() {
                         Ok((session, id, _timestamp, _options)) => ActivationPoll::Fired {
                             session: session.as_str().to_owned(),
                             id,
@@ -919,7 +921,7 @@ mod transport {
     /// distinguishes a closed stream from a parse failure.
     async fn await_response(
         responses: &mut SignalStream<'static>,
-    ) -> Result<(u32, HashMap<String, OwnedValue>), PortalFailure> {
+    ) -> Result<(u32, HashMap<String, OwnedVariant>), PortalFailure> {
         match responses.next().await {
             None => Err(PortalFailure::Unavailable(
                 "the GlobalShortcuts portal response stream closed unexpectedly".to_owned(),
@@ -947,11 +949,11 @@ mod transport {
     /// an array of (id, metadata) pairs. A missing key or a value of an
     /// unexpected shape yields an empty list (a non-registration), never a
     /// panic.
-    fn extract_bound_shortcut_ids(results: &HashMap<String, OwnedValue>) -> Vec<String> {
+    fn extract_bound_shortcut_ids(results: &HashMap<String, OwnedVariant>) -> Vec<String> {
         let Some(value) = results.get("shortcuts") else {
             return Vec::new();
         };
-        match <Vec<(String, HashMap<String, OwnedValue>)>>::try_from(value.clone()) {
+        match <Vec<(String, HashMap<String, OwnedVariant>)>>::try_from(value.clone()) {
             Ok(list) => list.into_iter().map(|(id, _)| id).collect(),
             Err(_) => Vec::new(),
         }
@@ -959,7 +961,7 @@ mod transport {
 
     /// Extract a `session_handle` from a portal results dict, accepting either an
     /// object-path (`o`) or string (`s`) representation across portal versions.
-    fn session_handle_from(results: &HashMap<String, OwnedValue>) -> Option<OwnedObjectPath> {
+    fn session_handle_from(results: &HashMap<String, OwnedVariant>) -> Option<OwnedObjectPath> {
         let value = results.get("session_handle")?;
         if let Ok(path) = OwnedObjectPath::try_from(value.clone()) {
             return Some(path);
@@ -1431,16 +1433,118 @@ mod transport {
         #[test]
         fn extract_bound_ids_is_defensive() {
             // Missing key -> empty (a non-registration).
-            let empty: HashMap<String, OwnedValue> = HashMap::new();
+            let empty: HashMap<String, OwnedVariant> = HashMap::new();
             assert!(extract_bound_shortcut_ids(&empty).is_empty());
 
             // Wrong-typed value -> empty, never a panic.
-            let mut malformed: HashMap<String, OwnedValue> = HashMap::new();
+            let mut malformed: HashMap<String, OwnedVariant> = HashMap::new();
             malformed.insert(
                 "shortcuts".to_owned(),
-                OwnedValue::try_from(Value::from("not an array")).expect("owned value"),
+                OwnedVariant::try_from(Variant::from("not an array")).expect("owned value"),
             );
             assert!(extract_bound_shortcut_ids(&malformed).is_empty());
+        }
+
+        #[test]
+        fn extract_bound_ids_reads_a_well_formed_reply() {
+            let list: Vec<(String, HashMap<&str, Variant>)> = vec![
+                (QUICK_SUMMON_SHORTCUT_ID.to_owned(), HashMap::new()),
+                ("second".to_owned(), HashMap::new()),
+            ];
+            let mut results: HashMap<String, OwnedVariant> = HashMap::new();
+            results.insert(
+                "shortcuts".to_owned(),
+                OwnedVariant::try_from(Variant::from(list)).expect("owned value"),
+            );
+            assert_eq!(
+                extract_bound_shortcut_ids(&results),
+                vec![QUICK_SUMMON_SHORTCUT_ID.to_owned(), "second".to_owned()]
+            );
+        }
+
+        #[test]
+        fn session_handle_accepts_path_and_string_and_rejects_others() {
+            let mut results: HashMap<String, OwnedVariant> = HashMap::new();
+            assert!(session_handle_from(&results).is_none());
+
+            let path = zbus::ObjectPath::try_from("/session/1").expect("path");
+            results.insert(
+                "session_handle".to_owned(),
+                OwnedVariant::try_from(Variant::from(path)).expect("owned value"),
+            );
+            assert_eq!(
+                session_handle_from(&results).expect("object path").as_str(),
+                "/session/1"
+            );
+
+            results.insert(
+                "session_handle".to_owned(),
+                OwnedVariant::try_from(Variant::from("/session/2")).expect("owned value"),
+            );
+            assert_eq!(
+                session_handle_from(&results).expect("string").as_str(),
+                "/session/2"
+            );
+
+            results.insert(
+                "session_handle".to_owned(),
+                OwnedVariant::try_from(Variant::from(7u32)).expect("owned value"),
+            );
+            assert!(session_handle_from(&results).is_none());
+        }
+
+        fn method_error(name: &str, detail: Option<&str>) -> zbus::Error {
+            let message = zbus::message::Message::method_call("/", "Probe")
+                .build(&())
+                .expect("message");
+            zbus::Error::MethodError(
+                zbus::names::OwnedErrorName::try_from(name).expect("error name"),
+                detail.map(str::to_owned),
+                message,
+            )
+        }
+
+        #[test]
+        fn portal_call_errors_classify_missing_versus_failing() {
+            let acc = Accelerator::parse("Ctrl+Alt+T").expect("accelerator");
+            for name in [
+                "org.freedesktop.DBus.Error.ServiceUnknown",
+                "org.freedesktop.DBus.Error.NameHasNoOwner",
+                "org.freedesktop.DBus.Error.UnknownMethod",
+                "org.freedesktop.DBus.Error.UnknownInterface",
+                "org.freedesktop.DBus.Error.UnknownObject",
+            ] {
+                let err = method_error(name, None);
+                assert!(is_missing_portal(&err), "{name}");
+                assert!(matches!(
+                    classify_call_error("BindShortcuts", &err, &acc),
+                    PortalFailure::Unsupported(_)
+                ));
+            }
+            assert!(is_missing_portal(&zbus::Error::InterfaceNotFound));
+
+            let failing = method_error("org.freedesktop.portal.Error.Failed", Some("denied"));
+            assert!(!is_missing_portal(&failing));
+            match classify_call_error("BindShortcuts", &failing, &acc) {
+                PortalFailure::Unavailable(text) => {
+                    assert!(text.contains("BindShortcuts"), "{text}");
+                    assert!(text.contains("denied"), "{text}");
+                }
+                _ => panic!("expected Unavailable"),
+            }
+            assert!(!is_missing_portal(&zbus::Error::Failure("x".to_owned())));
+        }
+
+        #[test]
+        fn app_id_required_detects_a_method_error_value() {
+            let required = method_error(
+                "org.freedesktop.portal.Error.NotAllowed",
+                Some("An app id is required"),
+            );
+            assert!(is_app_id_required_error(&required));
+            let other = method_error("org.freedesktop.portal.Error.NotAllowed", None);
+            assert!(!is_app_id_required_error(&other));
+            assert!(!is_app_id_required_error(&zbus::Error::InterfaceNotFound));
         }
 
         #[test]

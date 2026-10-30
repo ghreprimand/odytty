@@ -147,17 +147,17 @@ wayland-protocols = { version = "=0.32.12", features = ["client", "staging"] }
 # (`src/native/quick_terminal/wayland.rs`, v0.15.0 A). Wayland denies apps a
 # direct global key grab (the compositor owns the keyboard), so the supported
 # route is the `org.freedesktop.portal.GlobalShortcuts` D-Bus portal. `zbus` is
-# the D-Bus client; the async-io backend (its default, minus the blocking-api
-# macros we do not use) is driven on a dedicated thread via `async_io::block_on`
-# so no async runtime touches the main event loop. `async-io` supplies the
-# bounded `Timer` that caps every portal wait; `futures-lite` supplies the
-# stream/future combinators (`next`, `or`) used to race those waits. All portal
+# the D-Bus client (version 6, `default-rt` runtime plus the `proxy` client API,
+# without the blocking-api macros we do not use); it is driven on a dedicated
+# thread via `async_io::block_on` so no async runtime touches the main event
+# loop. `async-io` supplies the bounded `Timer` that caps every portal wait;
+# `futures-lite` supplies the stream/future combinators (`next`, `or`) used to race those waits. All portal
 # work is off the first-usable-terminal path (post-presented-frame deferred
 # registration). On a host without a session bus or a portal that lacks
 # GlobalShortcuts, the backend degrades to an honest, actionable Unsupported,
 # never a false Registered. No network listener and no cross-user surface: the
 # session bus is the user's own. macOS/Windows are excluded (Carbon / RegisterHotKey).
-zbus = { version = "5", default-features = false, features = ["async-io"] }
+zbus = { version = "6", default-features = false, features = ["default-rt", "proxy"] }
 async-io = "2"
 futures-lite = "2"
 
