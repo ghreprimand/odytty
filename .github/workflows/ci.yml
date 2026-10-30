@@ -142,6 +142,15 @@ jobs:
       - name: Build
         run: cargo build --release --locked
 
+      # Compile the exact test targets used by the bounded GPU probes before
+      # their runtime deadlines start. The release build uses a separate profile.
+      - name: Build library test target
+        run: cargo test --locked --lib --no-run
+
+      - name: Build Linux GPU integration test target
+        if: runner.os == 'Linux'
+        run: cargo test --locked --test gpu_composite_smoke --no-run
+
       - name: Stage bundled ConPTY beside executables
         if: runner.os == 'Windows'
         shell: pwsh
