@@ -48,9 +48,14 @@ impl Drop for Scratch {
 
 #[test]
 fn followed_palette_status_changes_repaint_the_settings_row() {
-    let _render_globals = crate::test_lock::render_globals_lock();
+    exercise_palette_status(|| {});
+}
+
+fn exercise_palette_status(before_config: impl FnOnce()) {
     let root = Scratch(fresh_temp_dir("odytty-palette-status-redraw-"));
+    before_config();
     super::config_env::with_config_base(&root.0, true, || {
+        let _render_globals = crate::test_lock::render_globals_lock();
         let _reads = crate::test_lock::palette_read_lock();
         let path = root.0.join("palette.txt");
         std::fs::write(&path, PALETTE).expect("owned palette source");
@@ -117,4 +122,31 @@ fn followed_palette_status_changes_repaint_the_settings_row() {
             "recovery from the poll must open the frame gate so the row is rebuilt"
         );
     });
+}
+
+#[test]
+fn palette_status_waits_for_environment_before_render_globals() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let env = crate::test_lock::test_env_lock();
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let fixture =
+        std::thread::spawn(move || exercise_palette_status(|| ready_tx.send(()).unwrap()));
+    ready_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("fixture reached config acquisition");
+    let (render_tx, render_rx) = mpsc::channel();
+    let contender = std::thread::spawn(move || {
+        let _render = crate::test_lock::render_globals_lock();
+        render_tx.send(()).unwrap();
+    });
+    let render_available = render_rx.recv_timeout(Duration::from_secs(2)).is_ok();
+    drop(env);
+    fixture.join().unwrap();
+    contender.join().unwrap();
+    assert!(
+        render_available,
+        "palette fixture held render globals while waiting for environment"
+    );
 }
