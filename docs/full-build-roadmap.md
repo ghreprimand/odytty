@@ -116,9 +116,8 @@ its cross-platform or evidence gate is not met.
   groups, contextual joining beyond Arabic, and grapheme cluster mode 2027.
   Bidirectional display covers right-to-left paragraphs and the alternate
   screen, with direction controls and logical cell, selection and copy
-  semantics preserved. Reordering remains opt-in because its measured Linux
-  cost exceeds the default-on threshold; Windows and macOS cost remains
-  unmeasured. The checkpoint also includes joining from fallback faces,
+  semantics preserved. Reordering is opt-in and off by default, turned on from
+  Settings or the terminal context menu. The checkpoint also includes joining from fallback faces,
   printable ASCII and Grantha fallback, wide-owner block cursors, Windows
   transparency, the bundled Windows ConPTY runtime, the macOS child locale,
   measured efficiency work, image extent consistency, tab-drag corrections

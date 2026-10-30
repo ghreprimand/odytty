@@ -19,8 +19,8 @@ development record, [`SPEC.md`](SPEC.md) for durable decisions, and
 roadmap.
 
 Internal regression work uses the [frozen sampling protocol](docs/internal-benchmark-protocol.md).
-Windows/macOS bidi cost, native first-frame startup and GPU presentation costs
-still require controlled measurement apparatus.
+Native first-frame startup and GPU presentation costs still require controlled
+measurement apparatus.
 
 ## v0.17.5: General Script Coverage And Bidirectional Text (published)
 
@@ -54,8 +54,8 @@ claim acceptance on other platforms. The release notes are in
       right-click menu controls.
 - [x] Opt-in `bidi_reorder` on the alternate screen and on rows with Sixel,
       Kitty or iTerm2 images, keeping cells, cursor and mouse reports,
-      selection and copy logical. Reordering stays off by default because its
-      measured Linux cost exceeds the default-on threshold.
+      selection and copy logical. Reordering is opt-in and off by default,
+      turned on from Settings or the terminal context menu.
 - [x] Windows and macOS CJK system-face fallback after the primary and static
       chains miss, in a fixed order that does not infer regional forms.
 - [x] Windows window transparency through DX12 DirectComposition, with an
