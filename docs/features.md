@@ -2338,6 +2338,11 @@ Spawned Unix hosts have null standard streams and a separate process session,
 so capturing `odytty new --detached` returns its id without waiting for the
 host to exit. Early host failures use the existing private rotated log;
 the caller's startup error names that log destination when readiness fails.
+The host also installs the standard panic hook: a host panic is recorded in
+`panic.log` and the rotated log, and the host aborts. A host process that
+exits before its socket is ready fails the start at once with its exit status
+instead of waiting out the startup timeout. The Detach & switch failure notice
+shows the full cause, not only the diagnostics pointer.
 This isolation also applies to Detach & switch. Windows has no session host.
 
 Generated wide-glyph wrap padding occupies a visual cell without adding text

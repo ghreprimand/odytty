@@ -878,6 +878,25 @@ fn file_drop_shell_refuses_non_shell_launch_program() {
 #[cfg(target_os = "linux")]
 #[test]
 fn spawned_child_resets_inherited_ignored_signals() {
+    const CHILD: &str = "ODYTTY_SIGNAL_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "pty::unix::file_drop_shell_tests::spawned_child_resets_inherited_ignored_signals",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .expect("spawn isolated test process");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("1 passed"),
+            "isolated signal test failed: {stdout} {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     // SAFETY: plain disposition changes on the test process; restored below.
     let previous = unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) };
     assert_ne!(previous, libc::SIG_ERR);

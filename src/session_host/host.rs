@@ -316,7 +316,7 @@ pub(crate) fn await_host_socket(
     socket_path: &std::path::Path,
     timeout: Duration,
 ) -> Result<()> {
-    if let Err(error) = wait_for_socket(socket_path, timeout) {
+    if let Err(error) = wait_for_socket(child, socket_path, timeout) {
         let _ = child.kill();
         let _ = child.wait();
         return Err(error);
@@ -325,6 +325,10 @@ pub(crate) fn await_host_socket(
 }
 
 pub fn run_internal_host_from_args(args: &[String]) -> Result<()> {
+    // The detached host runs with null stderr, so without a hook a panic
+    // leaves no record. The shared hook writes panic.log and the rotated log,
+    // then aborts rather than leave a half-dead host holding the socket.
+    crate::native::panic_log::install_panic_hook();
     let result = (|| {
         let mut config = parse_internal_host_args(args)?;
         config.kitty_named_transports =
@@ -1058,29 +1062,30 @@ fn spawn_client_reader(
         .map(|_| ())
 }
 
-fn wait_for_socket(socket_path: &std::path::Path, timeout: Duration) -> Result<()> {
+/// Poll for the host's socket until `timeout`. A host child that exits first
+/// (bad arguments, refused runtime dir, early panic) will never bind, so its
+/// exit ends the wait at once instead of costing the whole budget. The cause
+/// is in the rotated log the caller's context points to. Connect is tried
+/// before `try_wait`, so a host that bound and then exited still reports its
+/// socket result.
+fn wait_for_socket(
+    child: &mut Child,
+    socket_path: &std::path::Path,
+    timeout: Duration,
+) -> Result<()> {
     let deadline = Instant::now() + timeout;
     loop {
-        match super::connect::connect_within(socket_path, Duration::ZERO) {
+        let error = match super::connect::connect_within(socket_path, Duration::ZERO) {
             Ok(_) => return Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound && Instant::now() < deadline => {
-                thread::sleep(HOST_LOOP_SLEEP);
-            }
-            Err(error) if error.raw_os_error() == Some(libc::ECONNREFUSED) => {
-                if Instant::now() >= deadline {
-                    return Err(error)
-                        .with_context(|| format!("connect {}", socket_path.display()));
-                }
-                thread::sleep(HOST_LOOP_SLEEP);
-            }
-            Err(error) => {
-                if Instant::now() >= deadline {
-                    return Err(error)
-                        .with_context(|| format!("connect {}", socket_path.display()));
-                }
-                thread::sleep(HOST_LOOP_SLEEP);
-            }
+            Err(error) => error,
+        };
+        if let Some(status) = child.try_wait().context("poll session-host process")? {
+            bail!("session-host exited before its socket was ready ({status})");
         }
+        if Instant::now() >= deadline {
+            return Err(error).with_context(|| format!("connect {}", socket_path.display()));
+        }
+        thread::sleep(HOST_LOOP_SLEEP);
     }
 }
 

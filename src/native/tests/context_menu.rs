@@ -1891,6 +1891,29 @@ fn detach_switch_spawn_failure_raises_notice_and_keeps_panes() {
     );
 }
 
+/// An attach failure after a spawn that reported success names its cause in
+/// the notice and, like a spawn failure, leaves the original pane untouched.
+#[test]
+#[cfg(unix)]
+fn detach_switch_attach_failure_notice_names_the_cause() {
+    let runtime_base = ScratchDir::for_sockets("cm-attach-fail-");
+    let (mut app, _terminal) = app_for_test();
+    let before = app.session_count_for_test();
+    app.detach_switch_attach_failure_for_test(runtime_base.path().to_path_buf(), true);
+    let notice = app
+        .open_notice_message_for_test()
+        .expect("an attach failure raises a notice");
+    assert!(
+        notice.starts_with("Couldn't detach & switch: the new session did not attach: "),
+        "{notice}"
+    );
+    assert!(
+        notice.len() > "Couldn't detach & switch: the new session did not attach: ".len(),
+        "the notice must carry the attach error: {notice}"
+    );
+    assert_eq!(app.session_count_for_test(), before, "original untouched");
+}
+
 /// RC-19b: app-level regression lock for RC-19 (commit 6d2baaf). The CORE-
 /// level test (`input_start_is_reanchored_through_a_width_change_resize` in
 /// `src/core/tests/osc_prompt.rs`) pins the screen invariant in isolation;

@@ -546,6 +546,88 @@ fn spawn_socket_timeout_reaps_the_spawned_child() {
 }
 
 #[test]
+fn spawn_fails_fast_when_the_host_child_exits_before_its_socket() {
+    // A host that dies at startup (bad arguments, runtime dir refused) never
+    // binds. Waiting the whole startup budget for it only delays the failure
+    // notice; the child's exit must end the wait at once and say so.
+    let temp = ScratchDir::for_sockets("sh-early-exit");
+    let mut child = std::process::Command::new("sh")
+        .args(["-c", "exit 3"])
+        .spawn()
+        .expect("spawn stand-in child");
+    let missing_socket = temp.path().join("never-bound.sock");
+    let started = Instant::now();
+    let error =
+        super::host::await_host_socket(&mut child, &missing_socket, Duration::from_secs(20))
+            .expect_err("socket never appears");
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "an exited host must fail fast, took {:?}",
+        started.elapsed()
+    );
+    let text = format!("{error:#}");
+    assert!(
+        text.contains("exited"),
+        "error should say the host exited: {text}"
+    );
+    assert!(
+        text.contains('3'),
+        "error should carry the exit status: {text}"
+    );
+}
+
+const PANIC_PROBE_ENV: &str = "ODYTTY_HOST_PANIC_PROBE";
+const PANIC_PROBE_TEST: &str = "session_host::tests::host_panic_probe_entry";
+
+/// Child half of [`host_entry_installs_the_panic_record_hook`]. Without the
+/// marker env this is an ordinary passing test that does nothing.
+#[test]
+fn host_panic_probe_entry() {
+    if std::env::var_os(PANIC_PROBE_ENV).is_none() {
+        return;
+    }
+    // The internal host entry runs (and fails on the bad flag, which is fine);
+    // whatever hook it leaves installed must record the next panic.
+    let _ = super::run_internal_host_from_args(&["--no-such-flag".to_owned()]);
+    panic!("host panic probe");
+}
+
+#[test]
+fn host_entry_installs_the_panic_record_hook() {
+    // The detached host has null stderr, so a panic there used to leave no
+    // record at all. The entry point installs the shared panic hook, which
+    // writes panic.log and aborts.
+    let child_env = crate::test_dirs::ChildEnv::new();
+    let vars = child_env.vars();
+    let output = std::process::Command::new(std::env::current_exe().expect("test executable"))
+        .args(["--exact", "--nocapture", PANIC_PROBE_TEST])
+        .env(PANIC_PROBE_ENV, "1")
+        .envs(vars.iter().map(|(key, path)| (*key, path)))
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("run panic probe");
+    assert!(
+        !output.status.success(),
+        "the probe must die: {:?}",
+        output.status
+    );
+    let log = vars
+        .iter()
+        .filter_map(|(key, path)| match *key {
+            "XDG_STATE_HOME" => Some(path.join("odytty/panic.log")),
+            "HOME" => Some(path.join("Library/Logs/odytty/panic.log")),
+            _ => None,
+        })
+        .find_map(|path| std::fs::read_to_string(path).ok())
+        .unwrap_or_default();
+    assert!(
+        log.contains("host panic probe"),
+        "panic.log must record the host panic; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn host_survives_client_that_vanishes_mid_handshake() {
     // A per-connection failure during the attach handshake must
     // log-and-drop THAT connection, not tear down the whole host. The classic

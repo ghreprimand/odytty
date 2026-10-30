@@ -90,6 +90,14 @@ fn bounded_count(assigned: u32, count: u32) -> Result<usize, &'static str> {
     }
 }
 
+fn error_label(code: u32) -> &'static str {
+    match code {
+        2 | 3 | 6 => "vanished",
+        87 => "retryable_or_unsupported",
+        _ => "other",
+    }
+}
+
 #[cfg(windows)]
 mod native {
     use super::*;
@@ -111,13 +119,15 @@ mod native {
     struct Failure {
         step: &'static str,
         class: Class,
-        vanished: bool,
+        retryable: bool,
+        label: &'static str,
     }
     fn failure(step: &'static str, class: Class, code: u32) -> Failure {
         Failure {
             step,
             class,
-            vanished: matches!(code, 2 | 3 | 6 | 87),
+            retryable: matches!(code, 2 | 3 | 6 | 87),
+            label: error_label(code),
         }
     }
     fn identity(path: &Path, class: Class) -> Result<(std::fs::File, Identity), Failure> {
@@ -218,7 +228,7 @@ mod native {
             let class = named_class(&name);
             match identity(&image, class) {
                 Ok((_file, id)) => counts.add(classify(id, &name, helper, shell, system, pinned)),
-                Err(e) if !e.vanished && class == Class::Other => {
+                Err(e) if !e.retryable && class == Class::Other => {
                     // This cannot count as the shell, helper or a pinned host.
                     println!(
                         "conpty_host_member=other_unreadable;step={};class={:?}",
@@ -272,7 +282,7 @@ mod native {
                         return Err(failure("own_job_pinned_host_mismatch", Class::Unknown, 0));
                     }
                     Err(e)
-                        if e.vanished
+                        if e.retryable
                             && attempt < 3
                             && start.elapsed() < std::time::Duration::from_millis(750) =>
                     {
@@ -285,11 +295,11 @@ mod native {
         })();
         if let Err(e) = &result {
             println!(
-                "conpty_host_identity=failed;step={};class={:?};vanished={}",
-                e.step, e.class, e.vanished
+                "conpty_host_identity=failed;step={};class={:?};error_label={}",
+                e.step, e.class, e.label
             );
         }
-        result.map_err(|e| format!("{};class={:?};vanished={}", e.step, e.class, e.vanished))
+        result.map_err(|e| format!("{};class={:?};error_label={}", e.step, e.class, e.label))
     }
 }
 #[cfg(windows)]
@@ -306,6 +316,11 @@ mod tests {
     }
     fn classify_fixture(actual: Identity, name: &str) -> Class {
         classify(actual, name, id(1), id(2), id(3), [id(4), id(5)])
+    }
+    #[test]
+    fn error_87_does_not_claim_process_vanished() {
+        assert_eq!(error_label(87), "retryable_or_unsupported");
+        assert_eq!(error_label(2), "vanished");
     }
     #[test]
     fn exact_identity_overrides_case_alias_but_same_basename_does_not() {

@@ -88,7 +88,7 @@ mod options;
 mod output_recorder;
 mod overlay;
 mod palette_overlay;
-mod panic_log;
+pub(crate) mod panic_log;
 mod paste_policy;
 mod persistence;
 mod profile_manager;

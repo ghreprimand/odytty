@@ -27,6 +27,34 @@ fn report(bytes: &[u8]) -> Result<[&str; 2], &'static str> {
     Ok([process, provider])
 }
 
+// Windows path components are checked before opening the reported path.
+fn safe_component(component: &str) -> bool {
+    let component = component.trim_end_matches([' ', '.']);
+    let stem = component
+        .split(['.', ':'])
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(' ');
+    let upper = stem.to_uppercase();
+    if matches!(
+        upper.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) {
+        return false;
+    }
+    for prefix in ["COM", "LPT"] {
+        if upper.strip_prefix(prefix).is_some_and(|suffix| {
+            matches!(
+                suffix,
+                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+            )
+        }) {
+            return false;
+        }
+    }
+    true
+}
+
 #[cfg(windows)]
 mod native {
     use super::*;
@@ -44,7 +72,11 @@ mod native {
     // Only fixture-reported local drive paths may be probed. In particular,
     // a malformed report never sends a filesystem request to a UNC share.
     fn local(path: &Path) -> bool {
-        path.has_root()
+        path.components().all(|component| match component {
+            Component::Normal(name) => name.to_str().is_some_and(safe_component),
+            Component::ParentDir => false,
+            _ => true,
+        }) && path.has_root()
             && matches!(path.components().next(), Some(Component::Prefix(p))
                 if matches!(p.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_)))
     }
@@ -123,6 +155,9 @@ mod native {
             "relative",
             r"C:relative",
             r"\rooted",
+            r"C:\CON",
+            r"C:\fixture\nul.txt",
+            r"C:\fixture\..\other",
         ] {
             assert!(!local(Path::new(path)));
         }
@@ -134,6 +169,18 @@ pub use native::Directory;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reserved_device_components_are_rejected() {
+        for component in [
+            "CON", "con.txt", "NUL", "AUX", "PRN", "COM1", "LPT9", "COM¹", "LPT²", "CON ",
+            "CON .txt", "CONIN$",
+        ] {
+            assert!(!safe_component(component), "{component}");
+        }
+        for component in ["console", "COM0", "COM10", "fixture.txt"] {
+            assert!(safe_component(component), "{component}");
+        }
+    }
     #[test]
     fn both_directory_views_require_the_full_same_identity() {
         let expected = Identity {

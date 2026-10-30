@@ -116,7 +116,7 @@ impl App {
         self.detach_switch_with_spawner(working_directory, None, swap, |config| {
             spawn_host_on_demand(config)
                 .map(|_| ())
-                .map_err(|error| std::io::Error::other(error.to_string()))
+                .map_err(host_spawn_io_error)
         });
     }
 
@@ -152,13 +152,10 @@ impl App {
 
         // Attach + focus the new managed session. NEVER close the original
         // before this succeeds: an attach failure leaves the original pane live.
-        if self
-            .attach_session_in_new_tab(runtime_base.as_deref(), &session_id)
-            .is_err()
-        {
-            self.raise_open_notice(
-                "Couldn't detach & switch: the new session did not attach.".to_owned(),
-            );
+        if let Err(error) = self.attach_session_in_new_tab(runtime_base.as_deref(), &session_id) {
+            self.raise_open_notice(format!(
+                "Couldn't detach & switch: the new session did not attach: {error}"
+            ));
             return;
         }
 
@@ -227,6 +224,18 @@ impl App {
         seen
     }
 
+    /// Test seam: a spawner that reports success without starting a host, so the
+    /// attach that follows fails. Exercises the attach-failure notice and the
+    /// keep-the-original guard under `runtime_base`.
+    #[cfg(all(test, unix))]
+    pub(in crate::native) fn detach_switch_attach_failure_for_test(
+        &mut self,
+        runtime_base: PathBuf,
+        swap: bool,
+    ) {
+        self.detach_switch_with_spawner(None, Some(runtime_base), swap, |_config| Ok(()));
+    }
+
     /// Test seam: drive the full Detach & switch orchestration with a spawner
     /// that always fails, so the failure guard (notice raised + original pane
     /// untouched, nothing attached) is exercisable without a real host process.
@@ -238,5 +247,31 @@ impl App {
             swap,
             |_config| Err(std::io::Error::other("forced spawn failure (test)")),
         );
+    }
+}
+
+/// Convert a failed host spawn into the notice error, keeping the whole cause
+/// chain. `Display` on an `anyhow::Error` renders only the outermost context
+/// (here the "diagnostics" pointer), which hid why the host failed.
+#[cfg(unix)]
+fn host_spawn_io_error(error: anyhow::Error) -> std::io::Error {
+    std::io::Error::other(format!("{error:#}"))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use anyhow::Context as _;
+
+    #[test]
+    fn host_spawn_error_keeps_the_full_cause_chain() {
+        let error = Err::<(), _>(std::io::Error::from(std::io::ErrorKind::ConnectionRefused))
+            .context("connect /run/odytty/x.sock")
+            .context("session-host startup failed; diagnostics (if writable): /state/odytty.log")
+            .unwrap_err();
+        let message = host_spawn_io_error(error).to_string();
+        assert!(message.contains("diagnostics"), "{message}");
+        assert!(message.contains("connect /run/odytty/x.sock"), "{message}");
+        assert!(message.to_lowercase().contains("refused"), "{message}");
     }
 }
