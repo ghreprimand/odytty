@@ -108,6 +108,9 @@ jobs:
       - name: Bundled ConPTY identity contracts
         run: python scripts/conpty-runtime/check.py
 
+      - name: Unicode conformance report self-tests
+        run: python scripts/unicode-conformance-test.py
+
       - name: Corpus intake self-tests
         run: python scripts/compatibility-corpus.py selftest
 

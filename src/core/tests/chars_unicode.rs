@@ -531,3 +531,87 @@ fn del_does_not_become_the_repeat_character() {
         .collect();
     assert_eq!(row, "aaa ");
 }
+
+#[test]
+fn khun_and_malayalam_three_cell_owner_copy_wrap_and_reflow() {
+    use crate::core::text_owner_spans;
+    use crate::selection::{CellPoint, SelectionRange, selected_text};
+
+    for (text, leading, trailing) in [
+        (
+            "\u{1a63}\u{1a60}\u{1a32}\u{1a71}",
+            "\u{1a63}\u{1a60}",
+            "\u{1a32}\u{1a71}",
+        ),
+        (
+            "\u{0d7b}\u{0d4d}\u{0d31}\u{0d46}",
+            "\u{0d7b}\u{0d4d}",
+            "\u{0d31}\u{0d46}",
+        ),
+    ] {
+        for ambiguous in [false, true] {
+            let owners = text_owner_spans(text, ambiguous);
+            assert_eq!(owners.len(), 2, "{text:?}");
+            assert_eq!(owners.iter().map(|o| o.width).collect::<Vec<_>>(), [1, 2]);
+            assert_eq!(
+                owners.iter().map(|o| o.chars.clone()).collect::<Vec<_>>(),
+                [0..2, 2..4]
+            );
+            assert_eq!(owners[0].cell.grapheme(), leading);
+            assert_eq!(owners[1].cell.grapheme(), trailing);
+
+            let mut terminal = Terminal::new(8, 3);
+            terminal.set_ambiguous_wide(ambiguous);
+            terminal.advance(text.as_bytes());
+            assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 3 });
+            assert_eq!(terminal.screen().cell(0, 0).unwrap().grapheme(), leading);
+            assert_eq!(terminal.screen().cell(0, 1).unwrap().grapheme(), trailing);
+            assert!(terminal.screen().cell(0, 2).unwrap().wide_continuation);
+            let copied = selected_text(
+                &terminal.snapshot(),
+                SelectionRange {
+                    start: CellPoint { row: 0, column: 0 },
+                    end: CellPoint { row: 0, column: 2 },
+                },
+            );
+            assert_eq!(copied, text);
+            terminal.resize(3, 3);
+            assert_eq!(terminal.screen().cell(0, 0).unwrap().grapheme(), leading);
+            assert_eq!(terminal.screen().cell(0, 1).unwrap().grapheme(), trailing);
+            assert!(terminal.screen().cell(0, 2).unwrap().wide_continuation);
+            terminal.resize(8, 3);
+            assert_eq!(
+                selected_text(
+                    &terminal.snapshot(),
+                    SelectionRange {
+                        start: CellPoint { row: 0, column: 0 },
+                        end: CellPoint { row: 0, column: 2 },
+                    }
+                ),
+                text
+            );
+
+            let mut wrapped = Terminal::new(3, 3);
+            wrapped.set_ambiguous_wide(ambiguous);
+            wrapped.advance(text.as_bytes());
+            wrapped.advance(b"X");
+            assert_eq!(wrapped.screen().cell(1, 0).unwrap().ch, 'X');
+            assert_eq!(wrapped.screen().cursor(), Position { row: 1, column: 1 });
+            wrapped.resize(8, 3);
+            assert_eq!(wrapped.screen().cell(0, 0).unwrap().grapheme(), leading);
+            assert_eq!(wrapped.screen().cell(0, 1).unwrap().grapheme(), trailing);
+            assert!(wrapped.screen().cell(0, 2).unwrap().wide_continuation);
+            assert_eq!(wrapped.screen().cell(0, 3).unwrap().ch, 'X');
+            assert_eq!(
+                selected_text(
+                    &wrapped.snapshot(),
+                    SelectionRange {
+                        start: CellPoint { row: 0, column: 0 },
+                        end: CellPoint { row: 0, column: 3 },
+                    }
+                ),
+                format!("{text}X")
+            );
+        }
+    }
+}

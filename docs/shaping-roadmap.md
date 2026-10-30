@@ -561,10 +561,10 @@ A Tai Tham medial or spacing vowel sign written before SAKOT (U+1A60) stays
 inside its consonant's owner, so the stacked consonant joins that owner
 instead of starting a new one. Other scripts still end consonant linking at a
 retained spacing sign. Two frozen `ucs-detect` corpus rows keep three cells
-where the wcwidth reference reports two: a Tai Tham sequence that starts with
-the dependent vowel U+1A63 and a Malayalam sequence that starts with the chillu
-U+0D7B. OdyTTY links a virama or stacker only back to a same-script consonant
-in its linking table, which includes neither a dependent vowel nor a chillu
+where the wcwidth reference reports two: Tai Tham U+1A63 U+1A60 U+1A32
+U+1A71 and Malayalam U+0D7B U+0D4D U+0D31 U+0D46. OdyTTY links a virama or
+stacker only back to a same-script consonant in its linking table, which
+includes neither a dependent vowel nor a chillu
 (a dead consonant), so each keeps a separate leading owner. These
 are deliberate differences from the reference, not passes.
 

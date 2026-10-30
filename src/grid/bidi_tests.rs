@@ -1376,3 +1376,34 @@ fn positive_advance_mark_copy_and_reflow_keep_logical_source() {
         );
     }
 }
+
+#[test]
+fn khun_and_malayalam_three_cell_hit_mapping_preserves_logical_selection() {
+    use crate::selection::{CellPoint, SelectionRange, selected_text};
+    for text in [
+        "\u{1a63}\u{1a60}\u{1a32}\u{1a71}",
+        "\u{0d7b}\u{0d4d}\u{0d31}\u{0d46}",
+    ] {
+        let term = terminal(text, 8, 2);
+        let map = display_map(&term);
+        for column in 0..3 {
+            let visual = map.visual_column(0, column);
+            assert_eq!(
+                map.logical_column(0, visual),
+                column,
+                "{text:?} column={column}"
+            );
+        }
+        let range = SelectionRange {
+            start: CellPoint {
+                row: 0,
+                column: map.logical_column(0, map.visual_column(0, 0)),
+            },
+            end: CellPoint {
+                row: 0,
+                column: map.logical_column(0, map.visual_column(0, 2)),
+            },
+        };
+        assert_eq!(selected_text(&term.snapshot(), range), text);
+    }
+}

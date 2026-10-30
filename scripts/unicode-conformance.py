@@ -15,6 +15,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import subprocess
@@ -68,6 +69,36 @@ def require_log(label: str, output: Path, markers: tuple[str, ...]) -> None:
         raise SystemExit(f"{label}: expected test output missing from {log}: {missing}")
 
 
+def prepare_output(output: Path) -> None:
+    output.mkdir(parents=True, exist_ok=True)
+    if not output.is_dir() or next(output.iterdir(), None) is not None:
+        raise ValueError("--output must be a new or empty directory")
+
+
+def parse_corpus_results(grapheme: str, bidi: str) -> dict:
+    """Require successful test evidence and extract the measured corpus counts."""
+    def exactly_one(pattern: str, text: str) -> re.Match:
+        matches = list(re.finditer(pattern, text, re.MULTILINE))
+        if len(matches) != 1:
+            raise ValueError("missing or duplicate corpus result")
+        return matches[0]
+
+    for text in (grapheme, bidi):
+        exactly_one(r"^test result: ok\. 1 passed; 0 failed;", text)
+        if re.search(r"^test result: FAILED", text, re.MULTILINE):
+            raise ValueError("corpus test failed")
+    match = exactly_one(r"GraphemeBreakTest: (\d+) cases, (\d+) boundary decisions$", grapheme)
+    result = {"grapheme": {"cases": int(match[1]), "decisions": int(match[2]), "passed": True}}
+    for name, key in (("BidiCharacterTest", "bidi_character"), ("BidiTest", "bidi")):
+        match = exactly_one(rf"{name}: Tally \{{ passed: \[([0-9, ]+)\], total: \[([0-9, ]+)\] \}} -> (\d+) / (\d+)$", bidi)
+        passed = [int(n) for n in match[1].split(",")]
+        total = [int(n) for n in match[2].split(",")]
+        if len(passed) != 3 or len(total) != 3 or sum(passed) != int(match[3]) or sum(total) != int(match[4]):
+            raise ValueError("inconsistent bidi tally")
+        result[key] = {"cases_passed": int(match[3]), "total": int(match[4]), "passed": passed == total}
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", type=Path, default=ROOT, help="release-candidate checkout")
@@ -105,7 +136,10 @@ def main() -> int:
         parser.error("--ucd-dir or ODYTTY_UCD_DIR is required")
     if not corpus.is_dir():
         parser.error(f"Unicode corpus directory does not exist: {corpus}")
-    output.mkdir(parents=True, exist_ok=True)
+    try:
+        prepare_output(output)
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
     for name, expected in EXPECTED.items():
         path = corpus / name
         if not path.is_file() or digest(path) != expected:
@@ -116,14 +150,17 @@ def main() -> int:
     env["CARGO_BUILD_JOBS"] = "4"
     env["RUST_TEST_THREADS"] = "1"
     env["ODYTTY_UCD_BIDI_DIR"] = str(corpus)
-    run("grapheme", ["cargo", "test", "--locked", "--release", "grapheme_break_test_17_every_case"], cwd=repo, env=env, output=output)
-    require_log("grapheme", output, ("core::grapheme::tests::grapheme_break_test_17_every_case ... ok", "test result: ok. 1 passed; 0 failed;"))
+    run("grapheme", ["cargo", "test", "--locked", "--release", "grapheme_break_test_17_every_case", "--", "--nocapture"], cwd=repo, env=env, output=output)
+    require_log("grapheme", output, ("core::grapheme::tests::grapheme_break_test_17_every_case",))
     run("bidi", ["cargo", "test", "--locked", "--release", "full_unicode_bidi_corpus", "--", "--ignored", "--nocapture"], cwd=repo, env=env, output=output)
-    require_log("bidi", output, (
-        "BidiCharacterTest: Tally { passed: [45849, 45830, 28], total: [45849, 45830, 28] } -> 91707 / 91707",
-        "BidiTest: Tally { passed: [256747, 256747, 256747], total: [256747, 256747, 256747] } -> 770241 / 770241",
-        "test result: ok. 1 passed; 0 failed;",
-    ))
+    try:
+        corpus_results = parse_corpus_results(
+            (output / "grapheme.log").read_text(encoding="utf-8"),
+            (output / "bidi.log").read_text(encoding="utf-8"),
+        )
+    except ValueError as error:
+        raise SystemExit(f"invalid corpus logs: {error}") from error
+
 
     ucs_hash = None
     if not args.skip_ucs_detect:
@@ -149,6 +186,7 @@ def main() -> int:
         "source_revision": revision,
         "unicode_version": "17.0.0",
         "corpus_sha256": EXPECTED,
+        "corpus_results": corpus_results,
         "font": args.font,
         "font_sha256": args.font_sha256,
         "machine_class": args.machine_class,
@@ -178,9 +216,9 @@ def main() -> int:
         "",
         "| Corpus | Cases | Result | SHA-256 |",
         "| --- | ---: | --- | --- |",
-        f"| GraphemeBreakTest | 766 cases, 1,224 boundary decisions | PASS | `{EXPECTED['GraphemeBreakTest.txt']}` |",
-        f"| BidiCharacterTest | 91,707 | PASS | `{EXPECTED['BidiCharacterTest.txt']}` |",
-        f"| BidiTest | 770,241 | PASS | `{EXPECTED['BidiTest.txt']}` |",
+        f"| GraphemeBreakTest | {corpus_results['grapheme']['cases']} cases, {corpus_results['grapheme']['decisions']} boundary decisions | {'PASS' if corpus_results['grapheme']['passed'] else 'FAIL'} | `{EXPECTED['GraphemeBreakTest.txt']}` |",
+        f"| BidiCharacterTest | {corpus_results['bidi_character']['cases_passed']} / {corpus_results['bidi_character']['total']} | {'PASS' if corpus_results['bidi_character']['passed'] else 'FAIL'} | `{EXPECTED['BidiCharacterTest.txt']}` |",
+        f"| BidiTest | {corpus_results['bidi']['cases_passed']} / {corpus_results['bidi']['total']} | {'PASS' if corpus_results['bidi']['passed'] else 'FAIL'} | `{EXPECTED['BidiTest.txt']}` |",
         "",
         "## ucs-detect",
         "",

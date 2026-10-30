@@ -100,6 +100,14 @@ impl App {
         &mut self,
         scope: MoveScope,
     ) -> Result<(MovedContent, MovedHold), MoveError> {
+        self.detach_for_move_with(scope, |app, scope| app.sessions.detach_for_move(scope))
+    }
+
+    fn detach_for_move_with(
+        &mut self,
+        scope: MoveScope,
+        detach: impl FnOnce(&mut Self, MoveScope) -> Result<MovedContent, MoveError>,
+    ) -> Result<(MovedContent, MovedHold), MoveError> {
         let tokens: Vec<SessionToken> = match scope {
             MoveScope::ActiveTab => self.active_tab_tokens(),
             MoveScope::ActivePane => vec![self.sessions.active_id()],
@@ -108,7 +116,7 @@ impl App {
             return Err(MoveError::SourceEmpty);
         }
         let focus_out_reported = self.settle_before_move_out(&tokens);
-        let content = match self.sessions.detach_for_move(scope) {
+        let content = match detach(self, scope) {
             Ok(content) => content,
             Err(err) => {
                 // Nothing left: the focused pane stays, so take back the
@@ -323,4 +331,32 @@ impl App {
 /// is harmless, so this reports whether the active tab is split.
 fn scope_was_pane_reflow(sessions: &crate::native::session::WorkspaceSet) -> bool {
     !sessions.active_is_single_pane()
+}
+
+#[cfg(test)]
+mod refusal_tests {
+    use super::*;
+    use crate::native::test_support::{headless_app_with_writer, headless_writer};
+
+    #[test]
+    fn detach_refusal_compensates_focus_out() {
+        let (mut app, _) = headless_app_with_writer(
+            NativeOptions::default(),
+            crate::core::Dimensions::new(80, 24),
+            Settings::default(),
+            headless_writer(),
+        );
+        let token = app.sessions.active_id();
+        app.focused = true;
+        app.last_active_session = token;
+        app.enable_focus_reporting_for_test();
+        let result =
+            app.detach_for_move_with(MoveScope::ActiveTab, |_, _| Err(MoveError::SourceEmpty));
+        assert!(matches!(result, Err(MoveError::SourceEmpty)));
+        assert_eq!(
+            app.take_focus_reports_for_test(),
+            vec![(token, false), (token, true)]
+        );
+        assert_eq!(app.sessions.active_id(), token);
+    }
 }

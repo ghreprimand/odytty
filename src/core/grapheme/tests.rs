@@ -60,6 +60,7 @@ fn grapheme_break_test_17_every_case() {
     );
     assert_eq!(cases, BREAK_TEST_CASES);
     assert_eq!(decisions, BREAK_TEST_DECISIONS);
+    println!("GraphemeBreakTest: {cases} cases, {decisions} boundary decisions");
 }
 
 #[test]
