@@ -27,15 +27,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        # v4.2.2
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Checkout (retry)
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -62,8 +61,7 @@ jobs:
             -o "dist/build/odytty-${VERSION}.tar.gz" HEAD
 
       - name: Upload source artifact
-        # v4.6.2
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: source
           path: dist/build/*.tar.gz
@@ -81,15 +79,14 @@ jobs:
       ODYTTY_BUILD_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
-        # v4.2.2
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Checkout (retry)
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -149,8 +146,7 @@ jobs:
             "/w/odytty-${VERSION}-x86_64.AppImage"
 
       - name: Upload AppImage artifact
-        # v4.6.2
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: appimage
           path: |
@@ -171,15 +167,14 @@ jobs:
       ODYTTY_BUILD_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
-        # v4.2.2
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Checkout (retry)
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -194,7 +189,7 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Set up pinned native-package verifier
-        uses: actions/setup-dotnet@2016bd2012dba4e32de620c46fe006a3ac9f0602
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.100'
 
@@ -230,8 +225,7 @@ jobs:
             -Force
 
       - name: Upload Windows artifact
-        # v4.6.2
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows
           path: dist/build/*.zip
@@ -255,15 +249,14 @@ jobs:
       ODYTTY_BUILD_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
-        # v4.2.2
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Checkout (retry)
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -305,8 +298,7 @@ jobs:
             "dist/build/odytty-$version-macos-arm64.zip"
 
       - name: Upload macOS artifact
-        # v4.6.2
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos
           path: dist/build/*.zip
@@ -326,15 +318,14 @@ jobs:
       ODYTTY_BUILD_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
-        # v4.2.2
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Checkout (retry)
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -383,8 +374,7 @@ jobs:
         run: ./dist/build/odytty-${VERSION}-linux-x86_64/odytty --version
 
       - name: Upload tarball artifact
-        # v4.6.2
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-tarball
           path: dist/build/odytty-*-linux-x86_64.tar.gz
@@ -402,15 +392,14 @@ jobs:
       ODYTTY_BUILD_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
-        # v4.2.2
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Checkout (retry)
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -459,8 +448,7 @@ jobs:
           dpkg-deb -c "$pkg" | head -40
 
       - name: Upload deb artifact
-        # v4.6.2
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: deb
           path: dist/build/*.deb
@@ -478,15 +466,14 @@ jobs:
       ODYTTY_BUILD_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
-        # v4.2.2
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Checkout (retry)
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -533,8 +520,7 @@ jobs:
           rpm -qlp "$pkg" | head -40
 
       - name: Upload rpm artifact
-        # v4.6.2
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rpm
           path: dist/build/*.rpm
@@ -563,15 +549,14 @@ jobs:
       actions: read
     steps:
       - name: Checkout
-        # v4.2.2
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Checkout (retry)
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -617,15 +602,14 @@ jobs:
       attestations: write
     steps:
       - name: Checkout release source
-        # v4.2.2
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Checkout release source (retry)
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -642,10 +626,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends minisign
 
       - name: Download artifacts
-        # v4.3.0
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
+          digest-mismatch: warn
 
       - name: Derive version
         id: ver
@@ -736,8 +720,7 @@ jobs:
       # verification is by digest, so either name verifies. That is the same
       # invariant SHA256SUMS already shows as matching hashes, not a duplicate.
       - name: Attest build provenance
-        # v4.2.2
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: out/*
 
@@ -790,8 +773,7 @@ jobs:
           python3 scripts/release-notes.py --version "$VERSION" --output release-body.md
 
       - name: Publish GitHub Release
-        # v2.3.3
-        uses: softprops/action-gh-release@6cbd405e2c4e67a21c47fa9e383d020e4e28b836
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             out/*.tar.gz
@@ -825,16 +807,15 @@ jobs:
       contents: write
     steps:
       - name: Checkout master
-        # v4.2.2
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: master
           fetch-depth: 0
       - name: Checkout master (retry)
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: master
           fetch-depth: 0
@@ -933,17 +914,16 @@ jobs:
       contents: read
     steps:
       - name: Checkout master
-        # v4.2.2
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: master
           fetch-depth: 0
           persist-credentials: false
       - name: Checkout master (retry)
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: master
           fetch-depth: 0

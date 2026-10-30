@@ -55,15 +55,14 @@ jobs:
       # attempt continues on error and the retry step reruns it in-job.
       # The same pair is used for every checkout in ci.yml and release.yml.
       - name: Checkout
-        # v4.2.2
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: ${{ matrix.os == 'windows-latest' && '0' || '3' }}
       - name: Checkout (retry)
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: ${{ matrix.os == 'windows-latest' && '0' || '3' }}
 
@@ -88,8 +87,7 @@ jobs:
       # saved under the previous prefix and would otherwise be pulled back in
       # by restore-keys); they age out via GitHub's cache eviction.
       - name: Cache cargo registry
-        # v4.2.0
-        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -102,8 +100,7 @@ jobs:
       # whatever each runner image ships. Only this job sets it up: the
       # architecture-guards and shell-scripts jobs keep the image's python3.
       - name: Set up Python
-        # v6.3.0
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
@@ -127,7 +124,7 @@ jobs:
 
       - name: Set up pinned native-package verifier
         if: runner.os == 'Windows'
-        uses: actions/setup-dotnet@2016bd2012dba4e32de620c46fe006a3ac9f0602
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.100'
 
@@ -402,10 +399,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        # v4.2.2
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # This job only reads source text; it never pushes. Leaving the
           # checkout token out of .git/config keeps it away from the scripts
@@ -413,7 +409,7 @@ jobs:
           persist-credentials: false
       - name: Checkout (retry)
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # This job only reads source text; it never pushes. Leaving the
           # checkout token out of .git/config keeps it away from the scripts
@@ -478,13 +474,12 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        # v4.2.2
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Checkout (retry)
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: shellcheck
         run: |

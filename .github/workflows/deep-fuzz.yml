@@ -27,9 +27,8 @@ jobs:
     # backstop. The 40k-iteration sweep finishes well inside this on a green run.
     timeout-minutes: 60
     steps:
-      # v4.2.2
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -83,11 +82,9 @@ jobs:
           mkdir -p fuzz-logs
           cargo test --test protocol_fuzz --locked -- --ignored --nocapture \
             2>&1 | tee fuzz-logs/protocol-fuzz.log
-
-      # v4.6.2
       - name: Upload fuzz logs
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: deep-fuzz-logs
           path: fuzz-logs/
