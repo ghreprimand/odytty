@@ -1200,27 +1200,43 @@ impl Screen {
     /// multi-line prompts; without a reply their screen model desyncs and
     /// completion listings render in the wrong place or fail to refresh. The
     /// reported row honors origin mode (DECOM): when set, it is relative to the
-    /// scroll-region top, mirroring [`Screen::move_to_origin`]. Private-marker
-    /// (DECDSR, `?`-intermediate) requests are ignored here.
+    /// scroll-region top, mirroring [`Screen::move_to_origin`].
+    ///
+    /// Of the private-marker (DEC-specific) requests only DECXCPR
+    /// (`CSI ? 6 n`, exactly one parameter without sub-parameters) is answered, as
+    /// `ESC [ ? row ; col R` with the same coordinates as `6n`. The single
+    /// default page is implicit, so no page field is sent. Every other private
+    /// or intermediate form stays silent.
     pub(super) fn device_status_report(&mut self, params: &Params, intermediates: &[u8]) {
-        if !intermediates.is_empty() {
-            return;
-        }
-        match param_or(params, 0, 0) {
-            5 => self.host_output.extend_from_slice(b"\x1b[0n"),
-            6 => {
-                let row = if self.origin_mode {
-                    let (top, _) = self.effective_region();
-                    self.cursor.row.saturating_sub(top) + 1
-                } else {
-                    self.cursor.row + 1
-                };
-                let column = self.cursor.column + 1;
+        match intermediates {
+            b"" => match param_or(params, 0, 0) {
+                5 => self.host_output.extend_from_slice(b"\x1b[0n"),
+                6 => {
+                    let (row, column) = self.cursor_report_position();
+                    self.host_output
+                        .extend_from_slice(format!("\x1b[{row};{column}R").as_bytes());
+                }
+                _ => {}
+            },
+            b"?" if params.len() == 1 && matches!(params.iter().next(), Some([6])) => {
+                let (row, column) = self.cursor_report_position();
                 self.host_output
-                    .extend_from_slice(format!("\x1b[{row};{column}R").as_bytes());
+                    .extend_from_slice(format!("\x1b[?{row};{column}R").as_bytes());
             }
             _ => {}
         }
+    }
+
+    /// 1-based cursor row and column as reported by CPR and DECXCPR. The row
+    /// is relative to the scroll-region top while origin mode is set.
+    fn cursor_report_position(&self) -> (usize, usize) {
+        let row = if self.origin_mode {
+            let (top, _) = self.effective_region();
+            self.cursor.row.saturating_sub(top) + 1
+        } else {
+            self.cursor.row + 1
+        };
+        (row, self.cursor.column + 1)
     }
 
     pub(super) fn save_cursor(&mut self) {

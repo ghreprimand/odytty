@@ -127,6 +127,22 @@ fn a_mirror_lays_out_query_bytes_but_never_answers_them() {
 }
 
 #[test]
+fn a_mirror_never_answers_cursor_position_or_image_number_requests() {
+    // DECXCPR and an image-number display both produce replies on the host's
+    // terminal. The mirror applies the same bytes to its own model but sends
+    // no second answer.
+    let mut output = b"\x1b_Ga=t,f=32,s=1,v=1,I=7;AAAA/w==\x1b\\".to_vec();
+    output.extend_from_slice(b"\x1b[3;5H\x1b[?6n\x1b_Ga=p,I=7,p=2\x1b\\");
+    let (events, mut terminal) = pump_events(|host| {
+        write_host_frame(host, &HostFrame::Output(output)).expect("output");
+    });
+    assert_eq!(events, vec!["redraw", "exited"]);
+    assert_eq!(terminal.graphics().store().len(), 1);
+    assert_eq!(terminal.graphics().placements().len(), 1);
+    assert!(terminal.take_host_output().is_empty());
+}
+
+#[test]
 fn write_timeout_setup_propagates_failures_on_a_live_socket() {
     let (ours, _theirs) = UnixStream::pair().expect("socketpair");
     assert!(settle_write_timeout(&ours, Ok(())).is_ok());

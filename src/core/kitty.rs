@@ -878,8 +878,11 @@ fn process_complete_command(
 // ---------------------------------------------------------------------------
 
 /// `a=p` - display an image already in the store, addressed by its protocol
-/// image id (`i=`), without re-transmitting pixel data. Required for icat-style
-/// reuse and for placing multiple named placements (`p=`) of one image.
+/// image id (`i=`) or image number (`I=`), without re-transmitting pixel data.
+/// Required for icat-style reuse and for placing multiple named placements
+/// (`p=`) of one image. A number selects only the newest stored image carrying
+/// it, through the same lookup animation commands use. An unknown id or number
+/// fails with the same error and places nothing.
 fn process_display_command(
     graphics: &mut ImageScene,
     command: Command,
@@ -889,13 +892,15 @@ fn process_display_command(
     screen_cols: usize,
     cell_metrics: CellMetrics,
 ) -> Result<KittyOutcome, KittyError> {
-    let protocol_id = command
-        .control
-        .image_id
-        .ok_or(KittyError::MalformedControl)?;
-    let stored_id = graphics
-        .find_by_protocol_id(protocol_id)
-        .ok_or(KittyError::StoreRejected)?;
+    let stored_id = match (
+        command.control.image_id,
+        command.control.addressed_image_number(),
+    ) {
+        (Some(protocol_id), _) => graphics.find_by_protocol_id(protocol_id),
+        (None, Some(number)) => graphics.find_by_image_number(number),
+        (None, None) => return Err(KittyError::MalformedControl),
+    }
+    .ok_or(KittyError::StoreRejected)?;
     let (width, height) = graphics
         .store()
         .get(stored_id)
@@ -1098,6 +1103,18 @@ fn process_delete_command(
         'I' => {
             let id = control.image_id.ok_or(KittyError::MalformedControl)?;
             graphics.delete_by_image_id_and_free(id, control.placement_id);
+        }
+        // Image numbers (`I=`) address only the newest stored image carrying
+        // that number, resolved by the same lookup animation commands use. A
+        // number with no stored image deletes nothing, as `d=i` does for an
+        // unknown id. Zero means "no number", like an absent `I=`.
+        'n' | 'N' => {
+            let number = control
+                .addressed_image_number()
+                .ok_or(KittyError::MalformedControl)?;
+            if let Some(target) = graphics.find_by_image_number(number) {
+                graphics.delete_by_stored_image(target, control.placement_id, spec == 'N');
+            }
         }
         'f' => {
             kitty_animation::delete_frame(graphics, control, false)?;

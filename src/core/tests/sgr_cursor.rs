@@ -547,8 +547,8 @@ fn responds_to_dsr_5n_status() {
 fn ignores_private_dsr_request() {
     let mut terminal = Terminal::new(10, 2);
 
-    // DECDSR (private marker) is not answered by the plain DSR path.
-    terminal.advance(b"\x1b[?6n");
+    // An unrelated private request must stay silent.
+    terminal.advance(b"\x1b[?5n");
 
     assert!(terminal.take_host_output().is_empty());
 }
@@ -827,4 +827,81 @@ fn irm_decrqm_reports_live_state() {
         b"\x1b[4;1$y",
         "IRM set after CSI 4 h"
     );
+}
+
+#[test]
+fn decxcpr_default_moved_and_chunked_reply() {
+    let mut t = Terminal::new(20, 10);
+    t.advance(b"\x1b[?6n");
+    assert_eq!(t.take_host_output(), b"\x1b[?1;1R");
+    t.advance(b"\x1b[3;5H\x1b[?");
+    assert!(t.take_host_output().is_empty());
+    t.advance(b"6n");
+    assert_eq!(t.take_host_output(), b"\x1b[?3;5R");
+    assert!(t.take_host_output().is_empty());
+}
+
+#[test]
+fn decxcpr_origin_margins_and_primary_alternate() {
+    let mut t = Terminal::new(20, 10);
+    t.advance(b"\x1b[3;8r\x1b[?6h\x1b[2;4H\x1b[?6n");
+    assert_eq!(t.take_host_output(), b"\x1b[?2;4R");
+    t.advance(b"\x1b[?1049h\x1b[4;7H\x1b[?6n");
+    assert_eq!(t.take_host_output(), b"\x1b[?4;7R");
+    t.advance(b"\x1b[?1049l\x1b[?6n");
+    assert_eq!(t.take_host_output(), b"\x1b[?2;4R");
+}
+
+#[test]
+fn decxcpr_pending_wrap_resize_and_reset() {
+    let mut t = Terminal::new(4, 3);
+    t.advance(b"abcd\x1b[?6n");
+    assert_eq!(t.take_host_output(), b"\x1b[?1;4R");
+    t.advance(b"X\x1b[?6n");
+    assert_eq!(t.take_host_output(), b"\x1b[?2;2R");
+    t.resize(8, 3);
+    t.advance(b"\x1b[6n\x1b[?6n");
+    let out = t.take_host_output();
+    assert_eq!(out, b"\x1b[1;6R\x1b[?1;6R");
+    t.advance(b"\x1bc\x1b[?6n");
+    assert_eq!(t.take_host_output(), b"\x1b[?1;1R");
+}
+
+#[test]
+fn decxcpr_unsupported_forms_and_plain_cpr_are_unchanged() {
+    let mut t = Terminal::new(20, 5);
+    t.advance(b"abc\x1b[3;5H");
+    let before = t.screen().snapshot_with_scrollback(0);
+    for request in [
+        b"\x1b[?5n".as_slice(),
+        b"\x1b[?7n",
+        b"\x1b[?6;1n",
+        b"\x1b[?6$n",
+        b"\x1b[>6n",
+    ] {
+        t.advance(request);
+        assert!(t.take_host_output().is_empty(), "{request:?}");
+    }
+    assert_eq!(t.screen().snapshot_with_scrollback(0), before);
+    t.advance(b"\x1b[6n");
+    assert_eq!(t.take_host_output(), b"\x1b[3;5R");
+}
+
+#[test]
+fn compatibility_plain_cpr_preserves_cursor_cases() {
+    let mut t = Terminal::new(20, 10);
+    t.advance(b"\x1b[3;8r\x1b[?6h\x1b[2;4H\x1b[6n");
+    assert_eq!(t.take_host_output(), b"\x1b[2;4R");
+    t.advance(b"\x1b[?1049h\x1b[4;7H\x1b[6n");
+    assert_eq!(t.take_host_output(), b"\x1b[4;7R");
+    t.advance(b"\x1b[?1049l\x1b[6n");
+    assert_eq!(t.take_host_output(), b"\x1b[2;4R");
+    let mut t = Terminal::new(4, 3);
+    t.advance(b"abcd\x1b[6n");
+    assert_eq!(t.take_host_output(), b"\x1b[1;4R");
+    t.advance(b"X\x1b[6n");
+    assert_eq!(t.take_host_output(), b"\x1b[2;2R");
+    t.resize(8, 3);
+    t.advance(b"\x1b[6n");
+    assert_eq!(t.take_host_output(), b"\x1b[1;6R");
 }

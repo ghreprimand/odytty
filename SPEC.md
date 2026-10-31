@@ -482,8 +482,9 @@ animation wake. Animation commands address an image by either `i=` image id or
 `I=` image number, resolving a number to the newest image carrying it; naming
 both in one command is rejected. Payloads may be zlib-compressed (`o=z`) in any
 format, on any transport, with inflation bounded by the image store's
-decoded-byte budget and truncated streams refused. `I=` addressing on display
-(`a=p`) and delete (`d=n`/`d=N`) commands remains unsupported. Retransmitting
+decoded-byte budget and truncated streams refused. Display (`a=p`) and delete
+(`d=n`/`d=N`) commands also accept `I=`, through the same newest-image lookup,
+acting on that one image only. Retransmitting
 under an `i=` id that is already stored replaces the image and deletes all of
 its placements, real and virtual, as the protocol requires; a retransmission
 that fails validation leaves the old image in place.
@@ -2474,8 +2475,7 @@ reconfiguration without reapplying the theme.
 
 ### Out Of Scope
 
-- Kitty `I=` addressing on display (`a=p`) and delete (`d=n`/`d=N`) commands,
-  and the `S=`/`O=` partial-read keys
+- Kitty `S=`/`O=` partial-read keys
 
 - Shaping across owner boundaries
 

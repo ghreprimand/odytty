@@ -1509,3 +1509,277 @@ fn kitty_raw_image_rejects_noncanonical_base64_tail_through_parser() {
             .any(|s| s == b"invalid-payload")
     );
 }
+
+// Numbered images are deliberately distinct even when their number matches.
+fn compatibility_numbered_pair(t: &mut Terminal) -> (u32, u32) {
+    t.advance(&kitty_apc("a=T,f=32,s=2,v=1,I=7,p=10", &rgba_2x1()));
+    let older = reply_image_id(&host_text(t));
+    t.advance(b"\x1b[3;1H");
+    t.advance(&kitty_apc(
+        "a=T,f=32,s=2,v=1,I=7,p=10",
+        &[1, 2, 3, 255, 4, 5, 6, 255],
+    ));
+    let newer = reply_image_id(&host_text(t));
+    assert_ne!(older, newer);
+    (older, newer)
+}
+
+#[test]
+fn compatibility_number_display_uses_newest_image_and_replaces_placement() {
+    let mut t = Terminal::new(20, 8);
+    let (older, newer) = compatibility_numbered_pair(&mut t);
+    let newest = t.graphics().find_by_protocol_id(newer).unwrap();
+    let old = t.graphics().find_by_protocol_id(older).unwrap();
+    t.advance(b"\x1b[5;2H\x1b_Ga=p,I=7,p=20\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=7,p=20;OK\x1b\\");
+    let placements = t.graphics().placements();
+    assert!(
+        placements
+            .iter()
+            .any(|p| p.image_id == newest && p.protocol_placement_id == Some(20))
+    );
+    assert!(
+        !placements
+            .iter()
+            .any(|p| p.image_id == old && p.protocol_placement_id == Some(20))
+    );
+    assert_eq!(
+        t.graphics().store().get(newest).unwrap().rgba,
+        [1, 2, 3, 255, 4, 5, 6, 255]
+    );
+    t.advance(b"\x1b[6;2H\x1b_Ga=p,I=7,p=20\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=7,p=20;OK\x1b\\");
+    assert_eq!(
+        t.graphics()
+            .placements()
+            .iter()
+            .filter(|p| p.image_id == newest && p.protocol_placement_id == Some(20))
+            .count(),
+        1
+    );
+    assert!(
+        t.visible_graphics(0)
+            .iter()
+            .any(|p| p.row == 5 && p.column == 1)
+    );
+}
+
+#[test]
+fn compatibility_number_delete_targets_newest_and_placement_id() {
+    let mut t = Terminal::new(20, 8);
+    let (older, newer) = compatibility_numbered_pair(&mut t);
+    // Address the newer image by the id it was actually assigned.
+    t.advance(format!("\x1b[5;1H\x1b_Ga=p,i={newer},p=20\x1b\\").as_bytes());
+    assert_eq!(
+        t.take_host_output(),
+        format!("\x1b_Gi={newer},p=20;OK\x1b\\").as_bytes()
+    );
+    t.advance(b"\x1b_Ga=d,d=n,I=7,p=10\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=7,p=10;OK\x1b\\");
+    let placements = t.graphics().placements();
+    assert!(
+        placements
+            .iter()
+            .any(|p| p.protocol_image_id == Some(older) && p.protocol_placement_id == Some(10))
+    );
+    assert!(
+        !placements
+            .iter()
+            .any(|p| p.protocol_image_id == Some(newer) && p.protocol_placement_id == Some(10))
+    );
+    assert!(
+        placements
+            .iter()
+            .any(|p| p.protocol_image_id == Some(newer) && p.protocol_placement_id == Some(20))
+    );
+    assert_eq!(t.graphics().store().len(), 2);
+}
+
+#[test]
+fn compatibility_number_delete_free_falls_back_to_older_image() {
+    let mut t = Terminal::new(20, 8);
+    let (older, newer) = compatibility_numbered_pair(&mut t);
+    t.advance(b"\x1b_Ga=d,d=N,I=7\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=7;OK\x1b\\");
+    assert!(t.graphics().find_by_protocol_id(newer).is_none());
+    let old = t.graphics().find_by_protocol_id(older).unwrap();
+    assert_eq!(t.graphics().find_by_image_number(7), Some(old));
+    assert_eq!(t.graphics().store().len(), 1);
+    t.advance(b"\x1b_Ga=p,I=7,p=30\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=7,p=30;OK\x1b\\");
+    assert!(
+        t.graphics()
+            .placements()
+            .iter()
+            .any(|p| p.image_id == old && p.protocol_placement_id == Some(30))
+    );
+}
+
+#[test]
+fn compatibility_number_missing_conflict_and_quiet_leave_images_unchanged() {
+    let mut t = Terminal::new(20, 8);
+    let (older, _) = compatibility_numbered_pair(&mut t);
+    let before = t.graphics().placements().len();
+    // A missing number fails exactly as a missing id does and places nothing.
+    t.advance(b"\x1b_Ga=p,I=999\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=999;store-rejected\x1b\\");
+    assert_eq!(t.graphics().placements().len(), before);
+    t.advance(b"\x1b_Ga=p,i=999\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_Gi=999;store-rejected\x1b\\");
+    assert_eq!(t.graphics().placements().len(), before);
+    // q=1 suppresses only success, so the failure is still reported.
+    t.advance(b"\x1b_Ga=p,I=999,p=3,q=1\x1b\\");
+    assert_eq!(
+        t.take_host_output(),
+        b"\x1b_GI=999,p=3;store-rejected\x1b\\"
+    );
+    assert_eq!(t.graphics().placements().len(), before);
+    t.advance(format!("\x1b_Ga=p,i={older},I=7\x1b\\").as_bytes());
+    assert_eq!(
+        t.take_host_output(),
+        format!("\x1b_Gi={older},I=7;EINVAL:id-and-number\x1b\\").as_bytes()
+    );
+    assert_eq!(t.graphics().placements().len(), before);
+    t.advance(b"\x1b_Ga=p,I=999,q=2\x1b\\");
+    assert!(t.take_host_output().is_empty());
+    assert_eq!(t.graphics().placements().len(), before);
+}
+
+#[test]
+fn compatibility_number_uppercase_delete_keeps_data_until_last_placement() {
+    let mut t = Terminal::new(20, 8);
+    let (_, newest) = compatibility_numbered_pair(&mut t);
+    t.advance(format!("\x1b_Ga=p,i={newest},p=20\x1b\\").as_bytes());
+    let _ = t.take_host_output();
+    let bytes = t.graphics().store().decoded_bytes();
+    t.advance(b"\x1b_Ga=d,d=N,I=7,p=10\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=7,p=10;OK\x1b\\");
+    assert_eq!(t.graphics().store().decoded_bytes(), bytes);
+    assert!(t.graphics().find_by_protocol_id(newest).is_some());
+    t.advance(b"\x1b_Ga=d,d=N,I=7,p=20\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=7,p=20;OK\x1b\\");
+    assert!(t.graphics().find_by_protocol_id(newest).is_none());
+    assert_eq!(t.graphics().store().decoded_bytes(), bytes - 8);
+}
+
+#[test]
+fn compatibility_number_delete_interrupts_pending_transmission() {
+    let mut t = Terminal::new(20, 8);
+    let (older, newer) = compatibility_numbered_pair(&mut t);
+    let encoded = b64(&rgba_2x1());
+    let (first, last) = encoded.split_at(4);
+    t.advance(format!("\x1b_Ga=T,f=32,s=2,v=1,i=81,m=1;{first}\x1b\\").as_bytes());
+    let _ = t.take_host_output();
+    t.advance(b"\x1b_Ga=d,d=N,I=7\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=7;OK\x1b\\");
+    assert!(t.graphics().find_by_protocol_id(newer).is_none());
+    assert!(t.graphics().find_by_protocol_id(older).is_some());
+    t.advance(format!("\x1b_Gm=0;{last}\x1b\\").as_bytes());
+    assert!(t.graphics().find_by_protocol_id(81).is_none());
+}
+
+#[test]
+fn compatibility_number_alt_screen_delete_and_reset() {
+    let mut t = Terminal::new(20, 8);
+    let (older, newer) = compatibility_numbered_pair(&mut t);
+    t.advance(b"\x1b[?1049h\x1b_Ga=p,I=7,p=40\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=7,p=40;OK\x1b\\");
+    assert_eq!(t.visible_graphics(0).len(), 1);
+    t.advance(b"\x1b_Ga=d,d=n,I=7\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=7;OK\x1b\\");
+    assert!(t.visible_graphics(0).is_empty());
+    t.advance(b"\x1b[?1049l");
+    assert_eq!(t.visible_graphics(0).len(), 2);
+    assert!(t.graphics().find_by_protocol_id(older).is_some());
+    assert!(t.graphics().find_by_protocol_id(newer).is_some());
+    // RIS clears every placement but keeps stored image data, as for any
+    // image; the number still resolves to the newest image afterwards.
+    t.advance(b"\x1bc");
+    assert!(t.graphics().placements().is_empty());
+    assert!(t.visible_graphics(0).is_empty());
+    assert_eq!(t.graphics().store().len(), 2);
+    let newest = t.graphics().find_by_protocol_id(newer).unwrap();
+    assert_eq!(t.graphics().find_by_image_number(7), Some(newest));
+    t.advance(b"\x1b_Ga=p,I=7,p=41\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=7,p=41;OK\x1b\\");
+    assert!(
+        t.graphics()
+            .placements()
+            .iter()
+            .all(|p| p.image_id == newest)
+    );
+}
+
+#[test]
+fn compatibility_number_delete_missing_or_absent_number_deletes_nothing() {
+    let mut t = Terminal::new(20, 8);
+    let _ = compatibility_numbered_pair(&mut t);
+    let placements = t.graphics().placements().len();
+    // An unknown number deletes nothing and answers OK, as `d=i` does for an
+    // unknown id.
+    t.advance(b"\x1b_Ga=d,d=N,I=999\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=999;OK\x1b\\");
+    // Without a nonzero number there is nothing to address.
+    t.advance(b"\x1b_Ga=d,d=n\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_G;malformed-control\x1b\\");
+    t.advance(b"\x1b_Ga=d,d=N,I=0\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=0;malformed-control\x1b\\");
+    t.advance(b"\x1b_Ga=d,d=n,i=1,I=7\x1b\\");
+    assert_eq!(
+        t.take_host_output(),
+        b"\x1b_Gi=1,I=7;EINVAL:id-and-number\x1b\\"
+    );
+    assert_eq!(t.graphics().placements().len(), placements);
+    assert_eq!(t.graphics().store().len(), 2);
+}
+
+#[test]
+fn compatibility_number_and_id_namespaces_are_independent() {
+    let mut t = Terminal::new(20, 8);
+    let (_, numbered) = compatibility_numbered_pair(&mut t);
+    // An image whose explicit id equals the number is a different image.
+    let explicit_id = numbered + 7;
+    t.advance(&kitty_apc(
+        &format!("a=t,f=32,s=2,v=1,i={explicit_id}"),
+        &rgba_2x1(),
+    ));
+    let _ = t.take_host_output();
+    t.advance(&kitty_apc("a=t,f=32,s=2,v=1,i=7", &rgba_2x1()));
+    let _ = t.take_host_output();
+    let by_id = t.graphics().find_by_protocol_id(7).unwrap();
+    let newest = t.graphics().find_by_protocol_id(numbered).unwrap();
+    assert_ne!(by_id, newest);
+    t.advance(b"\x1b_Ga=p,I=7,p=50\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=7,p=50;OK\x1b\\");
+    let placements = t.graphics().placements();
+    assert!(
+        placements
+            .iter()
+            .any(|p| p.image_id == newest && p.protocol_placement_id == Some(50))
+    );
+    assert!(!placements.iter().any(|p| p.image_id == by_id));
+    // Deleting number 7 never touches the image whose id is 7.
+    t.advance(b"\x1b_Ga=d,d=N,I=7\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=7;OK\x1b\\");
+    assert!(t.graphics().find_by_protocol_id(7).is_some());
+    assert!(t.graphics().find_by_protocol_id(numbered).is_none());
+}
+
+#[test]
+fn compatibility_number_delete_removes_virtual_placement_of_newest_only() {
+    let mut t = Terminal::new(20, 8);
+    let (older, newer) = compatibility_numbered_pair(&mut t);
+    for id in [older, newer] {
+        t.advance(format!("\x1b_Ga=p,U=1,i={id},c=1,r=1,q=1\x1b\\").as_bytes());
+    }
+    let _ = t.take_host_output();
+    let newest = t.graphics().find_by_protocol_id(newer).unwrap();
+    let old = t.graphics().find_by_protocol_id(older).unwrap();
+    assert_eq!(t.graphics().virtual_placements().len(), 2);
+    t.advance(b"\x1b_Ga=d,d=n,I=7\x1b\\");
+    assert_eq!(t.take_host_output(), b"\x1b_GI=7;OK\x1b\\");
+    let virtuals = t.graphics().virtual_placements();
+    assert_eq!(virtuals.len(), 1);
+    assert_eq!(virtuals[0].image_id, old);
+    assert!(t.graphics().store().get(newest).is_some());
+}

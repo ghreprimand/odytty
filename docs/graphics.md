@@ -162,6 +162,7 @@ command that named none gets the bare `ESC _ G ; ... ESC \` form.
 |------|-----------------|--------------------------|
 | `a`  | Placements in the active screen buffer that reach the screen; placements wholly in scrollback stay | `A` also frees data |
 | `i`  | Placements for image `i=` (optionally filtered by `p=`) | `I` also frees data |
+| `n`  | Placements for the newest image with number `I=` (optionally filtered by `p=`) | `N` also frees data |
 | `c`  | Placements intersecting the current cursor cell | `C` also frees data |
 | `p`  | Placements intersecting cell `x=`,`y=` (defaults to cursor) | `P` also frees data |
 
@@ -170,11 +171,14 @@ the stored data of the images whose placements they removed, once no remaining
 placement (real or virtual) references them. Images that were transmitted for
 later display, or are placed only elsewhere, are kept. `d=I` without `p=`
 targets the image itself, so it frees image `i=` even when it has no
-placements.
+placements. `d=n`/`d=N` act on only the newest image carrying the number, never
+on every image sharing it; after that image is freed, the next command with the
+same number reaches the next newest. A number that matches no image deletes
+nothing, as an unknown `i=` does, and a missing or zero `I=` is
+`malformed-control`.
 
-Specifiers outside this table - including `n`/`N` (delete the newest image with
-the number in `I=`), `f`/`F` beyond the frame deletes documented under
-[Animation](#animation), `q`/`Q`, `r`/`R`, `x`/`X`, `y`/`Y` and `z`/`Z` - are
+Specifiers outside this table - including `f`/`F` beyond the frame deletes
+documented under [Animation](#animation), `q`/`Q`, `r`/`R`, `x`/`X`, `y`/`Y` and `z`/`Z` - are
 rejected as unsupported. A delete that cannot be honoured exactly is refused
 rather than approximated: deleting the wrong image is worse than deleting none.
 
@@ -321,8 +325,8 @@ A client that shares the screen with other programs cannot know which image
 *ids* are free. It can instead pick an image *number* with `I=`. Numbers are
 deliberately not unique: transmitting with a number always creates a new image
 rather than replacing an existing one, and the transmission, frame, and
-animation commands that accept a number act on the **newest** image carrying
-it. Display (`a=p`) and placement deletes still need `i=` (see below).
+display, delete, and animation commands that accept a number act on the
+**newest** image carrying it, one image at a time.
 
 A transmission that carries a number is answered with both the id the terminal
 assigned and the number the client chose - `i=<id>,I=<number>` - which is how
@@ -334,8 +338,11 @@ Naming an image by both `i=` and `I=` in one command is an error
 (`EINVAL:id-and-number`). The two are independent namespaces, so resolving the
 conflict by precedence would act on an image the client did not name.
 
-Accepted on: the animation commands `a=f`, `a=a` and `a=c`, and on transmission
-commands, which is where a number is assigned.
+Accepted on: transmission commands, which is where a number is assigned;
+display (`a=p`), where an optional `p=` replaces that image's placement with the
+same id as it does for `i=`; the `d=n`/`d=N` deletes; and the animation commands
+`a=f`, `a=a` and `a=c`. A display whose number matches no image fails with the
+same `store-rejected` error as an unknown `i=` and places nothing.
 
 **Platform surface.** Compression and image numbers are both transport- and
 platform-independent: they are parser and image-store work with no filesystem,
@@ -345,9 +352,6 @@ changes the transport table above - in particular the shared-memory transport
 payload it would have carried is compressed.
 
 ### What is not yet supported
-- **`I=` addressing on display and delete commands.** `a=p` still requires
-  `i=`, and the `d=n` / `d=N` delete-newest-by-number specifiers are rejected as
-  unsupported rather than silently deleting something else.
 - **`S=` and `O=` file size/offset keys**, which read part of a file or
   shared-memory segment rather than all of it.
 - **Relative placements (`P=`, `Q=`, `H=`, `V=`).** The parent keys are not

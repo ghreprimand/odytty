@@ -316,6 +316,62 @@ fn a_host_started_wide_counts_an_ambiguous_sign_as_two_columns() {
     assert_eq!(host_cursor_report_after_ambiguous_sign(false), "E[1;2R");
 }
 
+/// A child prints a DECXCPR request and an image-number display in one write
+/// while two clients are attached, then records the reply bytes it receives
+/// within the expected length and anything else that follows shortly after.
+/// Escape bytes are shown as `E`.
+#[test]
+fn host_is_the_sole_answer_to_cursor_position_and_image_number_requests() {
+    let temp = ScratchDir::for_sockets("sh-xcpr");
+    let id = "xcpr";
+    let config = host_config_with_sh(
+        temp.path(),
+        id,
+        "read x; stty raw -echo; \
+         printf '\\033_Ga=t,f=32,s=1,v=1,I=7,q=2;AAAA/w==\\033\\\\'; \
+         printf '\\033[3;5H\\033[?6n\\033_Ga=p,I=7,p=2\\033\\\\'; \
+         r=$(dd bs=1 count=22 2>/dev/null); sleep 0.3; stty min 0 time 0; \
+         e=$(dd bs=64 count=1 2>/dev/null); stty sane; \
+         printf 'report:%s|%s:end' \"$r\" \"$e\" | tr '\\033' E; sleep 1",
+        Duration::from_millis(200),
+    );
+    let socket_path = config.runtime_paths().expect("runtime paths").socket;
+    let host = thread::spawn(move || run_host(config));
+    wait_for_socket(&socket_path);
+    let mut client = SessionHostClient::connect(&socket_path, id).expect("attach");
+    expect_snapshot(&mut client);
+    let mut mirror = SessionHostClient::connect(&socket_path, id).expect("second attach");
+    expect_snapshot(&mut mirror);
+    client.send_input(b"\n").expect("release the probe");
+    let deadline = Instant::now() + SHORT_WAIT;
+    let mut bytes = Vec::new();
+    let report = loop {
+        assert!(
+            Instant::now() < deadline,
+            "no report; output={}",
+            String::from_utf8_lossy(&bytes)
+        );
+        if let Some(HostFrame::Output(chunk)) = client
+            .read_frame(Duration::from_millis(50))
+            .expect("read frame")
+        {
+            bytes.extend_from_slice(&chunk);
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        if let Some(start) = text.find("report:")
+            && let Some(len) = text[start..].find(":end")
+        {
+            break text[start + "report:".len()..start + len].to_owned();
+        }
+    };
+    client.detach().expect("detach");
+    mirror.detach().expect("detach mirror");
+    drop(client);
+    drop(mirror);
+    let _ = join_within(host, "session-host thread");
+    assert_eq!(report, "E[?3;5RE_GI=7,p=2;OKE\\|");
+}
+
 #[test]
 fn host_exits_when_child_exits_even_with_client_attached() {
     let temp = ScratchDir::for_sockets("sh-exit");

@@ -317,6 +317,7 @@ mod profile_catalog_wheel;
 mod profile_cwd_precedence;
 mod profile_launch_startup;
 mod profile_manager_ui;
+mod protocol_reply_routes;
 mod rail_progress;
 mod read_only_label;
 mod read_only_pane;

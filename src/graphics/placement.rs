@@ -754,6 +754,44 @@ impl ImageScene {
         self.free_unreferenced(affected);
     }
 
+    /// `d=n` / `d=N`: delete placements of exactly one stored image, the one
+    /// an image number resolved to through [`ImageScene::find_by_image_number`].
+    /// Numbers are not unique, so the target is the stored image itself, never
+    /// every image sharing the number or protocol id. `placement_id` limits the
+    /// deletion to that placement, as for `d=i`, and virtual placements are
+    /// deleted too. With `free_image` the capital form then frees the image
+    /// once nothing references it; without a placement id the target is freed
+    /// even when it had no placements.
+    pub fn delete_by_stored_image(
+        &mut self,
+        target: StoredImageId,
+        placement_id: Option<u32>,
+        free_image: bool,
+    ) {
+        let matches_placement = |id: Option<u32>| match placement_id {
+            Some(pid) => id == Some(pid),
+            None => true,
+        };
+        let mut affected = Vec::new();
+        self.virtual_placements.retain(|candidate| {
+            let matched =
+                candidate.image_id == target && matches_placement(candidate.protocol_placement_id);
+            if matched {
+                affected.push(candidate.image_id);
+            }
+            !matched
+        });
+        affected.extend(self.delete_active_where(|placement| {
+            placement.image_id == target && matches_placement(placement.protocol_placement_id)
+        }));
+        if free_image {
+            if placement_id.is_none() && self.store.contains(target) {
+                affected.push(target);
+            }
+            self.free_unreferenced(affected);
+        }
+    }
+
     /// `d=c` / `d=C`: delete the active buffer's placements that cover the
     /// cursor cell (`row`, `col`), not only those anchored there.
     pub fn delete_at_cursor(&mut self, row: usize, col: usize, free_images: bool) {
